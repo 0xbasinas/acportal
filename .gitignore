@@ -1,0 +1,14 @@
+/target/
+/.local/
+**/build/
+**/.gradle/
+**/.kotlin/
+**/.idea/
+**/local.properties
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.pem
+*.key

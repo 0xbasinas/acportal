@@ -1,0 +1,51 @@
+# Agent registry
+
+Registry files contain a JSON array. The default location is the platform config directory under `acpd/agents.json`; Unix can override its base with `XDG_CONFIG_HOME`. Pass `--registry` to use a different file. Registry entries are trusted operator configuration, not data supplied by a phone.
+
+Built-in definitions are in `acpd/registry/builtin.json`. Custom entries replace built-ins by ID, so an operator can disable an agent or change its executable without changing application code.
+
+```json
+[
+  {
+    "id": "my-agent",
+    "name": "My Agent",
+    "command": "/usr/local/bin/my-agent",
+    "args": ["acp"],
+    "transport": "stdio",
+    "enabled": true,
+    "env": {},
+    "workingDirectory": null,
+    "icon": null
+  }
+]
+```
+
+Arguments are literal process arguments. There is no shell string parsing. IDs use ASCII letters, digits, underscores, or hyphens, with a maximum length of 64. Invalid entries, unknown keys, unsupported transports, duplicate IDs in a file, and malformed environment keys fail configuration validation.
+
+An explicit working directory must be absolute, exist, and be inside an allowed workspace root. The process launch cwd can differ from the session workspace, but both need host authorization.
+
+## Goose local client
+
+The default local command is `goose acp`. This is Goose's native stdio ACP server, as documented in the [official Goose CLI source](https://github.com/aaif-goose/goose/blob/main/crates/goose-cli/src/cli.rs). It is distinct from running a normal Goose terminal conversation.
+
+```json
+{
+  "id": "goose",
+  "name": "Goose",
+  "command": "goose",
+  "args": ["acp"],
+  "transport": "stdio",
+  "enabled": true,
+  "env": {"GOOSE_MODE":"approve"}
+}
+```
+
+Use Goose's own provider configuration and credential storage. The host inherits the operator environment, then applies registry overrides. `approve` is a documented [Goose mode](https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/config-files.md). Add `--with-builtin`, `developer` to the argument array if that extension is desired. Extension and provider configuration stay on the host. Do not switch Goose into automatic approval mode to bypass the client permission workflow.
+
+## Discovery
+
+Discovery checks configured executable names in absolute PATH directories, or an explicit absolute executable path. On Unix the target must be a file with executable permissions. Windows discovery expands PATHEXT but accepts only `.exe` or `.com` binaries for direct spawning. Batch wrappers would require shell parsing, so configure the actual runtime executable and script arguments instead.
+
+Discovery does not execute unknown binaries to infer ACP support. It reports `available`, `missing`, or `misconfigured`; an executable being present does not prove provider authentication or ACP compatibility. Version is currently null because arbitrary version probes may have side effects. Use `probe` to verify protocol negotiation deliberately. For enabled, available definitions, the management API reports `running` when at least one ready or working live process exists. If only live sessions waiting for authentication exist, it reports `authentication_required`. Interrupted/exited records do not imply a live process, and live status never overrides missing/disabled/misconfigured discovery. Running means a process exists, not necessarily that a prompt is processing; the Sessions page shows turn activity separately. Runtime errors remain session-specific.
+
+Adapters are configured exactly like native agents. For a Node adapter, configure the installed Node executable plus the installed adapter entrypoint. Avoid runtime package downloads through `npx -y` in a production registry. Pin adapters through the host's package tooling, then point the registry at the installed command.

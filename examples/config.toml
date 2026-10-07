@@ -1,0 +1,15 @@
+# Paths are relative to this file. Empty workspace_roots denies every workspace.
+registry = "agents.json"
+workspace_roots = [".."]
+state_directory = "../.local/host-state"
+
+[server]
+listen = "127.0.0.1:8765"
+token_lifetime_seconds = 2592000
+
+[runtime]
+request_timeout_seconds = 120
+max_frame_bytes = 1048576
+max_sessions = 8
+history_events = 2048
+history_bytes = 8388608

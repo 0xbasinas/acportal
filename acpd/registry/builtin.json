@@ -1,0 +1,22 @@
+[
+  {
+    "id": "goose",
+    "name": "Goose",
+    "command": "goose",
+    "args": ["acp"],
+    "transport": "stdio",
+    "enabled": true,
+    "env": {"GOOSE_MODE": "approve"},
+    "workingDirectory": null
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini CLI",
+    "command": "gemini",
+    "args": ["--acp"],
+    "transport": "stdio",
+    "enabled": true,
+    "env": {},
+    "workingDirectory": null
+  }
+]

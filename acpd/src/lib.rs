@@ -1,0 +1,11 @@
+pub mod api;
+pub mod config;
+pub mod connection;
+pub mod filesystem;
+pub mod mcp;
+pub(crate) mod process_tree;
+pub mod registry;
+pub mod security;
+pub mod session;
+pub(crate) mod session_catalog;
+pub mod terminal;

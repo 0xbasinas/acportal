@@ -1,0 +1,196 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "907f5bc67ad29e9a66922befcb98a6a1",
+    "entities": [
+      {
+        "tableName": "hosts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, `address` TEXT NOT NULL, `credentialAlias` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `expiresAt` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `agentCount` INTEGER NOT NULL, `online` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialAlias",
+            "columnName": "credentialAlias",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeen",
+            "columnName": "lastSeen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agentCount",
+            "columnName": "agentCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "online",
+            "columnName": "online",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`hostId` TEXT NOT NULL, `id` TEXT NOT NULL, `metadata` TEXT NOT NULL, `state` TEXT NOT NULL, `draft` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `archived` INTEGER NOT NULL, PRIMARY KEY(`hostId`, `id`), FOREIGN KEY(`hostId`) REFERENCES `hosts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "hostId",
+            "columnName": "hostId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "metadata",
+            "columnName": "metadata",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draft",
+            "columnName": "draft",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "hostId",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sessions_hostId",
+            "unique": false,
+            "columnNames": [
+              "hostId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sessions_hostId` ON `${TABLE_NAME}` (`hostId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "hosts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "hostId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "recent_workspaces",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`hostId` TEXT NOT NULL, `path` TEXT NOT NULL, `agentId` TEXT NOT NULL, `lastUsed` INTEGER NOT NULL, PRIMARY KEY(`hostId`, `path`, `agentId`))",
+        "fields": [
+          {
+            "fieldPath": "hostId",
+            "columnName": "hostId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agentId",
+            "columnName": "agentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsed",
+            "columnName": "lastUsed",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "hostId",
+            "path",
+            "agentId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '907f5bc67ad29e9a66922befcb98a6a1')"
+    ]
+  }
+}

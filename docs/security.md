@@ -1,0 +1,37 @@
+# Security model
+
+## Host enforcement
+
+The local client and network host use trusted operator registry files and explicitly configured workspace roots. Canonical paths prevent lexical traversal and resolve existing symlinks before root checks. A process cwd outside those roots is rejected. Process arguments are passed as an array; no shell interpolation is used.
+
+Registry configuration can set environment values and commands, so write access to the registry is equivalent to permission to run an executable. Protect host config files with OS permissions. The registry is not editable by an unauthenticated remote caller.
+
+Permission callbacks wait for explicit choice. Supplied option IDs are validated, duplicate answers fail, and cancellation responds with a cancelled outcome. No host-level automatic approval policy exists. Goose's registry sets approval mode; agents remain responsible for correctly requesting consent for their own operations.
+
+The host implements workspace-scoped ACP text reads and writes. A directory handle is opened for the selected workspace; actual file operations stay relative to that capability. Reads validate the attached ACP session ID, file type, UTF-8 and size. Unix file opens use nonblocking flags to avoid hanging on named pipes, and filesystem workers are bounded globally. Every write requires an explicit host permission decision for its proposed diff. Denial and cancellation return an error to the original callback. The host checks the approved content snapshot before an atomic replacement, rejects leaf symlinks and preserves existing Windows DACLs. These checks do not provide an atomic compare-and-swap against concurrent external writers. Unix mode bits are preserved; ownership and extended metadata need further verification.
+
+Terminal callbacks require the attached session and a session-owned handle. Creation resolves the executable and requires explicit host consent before launching it with literal arguments. Output, handle count, live process count and runtime are bounded. Cancellation, release and shutdown stop ordinary descendants through the same cleanup guard as agents. Writes and terminal creation during initial session setup are rejected because a controller cannot yet review consent. These restrictions are not an OS sandbox: trusted agents and approved commands run with the operator's privileges. A dedicated service account and OS sandboxing are needed for stronger containment.
+
+Frames, pending requests, permission requests, history bytes, history event count and active sessions are bounded. A deadline closes ambiguous stalled connections. On shutdown, crash or timeout the host terminates the agent's cleanup job on Windows or its process group on Unix, then reaps the direct child. The Windows job handle is non-inheritable and kills assigned members when closed. Windows assignment happens immediately after process launch, so children created before assignment are outside that guarantee. Unix processes that deliberately leave the group also escape group cleanup, and an abrupt daemon kill cannot run Unix cleanup. This is not an OS sandbox. Windows tests verify two descendant generations stop on explicit removal, agent crash and timeout; Unix behavior still needs native verification.
+
+The host logs session UUID lifecycle events, not prompts, code, command arguments, env values, authorization headers or agent stderr. Stderr is drained in fixed chunks to avoid deadlock. Raw agent error text is replaced by its JSON-RPC error code. The local UI still renders agent content by user request; terminal output and local cache must be treated as sensitive.
+
+## Implemented network security
+
+Bind to loopback by default. Remote listeners require TLS through a verified reverse proxy or a built-in TLS listener. Android rejects cleartext remote WebSocket URLs and certificate validation failures. Never install a permissive trust manager.
+
+`acpd pair` generates a random, one-use code through the operator-only local state directory. Code exchange issues a device-specific 256-bit bearer credential. The host stores only its SHA-256 digest; credentials expire and can be revoked. Codes expire after 60 seconds, are consumed atomically under an interprocess file lock, and are blocked after five failed attempts. Rate limiting is global; per-source limits remain future hardening. State is protected by owner-only permissions on Unix and an owner/System DACL on Windows. Tokens never appear in discovery, diagnostic or device-list responses.
+
+Separate operator endpoints from paired-device endpoints. Device credentials authorize discovery and sessions only within the configured workspace roots. Authenticate before any discovery, replay or WebSocket upgrade. Bound input before deserialization and reject session ID mismatches. A single-controller lease prevents two clients from responding to the same permission simultaneously.
+
+Android encrypts credential blobs with Keystore-held AES-GCM keys and unique nonces. Room stores aliases only. Optional biometric protection needs an explicit locked state and reconnect behavior. Backups must exclude private material and cached code unless opted in.
+
+Per-connection MCP definitions also use the no-backup encrypted vault, with aliases in DataStore. This includes URLs, arguments, environment variables and headers, since any of them may carry credentials. Editing drafts containing these values are not placed in saved instance state. MCP definitions are intentionally supplied to the chosen host's agent for new/load setup and retained in host process memory across authentication. The host does not add them to restart metadata or connection diagnostics. MCP executables and network endpoints are user-configured agent integrations, and are not contained by the host filesystem callback boundary.
+
+Filesystem tests cover allowed line ranges, outside roots, invalid session IDs, directories, binary and oversized files, symlink escapes and reads during loading. Write tests cover creation/replacement, protected Windows DACLs, hard-link isolation, changed files, expired commits, approval, denial, cancellation, duplicate answers and reconnect recovery. Terminal tests cover explicit consent, duplicate answers, reconnect without duplicate execution, retained output after release, session-scoped handles, UTF-8 and byte limits, exit waiting, kill, cancellation and descendant cleanup on Windows.
+
+## Release gate
+
+Workspace access policies independently gate host-provided file reads, reviewed writes and all five terminal callbacks. Negotiation does not suffice: disabled callbacks are rejected even when the agent ignores capability flags. Policies survive metadata retention, while an explicit new/load operation may choose a different policy. This boundary applies only to host-provided services, not agent-owned tools or MCP integrations.
+
+This increment is not a security-audited production service. Pairing, TLS configuration, authorization, protected credential/session metadata, process cleanup and Android secret storage are implemented. Session recovery never replays pending permissions or prompts. Unix process-cleanup verification, optional delivery-journal persistence, broader TLS deployment tests and resource stress testing remain release work.

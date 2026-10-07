@@ -1,0 +1,13 @@
+# Implementation milestones
+
+| Phase | Status | Acceptance criteria |
+| --- | --- | --- |
+| 1. Host foundation | Implemented and tested on Windows | Rust workspace, registry, discovery, bounded ACP subprocess routing, sessions, mock and lifecycle/failure tests; live local Goose ACP handshake and prompt |
+| 2. Network host | Implemented; loopback integration tests pass | Axum REST, authenticated WS, pairing/revocation, controller leases, replay, heartbeat and disconnect tests; physical-phone TLS deployment still needs verification |
+| 3. Android connection | Implemented and APK compiled | Kotlin/Compose app, host pairing, discovery, workspace selection, Room and Keystore references, empty/loading/error states; broader device layouts still need review |
+| 4. Android ACP interaction | Implemented; JVM and mock device-to-host tests pass | Session reducer, concurrent sessions, prompt streaming, cancel, capability-driven controls and transport reconnect without duplicate prompts |
+| 5. Rich activity | Text reads/writes, terminal callbacks, full changes page and incoming/outgoing content implemented | Explicit permission UI, file/modification navigation, syntax colors and wide-window split view; contained filesystem callbacks and consent tests; all five terminal callbacks; native file/image/audio selection; received image preview, audio playback, resource saving and references; title/usage updates; broader codec/device acceptance remains |
+| 6. Persistence and hardening | Protected restart catalog and explicit load verified through Android; Room agent catalog and main-page/filter migration/recovery verified | Interrupted records, credential continuity, explicit capability-checked load, schema 1→2/2→3 data preservation, failed-discovery inspection/Retry, catalog startup and main-page/filter restoration after process stop; broader scroll/expanded-activity state, full-session process-death acceptance, physical-network checks, optional delivery-journal persistence, Unix cleanup verification and resource stress tests remain |
+| 7. Product verification | In progress | Android-to-host-to-mock instrumentation, real Goose smoke tests and dark/light device screenshots; broader accessibility, device layouts and network-switch testing remain |
+
+Each increment retains runnable developer commands. The local Goose client, authenticated host API and Android APK now build. Run `scripts/dev.ps1 start`, `pair`, `android` and `android-test` on Windows; equivalent Make targets are available on Unix. Verification status above distinguishes compiled UI and isolated tests from full product acceptance.
