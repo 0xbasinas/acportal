@@ -13,6 +13,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.acportal.data.McpDefinition
+import dev.acportal.data.McpValue
 import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.*
@@ -25,6 +26,51 @@ class ConfigurationLayoutUiTest {
     @org.junit.After fun closeKeyboard() {androidx.test.espresso.Espresso.closeSoftKeyboard()}
     @Test fun compactDarkEditorKeepsTransportAndSaveInsideTheWindow()=checkEditor("dark")
     @Test fun compactLightEditorKeepsTransportAndSaveInsideTheWindow()=checkEditor("light")
+    @Test fun compactDarkLongDefinitionCanBeOpenedCorrectedAndSaved()=checkLongDefinition("dark")
+    @Test fun compactLightLongDefinitionCanBeOpenedCorrectedAndSaved()=checkLongDefinition("light")
+
+    private fun checkLongDefinition(mode:String) {
+        val original=McpDefinition("long-fixture","Project documentation ".repeat(6).take(128),"http","https://docs.example.invalid/"+"nested-path/".repeat(150),values=listOf(McpValue("X-Fixture","v".repeat(4096))))
+        var servers by mutableStateOf(listOf(original))
+        var saves=0
+        compose.setContent {
+            val density=LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density,2f)) {
+                PortalTheme(mode) {Surface(Modifier.width(320.dp).height(280.dp).testTag("configuration-fixture")) {McpServersScreen("Workstation",servers,false,{}, {updated,done->saves++;servers=updated;done()})}}
+            }
+        }
+        // A long endpoint must not turn one server into an unbounded-height row.
+        listOf(original.name,original.displayEndpoint()).forEach {text->
+            val layouts=mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(text).performSemanticsAction(SemanticsActions.GetTextLayoutResult) {it(layouts)}
+            assertTrue("Long server summary exceeds two lines",layouts.single().lineCount<=2)
+        }
+        reveal(original.name)
+        compose.onNodeWithText(original.name).assertIsDisplayed().performClick()
+        reveal("Server name")
+        compose.onNodeWithText("Server name").assertTextContains(original.name)
+        reveal("Server URL")
+        compose.onNodeWithText("Server URL").assertTextContains(original.endpoint)
+        reveal("Headers")
+        compose.onNodeWithText("Headers").assertTextContains("X-Fixture="+original.values.single().value)
+        compose.onNodeWithText("Headers").performTextReplacement("X-Fixture="+"v".repeat(4097))
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        reveal("Save server")
+        compose.onNodeWithText("Save server").performClick()
+        reveal("Check the environment variable or header names and values")
+        compose.onNodeWithText("Check the environment variable or header names and values").assertIsDisplayed()
+        compose.runOnIdle {assertEquals(0,saves);assertEquals(listOf(original),servers)}
+        reveal("Headers")
+        compose.onNodeWithText("Headers").performTextReplacement("X-Fixture="+original.values.single().value)
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        reveal("Save server")
+        compose.onNodeWithText("Save server").assertIsDisplayed().performClick()
+        compose.runOnIdle {assertEquals(1,saves);assertEquals(listOf(original),servers)}
+        reveal(original.name)
+        compose.onNodeWithText(original.name).performClick()
+        reveal("Headers")
+        compose.onNodeWithText("Headers").assertTextContains("X-Fixture="+original.values.single().value)
+    }
     @OptIn(ExperimentalLayoutApi::class)
     @Test fun keyboardKeepsTheSaveActionReachableWithoutLosingTheDefinition() {
         var servers by mutableStateOf(emptyList<McpDefinition>())

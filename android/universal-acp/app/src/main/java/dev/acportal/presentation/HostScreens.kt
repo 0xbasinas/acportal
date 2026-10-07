@@ -62,9 +62,9 @@ import kotlinx.serialization.json.*
         ScreenHeader("Connections",action={IconButton(onRefresh) { Icon(Icons.Outlined.Refresh,"Refresh connections",Modifier.size(20.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant) }})
         LazyColumn(Modifier.fillMaxWidth(),contentPadding=PaddingValues(bottom=24.dp)) {
             items(hosts,key={it.id}) {host->Row(Modifier.fillMaxWidth().clickable {onHost(host)}.padding(horizontal=24.dp,vertical=20.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text(host.label,style=MaterialTheme.typography.titleMedium)
-                    Text(if(host.online)"Online · ${host.agentCount} ${if(host.agentCount==1)"agent" else "agents"} available" else "Offline",style=MaterialTheme.typography.bodySmall,color=if(host.online)ConnectedGreen else MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f).padding(end=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text(host.label,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                    Text(if(host.online)"Online · ${host.agentCount} ${if(host.agentCount==1)"agent" else "agents"} available" else "Offline",style=MaterialTheme.typography.bodySmall,color=if(host.online)ConnectedGreen else MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
                 }
                 Icon(Icons.Outlined.ChevronRight,"Open connection",Modifier.size(22.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
             } }

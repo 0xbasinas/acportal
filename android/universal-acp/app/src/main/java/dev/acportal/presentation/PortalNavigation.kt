@@ -112,7 +112,7 @@ import kotlinx.serialization.Serializable
                             else {
                                 LaunchedEffect(id) {vm.mcp(id)}
                                 val host=ui.mcpHost?.takeIf {it.id==id}
-                                if(host!=null)McpServersScreen(host.label,ui.mcpServers,ui.loading,back,{servers,done->vm.saveMcp(id,servers,done)})
+                                if(host!=null)McpServersScreen(host.label,ui.mcpServers,ui.loading,back,{servers,done->vm.saveMcp(id,servers,done)},editState=vm.mcpEdit(id))
                                 else Column(Modifier.fillMaxSize()) {
                                     ScreenHeader("MCP servers",onBack=back)
                                     if(ui.loading)EmptyState("Loading servers","Reading this connection's saved definitions.")

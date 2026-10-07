@@ -11,6 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -22,9 +25,17 @@ import java.util.Date
 import java.util.Locale
 
 @Composable fun ConnectionDetailsScreen(label:String,address:String,connection:ConnectionState,onBack:()->Unit,onLogs:()->Unit,onReconnect:()->Unit,onDisconnect:()->Unit,agent:String="") {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val scrollActions=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
+    val actions:@Composable ()->Unit={
+        Column(Modifier.padding(if(scrollActions)0.dp else 24.dp).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Button(onReconnect,Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.surfaceContainer,contentColor=MaterialTheme.colorScheme.onSurface),enabled=connection !is ConnectionState.Connecting) {Text("Reconnect")}
+            Button(onDisconnect,Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.surfaceContainer,contentColor=MaterialTheme.colorScheme.onSurface),enabled=connection !is ConnectionState.Disconnected) {Text("Disconnect")}
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Connection details",onBack=onBack)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=if(scrollActions)16.dp else 0.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
             Text(label,style=MaterialTheme.typography.titleLarge)
             ConnectionStatus(connection)
             Spacer(Modifier.height(8.dp))
@@ -35,11 +46,10 @@ import java.util.Locale
             if(connection is ConnectionState.Failed)Text(connection.reason,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)
             TextButton(onLogs,contentPadding=PaddingValues(0.dp)) {Text("View connection logs")}
             Text("Disconnecting leaves the agent session running on the host.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(scrollActions)actions()
         }
-        Column(Modifier.padding(24.dp).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Button(onReconnect,Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.surfaceContainer,contentColor=MaterialTheme.colorScheme.onSurface),enabled=connection !is ConnectionState.Connecting) {Text("Reconnect")}
-            Button(onDisconnect,Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.surfaceContainer,contentColor=MaterialTheme.colorScheme.onSurface),enabled=connection !is ConnectionState.Disconnected) {Text("Disconnect")}
-        }
+        if(!scrollActions)actions()
+    }
     }
 }
 
@@ -58,28 +68,44 @@ import java.util.Locale
     val shown=(if(live)events else frozen).filter {filter=="All" || it.level==if(filter=="Warnings")"Warning" else "Error"}
     val clipboard=LocalClipboardManager.current
     val format=remember {SimpleDateFormat("HH:mm:ss",Locale.getDefault())}
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val scrollControls=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
+    val controls:@Composable ()->Unit={
+        Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(label,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+            ConnectionStatus(connection)
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                listOf("All","Warnings","Errors").forEach {choice->Column(Modifier.selectable(selected=filter==choice,role=Role.Tab,onClick={filter=choice}).heightIn(min=48.dp).padding(horizontal=12.dp,vertical=12.dp)) {
+                    Text(choice,color=if(filter==choice)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    if(filter==choice)HorizontalDivider(Modifier.width(24.dp),color=MaterialTheme.colorScheme.onSurface)
+                }}
+            }
+        }
+    }
+    val liveControls:@Composable ()->Unit={
+        Column(verticalArrangement=Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                Text("Live updates",Modifier.weight(1f).padding(top=12.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                PortalSwitch(live,{enabled->if(!enabled)frozen=events;live=enabled})
+            }
+            Text("Connection events only · latest 200",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Connection logs",onBack=onBack,action={TextButton({clipboard.setText(AnnotatedString(shown.joinToString("\n") {"${format.format(Date(it.time))} ${it.level}: ${it.message}"}))},enabled=shown.isNotEmpty()) {Text("Copy")}})
-        Column(Modifier.padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text(label,style=MaterialTheme.typography.titleMedium);ConnectionStatus(connection)}
-        Row(Modifier.padding(horizontal=24.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("All","Warnings","Errors").forEach {label->Column(Modifier.padding(top=24.dp,end=32.dp).selectable(selected=filter==label,role=Role.Tab,onClick={filter=label}).padding(vertical=12.dp)) {
-                Text(label,color=if(filter==label)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                if(filter==label)HorizontalDivider(Modifier.width(24.dp),color=MaterialTheme.colorScheme.onSurface)
-            }}
-        }
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
+        if(!scrollControls)Box(Modifier.padding(horizontal=24.dp)) {controls()}
+        LazyColumn(Modifier.weight(1f).testTag("connection-log-list"),contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
+            if(scrollControls)item(key="log-controls") {controls()}
             if(shown.isEmpty())item {Text("No matching events",color=MaterialTheme.colorScheme.onSurfaceVariant)}
             items(shown) {event->Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                 Text("${format.format(Date(event.time))} · ${event.level}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(event.message,style=MaterialTheme.typography.bodyMedium)
             }}
+            if(scrollControls)item(key="log-live") {liveControls()}
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal=24.dp),horizontalArrangement=Arrangement.SpaceBetween) {
-            Text("Live updates",Modifier.padding(top=12.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            PortalSwitch(live,{enabled->if(!enabled)frozen=events;live=enabled})
-        }
-        Text("Connection events only · latest 200",Modifier.padding(24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(!scrollControls)Box(Modifier.padding(24.dp)) {liveControls()}
+    }
     }
 }
 

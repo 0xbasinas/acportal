@@ -97,6 +97,14 @@ cargo test --locked --workspace --all-targets
 
 See [development](docs/development.md) for test coverage and the local verification record. Docker is optional and remains unverified here. Its image defaults to help; run the host explicitly with mounted configuration, workspace and state directories and configured TLS for a remote listener.
 
+Latest verified checkpoint, 7 October 2026: 25 app JVM tests, debug/test APK builds, lint and eight targeted Connection logs/Connections device tests pass. Compact dark/light logs at 320×280 dp and 2× text keep wrapping filters, events and pause/resume controls reachable. Normal-window controls retain their placement. Long host summaries remain bounded, and detail recovery actions scroll in short or large-text windows. These component fixtures preserve saved data and display settings; wide-screen, accessibility and physical-network acceptance remain open.
+
+Earlier MCP increments verify missing/corrupt ciphertext recovery, failed encrypted writes, injected DataStore commit failure, long values and explicit retries with preserved saved definitions. Actual Activity recreation retains memory-only drafts while serialized saved state excludes fixture secrets. Separate cold-reopen and abrupt foreground-kill/fresh-launch checks verify unchanged encrypted saved values and discarded unsaved drafts. Previous-task/back-stack restoration and broader lifecycle behavior remain open.
+
+The project is not production complete. Full real Goose tools/permissions/cancel/load workflows, physical-device trusted TLS/network/background behavior, remaining resource budgets, supported-platform reproducibility and signed release delivery are outstanding. Core protocol and Rust sources were unchanged in the latest UI increments; their earlier 40 JVM and 67 Rust test results were not rerun. See [remaining work](TODO.md), [scope audit](docs/requirements-audit.md) and [screen acceptance](docs/screen-acceptance.md).
+
+Implementation is stopped for the requested handoff. [HANDOFF.md](HANDOFF.md) gives the next agent the checkpoint, verification commands and remaining work order.
+
 ## Documentation
 
 - [Architecture and key models](docs/architecture.md)
@@ -107,5 +115,7 @@ See [development](docs/development.md) for test coverage and the local verificat
 - [Development and testing](docs/development.md)
 - [Implementation milestones](docs/milestones.md)
 - [Original request audit and remaining acceptance gates](docs/requirements-audit.md)
+- [Contributor context and test entry points](AGENTS.md)
+- [Current continuation checklist](TODO.md)
 
 ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol) and its [v1 initialization specification](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/initialization.mdx). Schema package versions and negotiated ACP wire versions are separate. This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.

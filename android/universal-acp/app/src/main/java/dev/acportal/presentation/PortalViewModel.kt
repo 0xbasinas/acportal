@@ -21,6 +21,8 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun sessionFilters(archived:Boolean,active:Boolean,query:String) {viewModelScope.launch {repository.saveSessionFilters(archived,active,query)}}
     val settings=repository.settings.settings.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),PortalSettings())
     val ui=MutableStateFlow(PortalUiState())
+    private val mcpEdits=mutableMapOf<String,McpEditState>()
+    fun mcpEdit(hostId:String)=mcpEdits.getOrPut(hostId) {McpEditState()}
     private var browseJob:Job?=null
     private var browseVersion=0L
     init { refresh() }
@@ -68,7 +70,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         check(info.acpSessionId.isNotBlank()) { "Sign in before resuming this session" }
         onDone(repository.create(stored.hostId,info.agentId,info.workspace,info.acpSessionId))
     }
-    fun forget(hostId:String,onDone:()->Unit) = work { repository.forget(hostId);onDone() }
+    fun forget(hostId:String,onDone:()->Unit) = work { repository.forget(hostId);mcpEdits.remove(hostId)?.close();onDone() }
     fun theme(value:String) = work { repository.settings.theme(value) }
     fun cache(value:Boolean) = work { repository.settings.cache(value);if(!value)repository.clearCache() }
     fun clearError() { ui.update { it.copy(error=null,errorRetry=null) } }

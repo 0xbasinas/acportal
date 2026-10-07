@@ -6,7 +6,7 @@ This is an existing Android client and Rust host for coding-agent CLIs. Continue
 
 Read `TODO.md` for the latest checkpoint and remaining items, then `docs/requirements-audit.md` for the original 39-section scope and its evidence. `docs/screen-acceptance.md` records scoped screen checks. `README.md`, `docs/architecture.md`, `docs/protocol.md`, `docs/android.md` and `docs/security.md` explain the boundaries.
 
-The user requested a pause after the MCP storage-recovery increment on 7 October 2026. Resume implementation when the user asks. Keep the TODO current and distinguish implemented behavior from verified acceptance.
+The user requested completion of the Connection logs increment and a documentation handoff on 7 October 2026. That work is complete; implementation is stopped for handoff. Read `HANDOFF.md` next and resume implementation when requested. Keep TODO, README and AGENTS current and distinguish implemented behavior from verified acceptance.
 
 ## User decisions
 
@@ -53,6 +53,7 @@ The phone owns presentation and local saved copies. The host owns execution, wor
 | Device tokens and MCP definitions | AES-GCM ciphertext under the vault, keyed by Android Keystore; Room/DataStore hold aliases |
 | Live transport, attachments, pending submissions, activity and per-session jobs | `LiveSession` / `PortalRepository`, in memory |
 | Page loading/error, host details, MCP read results, access read results | `PortalUiState`, transient |
+| Unsaved MCP editor fields, including secrets | Host-keyed `McpEditState` / `McpDraft` in `PortalViewModel`; memory only, retained during Activity recreation |
 | Folder browse request, path, loading/error/results | Separate `WorkspaceBrowseState`, cancellable job and generation guard |
 | ACP updates, tools, thought/text blocks, permissions and replay reduction | JVM `SessionReducer` and `SessionState` |
 | Agent subprocesses, controller lease and retained delivery journal | Rust host, in memory |
@@ -60,7 +61,7 @@ The phone owns presentation and local saved copies. The host owns execution, wor
 
 Host session UUID and the agent's ACP session ID are different identifiers. Android storage and API routing use the host/session identity; explicit loading uses the ACP ID only when advertised. Preserve host scoping when indexing sessions, settings and activity.
 
-Main-page and Sessions archive/active/search preferences are durable. Action routes, confirmations, pairing codes and unsent attachment payloads are excluded. Scroll positions and expanded activity do not yet have complete lifecycle acceptance. MCP secret values are deliberately excluded from saved instance state; configuration restoration requires an explicit design, not indiscriminate `rememberSaveable` conversion.
+Main-page and Sessions archive/active/search preferences are durable. Action routes, confirmations, pairing codes and unsent attachment payloads are excluded. Scroll positions and expanded activity do not yet have complete lifecycle acceptance. MCP drafts are retained in the page ViewModel during Activity recreation, keyed by host, and deliberately excluded from saved instance state. Back, successful Save/Remove and forgetting a connection clear the draft. Do not serialize secrets to restore unsaved edits after process death.
 
 The host wrapper speaks `acpd.v1`; agent negotiation uses ACP wire version 1. The pinned schema package version is a separate version. Preserve unknown ACP payload fields and visible fallback content when extending known models.
 
@@ -113,6 +114,8 @@ Follow `docs/ui-reference.md`: near-black surfaces, neutral cards, white primary
 
 Verify small windows and large fonts with reachable controls, real keyboard behavior and touch bounds. Synthetic dimensions/font overrides test layout only; separate native keyboard/device checks are needed. Sessions search stays in one sticky header so keyboard height changes do not move its composition and lose focus. At compact height or large text, its All/Active tabs scroll below search. Compact Changes, MCP and Workspace access controls use scrolling content to remain reachable.
 
+Connections host name/status summaries are bounded to two lines with full semantic text. Connection details preserves full values; below 420 dp or above 1.3× text, Reconnect/Disconnect scroll with the body and use minimum heights. Normal windows retain the footer. `ConnectionsPageLayoutUiTest` covers dark/light 320×280 dp, synthetic 2× long names, values/errors and action callbacks; `ConnectionScreensUiTest` covers normal controls and paused logs.
+
 Loading, empty, failed and offline states must have useful copy and explicit recovery. Dismissing an error must not remove the page's persistent recovery action. Do not retry mutations automatically.
 
 ## Build and verification
@@ -153,7 +156,8 @@ Revalidate emulator identity and settings before use. The latest device was `emu
 | Changed behavior | Relevant existing checks |
 | --- | --- |
 | Sessions layout, native keyboard and summary | `SessionsLayoutUiTest`, `SessionSummaryUiTest`, app `SessionActivityTimeTest` / `LiveSessionActivityTest` |
-| MCP read/write recovery and editor | `McpLoadRecoveryNavigationTest`, `McpSaveRecoveryNavigationTest`, `McpServersUiTest`, `ConfigurationLayoutUiTest`, `McpStorageTest` |
+| MCP read/write recovery and editor | `McpLoadRecoveryNavigationTest`, `McpSaveRecoveryNavigationTest`, `McpLifecycleNavigationTest`, `McpServersUiTest`, `ConfigurationLayoutUiTest`, `McpStorageTest` |
+| MCP encrypted cold reopen | `McpColdProcessNavigationTest`; run preparation and restoration methods in separate instrumentations with verified process absence between them |
 | Workspace selection and delayed HTTP responses | `WorkspaceLaunchNavigationTest`, `WorkspaceBrowserNetworkTest`, `WorkspaceBrowserUiTest`, `NewSessionLayoutUiTest` |
 | Workspace policy and unavailable reads | `WorkspaceAccessLayoutUiTest`, `WorkspaceAccessUiTest`, `WorkspaceAccessStorageTest` |
 | Pairing and credential renewal | `PairingLayoutUiTest`, `PairingHostNavigationTest`, app `HostRequestErrorTest`, Rust network/security tests |
@@ -171,11 +175,23 @@ For process-death acceptance, prove the app process stopped and check restored s
 
 Wait for each started build/instrumentation process to reach terminal output. A tool timeout or transient adb offline state is not evidence the test process stopped. Recheck the same live handle before launching a duplicate run. Installing a test APK alone does not update production code; install the app APK as well when production sources changed.
 
+Connection logs uses wrapping minimum-height tabs. Below 420 dp or above 1.3× text, host/status/filter and pause/footer controls scroll with events; normal windows retain separate controls. `ConnectionLogsLayoutUiTest` checks compact dark/light filters, frozen events, resume and sanitized diagnostics. Copy availability is checked; the new fixture does not write the clipboard.
+
 ## Latest verified checkpoint and limits
 
-On 7 October 2026, the final MCP increment passed 25 app JVM tests, debug/test APK builds, lint and six targeted device tests. It covers missing/corrupt ciphertext, explicit load recovery, an actual encrypted-write failure in a fixture-owned vault, retained prior ciphertext/editor draft, explicit successful retry and existing editor/missing-host regressions. Preference-commit failure and configuration/process death were not covered.
+Latest Connection logs increment: 25 app JVM tests, debug/test APK builds, lint and eight device tests pass without skips. The device run covers two compact logs, four compact Connections and two normal detail/log tests. Both APKs were installed on verified emulator-5554 at physical 720×1280, density 320, font 1.0. Fixtures leave display settings and saved data intact. Core/Rust sources were unchanged and not rerun. Wide, accessibility and physical-network acceptance remain open.
+
+Latest Connections layout increment: 25 app JVM tests, debug/test APK builds, lint and ten device checks pass. Four compact dark/light list/detail fixtures, two normal detail/log checks and four summary regressions pass. This is component evidence; no live connection failure, physical-network or accessibility acceptance is implied. Fixtures leave saved data/display settings intact. Core/Rust sources were unchanged and not rerun.
+
+On 7 October 2026, the resumed MCP increment passed the existing 25 app JVM test task, debug/test APK builds, lint and seven targeted device tests without fixture skips. It covers missing/corrupt ciphertext, explicit load recovery, an actual encrypted-write failure in a fixture-owned vault, retained prior ciphertext/editor draft, explicit successful retry and existing editor/missing-host regressions. The new preference-commit check injects an IOException inside DataStore's update transaction after transformation and before commit. It proves the old alias/ciphertext remains intact and replacement ciphertext is removed, with editor inputs preserved until explicit retry. It does not prove physical disk exhaustion or configuration/process death.
 
 The preceding Sessions increment passed eight targeted device checks for compact dark/light actions, actual dark/light keyboard focus/clear/dismissal and summaries. Changes passed compact long-path/jump checks, complete 1,005-line context expansion/collapse and an actual 800 dp split/unified check. These are scoped results, not the entire device matrix.
+
+The subsequent MCP long-value increment passed 25 app JVM tests, builds/lint and seven UI device checks. List names and endpoints use two-line ellipsis while preserving full semantic/editor text. Dark/light 320×280 dp, synthetic 2× fixtures verify opening, rejecting an oversized header, correcting, saving and reopening a complete definition with a 128-character name, long URL and 4,096-character header. Native-keyboard Save and existing editor regressions also pass. This does not prove encrypted long-value persistence, accessibility or lifecycle behavior.
+
+The latest MCP Activity-recreation increment passes 25 app JVM tests, builds/lint and 13 device checks. Actual Activity recreation retains the full edit in the same PortalViewModel, excludes the fixture secret from serialized saved-state bytes, preserves the previous encrypted data until explicit Save and clears the draft after saving. Existing layout, keyboard, editor and read/write recovery checks also pass. `McpLifecycleFixtureActivity` exists only under debug sources, is non-exported and is absent from the generated release manifest. Its static repository/state capture is test infrastructure; never move it into release code or use it for production ownership. Cold-process acceptance remains open.
+
+The subsequent cold-reopen increment passes test APK build/lint and two separate device phases. `McpColdProcessNavigationTest#prepareSavedDefinitionAndLeaveDraftUnsaved` writes only to `cacheDir/mcp-cold-process-fixture`, containing its own persistent Room/DataStore/vault. After that instrumentation, adb verified the app process was absent. `#restoreSavedDefinitionAfterVerifiedProcessStop` asserts a distinct PID, unchanged alias/ciphertext digest, no retained draft and full long values in the editor, then removes the fixture root. Run each method alone; running the whole class in one process fails the fresh-PID requirement. Preparation closes the Activity/storage before process exit, so this does not prove abrupt foreground OS kill or restored-task behavior. Never overwrite an existing fixture root; restore/clean it first. No production code changed in this increment; prior unit/core/Rust checks were not rerun.
 
 Earlier recorded checks include 40 core protocol JVM tests and 67 Rust tests with formatting/strict Clippy. Those components were unchanged in the recent UI/storage increments and were not rerun for them. Historical test counts in TODO are chronological, not one combined current suite run. Revalidate affected sources and results for new work.
 
@@ -185,11 +201,13 @@ Real Goose initialization, a simple prompt and explicit session loading were smo
 
 ## Remaining work
 
+The resumed foreground-kill check uses `McpColdProcessNavigationTest#prepareVisibleDraftUntilExternalKill`. After draft/storage assertions, it writes `waitingForKill=true` and waits before teardown. Within the 60-second test deadline, verify the checkpoint PID matches `adb shell pidof dev.acportal` and Android 16's `dumpsys activity activities` reports the fixture as `topResumedActivity`. Terminate only that verified PID with `adb shell run-as dev.acportal kill -9 <PID>`. Expected terminal instrumentation output is `Process crashed`; do not count preparation as a JUnit pass. Verify absence, then run the restore method alone. This sequence succeeded and restoration passed with unchanged data and discarded draft. The restore phase removes owned files. Build/lint pass; production/unit/core/Rust checks were unchanged. Previous-task restoration remains open.
+
 Use unchecked TODO items and the audit for the complete scope. Principal remaining areas include page/accessibility/lifecycle acceptance, long MCP values and configuration/process death, complete real Goose tools/permissions/cancel/load workflows, physical-device trusted TLS/network/background/revocation/controller tests, auxiliary state and transport byte limits, runtime/storage/port diagnostics, process containment hardening, supported-platform reproducibility and signed release delivery.
 
 Optional QR, biometrics, IDE fork integration and later transports are not first-release requirements. Existing emulator/mock evidence does not prove physical-device reliability, complete real-agent compatibility or production readiness.
 
-When implementation is resumed, the immediate continuation is MCP preference-commit failure, long values and configuration/process-death behavior, followed by the remaining page matrix. For each item, identify the actual user flow and missing proof before adding code. Do not broaden a green component test into a claim of full-route, physical-device or real-agent acceptance.
+When implementation resumes, follow `HANDOFF.md` for the suggested work order. Connection logs wide/accessibility acceptance, previous-task/back-stack restoration and the remaining page matrix are open. MCP preference-commit failure, long values, Activity recreation and foreground-kill/fresh-launch recovery now have scoped evidence. Do not broaden fresh-launch recovery into restoring the previous task or component tests into physical-device/real-agent acceptance.
 
 For operational work, inspect `main.rs`/`config.rs` for doctor diagnostics, `connection.rs`/`process_tree.rs` for the Windows launch-to-job assignment gap and detached Unix cleanup, and storage/transport code for remaining byte budgets. Release work needs a signed APK, verified install/host TLS instructions and an acceptance report tied to the original scope.
 
