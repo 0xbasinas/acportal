@@ -60,6 +60,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun disconnect(live:LiveSession) = work { repository.disconnect(live) }
     fun removeLocalCopy(live:LiveSession) = work {repository.removeLocalCopy(live)}
     fun permission(live:LiveSession,permission:Permission,optionId:String) = work { repository.permission(live,permission,optionId) }
+    fun elicitation(live:LiveSession,permission:Permission,action:String,content:JsonObject?) = work { repository.elicitation(live,permission,action,content) }
     fun configure(live:LiveSession,method:String,params:JsonObject) = work { repository.configure(live,method,params) }
     fun draft(stored:StoredSession,text:String) { viewModelScope.launch { repository.draft(stored.hostId,stored.id,text) } }
     fun archive(stored:StoredSession) = work { repository.archive(stored) }

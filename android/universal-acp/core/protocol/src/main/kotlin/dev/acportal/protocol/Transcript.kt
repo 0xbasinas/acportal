@@ -17,6 +17,7 @@ fun transcriptMarkdown(info:SessionInfo,state:SessionState):String {
         is TimelineItem.Plan->{out.add("## Plan\n\n");item.entries.forEach {entry->val value=entry.objectValue();out.add("- ${heading(value["status"].text())}: ${value["content"].text()}\n")};out.add("\n")}
         is TimelineItem.Tool->{
             out.add("## ${heading(item.title)}\n\n${heading(item.kind)} · ${heading(item.status)}\n\n")
+            item.hostWrite?.let(::hostWriteLabel)?.let {out.add("Host: ${heading(it)}\n\n")}
             item.locations.forEach {location->location.objectValue()["path"].text().takeIf {it.isNotBlank()}?.let(out::code)}
             item.content.forEach {content->val block=content.objectValue();when(block["type"].text()) {
                 "diff"->{out.code(block["path"].text());out.add("Before:\n\n");out.code(block["oldText"]?.takeUnless {it==kotlinx.serialization.json.JsonNull}?.text() ?: "(new file)");out.add("After:\n\n");out.code(block["newText"].text())}

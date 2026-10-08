@@ -107,7 +107,9 @@ class PortalRepository(
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
     suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null): StoredSession = withContext(Dispatchers.IO) {
         val host=dao.host(hostId) ?: error("Host is no longer saved")
-        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace))
+        // Opt into form elicitation only on hosts that list the feature; older hosts reject unknown fields.
+        val elicitation=try {HOST_FEATURE_FORM_ELICITATION in api.status(host).features} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {false}
+        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation)
         dao.saveRecent(RecentWorkspace(hostId,workspace,agentId))
         saveMetadata(hostId,created)
     }
@@ -237,6 +239,14 @@ class PortalRepository(
         val current=state.permissions[permission.id.toString()]
         check(current==permission) {"This permission request is no longer pending. Review the current request."}
         live.transport.send(permissionResponse(permission,optionId).toString().toByteArray())
+    }
+    /** Answers a pending form elicitation: accept (with content), decline or cancel. */
+    suspend fun elicitation(live:LiveSession,permission:Permission,action:String,content:JsonObject?) {
+        val state=live.state.value
+        check(!state.sessionClosed && !state.replaying && live.connection.value==ConnectionState.Connected && !live.manuallyDetached) {"Wait for the session to reconnect before answering."}
+        val current=state.permissions[permission.id.toString()]
+        check(current==permission && permission.isElicitation) {"This question is no longer pending. Review the current request."}
+        live.transport.send(elicitationResponse(permission,action,content).toString().toByteArray())
     }
     suspend fun configure(live:LiveSession,method:String,params:JsonObject) {
         val id=UUID.randomUUID().toString()

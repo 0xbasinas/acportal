@@ -9,6 +9,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,6 +30,8 @@ import androidx.compose.ui.semantics.Role
 import dev.acportal.data.HostDetails
 import dev.acportal.protocol.AgentInfo
 import dev.acportal.protocol.canStartSession
+import dev.acportal.protocol.OWN_TOOLS_LABEL
+import dev.acportal.protocol.OWN_TOOLS_WARNING
 import androidx.compose.foundation.text.selection.SelectionContainer
 
 @Composable fun RegistryAgentsScreen(details:HostDetails,onBack:()->Unit,onRefresh:()->Unit,onAgent:(String)->Unit,savedAt:Long?=null) {
@@ -40,7 +51,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
                 Row(Modifier.fillMaxWidth().clickable(role=Role.Button,onClickLabel="Inspect agent") {onAgent(agent.id)}.padding(horizontal=24.dp,vertical=20.dp),verticalAlignment=Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         Text(agent.name,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
-                        Text(if(savedAt==null)registryStatus(agent) else "Last reported: ${registryStatus(agent)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                        Text(if(savedAt==null)registryStatus(agent,withTools=true) else "Last reported: ${registryStatus(agent,withTools=true)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
                     }
                     Icon(Icons.Outlined.ChevronRight,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -65,6 +76,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
             Text(hostLabel,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
             RegistryValue(if(savedAt==null)"Availability" else "Last reported availability",registryStatus(agent))
+            if(agent.ownTools)OwnToolsNotice()
             RegistryValue("Agent ID",agent.id)
             RegistryValue("Transport","STDIO")
             agent.executable?.takeIf {it.isNotBlank()}?.let {value->
@@ -100,4 +112,24 @@ import androidx.compose.foundation.text.selection.SelectionContainer
     }
 }
 
-internal fun registryStatus(agent:AgentInfo)=if(!agent.enabled)"Disabled" else if(agent.status=="misconfigured")"Configuration problem" else if(!agent.installed)"Not installed" else agent.status.replace('_',' ').replaceFirstChar(Char::uppercase)
+internal fun registryStatus(agent:AgentInfo,withTools:Boolean=false):String {
+    val status=if(!agent.enabled)"Disabled" else if(agent.status=="misconfigured")"Configuration problem" else if(!agent.installed)"Not installed" else agent.status.replace('_',' ').replaceFirstChar(Char::uppercase)
+    return if(withTools && agent.ownTools)"$status · $OWN_TOOLS_LABEL" else status
+}
+
+/**
+ * Warning for agents the host registry marks with `ownTools`. [compact] shows a single
+ * expandable line (used above a running conversation); otherwise the full text is shown.
+ */
+@Composable fun OwnToolsNotice(modifier:Modifier=Modifier,compact:Boolean=false) {
+    var expanded by rememberSaveable {mutableStateOf(!compact)}
+    Surface(modifier.fillMaxWidth().testTag("own-tools-warning"),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().then(if(compact)Modifier.clickable(role=Role.Button,onClickLabel=if(expanded)"Hide details" else "Show details") {expanded=!expanded}.semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"} else Modifier).heightIn(min=if(compact)48.dp else 0.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Outlined.WarningAmber,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.error)
+                Text(OWN_TOOLS_LABEL,Modifier.weight(1f).semantics {heading()},style=MaterialTheme.typography.titleSmall)
+            }
+            if(expanded)Text(OWN_TOOLS_WARNING,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
