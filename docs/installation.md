@@ -20,7 +20,22 @@ From the directory containing the installed binary, check configuration and disc
 ./acpd.exe --config C:/ACPPortal/config.toml start
 ```
 
-On Unix, substitute `./acpd` and your absolute paths. `doctor` probes the listener and storage and checks executable/workspace availability. Run it before `start`; an occupied listener can be the existing daemon. It does not validate certificate trust, provider credentials or free space. `probe` starts the selected executable for ACP negotiation without a model prompt. Use an explicit no-tools `chat` prompt separately when you need to test provider access.
+On Unix, substitute `./acpd` and your absolute paths. `doctor` probes the listener and storage, reports free space (failing below 64 MiB) and checks executable/workspace availability. With TLS configured it loads the PEM chain and key as `start` does, confirms the key matches and prints the leaf certificate's expiry; expired or not-yet-valid certificates fail and certificates within 30 days of expiry pass with a renewal notice. Run it before `start`; an occupied listener can be the existing daemon. It does not validate hostname coverage or issuer trust on the phone. Add `--agent goose --workspace C:/Work/project` to also start that agent with host file and terminal callbacks disabled and create one session without a prompt: doctor reports ready, sign-in required (with the agent's advertised sign-in methods) or the JSON-RPC error code. The host sends no model prompt, but an agent may contact its provider while creating a session, and a ready result does not prove a model request will succeed. Goose 1.53.0, for example, reports ready with an unconfigured provider and then fails the first prompt with JSON-RPC `-32603`. Each run creates one empty session in the agent's own history. `probe` starts the selected executable for ACP negotiation without a model prompt. Add `--prompt-check` (only with `--agent`) to test provider access too: after the session is ready doctor sends one small prompt asking for the word OK with no tools, refuses any permission the agent asks for and reports only the stop reason or the JSON-RPC error code, never the reply or agent error text. ACP `auth_required` (`-32000`), which Goose 1.53.0 returns for an invalid provider key, is reported as missing or rejected credentials. This is one real model request and can cost a little, so it is off by default. Some agents keep their own stored credentials (Goose may use a key from its own configuration when the environment variable is unset), so the check tests what the agent will actually use.
+
+## Host log file
+
+By default the host logs lifecycle events to stderr only. To also keep a bounded file, add:
+
+```toml
+[logging]
+file = "logs/acpd.log"     # relative to the config file; the directory must already exist
+max_file_bytes = 4194304   # 64 KiB..64 MiB; the active file rotates at this size
+retained_files = 3         # 1..16 older files kept as acpd.log.1 (newest) .. acpd.log.3
+```
+
+Shell-line auto-review is configured per agent with `[shell_review.<agent-id>]` (off by default); see the commented example in `examples/config.toml` and [Shell-line auto-review](security.md#shell-line-auto-review-opt-in).
+
+Add `frame_metadata = true` to also log, at debug level, one line per ACP frame with its direction, JSON-RPC kind, method or update name, error code and size. Frame content, ids and error text are never logged. Only `start` writes the file; frame metadata also goes to stderr for every command. Disk use is at most `max_file_bytes × (retained_files + 1)`; doctor prints that budget. New files are owner-only on Unix and owner/System on Windows. Records contain the same session-UUID lifecycle events as stderr, never prompts, code, environment values, headers, pairing codes, tokens or agent stderr. Set `RUST_LOG` only as broadly as you are willing to store.
 
 ## Configure trusted TLS
 

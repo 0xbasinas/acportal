@@ -1,46 +1,107 @@
 name: Rust
+# Private repo: every minute counts against the owner's Actions quota (Windows bills 2x).
+# PRs run Linux stable checks, a Linux Rust 1.88 test and a Windows stable test. The container
+# and Windows reproducibility jobs run only by hand (workflow_dispatch). Docs-only changes run
+# nothing. See docs/development.md, "Continuous integration".
 on:
-  push:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "acpd/**"
+      - "protocol/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain*"
+      - ".github/workflows/rust.yml"
+  push:
+    branches: [main]
+    paths:
+      - "acpd/**"
+      - "protocol/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain*"
+      - ".github/workflows/rust.yml"
   workflow_dispatch:
+    inputs:
+      extras:
+        description: "Also run the container smoke check and the Windows reproducibility build"
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CARGO_TERM_COLOR: never
 jobs:
-  check:
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Linux stable (fmt, clippy incl. Windows target, tests)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Windows lints on the cheap Linux runner; ring's build script needs the mingw C compiler.
+      - name: Strict Clippy for the Windows target
+        run: |
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 >/dev/null
+          cargo clippy --locked -p acpd --all-targets --target x86_64-pc-windows-gnu -- -D warnings
       - run: cargo test --locked --workspace --all-targets
+      - name: Foreign-owned file replacement (Linux, sudo on the runner only)
+        run: |
+          set -eu
+          ws="$(mktemp -d)"
+          echo old > "$ws/foreign.txt"
+          sudo chown 65534:65534 "$ws/foreign.txt"
+          sudo chmod 0666 "$ws/foreign.txt"
+          export ACPD_TEST_FOREIGN_FILE="$ws/foreign.txt"
+          # As the runner user: refused, file and owner unchanged.
+          cargo test --locked -p acpd --lib -- --ignored --exact filesystem::tests::unix_foreign_owned_target_is_refused_or_keeps_its_owner
+          # As root: replaced, owner/group/mode kept. Run the built test binary, not cargo.
+          bin="$(cargo test --locked -p acpd --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "acpd" and (.target.kind | index("lib"))) | .executable')"
+          sudo --preserve-env=ACPD_TEST_FOREIGN_FILE "$bin" --ignored --exact filesystem::tests::unix_foreign_owned_target_is_refused_or_keeps_its_owner
+          stat -c '%u:%g %a' "$ws/foreign.txt"
+          test "$(stat -c '%u:%g' "$ws/foreign.txt")" = 65534:65534
 
   minimum-rust:
-    name: Rust 1.88 / ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+    name: Linux Rust 1.88 (build and tests)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --workspace --bins
       - run: cargo test --locked --workspace --all-targets
 
+  windows:
+    name: Windows stable (tests)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Clippy for this target runs on Linux (above); here only the real Windows tests.
+      - run: cargo test --locked --workspace --all-targets
+
   container:
+    if: github.event_name == 'workflow_dispatch' && inputs.extras
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build host image
@@ -52,8 +113,9 @@ jobs:
           docker run --rm acpd-ci --version
 
   windows-reproducibility:
+    if: github.event_name == 'workflow_dispatch' && inputs.extras
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master

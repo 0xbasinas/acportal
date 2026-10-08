@@ -37,7 +37,7 @@ sealed interface TimelineItem {
     @Serializable
     data class Content(override val id:String,val role:String,val content:JsonObject) : TimelineItem
     @Serializable
-    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList())) : TimelineItem
+    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList()),val autoReview:JsonObject?=null) : TimelineItem
     @Serializable
     data class Plan(override val id: String, val entries: JsonArray) : TimelineItem
     @Serializable
@@ -97,5 +97,17 @@ fun permissionResponse(permission: Permission, optionId: String): JsonObject {
     return buildJsonObject {
         put("jsonrpc", "2.0"); put("id", permission.id)
         putJsonObject("result") { putJsonObject("outcome") { put("outcome", "selected"); put("optionId", optionId) } }
+    }
+}
+
+/** Host shell-line auto-review shown on a tool card, e.g. "Auto-allowed by rules". */
+fun autoReviewLabel(review:JsonObject):String {
+    val layer=review["layer"].text().ifBlank {"host"}
+    return when(review["decision"].text()) {
+        "allow"->"Auto-allowed by $layer"
+        "deny"->"Auto-denied by $layer"
+        "ask"->"Sent to you by $layer review"
+        "reviewing"->"Being reviewed by $layer"
+        else->"Auto-review"
     }
 }

@@ -13,3 +13,23 @@ max_frame_bytes = 1048576
 max_sessions = 8
 history_events = 2048
 history_bytes = 8388608
+
+# Optional bounded log file for `start`; the directory must already exist.
+# [logging]
+# file = "../.local/acpd.log"
+# max_file_bytes = 4194304
+# retained_files = 3
+# frame_metadata = false   # true logs content-free ACP frame metadata at debug level
+
+# Optional, per agent id: automatic review of agent shell lines. Off unless present
+# with rules = true; otherwise every shell line waits for approval on the phone.
+# See docs/security.md ("Shell-line auto-review") for what this does and does not protect.
+# [shell_review.goose]
+# rules = true                       # deterministic allowlist + hard-deny list
+# [shell_review.goose.model]         # optional reviewer for lines the rules leave undecided
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-flash"
+# api_key_env = "DEEPSEEK_API_KEY"   # name of the env var; never put the key here
+# timeout_seconds = 10               # 1..60
+# max_requests_per_minute = 6        # 1..60, per session
+# max_command_bytes = 2048           # longer lines go straight to the phone

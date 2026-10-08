@@ -255,9 +255,13 @@ import kotlinx.coroutines.*
 @Composable fun ToolCard(tool:TimelineItem.Tool,terminals:Map<String,JsonObject> = emptyMap(),onChange:((String)->Unit)?=null) {
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("tool-card")) {
-        ListItem(headlineContent={Text(tool.title)},supportingContent={Text("${tool.kind} · ${tool.status}")},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Collapse tool" else "Expand tool")}})
+        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Collapse tool" else "Expand tool")}})
         if(expanded)Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             tool.locations.forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.labelSmall) }
+            tool.autoReview?.let {review->
+                if(review["reason"].text().isNotBlank())Text("Reason: "+review["reason"].text(),style=MaterialTheme.typography.bodySmall)
+                if(review["shellLine"].text().isNotEmpty())TerminalOutput(review["shellLine"].text())
+            }
             tool.content.forEachIndexed {index,content->val block=content.objectValue();when(block["type"].text()) {
                 "diff"->{DiffViewer(block["path"].text(),block["oldText"]?.takeUnless {it==JsonNull}?.text(),block["newText"].text());onChange?.let {callback->TextButton({callback("${tool.id}/$index")}) {Icon(Icons.Outlined.OpenInFull,null,Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text("View changes")}}}
                 "content"->ReceivedContentView(block["content"].objectValue())
@@ -296,7 +300,9 @@ import kotlinx.coroutines.*
             permission.request["toolCall"].objectValue()["locations"].arrayValue().forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.bodySmall) }
             val rawInput=permission.request["toolCall"].objectValue()["rawInput"]
             val operation=rawInput.objectValue()
-            if(operation["command"].text().isNotBlank())Text((operation["command"].text()+" "+operation["args"].arrayValue().joinToString(" ") {it.text()}).take(2000),Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.bodyMedium)
+            val shellApproval=remember(permission) {shellCommandApproval(permission)}
+            if(shellApproval!=null)ShellCommandReview(shellApproval)
+            else if(operation["command"].text().isNotBlank())Text((operation["command"].text()+" "+operation["args"].arrayValue().joinToString(" ") {it.text()}).take(2000),Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.bodyMedium)
             if(rawInput!=null && rawInput!=JsonNull) {TextButton({details=!details}) {Text(if(details)"Hide operation details" else "Operation details")};if(details)TerminalOutput(rawInput.toString())}
             val diffs=permission.request["toolCall"].objectValue()["content"].arrayValue().filter {it.objectValue()["type"].text()=="diff"}
             if(diffs.isNotEmpty()) {TextButton({review=!review}) {Text(if(review)"Hide proposed change" else "Review proposed change")};if(review)Column(Modifier.heightIn(max=240.dp).verticalScroll(rememberScrollState())) {diffs.forEach {entry->val diff=entry.objectValue();DiffViewer(diff["path"].text(),diff["oldText"]?.takeUnless {it==JsonNull}?.text(),diff["newText"].text())}}}
@@ -306,6 +312,22 @@ import kotlinx.coroutines.*
                 if(value["kind"].text().startsWith("allow"))Button({onSelect(value["optionId"].text())},enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(10.dp)) {Text(name)}
                 else TextButton({onSelect(value["optionId"].text())},enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {Text(name)}
             }
+    }
+}
+
+/** The full shell line, never shortened, scrollable and selectable. */
+@Composable fun ShellCommandReview(approval:ShellCommandApproval) {
+    Column(Modifier.fillMaxWidth().testTag("shell-command-review"),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Surface(color=MaterialTheme.colorScheme.errorContainer,shape=RoundedCornerShape(6.dp)) {Text("Shell command",Modifier.padding(horizontal=8.dp,vertical=4.dp),color=MaterialTheme.colorScheme.onErrorContainer,style=MaterialTheme.typography.labelMedium)}
+        Text(approval.runsWith(),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(color=MaterialTheme.colorScheme.surfaceVariant,shape=RoundedCornerShape(8.dp),modifier=Modifier.fillMaxWidth()) {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(approval.line,Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodyMedium,softWrap=true)
+            }
+        }
+        approval.autoReviewReason?.let {Text("Not auto-approved — $it",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        if(approval.environmentNames.isNotEmpty())Text("Environment: "+approval.environmentNames.joinToString(", "),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Approve only if you want this exact line to run once on your host.",style=MaterialTheme.typography.bodySmall)
     }
 }
 

@@ -126,9 +126,9 @@ class PortalRepository(
         saveMetadata(hostId,info)
         check(info.status!="interrupted") { "The host restarted. Resume this session to continue." }
         val cached=runCatching { WireJson.decodeFromString<SessionState>(stored.state) }.getOrDefault(SessionState())
-        val state=cached.copy(replaying=true,modes=if(cached.modes.isEmpty())info.setup["modes"].objectValue() else cached.modes,
+        val state=SessionReducer.limitMetadata(cached,cached.copy(replaying=true,modes=if(cached.modes.isEmpty())info.setup["modes"].objectValue() else cached.modes,
             models=if(cached.models.isEmpty())info.setup["models"].objectValue() else cached.models,
-            configOptions=if(cached.configOptions.isEmpty())info.setup["configOptions"].arrayValue() else cached.configOptions)
+            configOptions=if(cached.configOptions.isEmpty())info.setup["configOptions"].arrayValue() else cached.configOptions))
         lateinit var live:LiveSession
         val transport=WebSocketTransport(api.client,host.address,api.token(host),id,{ live.state.value.sequence },scope)
         live=LiveSession(host,info,transport,state)
@@ -204,7 +204,7 @@ class PortalRepository(
         val becameReady=live.info.acpSessionId.isBlank() && info.acpSessionId.isNotBlank()
         live.metadata.value=info
         saveMetadata(live.host.id,info)
-        live.state.update { it.copy(modes=info.setup["modes"].objectValue(),models=info.setup["models"].objectValue(),configOptions=info.setup["configOptions"].arrayValue(),error=if(becameReady)null else it.error) }
+        live.state.update { SessionReducer.limitMetadata(it,it.copy(modes=info.setup["modes"].objectValue(),models=info.setup["models"].objectValue(),configOptions=info.setup["configOptions"].arrayValue(),error=if(becameReady)null else it.error)) }
     }
     suspend fun reconnect(live:LiveSession) = live.transportActions.withLock { check(!live.state.value.sessionClosed) {"This agent session stopped. Open Sessions to continue."};live.manuallyDetached=false;live.transport.disconnect();live.transport.connect() }
     suspend fun disconnect(live:LiveSession) = live.transportActions.withLock { live.manuallyDetached=true;live.transport.disconnect() }

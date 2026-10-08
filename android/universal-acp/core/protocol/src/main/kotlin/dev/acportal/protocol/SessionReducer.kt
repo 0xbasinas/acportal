@@ -5,8 +5,30 @@ import kotlinx.serialization.json.*
 class PendingPermissionLimitException : IllegalStateException("Pending permissions exceeded the client retention limit.")
 
 object SessionReducer {
+    /** Retained-size limit per agent configuration field (modes, models, config options, commands, usage); three bytes per UTF-16 character bounds UTF-8. */
+    const val METADATA_FIELD_BYTES = 2L * 1024 * 1024
+    private fun oversized(value: JsonElement) = value.toString().length.toLong() * 3 > METADATA_FIELD_BYTES
+    /**
+     * Keeps each agent configuration field within [METADATA_FIELD_BYTES]. An oversized new value is
+     * dropped and the previous value (or an empty one) is kept, with a visible protocol error.
+     */
+    fun limitMetadata(previous: SessionState, next: SessionState): SessionState {
+        if (next.modes === previous.modes && next.models === previous.models && next.configOptions === previous.configOptions &&
+            next.commands === previous.commands && next.usage === previous.usage) return next
+        var exceeded = false
+        fun limitedObject(value: JsonObject, before: JsonObject): JsonObject =
+            if (value === before || !oversized(value)) value else { exceeded = true; if (oversized(before)) JsonObject(emptyMap()) else before }
+        fun limitedArray(value: JsonArray, before: JsonArray): JsonArray =
+            if (value === before || !oversized(value)) value else { exceeded = true; if (oversized(before)) JsonArray(emptyList()) else before }
+        val result = next.copy(modes = limitedObject(next.modes, previous.modes), models = limitedObject(next.models, previous.models),
+            configOptions = limitedArray(next.configOptions, previous.configOptions), commands = limitedArray(next.commands, previous.commands),
+            usage = limitedObject(next.usage, previous.usage))
+        if (!exceeded) return next
+        return result.copy(historyGap = true, error = "Agent configuration exceeded the retained limit. Previous choices were kept.",
+            errorOrigin = SessionErrorOrigin.PROTOCOL)
+    }
     fun reduce(state: SessionState, envelope: JsonObject): SessionState {
-        val next = reduceEvent(state, envelope)
+        val next = limitMetadata(state, reduceEvent(state, envelope))
         if (next === state) return state
         if (next.permissions !== state.permissions || next.replayPermissions !== state.replayPermissions) {
             var permissionBytes = 0L
@@ -60,7 +82,7 @@ object SessionReducer {
             if (method == "session/prompt") {
                 val text = promptDisplay(params["prompt"].arrayValue())
                 next = next.copy(items = next.items + TimelineItem.Text("user-${message["id"].text()}", "user", text,promptText=promptText(params["prompt"].arrayValue())), processing = true, promptRequestId=message["id"].toString(), error = null)
-            } else if(method=="session/set_model" && message["id"]!=null) {
+            } else if(method=="session/set_model" && message["id"]!=null && params["modelId"].text().length<=1024) {
                 next=next.copy(modelRequests=(next.modelRequests+(message["id"].toString() to params["modelId"].text())).entries.toList().takeLast(64).associate {it.toPair()})
             } else if (method.isEmpty() && message["result"] != null) {
                 next = next.copy(permissions = next.permissions - message["id"].toString())
@@ -108,7 +130,8 @@ object SessionReducer {
                     update["kind"].text().ifBlank { previous?.kind ?: "other" },
                     update["status"].text().ifBlank { previous?.status ?: "pending" },
                     (update["content"] as? JsonArray) ?: previous?.content ?: JsonArray(emptyList()),
-                    (update["locations"] as? JsonArray) ?: previous?.locations ?: JsonArray(emptyList()))
+                    (update["locations"] as? JsonArray) ?: previous?.locations ?: JsonArray(emptyList()),
+                    autoReview(envelope,update) ?: previous?.autoReview)
                 next = next.copy(items = if (previous == null) next.items + item else next.items.map { if (it.id == id) item else it })
             }
             "plan" -> next = next.copy(items = next.items.filterNot { it is TimelineItem.Plan } + TimelineItem.Plan("plan", update["entries"].arrayValue()))
@@ -120,6 +143,16 @@ object SessionReducer {
             else -> next = next.copy(items = next.items + TimelineItem.Notice("unknown-$sequence", kind.replace('_', ' ').replaceFirstChar(Char::uppercase)))
         }
         return bounded(next)
+    }
+    /** Only the host may report an auto-review; the shell line it decided is kept with it (bounded). */
+    private fun autoReview(envelope:JsonObject,update:JsonObject):JsonObject? {
+        if(envelope["direction"].text()!="host")return null
+        val review=update["_meta"].objectValue()["acpdAutoReview"] as? JsonObject ?: return null
+        val line=update["rawInput"].objectValue()["shellLine"].text()
+        return buildJsonObject {
+            put("decision",review["decision"].text().take(16));put("layer",review["layer"].text().take(16));put("reason",review["reason"].text().take(400))
+            if(line.isNotEmpty())put("shellLine",line.take(16000))
+        }
     }
     private fun permission(state: SessionState, message: JsonObject,snapshot:Boolean=false): SessionState {
         val id = message["id"] ?: return state
@@ -138,7 +171,7 @@ object SessionReducer {
             val cost=when(item) {
                 is TimelineItem.Text->(item.text.length.toLong()+(item.promptText?.length ?: 0))*3L+item.id.length*3L+1024
                 is TimelineItem.Content->item.content.toString().length*3L+1024
-                is TimelineItem.Tool->(item.content.toString().length.toLong()+item.locations.toString().length+item.title.length)*3+1024
+                is TimelineItem.Tool->(item.content.toString().length.toLong()+item.locations.toString().length+item.title.length+(item.autoReview?.toString()?.length ?: 0))*3+1024
                 is TimelineItem.Plan->item.entries.toString().length*3L+1024
                 is TimelineItem.Notice->item.text.length*3L+1024
             }

@@ -1,5 +1,7 @@
 //! One Tokio actor owns stdin, stdout and the child process. Subscribers never own it.
 use crate::filesystem::WorkspaceFiles;
+use crate::shell_review::{AutoDecision, Decision, ShellReviewConfig, ShellReviewer};
+use crate::terminal::{PreparedTerminal, TerminalService};
 use crate::{config::RuntimeConfig, registry::AgentDefinition};
 use acportal_protocol::{acp, error, request, response, validate_message};
 use anyhow::{Context, Result, anyhow, bail};
@@ -9,7 +11,7 @@ use std::{
     collections::{HashMap, VecDeque},
     path::Path,
     process::Stdio,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{
@@ -19,6 +21,66 @@ use tokio::{
     time::Instant,
 };
 
+static FRAME_METADATA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Opt-in privacy-preserving frame diagnostics (`[logging] frame_metadata`). Records only the
+/// direction, JSON-RPC kind, a sanitized method/update name, error code and byte size of each
+/// ACP frame at debug level under the `acpd::acp_frames` target. Params, results, error text,
+/// request ids and session ids are never logged.
+pub fn enable_frame_metadata() {
+    FRAME_METADATA.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Fixed-vocabulary summary of a frame: (kind, method, update kind, error code).
+pub fn frame_summary(message: &Value) -> (&'static str, String, String, Option<i64>) {
+    fn label(value: &Value) -> String {
+        match value.as_str() {
+            None => "-".into(),
+            Some(text)
+                if !text.is_empty()
+                    && text.len() <= 64
+                    && text
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"_/.-".contains(&byte)) =>
+            {
+                text.into()
+            }
+            Some(_) => "<other>".into(),
+        }
+    }
+    let kind = match (message.get("method").is_some(), message.get("id").is_some()) {
+        (true, true) => "request",
+        (true, false) => "notification",
+        _ if message.get("error").is_some() => "error",
+        _ => "response",
+    };
+    let update = if message["method"] == "session/update" {
+        label(&message["params"]["update"]["sessionUpdate"])
+    } else {
+        "-".into()
+    };
+    (
+        kind,
+        label(&message["method"]),
+        update,
+        message["error"]["code"].as_i64(),
+    )
+}
+
+fn log_frame(direction: &'static str, message: &Value, bytes: usize) {
+    if !FRAME_METADATA.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let (kind, method, update, code) = frame_summary(message);
+    tracing::debug!(target: "acpd::acp_frames", direction, kind, method = %method, update = %update, code, bytes, "acp frame");
+}
+
+/// JSON-RPC code for a host refusal of an agent callback (outside the workspace, denied
+/// consent, changed file). ACP reserves -32000 for `auth_required`, so it must never be
+/// used here: agents such as Goose report it to the model as "Authentication required".
+pub const CALLBACK_DENIED: i64 = -32602;
+/// JSON-RPC code for a callback the host cannot serve right now (not ready, capacity).
+pub const CALLBACK_UNAVAILABLE: i64 = -32603;
 /// Preserve only the protocol error code; agent text/data may contain credentials.
 #[derive(Debug)]
 pub struct AgentRpcError(pub i64);
@@ -61,39 +123,61 @@ pub struct Event {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
-    pub events: Vec<Event>,
+    /// Shared with the journal; replaying never deep-copies retained history.
+    #[serde(serialize_with = "serialize_events")]
+    pub events: Vec<Arc<Event>>,
     pub pending_permissions: Vec<Value>,
     pub latest_sequence: u64,
     pub gap: bool,
 }
+fn serialize_events<S: serde::Serializer>(
+    events: &[Arc<Event>],
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    serializer.collect_seq(events.iter().map(|event| &**event))
+}
+/// Live event subscription. The broadcast channel carries weak references, so the journal is
+/// the only owner of event payloads: a slow subscriber cannot keep evicted history alive. An
+/// event evicted before it is received is reported as `Lagged`, and callers recover through
+/// cursor replay exactly as for a broadcast overflow.
+pub struct EventReceiver(broadcast::Receiver<Weak<Event>>);
+impl EventReceiver {
+    pub async fn recv(&mut self) -> std::result::Result<Arc<Event>, broadcast::error::RecvError> {
+        let event = self.0.recv().await?;
+        event
+            .upgrade()
+            .ok_or(broadcast::error::RecvError::Lagged(1))
+    }
+}
 struct Journal {
     sequence: u64,
     bytes: usize,
-    events: VecDeque<(Event, usize)>,
+    events: VecDeque<(Arc<Event>, usize)>,
     permissions: HashMap<String, Value>,
     max_events: usize,
     max_bytes: usize,
 }
 impl Journal {
-    fn append(&mut self, message: Value) -> Event {
+    fn append(&mut self, message: Value) -> Weak<Event> {
         self.append_direction(message, "agent")
     }
-    fn append_direction(&mut self, message: Value, direction: &'static str) -> Event {
+    fn append_direction(&mut self, message: Value, direction: &'static str) -> Weak<Event> {
         self.sequence += 1;
         let size = message.to_string().len();
-        let event = Event {
+        let event = Arc::new(Event {
             sequence: self.sequence,
             message,
             direction,
-        };
-        self.events.push_back((event.clone(), size));
+        });
+        let published = Arc::downgrade(&event);
+        self.events.push_back((event, size));
         self.bytes += size;
         while self.events.len() > self.max_events || self.bytes > self.max_bytes {
             if let Some((_, size)) = self.events.pop_front() {
                 self.bytes -= size;
             }
         }
-        event
+        published
     }
     fn replay(&self, after: u64) -> Replay {
         let oldest = self
@@ -116,9 +200,10 @@ impl Journal {
 #[derive(Clone)]
 pub struct AcpConnection {
     frame_limit: usize,
-    commands: mpsc::Sender<Control>,
-    events: broadcast::Sender<Event>,
+    commands: mpsc::Sender<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
+    events: broadcast::Sender<Weak<Event>>,
     journal: Arc<Mutex<Journal>>,
+    admission: Arc<tokio::sync::Semaphore>,
     closed: watch::Receiver<Option<String>>,
     busy: watch::Receiver<bool>,
 }
@@ -160,7 +245,8 @@ struct OutboundRequest<'a> {
     method: &'a str,
     params: &'a Value,
 }
-fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<()> {
+/// Returns the encoded size including the newline, or an error above `limit`.
+fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<usize> {
     struct Counter(usize);
     impl std::io::Write for Counter {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -174,8 +260,16 @@ fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<()> {
             Ok(())
         }
     }
-    serde_json::to_writer(Counter(limit.saturating_sub(1)), value)
-        .map_err(|_| anyhow!("outbound ACP frame exceeds limit"))
+    let available = limit.saturating_sub(1);
+    let mut counter = Counter(available);
+    serde_json::to_writer(&mut counter, value)
+        .map_err(|_| anyhow!("outbound ACP frame exceeds limit"))?;
+    Ok(available - counter.0 + 1)
+}
+/// Bytes of caller input that may be admitted but not yet written to the agent: queued commands
+/// plus callers waiting for queue space. Callers beyond it are rejected instead of waiting.
+fn admission_budget(frame_limit: usize) -> usize {
+    (8 * 1024 * 1024).max(frame_limit * 2)
 }
 struct HostWrite {
     callback_id: Value,
@@ -185,12 +279,16 @@ struct HostTerminalCreate {
     callback_id: Value,
     prepared: crate::terminal::PreparedTerminal,
 }
-fn publish_host(events: &broadcast::Sender<Event>, journal: &Arc<Mutex<Journal>>, message: Value) {
+fn publish_host(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    message: Value,
+) {
     let event = journal.lock().unwrap().append_direction(message, "host");
     let _ = events.send(event);
 }
 fn publish_terminal(
-    events: &broadcast::Sender<Event>,
+    events: &broadcast::Sender<Weak<Event>>,
     journal: &Arc<Mutex<Journal>>,
     session_id: &str,
     terminal_id: &str,
@@ -214,17 +312,181 @@ fn publish_terminal(
         json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":status,"content":[{"type":"terminal","terminalId":terminal_id}],"_meta":{"acpdTerminal":terminal}}}}),
     );
 }
+fn terminal_tool(prepared: &PreparedTerminal, consent_id: &Value) -> Value {
+    let operation = prepared.operation();
+    let title = if prepared.is_shell() {
+        "Run shell command".to_owned()
+    } else {
+        format!(
+            "Run {}",
+            Path::new(operation["command"].as_str().unwrap_or_default())
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        )
+    };
+    json!({"toolCallId":consent_id,"title":title,"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]})
+}
+fn log_auto_review(auto: &AutoDecision) {
+    // Decision and layer only: never the command line, cwd or reason text.
+    tracing::info!(
+        decision = auto.decision.label(),
+        layer = auto.layer,
+        "shell line auto-review"
+    );
+}
+/// Ask the phone to approve a prepared terminal. Shell lines get their own source and
+/// option ids, so an answer meant for a plain command can never approve one; there is
+/// no "always" option. `announce` publishes the tool call first.
+#[allow(clippy::too_many_arguments)]
+fn offer_terminal_consent(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    limits: &RuntimeConfig,
+    host_terminals: &mut HashMap<String, HostTerminalCreate>,
+    session_id: &Option<String>,
+    consent_id: Value,
+    callback_id: Value,
+    prepared: PreparedTerminal,
+    auto: Option<&AutoDecision>,
+    announce: bool,
+) -> Result<()> {
+    let tool = terminal_tool(&prepared, &consent_id);
+    let (source, options) = if prepared.is_shell() {
+        (
+            "host-shell-command",
+            json!([{"optionId":"acpd-shell-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-shell-allow","name":"Run this shell line once","kind":"allow_once"}]),
+        )
+    } else {
+        (
+            "host-terminal",
+            json!([{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]),
+        )
+    };
+    let mut meta = json!({ "acpdSource": source });
+    if let Some(auto) = auto {
+        meta["acpdAutoReview"] = auto.to_json();
+    }
+    let consent = json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":meta,"options":options}});
+    let size = consent.to_string().len();
+    let inserted = {
+        let mut history = journal.lock().unwrap();
+        let bytes: usize = history
+            .permissions
+            .values()
+            .map(|value| value.to_string().len())
+            .sum();
+        if size + 256 > limits.max_frame_bytes
+            || history.permissions.len() >= 128
+            || bytes + size > limits.history_bytes
+        {
+            false
+        } else {
+            history
+                .permissions
+                .insert(consent_id.to_string(), consent.clone());
+            true
+        }
+    };
+    if !inserted {
+        bail!("permission capacity exceeded")
+    }
+    host_terminals.insert(
+        consent_id.to_string(),
+        HostTerminalCreate {
+            callback_id,
+            prepared,
+        },
+    );
+    if announce {
+        publish_host(
+            events,
+            journal,
+            json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}),
+        );
+    }
+    publish_host(events, journal, consent);
+    Ok(())
+}
+/// Run or refuse a shell line decided automatically, show the decision to the phone
+/// and return the answer for the agent's `terminal/create`.
+#[allow(clippy::too_many_arguments)]
+fn apply_auto_decision(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    terminals: &mut TerminalService,
+    terminal_tools: &mut HashMap<String, (String, Value)>,
+    session_id: &Option<String>,
+    consent_id: &Value,
+    callback_id: Value,
+    prepared: PreparedTerminal,
+    auto: &AutoDecision,
+    announce: bool,
+) -> Value {
+    log_auto_review(auto);
+    let mut tool = terminal_tool(&prepared, consent_id);
+    tool["_meta"] = json!({ "acpdAutoReview": auto.to_json() });
+    let result = if auto.decision == Decision::Allow {
+        terminals.create_approved(prepared)
+    } else {
+        Err(anyhow!("denied by auto-review"))
+    };
+    tool["status"] = json!(if result.is_ok() {
+        "in_progress"
+    } else {
+        "failed"
+    });
+    if let Ok(created) = &result {
+        terminal_tools.insert(
+            created["terminalId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            (
+                consent_id.as_str().unwrap_or_default().to_owned(),
+                json!({}),
+            ),
+        );
+    }
+    let kind = if announce {
+        "tool_call"
+    } else {
+        "tool_call_update"
+    };
+    publish_host(
+        events,
+        journal,
+        json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,kind)}}),
+    );
+    match result {
+        Ok(value) => response(callback_id, value),
+        Err(_) if auto.decision == Decision::Deny => error(
+            callback_id,
+            CALLBACK_DENIED,
+            &format!(
+                "Shell line refused by acpd auto-review ({}): {}. Do not retry it unchanged.",
+                auto.layer, auto.reason
+            ),
+        ),
+        Err(_) => error(
+            callback_id,
+            -32602,
+            "Terminal creation denied or unavailable",
+        ),
+    }
+}
 fn tool_update(mut tool: Value, kind: &str) -> Value {
     tool["sessionUpdate"] = json!(kind);
     tool
 }
 struct ActorContext<'a> {
-    events: &'a broadcast::Sender<Event>,
+    events: &'a broadcast::Sender<Weak<Event>>,
     journal: &'a Arc<Mutex<Journal>>,
     busy: &'a watch::Sender<bool>,
     limits: &'a RuntimeConfig,
     files: Option<Arc<WorkspaceFiles>>,
     access: WorkspaceAccess,
+    review: Option<Arc<ShellReviewer>>,
 }
 
 impl AcpConnection {
@@ -245,6 +507,7 @@ impl AcpConnection {
                 write_files: false,
                 terminal: false,
             },
+            None,
         )
     }
     pub fn spawn_with_filesystem(
@@ -261,6 +524,7 @@ impl AcpConnection {
             limits,
             workspace,
             WorkspaceAccess::default(),
+            None,
         )
     }
     pub fn spawn_with_access(
@@ -270,13 +534,23 @@ impl AcpConnection {
         limits: RuntimeConfig,
         workspace: &Path,
         access: WorkspaceAccess,
+        review: Option<&ShellReviewConfig>,
     ) -> Result<Self> {
         // Reserve worst-case JSON escaping plus envelope bytes inside the ACP frame limit.
         let files = Arc::new(WorkspaceFiles::open(
             workspace,
             (limits.max_frame_bytes - 256) / 6,
         )?);
-        Self::spawn_inner(definition, executable, cwd, limits, Some(files), access)
+        let review = ShellReviewer::new(review, &definition.id)?.map(Arc::new);
+        Self::spawn_inner(
+            definition,
+            executable,
+            cwd,
+            limits,
+            Some(files),
+            access,
+            review,
+        )
     }
     fn spawn_inner(
         definition: &AgentDefinition,
@@ -285,6 +559,7 @@ impl AcpConnection {
         limits: RuntimeConfig,
         files: Option<Arc<WorkspaceFiles>>,
         access: WorkspaceAccess,
+        review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
         let mut command = Command::new(executable);
@@ -303,6 +578,9 @@ impl AcpConnection {
         let stdout = child.stdout.take().context("agent stdout unavailable")?;
         let stderr = child.stderr.take().context("agent stderr unavailable")?;
         let (commands, receiver) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
+        let admission = Arc::new(tokio::sync::Semaphore::new(admission_budget(
+            limits.max_frame_bytes,
+        )));
         let (events, _) = broadcast::channel(256);
         let (closed_tx, closed) = watch::channel(None);
         let (busy_tx, busy) = watch::channel(false);
@@ -311,7 +589,7 @@ impl AcpConnection {
         let stdout_task = tokio::spawn(async move {
             let mut stdout = BufReader::new(stdout);
             loop {
-                let frame = read_frame(&mut stdout, frame_limit).await;
+                let frame = read_sized_frame(&mut stdout, frame_limit).await;
                 let terminal = !matches!(frame, Ok(Some(_)));
                 if frame_tx.send(frame).await.is_err() || terminal {
                     break;
@@ -347,6 +625,7 @@ impl AcpConnection {
                     limits: &limits,
                     files,
                     access,
+                    review,
                 },
             )
             .await;
@@ -366,12 +645,20 @@ impl AcpConnection {
             commands,
             events,
             journal,
+            admission,
             closed,
             busy,
         })
     }
+    fn admit(&self, size: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
+        let permits = u32::try_from(size).context("outbound ACP frame exceeds limit")?;
+        self.admission
+            .clone()
+            .try_acquire_many_owned(permits)
+            .map_err(|_| anyhow!("agent input queue is full; retry after current requests finish"))
+    }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        check_frame_size(
+        let size = check_frame_size(
             &OutboundRequest {
                 jsonrpc: "2.0",
                 id: Some(u64::MAX),
@@ -380,19 +667,23 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        let admitted = self.admit(size)?;
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Request {
-                method: method.into(),
-                params,
-                reply,
-            })
+            .send((
+                Control::Request {
+                    method: method.into(),
+                    params,
+                    reply,
+                },
+                Some(admitted),
+            ))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
     }
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        check_frame_size(
+        let size = check_frame_size(
             &OutboundRequest {
                 jsonrpc: "2.0",
                 id: None,
@@ -401,13 +692,22 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        // Cancellation is small and must never be refused while the queue is full.
+        let admitted = if method == "session/cancel" {
+            None
+        } else {
+            Some(self.admit(size)?)
+        };
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Notify {
-                method: method.into(),
-                params,
-                reply,
-            })
+            .send((
+                Control::Notify {
+                    method: method.into(),
+                    params,
+                    reply,
+                },
+                admitted,
+            ))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
@@ -423,7 +723,7 @@ impl AcpConnection {
             id: &'a Value,
             result: Outcome<'a>,
         }
-        check_frame_size(
+        let size = check_frame_size(
             &Answer {
                 jsonrpc: "2.0",
                 id: &id,
@@ -431,15 +731,16 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        let admitted = self.admit(size)?;
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Permission { id, outcome, reply })
+            .send((Control::Permission { id, outcome, reply }, Some(admitted)))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
     }
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.events.subscribe()
+    pub fn subscribe(&self) -> EventReceiver {
+        EventReceiver(self.events.subscribe())
     }
     // Subscribe BEFORE replay, then ignore live events <= latest_sequence to avoid a race.
     pub fn replay(&self, after: u64) -> Replay {
@@ -472,7 +773,12 @@ impl AcpConnection {
     }
     pub async fn shutdown(&self) {
         let (reply, result) = oneshot::channel();
-        if self.commands.send(Control::Shutdown(reply)).await.is_ok() {
+        if self
+            .commands
+            .send((Control::Shutdown(reply), None))
+            .await
+            .is_ok()
+        {
             let _ = result.await;
         }
         self.wait_closed().await;
@@ -484,6 +790,15 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     max: usize,
 ) -> Result<Option<Value>> {
+    Ok(read_sized_frame(reader, max)
+        .await?
+        .map(|(message, _)| message))
+}
+/// As [`read_frame`], also returning the frame's encoded byte length.
+pub async fn read_sized_frame<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    max: usize,
+) -> Result<Option<(Value, usize)>> {
     let mut bytes = Vec::with_capacity(4096.min(max));
     loop {
         let available = reader.fill_buf().await?;
@@ -506,7 +821,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     }
     let message: Value = serde_json::from_slice(&bytes).context("invalid ACP JSON")?;
     validate_message(&message)?;
-    Ok(Some(message))
+    Ok(Some((message, bytes.len())))
 }
 async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()> {
     validate_message(message)?;
@@ -522,14 +837,15 @@ async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()
     })
     .await
     .context("agent stdin stalled")??;
+    log_frame("host_to_agent", message, bytes.len());
     Ok(())
 }
 
 async fn actor(
     child: &mut Child,
     mut stdin: ChildStdin,
-    mut frames: mpsc::Receiver<Result<Option<Value>>>,
-    mut commands: mpsc::Receiver<Control>,
+    mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
+    mut commands: mpsc::Receiver<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
     context: ActorContext<'_>,
 ) -> String {
     let ActorContext {
@@ -539,6 +855,7 @@ async fn actor(
         limits,
         files,
         access,
+        review,
     } = context;
     let mut pending: HashMap<u64, Pending> = HashMap::new();
     let mut next_id = 0u64;
@@ -551,12 +868,15 @@ async fn actor(
     let mut terminal_waits = tokio::task::JoinSet::<(Value, Result<Value>)>::new();
     let mut wait_ids = std::collections::HashSet::new();
     let mut terminal_poll = Instant::now();
+    // Shell lines waiting for the optional model reviewer, keyed like consents.
+    let mut reviewing: HashMap<String, (Value, PreparedTerminal)> = HashMap::new();
+    let mut model_reviews = tokio::task::JoinSet::<(String, AutoDecision)>::new();
     let mut timer = tokio::time::interval(Duration::from_millis(100));
     // A dedicated bounded reader preserves partial frames across select branches.
     let reason = loop {
         tokio::select! {
             received = frames.recv() => {
-                let message = match received { Some(Ok(Some(value))) => value,
+                let message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
                     Some(Ok(None)) | None => break "agent stdout closed".into(), Some(Err(_)) => break "malformed or oversized ACP frame".into() };
                 if message.get("method").is_none() {
                     if let Some(id) = message["id"].as_u64()
@@ -594,7 +914,7 @@ async fn actor(
                         continue;
                     }
                     if message["method"].as_str().is_some_and(|method|method.starts_with("terminal/")) {
-                        if host_terminals.values().any(|entry|entry.callback_id==*id) || host_writes.values().any(|entry|entry.callback_id==*id) || wait_ids.contains(&id.to_string()) {break "duplicate client callback id".into()}
+                        if host_terminals.values().any(|entry|entry.callback_id==*id) || reviewing.values().any(|(callback,_)|callback==id) || host_writes.values().any(|entry|entry.callback_id==*id) || wait_ids.contains(&id.to_string()) {break "duplicate client callback id".into()}
                         let params=&message["params"];
                         if !matches!(message["method"].as_str(),Some("terminal/create"|"terminal/output"|"terminal/wait_for_exit"|"terminal/kill"|"terminal/release")) {
                             if write(&mut stdin,&error(id.clone(),-32601,"Terminal method unsupported"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
@@ -609,15 +929,27 @@ async fn actor(
                             match service.prepare(params.clone()) {
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
-                                    let operation=prepared.operation();
-                                    let tool=json!({"toolCallId":consent_id,"title":format!("Run {}",std::path::Path::new(operation["command"].as_str().unwrap()).file_name().unwrap_or_default().to_string_lossy()),"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]});
-                                    let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":file_session_id,"toolCall":tool,"_meta":{"acpdSource":"host-terminal"},"options":[{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]}});
-                                    let size=consent.to_string().len();
-                                    let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
-                                    if !inserted {Err(anyhow!("permission capacity exceeded"))} else {
-                                        host_terminals.insert(consent_id.to_string(),HostTerminalCreate{callback_id:id.clone(),prepared});
+                                    let rules=match (&review,prepared.shell_line()) {(Some(reviewer),Some(line))=>Some(reviewer.rules(line,prepared.cwd(),service.workspace())),_=>None};
+                                    let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
+                                    if let Some(auto)=decided {
+                                        let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
+                                        if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                                        continue;
+                                    }
+                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
+                                        let future=reviewer.model_future(line,&crate::shell_review::relative_cwd(service.workspace(),prepared.cwd()),verdict);
+                                        let mut tool=terminal_tool(&prepared,&consent_id);
+                                        tool["_meta"]=json!({"acpdAutoReview":{"decision":"reviewing","layer":"model","reason":verdict.reason}});
                                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":tool_update(tool,"tool_call")}}));
-                                        publish_host(events,journal,consent);continue;
+                                        let key=consent_id.to_string();
+                                        reviewing.insert(key.clone(),(id.clone(),prepared));
+                                        model_reviews.spawn(async move {(key,future.await)});
+                                        continue;
+                                    }
+                                    let auto=rules.map(|verdict|AutoDecision{decision:Decision::Ask,layer:"rules",reason:verdict.reason.into()});
+                                    if let Some(auto)=&auto {log_auto_review(auto);}
+                                    match offer_terminal_consent(events,journal,limits,&mut host_terminals,&file_session_id,consent_id,id.clone(),prepared,auto.as_ref(),true) {
+                                        Err(error)=>Err(error),Ok(())=>continue,
                                     }
                                 }
                             }
@@ -654,18 +986,18 @@ async fn actor(
                             let files=files.clone();
                             crate::filesystem::read_async(files,message["params"].clone(),session_id).await
                         } else {Err(anyhow!("filesystem session is not ready"))};
-                        let reply=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),-32000,"Workspace text read denied or unavailable")};
+                        let reply=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),CALLBACK_DENIED,"Workspace text read denied or unavailable")};
                         if write(&mut stdin,&reply,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                         continue;
                     } else if message["method"] == "fs/write_text_file" && let Some(files)=&files {
-                        if !files_ready {if write(&mut stdin,&error(id.clone(),-32000,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
+                        if !files_ready {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
                         let Some(session_id)=file_session_id.clone() else {
-                            if write(&mut stdin,&error(id.clone(),-32000,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                             continue;
                         };
                         if host_writes.values().any(|entry|entry.callback_id==*id) {break "duplicate filesystem callback id".into()}
                         let prepared=match crate::filesystem::prepare_write_async(files.clone(),message["params"].clone(),session_id.clone()).await {
-                            Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),-32000,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                            Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         };
                         let consent_id=json!(format!("acpd-write-{}",uuid::Uuid::new_v4()));
                         let tool_id=consent_id.as_str().unwrap().to_owned();
@@ -673,7 +1005,7 @@ async fn actor(
                         let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":{"acpdSource":"host-filesystem"},"options":[{"optionId":"acpd-write-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-write-allow","name":"Allow write once","kind":"allow_once"}]}});
                         let consent_size=consent.to_string().len();
                         let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
-                        if !inserted {if write(&mut stdin,&error(id.clone(),-32000,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                        if !inserted {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         host_writes.insert(consent_id.to_string(),HostWrite {callback_id:id.clone(),prepared});
                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
                         publish_host(events,journal,consent);
@@ -700,6 +1032,11 @@ async fn actor(
                 let _ = events.send(event);
             }
             command = commands.recv() => {
+                // The admission permit is released when this command has been handled.
+                let (command, _admitted) = match command {
+                    Some((command, admitted)) => (Some(command), admitted),
+                    None => (None, None),
+                };
                 match command {
                     Some(Control::Request { method, params, reply }) => {
                         if pending.len() >= 64 || (method == "session/prompt" && pending.values().any(|value| value.method == method)) {
@@ -735,6 +1072,13 @@ async fn actor(
                                 if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
                             journal.lock().unwrap().permissions.clear();
+                            model_reviews.abort_all();
+                            for (key,(callback_id,_)) in reviewing.drain() {
+                                if failed {break}
+                                let tool_id:Value=serde_json::from_str(&key).unwrap_or_default();
+                                publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed"}}}));
+                                if write(&mut stdin,&error(callback_id,-32800,"Terminal creation cancelled"),limits.max_frame_bytes).await.is_err() {failed=true}
+                            }
                             if let Some(service)=&terminals {service.stop_all();}
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
                                 waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
@@ -753,7 +1097,8 @@ async fn actor(
                             permission["params"]["options"].as_array().is_some_and(|options| options.iter().any(|option| option["optionId"] == outcome["optionId"])));
                         if !valid { let _ = reply.send(Err(anyhow!("invalid permission outcome"))); continue }
                         let answer=if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
-                            let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-command-allow";
+                            let allow=if host_terminal.prepared.is_shell() {"acpd-shell-allow"} else {"acpd-command-allow"};
+                            let accepted=outcome["outcome"]=="selected" && outcome["optionId"]==allow;
                             let result=if accepted {terminals.as_mut().unwrap().create_approved(host_terminal.prepared)} else {Err(anyhow!("command denied"))};
                             let tool_id=permission["params"]["toolCall"]["toolCallId"].as_str().unwrap().to_string();
                             if let Ok(created)=&result {terminal_tools.insert(created["terminalId"].as_str().unwrap().to_owned(),(tool_id.clone(),json!({})));}
@@ -763,7 +1108,7 @@ async fn actor(
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-write-allow";
                             let result=if accepted {crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await} else {Err(anyhow!("write denied"))};
                             publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":if result.is_ok(){"completed"}else{"failed"}}}}));
-                            match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,-32000,"Host write denied, changed or failed; do not retry automatically")}
+                            match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
                         let result = write(&mut stdin, &answer, limits.max_frame_bytes).await;
                         let failed = result.is_err();
@@ -793,11 +1138,32 @@ async fn actor(
                     }}
                 }
                 let awaiting_permission = !journal.lock().unwrap().permissions.is_empty();
-                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && !(waiter.method == "session/prompt" && (awaiting_permission || !terminal_waits.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
+                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && !(waiter.method == "session/prompt" && (awaiting_permission || !terminal_waits.is_empty() || !reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
                 match child.try_wait() {
                     Ok(Some(status)) => break format!("agent exited with {status}"),
                     Err(_) => break "agent process status failed".into(),
                     Ok(None) => {}
+                }
+            }
+            reviewed=model_reviews.join_next(),if !model_reviews.is_empty()=> {
+                let Some(Ok((key,auto)))=reviewed else {continue};
+                let Some((callback_id,prepared))=reviewing.remove(&key) else {continue};
+                let consent_id:Value=serde_json::from_str(&key).unwrap_or_default();
+                let answer=if auto.decision==Decision::Ask {
+                    log_auto_review(&auto);
+                    match offer_terminal_consent(events,journal,limits,&mut host_terminals,&file_session_id,consent_id.clone(),callback_id.clone(),prepared,Some(&auto),false) {
+                        Ok(())=>None,
+                        Err(_)=> {
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":consent_id,"status":"failed"}}}));
+                            Some(error(callback_id,CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"))
+                        }
+                    }
+                } else if let Some(service)=terminals.as_mut() {
+                    Some(apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,callback_id,prepared,&auto,false))
+                } else {Some(error(callback_id,CALLBACK_UNAVAILABLE,"Terminal runtime unavailable"))};
+                if let Some(answer)=answer {
+                    if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                    for waiter in pending.values_mut().filter(|waiter|waiter.method=="session/prompt") {waiter.deadline=Instant::now()+Duration::from_secs(limits.request_timeout_seconds);}
                 }
             }
             completed=terminal_waits.join_next(),if !terminal_waits.is_empty()=> {
@@ -808,6 +1174,7 @@ async fn actor(
         }
     };
     terminal_waits.abort_all();
+    model_reviews.abort_all();
     if let Some(service) = &mut terminals {
         service.shutdown().await;
     }
@@ -830,7 +1197,7 @@ mod tests {
             params: &params,
         };
         let size = serde_json::to_vec(&request).unwrap().len();
-        assert!(check_frame_size(&request, size + 1).is_ok());
+        assert_eq!(check_frame_size(&request, size + 1).unwrap(), size + 1);
         assert!(check_frame_size(&request, size).is_err());
         assert!(check_frame_size(&request, 0).is_err());
     }
@@ -859,6 +1226,71 @@ mod tests {
         let mut reader = BufReader::new(&b"{\"jsonrpc\":\"2.0\",\"method\":\"x\"}\n"[..]);
         assert!(read_frame(&mut reader, 1024).await.unwrap().is_some());
         assert!(read_frame(&mut reader, 1024).await.unwrap().is_none());
+    }
+    #[test]
+    fn frame_summary_keeps_only_fixed_vocabulary_metadata() {
+        let secret = "sk-synthetic-secret";
+        let update = json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":secret,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":secret}}}});
+        assert_eq!(
+            frame_summary(&update),
+            (
+                "notification",
+                "session/update".into(),
+                "agent_message_chunk".into(),
+                None
+            )
+        );
+        let failure = json!({"jsonrpc":"2.0","id":secret,"error":{"code":-32000,"message":secret,"data":secret}});
+        assert_eq!(
+            frame_summary(&failure),
+            ("error", "-".into(), "-".into(), Some(-32000))
+        );
+        let request = json!({"jsonrpc":"2.0","id":7,"method":format!("_x/{secret} with spaces"),"params":{"token":secret}});
+        assert_eq!(
+            frame_summary(&request),
+            ("request", "<other>".into(), "-".into(), None)
+        );
+        let long = json!({"jsonrpc":"2.0","method":"a".repeat(65)});
+        assert_eq!(frame_summary(&long).1, "<other>");
+        let result = json!({"jsonrpc":"2.0","id":1,"result":{"sessionId":secret}});
+        assert_eq!(
+            frame_summary(&result),
+            ("response", "-".into(), "-".into(), None)
+        );
+    }
+    #[test]
+    fn evicted_events_are_freed_even_while_a_subscriber_lags() {
+        let mut journal = Journal {
+            sequence: 0,
+            bytes: 0,
+            events: VecDeque::new(),
+            permissions: HashMap::new(),
+            max_events: 2048,
+            max_bytes: 4096,
+        };
+        let (sender, receiver) = broadcast::channel(256);
+        let mut subscriber = EventReceiver(receiver);
+        let payload = "x".repeat(1000);
+        for _ in 0..20 {
+            let _ = sender.send(journal.append(json!({"text":payload})));
+        }
+        assert!(journal.bytes <= 4096);
+        let kept = journal.events.len();
+        assert_eq!(kept, 4);
+        // The broadcast queue still holds 20 slots, but only the journal owns payloads.
+        let live: usize = journal
+            .events
+            .iter()
+            .map(|(event, _)| Arc::strong_count(event))
+            .sum();
+        assert_eq!(live, kept);
+        let first = futures_util::FutureExt::now_or_never(subscriber.recv()).unwrap();
+        assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(1))));
+        let replay = journal.replay(0);
+        assert!(replay.gap);
+        assert!(Arc::ptr_eq(&replay.events[0], &journal.events[0].0));
+        assert_eq!(admission_budget(1024 * 1024), 8 * 1024 * 1024);
+        assert_eq!(admission_budget(16 * 1024 * 1024), 32 * 1024 * 1024);
     }
     #[test]
     fn bounded_history_reports_eviction_and_retains_pending_requests() {
