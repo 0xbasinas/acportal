@@ -9,7 +9,7 @@ use std::{
     collections::{HashMap, VecDeque},
     path::Path,
     process::Stdio,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{
@@ -115,39 +115,61 @@ pub struct Event {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
-    pub events: Vec<Event>,
+    /// Shared with the journal; replaying never deep-copies retained history.
+    #[serde(serialize_with = "serialize_events")]
+    pub events: Vec<Arc<Event>>,
     pub pending_permissions: Vec<Value>,
     pub latest_sequence: u64,
     pub gap: bool,
 }
+fn serialize_events<S: serde::Serializer>(
+    events: &[Arc<Event>],
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    serializer.collect_seq(events.iter().map(|event| &**event))
+}
+/// Live event subscription. The broadcast channel carries weak references, so the journal is
+/// the only owner of event payloads: a slow subscriber cannot keep evicted history alive. An
+/// event evicted before it is received is reported as `Lagged`, and callers recover through
+/// cursor replay exactly as for a broadcast overflow.
+pub struct EventReceiver(broadcast::Receiver<Weak<Event>>);
+impl EventReceiver {
+    pub async fn recv(&mut self) -> std::result::Result<Arc<Event>, broadcast::error::RecvError> {
+        let event = self.0.recv().await?;
+        event
+            .upgrade()
+            .ok_or(broadcast::error::RecvError::Lagged(1))
+    }
+}
 struct Journal {
     sequence: u64,
     bytes: usize,
-    events: VecDeque<(Event, usize)>,
+    events: VecDeque<(Arc<Event>, usize)>,
     permissions: HashMap<String, Value>,
     max_events: usize,
     max_bytes: usize,
 }
 impl Journal {
-    fn append(&mut self, message: Value) -> Event {
+    fn append(&mut self, message: Value) -> Weak<Event> {
         self.append_direction(message, "agent")
     }
-    fn append_direction(&mut self, message: Value, direction: &'static str) -> Event {
+    fn append_direction(&mut self, message: Value, direction: &'static str) -> Weak<Event> {
         self.sequence += 1;
         let size = message.to_string().len();
-        let event = Event {
+        let event = Arc::new(Event {
             sequence: self.sequence,
             message,
             direction,
-        };
-        self.events.push_back((event.clone(), size));
+        });
+        let published = Arc::downgrade(&event);
+        self.events.push_back((event, size));
         self.bytes += size;
         while self.events.len() > self.max_events || self.bytes > self.max_bytes {
             if let Some((_, size)) = self.events.pop_front() {
                 self.bytes -= size;
             }
         }
-        event
+        published
     }
     fn replay(&self, after: u64) -> Replay {
         let oldest = self
@@ -170,9 +192,10 @@ impl Journal {
 #[derive(Clone)]
 pub struct AcpConnection {
     frame_limit: usize,
-    commands: mpsc::Sender<Control>,
-    events: broadcast::Sender<Event>,
+    commands: mpsc::Sender<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
+    events: broadcast::Sender<Weak<Event>>,
     journal: Arc<Mutex<Journal>>,
+    admission: Arc<tokio::sync::Semaphore>,
     closed: watch::Receiver<Option<String>>,
     busy: watch::Receiver<bool>,
 }
@@ -214,7 +237,8 @@ struct OutboundRequest<'a> {
     method: &'a str,
     params: &'a Value,
 }
-fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<()> {
+/// Returns the encoded size including the newline, or an error above `limit`.
+fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<usize> {
     struct Counter(usize);
     impl std::io::Write for Counter {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -228,8 +252,16 @@ fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<()> {
             Ok(())
         }
     }
-    serde_json::to_writer(Counter(limit.saturating_sub(1)), value)
-        .map_err(|_| anyhow!("outbound ACP frame exceeds limit"))
+    let available = limit.saturating_sub(1);
+    let mut counter = Counter(available);
+    serde_json::to_writer(&mut counter, value)
+        .map_err(|_| anyhow!("outbound ACP frame exceeds limit"))?;
+    Ok(available - counter.0 + 1)
+}
+/// Bytes of caller input that may be admitted but not yet written to the agent: queued commands
+/// plus callers waiting for queue space. Callers beyond it are rejected instead of waiting.
+fn admission_budget(frame_limit: usize) -> usize {
+    (8 * 1024 * 1024).max(frame_limit * 2)
 }
 struct HostWrite {
     callback_id: Value,
@@ -239,12 +271,16 @@ struct HostTerminalCreate {
     callback_id: Value,
     prepared: crate::terminal::PreparedTerminal,
 }
-fn publish_host(events: &broadcast::Sender<Event>, journal: &Arc<Mutex<Journal>>, message: Value) {
+fn publish_host(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    message: Value,
+) {
     let event = journal.lock().unwrap().append_direction(message, "host");
     let _ = events.send(event);
 }
 fn publish_terminal(
-    events: &broadcast::Sender<Event>,
+    events: &broadcast::Sender<Weak<Event>>,
     journal: &Arc<Mutex<Journal>>,
     session_id: &str,
     terminal_id: &str,
@@ -273,7 +309,7 @@ fn tool_update(mut tool: Value, kind: &str) -> Value {
     tool
 }
 struct ActorContext<'a> {
-    events: &'a broadcast::Sender<Event>,
+    events: &'a broadcast::Sender<Weak<Event>>,
     journal: &'a Arc<Mutex<Journal>>,
     busy: &'a watch::Sender<bool>,
     limits: &'a RuntimeConfig,
@@ -357,6 +393,9 @@ impl AcpConnection {
         let stdout = child.stdout.take().context("agent stdout unavailable")?;
         let stderr = child.stderr.take().context("agent stderr unavailable")?;
         let (commands, receiver) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
+        let admission = Arc::new(tokio::sync::Semaphore::new(admission_budget(
+            limits.max_frame_bytes,
+        )));
         let (events, _) = broadcast::channel(256);
         let (closed_tx, closed) = watch::channel(None);
         let (busy_tx, busy) = watch::channel(false);
@@ -420,12 +459,20 @@ impl AcpConnection {
             commands,
             events,
             journal,
+            admission,
             closed,
             busy,
         })
     }
+    fn admit(&self, size: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
+        let permits = u32::try_from(size).context("outbound ACP frame exceeds limit")?;
+        self.admission
+            .clone()
+            .try_acquire_many_owned(permits)
+            .map_err(|_| anyhow!("agent input queue is full; retry after current requests finish"))
+    }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        check_frame_size(
+        let size = check_frame_size(
             &OutboundRequest {
                 jsonrpc: "2.0",
                 id: Some(u64::MAX),
@@ -434,19 +481,23 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        let admitted = self.admit(size)?;
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Request {
-                method: method.into(),
-                params,
-                reply,
-            })
+            .send((
+                Control::Request {
+                    method: method.into(),
+                    params,
+                    reply,
+                },
+                Some(admitted),
+            ))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
     }
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        check_frame_size(
+        let size = check_frame_size(
             &OutboundRequest {
                 jsonrpc: "2.0",
                 id: None,
@@ -455,13 +506,22 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        // Cancellation is small and must never be refused while the queue is full.
+        let admitted = if method == "session/cancel" {
+            None
+        } else {
+            Some(self.admit(size)?)
+        };
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Notify {
-                method: method.into(),
-                params,
-                reply,
-            })
+            .send((
+                Control::Notify {
+                    method: method.into(),
+                    params,
+                    reply,
+                },
+                admitted,
+            ))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
@@ -477,7 +537,7 @@ impl AcpConnection {
             id: &'a Value,
             result: Outcome<'a>,
         }
-        check_frame_size(
+        let size = check_frame_size(
             &Answer {
                 jsonrpc: "2.0",
                 id: &id,
@@ -485,15 +545,16 @@ impl AcpConnection {
             },
             self.frame_limit,
         )?;
+        let admitted = self.admit(size)?;
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Control::Permission { id, outcome, reply })
+            .send((Control::Permission { id, outcome, reply }, Some(admitted)))
             .await
             .context("agent connection closed")?;
         result.await.context("agent connection closed")?
     }
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.events.subscribe()
+    pub fn subscribe(&self) -> EventReceiver {
+        EventReceiver(self.events.subscribe())
     }
     // Subscribe BEFORE replay, then ignore live events <= latest_sequence to avoid a race.
     pub fn replay(&self, after: u64) -> Replay {
@@ -526,7 +587,12 @@ impl AcpConnection {
     }
     pub async fn shutdown(&self) {
         let (reply, result) = oneshot::channel();
-        if self.commands.send(Control::Shutdown(reply)).await.is_ok() {
+        if self
+            .commands
+            .send((Control::Shutdown(reply), None))
+            .await
+            .is_ok()
+        {
             let _ = result.await;
         }
         self.wait_closed().await;
@@ -593,7 +659,7 @@ async fn actor(
     child: &mut Child,
     mut stdin: ChildStdin,
     mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
-    mut commands: mpsc::Receiver<Control>,
+    mut commands: mpsc::Receiver<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
     context: ActorContext<'_>,
 ) -> String {
     let ActorContext {
@@ -764,6 +830,11 @@ async fn actor(
                 let _ = events.send(event);
             }
             command = commands.recv() => {
+                // The admission permit is released when this command has been handled.
+                let (command, _admitted) = match command {
+                    Some((command, admitted)) => (Some(command), admitted),
+                    None => (None, None),
+                };
                 match command {
                     Some(Control::Request { method, params, reply }) => {
                         if pending.len() >= 64 || (method == "session/prompt" && pending.values().any(|value| value.method == method)) {
@@ -894,7 +965,7 @@ mod tests {
             params: &params,
         };
         let size = serde_json::to_vec(&request).unwrap().len();
-        assert!(check_frame_size(&request, size + 1).is_ok());
+        assert_eq!(check_frame_size(&request, size + 1).unwrap(), size + 1);
         assert!(check_frame_size(&request, size).is_err());
         assert!(check_frame_size(&request, 0).is_err());
     }
@@ -954,6 +1025,40 @@ mod tests {
             frame_summary(&result),
             ("response", "-".into(), "-".into(), None)
         );
+    }
+    #[test]
+    fn evicted_events_are_freed_even_while_a_subscriber_lags() {
+        let mut journal = Journal {
+            sequence: 0,
+            bytes: 0,
+            events: VecDeque::new(),
+            permissions: HashMap::new(),
+            max_events: 2048,
+            max_bytes: 4096,
+        };
+        let (sender, receiver) = broadcast::channel(256);
+        let mut subscriber = EventReceiver(receiver);
+        let payload = "x".repeat(1000);
+        for _ in 0..20 {
+            let _ = sender.send(journal.append(json!({"text":payload})));
+        }
+        assert!(journal.bytes <= 4096);
+        let kept = journal.events.len();
+        assert_eq!(kept, 4);
+        // The broadcast queue still holds 20 slots, but only the journal owns payloads.
+        let live: usize = journal
+            .events
+            .iter()
+            .map(|(event, _)| Arc::strong_count(event))
+            .sum();
+        assert_eq!(live, kept);
+        let first = futures_util::FutureExt::now_or_never(subscriber.recv()).unwrap();
+        assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(1))));
+        let replay = journal.replay(0);
+        assert!(replay.gap);
+        assert!(Arc::ptr_eq(&replay.events[0], &journal.events[0].0));
+        assert_eq!(admission_budget(1024 * 1024), 8 * 1024 * 1024);
+        assert_eq!(admission_budget(16 * 1024 * 1024), 32 * 1024 * 1024);
     }
     #[test]
     fn bounded_history_reports_eviction_and_retains_pending_requests() {
