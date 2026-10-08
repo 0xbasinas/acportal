@@ -246,9 +246,22 @@ token counts, not a billing statement).
 - Optional: remove leftover Goose sessions for the fixture workspace from
   Goose's own UI or session store. Do not delete unrelated sessions.
 
+## Doctor against other ACP adapters (8 October 2026, Linux, about 22:57 Athens)
+
+`acpd doctor --agent <id> --workspace <dir> [--prompt-check]` was run against custom registry entries for three agents besides Goose, each with its state redirected into a scratch directory through the registry `env` (`HOME` or `XDG_*_HOME`), so no existing configuration was read or changed. Commands were absolute paths, as the registry requires.
+
+| Agent and entry | Doctor (no prompt) | `--prompt-check` |
+| --- | --- | --- |
+| testy (rust-sdk v3.2.0), native binary, no args | `ready`, exit 0 | `provider responded (stopReason end_turn)`, exit 0 |
+| OpenCode 1.18.35 (`npm install opencode-ai`), native `opencode` binary, `["acp"]`, no provider configured | `ready`, exit 0 | `provider responded (stopReason end_turn)`, exit 0. OpenCode picked its own free hosted model (`opencode/big-pickle`; its session store recorded cost 0) |
+| OpenCode 1.18.35, same, with `OPENCODE_CONFIG_CONTENT={"model":"deepseek/deepseek-flash"}` and an invalid dummy `DEEPSEEK_API_KEY` | `ready`, exit 0 | failed with JSON-RPC `-32603` (OpenCode logged an authentication error), exit 1; no agent text printed |
+| Gemini CLI 0.63.0 (`npm install @google/gemini-cli`), `/usr/bin/node` + `bundle/gemini.js`, `["--acp"]`, no credentials | `sign-in required`, listing `oauth-personal`, `gemini-api-key`, `vertex-ai`, `gateway`, exit 1 | same; no prompt sent because `session/new` already required sign-in |
+
+What this shows: doctor negotiates with third-party adapters configured as custom registry entries, reports the real `sign-in required` path (Gemini) and, with the opt-in prompt, catches a rejected provider key that `session/new` does not reveal (OpenCode, like Goose). OpenCode reports a rejected key as `-32603`, not ACP `auth_required` (`-32000`), so doctor shows the generic credentials/model/provider message for it. The built-in Gemini entry's `--acp` flag is current (`--experimental-acp` is deprecated in 0.63.0). Templates for both are in `examples/agents.custom.json` (disabled). No session, file, terminal or permission flow was tried with OpenCode or Gemini. Cost: none billed (OpenCode's free model; the invalid DeepSeek key was rejected before any model ran). The testy part is automated in `tests/testy.rs`.
+
 ## Deterministic agent: testy
 
-For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release and elicitation (not advertised by acpd; refused cleanly). See [testy](testy.md).
+For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release elicitation (not advertised by acpd; refused cleanly), a phone-supplied stdio MCP server (`mcp-echo-server`) and doctor against testy as a custom registry entry. See [testy](testy.md).
 
 ## See also
 

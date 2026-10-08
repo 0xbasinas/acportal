@@ -12,7 +12,7 @@
 ACPD_TESTY_BIN="$(scripts/build-testy.sh)" bash scripts/run-testy-isolated.sh
 ```
 
-The build script clones rust-sdk into `${ACPD_TESTY_CACHE:-~/.cache/acpd-testy}` outside the repository, checks out the pinned commit, builds `testy` with the SDK's own lockfile and prints only the binary path. Without `ACPD_TESTY_BIN` every test prints a skip message and passes immediately. The tests are Unix-only.
+The build script clones rust-sdk into `${ACPD_TESTY_CACHE:-~/.cache/acpd-testy}` outside the repository, checks out the pinned commit, builds `testy` and the SDK's stdio MCP test server `mcp-echo-server` with the SDK's own lockfile and prints only the testy path. The MCP test finds `mcp-echo-server` next to testy (override with `ACPD_TESTY_MCP_BIN`) and skips its MCP part with a message if it is missing. Without `ACPD_TESTY_BIN` every test prints a skip message and passes immediately. The tests are Unix-only.
 
 The Linux runner requires `jq`, `sudo`, `unshare`, `mount` and `setpriv`. It compiles the test executable, creates a private mount namespace and mounts a fresh tmpfs at `/tmp`, then drops back to the invoking user's UID/GID before starting the tests and agent. This isolates testy's fixed `/tmp/testy-write.txt` and terminal cwd from the machine's files. Namespace teardown discards fixture files even after a failed assertion. The callback test refuses a direct run unless the private-mount marker and separate `/tmp` tmpfs are present, and no longer deletes a pre-existing callback target. If mount setup fails, the runner stops; it does not fall back to the machine's `/tmp`. Keep builds and the testy binary outside `/tmp`, since the private mount hides that directory.
 
@@ -26,7 +26,9 @@ The Rust workflow has a `testy` job (Linux, 30-minute timeout, testy build cache
 gh workflow run rust.yml -R 0xbasinas/acportal --ref <branch> -f testy=true
 ```
 
-## What is covered (8 October 2026, all passing locally)
+## What is covered (8 October 2026)
+
+All seven pass locally on Linux through `scripts/run-testy-isolated.sh` (private `/tmp` mount, run 8 October 2026 on the doctor/MCP branch). The doctor and MCP tests were added after the CI run above.
 
 | Test | Scenarios | Checks |
 | --- | --- | --- |
@@ -36,13 +38,16 @@ gh workflow run rust.yml -R 0xbasinas/acportal --ref <branch> -f testy=true
 | `testy_callbacks_outside_the_workspace_are_refused_without_consent` | `callbacks` | With a temporary workspace, testy's `/tmp` file and terminal callbacks are refused by the host without asking the phone. Only testy's own permission request is forwarded. |
 | `testy_callbacks_and_full_inside_the_workspace_follow_phone_decisions` (Linux) | `callbacks` ×2, `full` | Workspace `/tmp`. Approved: agent permission `allow_once`, host write consent, read back, host command consent, then terminal output/wait_for_exit/kill/release, with output published to the phone. Denied: `reject_once`; the write is refused and the file is unchanged; the command is refused. `full`: both commands (the tool-content terminal and the callback terminal) need approval, and all update kinds arrive. |
 
+| `testy_doctor_reports_ready_and_the_opt_in_prompt_check_passes` | greeting (doctor's check prompt is not a testy command) | testy as a custom registry entry (`custom-testy`) through the same function as `acpd doctor --agent`: sign-in `ready` with no prompt sent, then `--prompt-check` passes with `stopReason end_turn` and testy's reply is not printed. |
+| `testy_uses_a_phone_supplied_stdio_mcp_server` | `list_tools`, `call_tool` (JSON prompt commands) | A stdio MCP definition sent by the phone in `POST /v1/sessions` (absolute `mcp-echo-server` path, one env pair) reaches testy unchanged: testy starts the server, lists its `echo` tool and calls it (`OK: … through acpd …`). An unknown server name gives testy's own `ERROR:` text. The env value never appears in the session metadata returned to the phone. No consent is involved: MCP tool calls run inside the agent, outside the host's callback consents. |
+
 `callbacks` and `full` always end with testy's elicitation `-32602`, because the elicitation part runs last; the tests check the callbacks before that point.
 
 ## Known gaps, not fixed
 
 - **Elicitation** (`elicitation/create`, `elicitation/complete`) is not supported. acpd does not advertise it, and an unadvertised `elicitation/create` would get `-32601` ("Client capability not supported"). Supporting it needs a phone UI for forms and URLs.
 - **Session management methods** that testy implements (`session/list`, `session/delete`, `session/resume`, `session/close`) are not used: acpd owns session lifecycle (one agent process per session) and does not let the phone send them.
-- **MCP** pass-through to testy's MCP tools (`mcp-echo-server`) is not exercised.
+- **MCP** over HTTP/SSE is not exercised with testy (testy does not advertise those transports; acpd refuses them for agents that do not advertise them, which `tests/network.rs` covers with the mock). Stdio MCP is covered above.
 - **Draft protocol v2** is not exercised (testy's `unstable_protocol_v2` feature is not built).
 
 No acpd bug was found by these scenarios. A stdio tap showed every testy callback getting the response the ACP schema expects.
