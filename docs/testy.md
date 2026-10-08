@@ -9,10 +9,14 @@
 ## Run locally
 
 ```sh
-ACPD_TESTY_BIN="$(scripts/build-testy.sh)" cargo test --locked -p acpd --test testy -- --nocapture
+ACPD_TESTY_BIN="$(scripts/build-testy.sh)" bash scripts/run-testy-isolated.sh
 ```
 
-The script clones rust-sdk into `${ACPD_TESTY_CACHE:-~/.cache/acpd-testy}` (outside the repository), checks out the pinned commit, builds `testy` with the SDK's own lockfile (about 30 seconds after the first dependency build) and prints only the binary path. Without `ACPD_TESTY_BIN` every test prints a skip message and passes immediately, so the ordinary `cargo test` is unchanged. The tests are Unix-only. The in-workspace callback test is Linux-only, because testy uses fixed `/tmp` paths (`/tmp/testy-write.txt`, terminal cwd `/tmp`): that test authorizes `/tmp` as the workspace and removes `/tmp/testy-write.txt` before and after.
+The build script clones rust-sdk into `${ACPD_TESTY_CACHE:-~/.cache/acpd-testy}` outside the repository, checks out the pinned commit, builds `testy` with the SDK's own lockfile and prints only the binary path. Without `ACPD_TESTY_BIN` every test prints a skip message and passes immediately. The tests are Unix-only.
+
+The Linux runner requires `jq`, `sudo`, `unshare`, `mount` and `setpriv`. It compiles the test executable, creates a private mount namespace and mounts a fresh tmpfs at `/tmp`, then drops back to the invoking user's UID/GID before starting the tests and agent. This isolates testy's fixed `/tmp/testy-write.txt` and terminal cwd from the machine's files. Namespace teardown discards fixture files even after a failed assertion. The callback test refuses a direct run unless the private-mount marker and separate `/tmp` tmpfs are present, and no longer deletes a pre-existing callback target. If mount setup fails, the runner stops; it does not fall back to the machine's `/tmp`. Keep builds and the testy binary outside `/tmp`, since the private mount hides that directory.
+
+For this project's current scope, execute Linux verification through GitHub Actions. The revised namespace runner has not yet been verified on Linux; the previous local passing results below predate this isolation change.
 
 ## CI (manual)
 

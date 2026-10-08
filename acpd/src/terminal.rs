@@ -136,6 +136,10 @@ impl PreparedTerminal {
     pub fn cwd(&self) -> &Path {
         &self.cwd
     }
+    /// Agent-supplied values can change executable resolution and loader behavior.
+    pub fn has_environment_overrides(&self) -> bool {
+        !self.request.env.is_empty()
+    }
     pub fn is_shell(&self) -> bool {
         self.shell
     }

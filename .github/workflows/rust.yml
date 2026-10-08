@@ -125,7 +125,7 @@ jobs:
       - name: Build testy
         run: echo "ACPD_TESTY_BIN=$(scripts/build-testy.sh)" >> "$GITHUB_ENV"
       - name: Run the testy tests
-        run: cargo test --locked -p acpd --test testy -- --nocapture
+        run: bash scripts/run-testy-isolated.sh
 
   container:
     if: github.event_name == 'workflow_dispatch' && inputs.extras

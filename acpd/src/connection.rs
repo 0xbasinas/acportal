@@ -929,14 +929,14 @@ async fn actor(
                             match service.prepare(params.clone()) {
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
-                                    let rules=match (&review,prepared.shell_line()) {(Some(reviewer),Some(line))=>Some(reviewer.rules(line,prepared.cwd(),service.workspace())),_=>None};
+                                    let rules=review.as_ref().and_then(|reviewer|reviewer.terminal_rules(&prepared,service.workspace()));
                                     let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
                                     if let Some(auto)=decided {
                                         let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
                                         if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                                         continue;
                                     }
-                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
+                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
                                         let future=reviewer.model_future(line,&crate::shell_review::relative_cwd(service.workspace(),prepared.cwd()),verdict);
                                         let mut tool=terminal_tool(&prepared,&consent_id);
                                         tool["_meta"]=json!({"acpdAutoReview":{"decision":"reviewing","layer":"model","reason":verdict.reason}});
@@ -1138,7 +1138,7 @@ async fn actor(
                     }}
                 }
                 let awaiting_permission = !journal.lock().unwrap().permissions.is_empty();
-                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && !(waiter.method == "session/prompt" && (awaiting_permission || !terminal_waits.is_empty() || !reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
+                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && (waiter.method != "session/prompt" || (!awaiting_permission && terminal_waits.is_empty() && reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
                 match child.try_wait() {
                     Ok(Some(status)) => break format!("agent exited with {status}"),
                     Err(_) => break "agent process status failed".into(),
