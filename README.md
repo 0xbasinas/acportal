@@ -128,6 +128,7 @@ Checklist maintenance: periodically move completed items and verification notes 
 - [Android modules and pages](docs/android.md)
 - [Security boundaries](docs/security.md)
 - [Development and testing](docs/development.md)
+- [Real-agent testing through the host](docs/real-agent-testing.md)
 - [Implementation milestones](docs/milestones.md)
 - [Original request audit and remaining acceptance gates](docs/requirements-audit.md)
 - [Contributor context and test entry points](AGENTS.md)
