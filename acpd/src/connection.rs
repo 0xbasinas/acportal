@@ -475,6 +475,28 @@ fn apply_auto_decision(
         ),
     }
 }
+/// Shown on the phone when an agent asks to write text a file already contains.
+pub const UNCHANGED_WRITE_NOTICE: &str = "The file already contains exactly this text, so acpd did not ask and did not write. The agent probably changed it with its own tool; the host write consent cannot block that. Control such agents with their own permission prompts.";
+/// Shown on the phone when a refused or cancelled host write is found already applied.
+pub const OUTSIDE_WRITE_NOTICE: &str = "This write was not approved, but the file now contains exactly the proposed text: the agent changed it with its own tool, which the host write consent cannot block. Check the file. Control such agents with their own permission prompts.";
+/// The failed-write update for the phone, flagged when the agent applied the change itself.
+async fn refused_write_update(
+    files: &Option<Arc<crate::filesystem::WorkspaceFiles>>,
+    tool_id: &Value,
+    prepared: crate::filesystem::PreparedWrite,
+) -> Value {
+    let outside = match files {
+        Some(files) => {
+            crate::filesystem::written_outside_consent_async(files.clone(), prepared.clone()).await
+        }
+        None => false,
+    };
+    if outside {
+        json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed","content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content},{"type":"content","content":{"type":"text","text":OUTSIDE_WRITE_NOTICE}}],"_meta":{"acpdSource":"host-filesystem","acpdWrite":"changed-without-consent"}})
+    } else {
+        json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed"})
+    }
+}
 fn tool_update(mut tool: Value, kind: &str) -> Value {
     tool["sessionUpdate"] = json!(kind);
     tool
@@ -999,6 +1021,15 @@ async fn actor(
                         let prepared=match crate::filesystem::prepare_write_async(files.clone(),message["params"].clone(),session_id.clone()).await {
                             Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         };
+                        // The file already holds exactly this text (typically an agent that wrote it
+                        // with its own tool before calling back). Nothing would change, so there is no
+                        // write to consent to: answer success without writing and show the phone why.
+                        if prepared.old_text.as_deref()==Some(prepared.content.as_str()) {
+                            let tool=json!({"toolCallId":format!("acpd-write-{}",uuid::Uuid::new_v4()),"title":format!("Write {} (already up to date)",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"completed","rawInput":{"path":prepared.path},"content":[{"type":"content","content":{"type":"text","text":UNCHANGED_WRITE_NOTICE}}],"_meta":{"acpdSource":"host-filesystem","acpdWrite":"unchanged"}});
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
+                            if write(&mut stdin,&response(id.clone(),json!({})),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            continue;
+                        }
                         let consent_id=json!(format!("acpd-write-{}",uuid::Uuid::new_v4()));
                         let tool_id=consent_id.as_str().unwrap().to_owned();
                         let tool=json!({"toolCallId":tool_id,"title":format!("Write {}",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"pending","rawInput":{"path":prepared.path},"content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content}]});
@@ -1066,7 +1097,8 @@ async fn actor(
                                     publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":"failed"}}}));
                                     error(host_terminal.callback_id,-32800,"Terminal creation cancelled")
                                 } else if let Some(host_write)=host_writes.remove(&permission["id"].to_string()) {
-                                    publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":"failed"}}}));
+                                    let update=refused_write_update(&files,&permission["params"]["toolCall"]["toolCallId"],host_write.prepared).await;
+                                    publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                                     error(host_write.callback_id,-32800,"Host file write cancelled")
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
                                 if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
@@ -1106,8 +1138,13 @@ async fn actor(
                             match result {Ok(value)=>response(host_terminal.callback_id,value),Err(_)=>error(host_terminal.callback_id,-32602,"Terminal creation denied or unavailable")}
                         } else if let Some(host_write)=host_writes.remove(&id.to_string()) {
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-write-allow";
-                            let result=if accepted {crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await} else {Err(anyhow!("write denied"))};
-                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":if result.is_ok(){"completed"}else{"failed"}}}}));
+                            let tool_id=&permission["params"]["toolCall"]["toolCallId"];
+                            let (result,update)=if accepted {
+                                let result=crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await;
+                                let update=json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":if result.is_ok(){"completed"}else{"failed"}});
+                                (result,update)
+                            } else {(Err(anyhow!("write denied")),refused_write_update(&files,tool_id,host_write.prepared).await)};
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                             match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
                         let result = write(&mut stdin, &answer, limits.max_frame_bytes).await;

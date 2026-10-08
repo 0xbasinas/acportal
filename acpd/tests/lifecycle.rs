@@ -1459,6 +1459,34 @@ async fn host_file_writes_require_fresh_permission_and_preserve_concurrent_edits
     let result = allowed.await.unwrap().unwrap();
     let _: acp::WriteTextFileResponse = serde_json::from_value(result).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "approved");
+    // Identical content: nothing would change, so no consent; the phone sees why.
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let same = start_write("approved");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), same)
+        .await
+        .expect("an unchanged write needs no consent")
+        .unwrap()
+        .unwrap();
+    let _: acp::WriteTextFileResponse = serde_json::from_value(result).unwrap();
+    assert!(session.replay(0).pending_permissions.is_empty());
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        modified
+    );
+    let notice = session
+        .replay(0)
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.message["params"]["update"]["_meta"]["acpdWrite"] == "unchanged")
+        .map(|event| event.message["params"]["update"].clone())
+        .expect("unchanged write is shown");
+    assert_eq!(notice["status"], "completed");
+    assert_eq!(notice["_meta"]["acpdSource"], "host-filesystem");
+    assert_eq!(
+        notice["content"][0]["content"]["text"],
+        acpd::connection::UNCHANGED_WRITE_NOTICE
+    );
     let changed = start_write("proposed replacement");
     let permission = next_permission(&session.connection).await;
     std::fs::write(&path, "concurrent edit").unwrap();
@@ -1478,6 +1506,86 @@ async fn host_file_writes_require_fresh_permission_and_preserve_concurrent_edits
     assert!(cancelled.await.unwrap().is_err());
     assert!(session.replay(0).pending_permissions.is_empty());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "concurrent edit");
+    manager.shutdown().await;
+}
+
+/// Agents that edit files with their own tools can change a file while the host consent for the
+/// same write is pending. A refused or cancelled consent cannot undo that, so the phone is told.
+#[tokio::test]
+async fn refused_host_write_already_applied_by_the_agent_is_flagged() {
+    let workspace = tempfile::tempdir().unwrap();
+    let manager = manager(workspace.path(), &[], 8);
+    let session = manager
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    let flagged = |session: &acpd::session::AcpSession| {
+        session
+            .replay(0)
+            .events
+            .iter()
+            .filter(|event| {
+                event.message["params"]["update"]["_meta"]["acpdWrite"] == "changed-without-consent"
+            })
+            .map(|event| event.message["params"]["update"].clone())
+            .collect::<Vec<_>>()
+    };
+    for (name, cancel) in [("denied.txt", false), ("cancelled.txt", true)] {
+        let path = workspace.path().join(name);
+        std::fs::write(&path, "original\n").unwrap();
+        let connection = session.connection.clone();
+        let params = json!({"sessionId":session_id,"path":path,"content":"agent text\n"});
+        let request =
+            tokio::spawn(async move { connection.request("_mock/write_file", params).await });
+        let permission = next_permission(&session.connection).await;
+        // The agent's own tool writes the same text while the consent is pending.
+        std::fs::write(&path, "agent text\n").unwrap();
+        if cancel {
+            session.cancel().await.unwrap();
+        } else {
+            session
+                .connection
+                .permission(
+                    permission["id"].clone(),
+                    json!({"outcome":"selected","optionId":"acpd-write-deny"}),
+                )
+                .await
+                .unwrap();
+        }
+        assert!(request.await.unwrap().is_err());
+        let updates = flagged(&session);
+        let update = updates.last().expect("refused write found applied");
+        assert_eq!(
+            update["toolCallId"],
+            permission["params"]["toolCall"]["toolCallId"]
+        );
+        assert_eq!(update["status"], "failed");
+        assert_eq!(update["content"][0]["oldText"], "original\n");
+        assert_eq!(
+            update["content"][1]["content"]["text"],
+            acpd::connection::OUTSIDE_WRITE_NOTICE
+        );
+        assert_eq!(updates.len(), if cancel { 2 } else { 1 });
+    }
+    // An ordinary refusal of a write the agent did not apply is not flagged.
+    let path = workspace.path().join("untouched.txt");
+    std::fs::write(&path, "original\n").unwrap();
+    let connection = session.connection.clone();
+    let params = json!({"sessionId":session_id,"path":path,"content":"agent text\n"});
+    let request = tokio::spawn(async move { connection.request("_mock/write_file", params).await });
+    let permission = next_permission(&session.connection).await;
+    session
+        .connection
+        .permission(
+            permission["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-write-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(request.await.unwrap().is_err());
+    assert_eq!(flagged(&session).len(), 2);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
     manager.shutdown().await;
 }
 
