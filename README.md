@@ -6,6 +6,8 @@ The repository includes the Rust host, authenticated WebSocket API, pairing serv
 
 The implemented local client uses **Goose ACP** by default. Tests use a deterministic ACP executable with no model subscription. Filesystem tests write only inside temporary test workspaces.
 
+Opt-in shell review requires manual consent for agent-supplied terminal environment overrides and filename patterns. The Linux testy callback runner isolates upstream fixed `/tmp` paths in a private mount; see [testy verification and limits](docs/testy.md).
+
 ## Run locally
 
 Requires Rust 1.88 or newer and the Goose CLI on `PATH`. The supplied config allows this repository as a workspace and sets `GOOSE_MODE=approve` in the registry. Configure your provider through Goose itself. ACP Portal does not read or copy provider credentials.

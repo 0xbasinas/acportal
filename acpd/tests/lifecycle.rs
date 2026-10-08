@@ -832,6 +832,67 @@ async fn shell_review_model_layer_allow_deny_malformed_and_timeout() {
         .await
         .unwrap();
     let session_id = session.metadata().acp_session_id;
+    // Environment overrides require the phone, even for an otherwise allowlisted line.
+    for name in ["PATH", "LD_PRELOAD"] {
+        let worker = session.clone();
+        let request = json!({"sessionId":session_id,"command":"ls -la",
+            "env":[{"name":name,"value":"private-value"}]});
+        let pending = tokio::spawn(async move {
+            worker
+                .connection
+                .request(
+                    "_mock/terminal",
+                    json!({"method":"terminal/create","request":request}),
+                )
+                .await
+        });
+        let consent = next_permission(&session.connection).await;
+        assert_eq!(
+            consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+            "rules"
+        );
+        assert_eq!(
+            consent["params"]["_meta"]["acpdAutoReview"]["decision"],
+            "ask"
+        );
+        assert!(!consent.to_string().contains("private-value"));
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "environment is never sent to the model"
+        );
+        session
+            .connection
+            .permission(
+                consent["id"].clone(),
+                json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+            )
+            .await
+            .unwrap();
+        assert!(pending.await.unwrap().is_err());
+    }
+    // A positive model response cannot approve an outside-workspace glob.
+    let pending = create_shell(&session, &session_id, "cat /etc/allowme*").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["decision"],
+        "ask"
+    );
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+        "model"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(pending.await.unwrap().is_err());
+
     // Model allow of an undecided low-risk line.
     let allowed = create_shell(&session, &session_id, "wc -l a.txt").await;
     let created = timeout(Duration::from_secs(3), allowed)

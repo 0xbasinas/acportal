@@ -497,8 +497,32 @@ async fn testy_callbacks_outside_the_workspace_are_refused_without_consent() {
 #[tokio::test]
 async fn testy_callbacks_and_full_inside_the_workspace_follow_phone_decisions() {
     let Some(testy) = testy() else { return };
+    // The upstream agent uses fixed paths. Refuse to run against the machine's /tmp.
+    // scripts/run-testy-isolated.sh creates a fresh tmpfs in a private mount namespace.
+    assert_eq!(
+        std::env::var("ACPD_TESTY_PRIVATE_TMP").as_deref(),
+        Ok("1"),
+        "run this fixture with scripts/run-testy-isolated.sh"
+    );
+    assert!(
+        std::fs::read_to_string("/proc/self/mountinfo")
+            .unwrap()
+            .lines()
+            .any(|line| {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                fields.get(4) == Some(&"/tmp") && line.contains(" - tmpfs ")
+            }),
+        "testy requires a separate tmpfs mounted at /tmp"
+    );
+    assert_eq!(
+        std::fs::read_to_string("/tmp/acpd-testy-private-mount").unwrap(),
+        "acpd-testy isolated fixture\n"
+    );
     let target = Path::new("/tmp/testy-write.txt");
-    let _ = std::fs::remove_file(target);
+    assert!(
+        !target.exists(),
+        "fresh private /tmp must not contain the callback target"
+    );
     let fixture = Fixture::start(&testy, Some(PathBuf::from("/tmp"))).await;
     let session = fixture.create().await;
     let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
@@ -570,6 +594,5 @@ async fn testy_callbacks_and_full_inside_the_workspace_follow_phone_decisions() 
         std::fs::read_to_string(target).unwrap(),
         "written by testy\n"
     );
-    let _ = std::fs::remove_file(target);
     fixture.stop().await;
 }

@@ -155,6 +155,81 @@ fn ask(reason: &'static str, model_may_allow: bool) -> RuleVerdict {
     }
 }
 
+fn environment_gate(verdict: RuleVerdict, has_overrides: bool) -> RuleVerdict {
+    if has_overrides && verdict.decision != Decision::Deny {
+        ask(
+            "terminal environment overrides require manual review",
+            false,
+        )
+    } else {
+        verdict
+    }
+}
+
+#[cfg(test)]
+mod review_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn environment_overrides_block_rules_and_model_allow_without_weakening_deny() {
+        for verdict in [allow("test"), ask("test", true), ask("test", false)] {
+            assert_eq!(environment_gate(verdict.clone(), false), verdict);
+            let gated = environment_gate(verdict, true);
+            assert_eq!(gated.decision, Decision::Ask);
+            assert!(!gated.model_may_allow);
+        }
+        assert_eq!(environment_gate(deny("test"), true), deny("test"));
+    }
+
+    #[test]
+    fn prepared_terminal_environment_requires_manual_consent() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let service = crate::terminal::TerminalService::new("review", &root, 1024).unwrap();
+        let config = ShellReviewConfig {
+            rules: true,
+            ..Default::default()
+        };
+        let reviewer = ShellReviewer::new(Some(&config), "test").unwrap().unwrap();
+        for name in ["PATH", "LD_PRELOAD", "SAFE_LOOKING_NAME"] {
+            let prepared = service
+                .prepare(json!({"sessionId":"review","command":"ls -la",
+                "env":[{"name":name,"value":"private-value"}]}))
+                .unwrap();
+            assert!(prepared.has_environment_overrides());
+            let verdict = reviewer.terminal_rules(&prepared, &root).unwrap();
+            assert_eq!(verdict.decision, Decision::Ask);
+            assert!(!verdict.model_may_allow);
+            assert!(!prepared.operation().to_string().contains("private-value"));
+        }
+        let plain = service
+            .prepare(json!({"sessionId":"review","command":"ls -la"}))
+            .unwrap();
+        assert!(!plain.has_environment_overrides());
+        assert_eq!(
+            reviewer.terminal_rules(&plain, &root).unwrap(),
+            reviewer.rules("ls -la", &root, &root)
+        );
+    }
+
+    #[test]
+    fn globs_cannot_be_promoted_to_allow_by_a_model() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        for line in [
+            "ls *.txt",
+            "cat /etc/*",
+            "cat ../*",
+            "ls safe && cat ../*",
+            "cat link/*",
+        ] {
+            let verdict = evaluate_sh(line, &root, &root);
+            assert_eq!(verdict.decision, Decision::Ask, "{line}");
+            assert!(!verdict.model_may_allow, "{line}");
+        }
+    }
+}
+
 /// Final automatic outcome shown to the phone and logged as decision + layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoDecision {
@@ -830,8 +905,7 @@ pub fn evaluate_sh(line: &str, cwd: &Path, root: &Path) -> RuleVerdict {
             }
         }
         if words.iter().any(|word| word.glob) {
-            undecided.get_or_insert("uses a filename pattern");
-            continue;
+            return ask("filename patterns require manual review", false);
         }
         match allowlisted(command, root, &cwd) {
             Ok(Listed::Allowed) => {}
@@ -929,6 +1003,17 @@ impl ShellReviewer {
     }
     pub fn rules(&self, line: &str, cwd: &Path, root: &Path) -> RuleVerdict {
         rules_verdict(line, cwd, root)
+    }
+    pub fn terminal_rules(
+        &self,
+        prepared: &crate::terminal::PreparedTerminal,
+        root: &Path,
+    ) -> Option<RuleVerdict> {
+        let verdict = self.rules(prepared.shell_line()?, prepared.cwd(), root);
+        Some(environment_gate(
+            verdict,
+            prepared.has_environment_overrides(),
+        ))
     }
     /// Whether an undecided line should go to the model; reserves a rate slot.
     pub fn admit_model(&self, line: &str) -> bool {
@@ -1144,7 +1229,7 @@ mod tests {
             ("python3 calc.py", Ask, true),
             ("git log | head -5", Ask, true),
             ("ls || pwd", Ask, true),
-            ("ls *.txt", Ask, true),
+            ("ls *.txt", Ask, false),
             ("make test", Ask, true),
             ("./run-tests.sh", Ask, true),
         ];
