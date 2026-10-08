@@ -20,6 +20,8 @@ Built-in definitions are in `acpd/registry/builtin.json`. Custom entries replace
 ]
 ```
 
+Optional `"ownTools": true` declares that the agent edits files, runs commands or reads files with its own built-in tools, outside the host's ACP callbacks. It is reported by `/v1/agents` and in session metadata, and the Android app shows a "Uses its own tools" warning. It changes no host behavior. The host cannot detect this itself, so set it for agents such as OpenCode; the shipped OpenCode template sets it. It defaults to false and is omitted when false.
+
 Arguments are literal process arguments. There is no shell string parsing. IDs use ASCII letters, digits, underscores, or hyphens, with a maximum length of 64. Invalid entries, unknown keys, unsupported transports, duplicate IDs in a file, and malformed environment keys fail configuration validation.
 
 An explicit working directory must be absolute, exist, and be inside an allowed workspace root. The process launch cwd can differ from the session workspace, but both need host authorization.

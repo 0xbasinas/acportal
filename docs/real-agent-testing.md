@@ -284,9 +284,22 @@ Session delete and host shutdown left no OpenCode process. The frame-metadata lo
 
 Conclusions: OpenCode works through acpd for prompts, streaming, agent permissions, cancel, reconnect and load. Its file edits, shell commands and reads use its own tools, so the host's write/terminal consents and workspace containment do not control it. Configure OpenCode's permissions to `ask` and treat its own permission prompts as the real decision. Host aids added on this branch: a refused or cancelled host write that turns out to be already applied is flagged, and a write of text the file already holds is answered without a consent (mock-tested; not observed with OpenCode, whose write races the callback). See [security](security.md). Not tested: OpenCode's `allow_always`/`reject_always`, MCP and a paid provider.
 
+### OpenCode "Always allow" (8 October 2026, about 23:50 Athens)
+
+The optional `always` step of `scripts/real-agent-check.py` was run against OpenCode 1.18.35 with `permission: ask`, on the free model `opencode/big-pickle` (cost 0), in a git fixture. It sends four prompts. Host write consents are allowed once; agent permissions get the kind named below.
+
+| Substep | Answer | Result |
+| --- | --- | --- |
+| allow_first | `allow_always` for `git log --oneline -1` (`bash`) | Ran. |
+| allow_again | (would have chosen `reject_once`) | Same command ran again with **no permission request**. |
+| edit_first | `allow_always` for the README edit, host write allowed | README edited. The only `fs/write_text_file` of the step. |
+| edit_again | (would have chosen `reject_once`) | **No agent permission and no host write consent**; OpenCode wrote the second README line itself. |
+
+The agent permission options offered were `allow_once`, `allow_always` and `reject_once`; OpenCode 1.18.35 has no "always reject". After "Always allow" for edits, OpenCode's own tools do not route through the host at all, so neither the host's consent nor its `acpdWrite` notices can show later edits. This is why the registry template marks OpenCode `ownTools` and the phone warns about it. The edit_first step also produced one `failed` tool update without a title, which was not investigated. Session delete and host shutdown left no process.
+
 ## Deterministic agent: testy
 
-For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release elicitation (not advertised by acpd; refused cleanly), a phone-supplied stdio MCP server (`mcp-echo-server`) and doctor against testy as a custom registry entry. See [testy](testy.md).
+For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release, form elicitation (forwarded only when the phone opts in, otherwise refused cleanly), phone-supplied stdio and HTTP MCP servers (`mcp-echo-server`, `tools/mcp-http-echo`) and doctor against testy as a custom registry entry. See [testy](testy.md).
 
 ## See also
 
