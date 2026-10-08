@@ -1,6 +1,25 @@
 use acpd::{api::Host, config::Config, registry::Registry};
 use serde_json::json;
 
+/// Opens a host on a state directory a dropped host just released. A mock agent another
+/// test is spawning at that moment can briefly inherit the catalog lock descriptor between
+/// fork and exec (it is close-on-exec), so the lock may stay held for a moment. Retry
+/// only that error, and only briefly.
+async fn reopen(config: &Config, registry: &Registry) -> Host {
+    for _ in 0..100 {
+        match Host::new(config.clone(), registry.clone()) {
+            Ok(host) => return host,
+            Err(error)
+                if format!("{error:#}").contains("another host owns the session catalog") =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await
+            }
+            Err(error) => panic!("{error:#}"),
+        }
+    }
+    panic!("session catalog lock was not released")
+}
+
 #[tokio::test]
 async fn restart_retains_effective_access_and_explicit_load_can_choose_new_access() {
     use acpd::connection::WorkspaceAccess;
@@ -21,7 +40,7 @@ async fn restart_retains_effective_access_and_explicit_load_can_choose_new_acces
     drop(session);
     host.sessions.shutdown().await;
     drop(host);
-    let host = Host::new(config.clone(), registry).unwrap();
+    let host = reopen(&config, &registry).await;
     assert_eq!(
         host.sessions
             .metadata(metadata.id)
@@ -102,7 +121,7 @@ async fn persisted_authentication_setup_and_disabled_resume_remain_capability_dr
         drop(session);
         host.sessions.shutdown().await;
         drop(host);
-        let host = Host::new(config.clone(), registry.clone()).unwrap();
+        let host = reopen(&config, &registry).await;
         let recovered = host.sessions.metadata(metadata.id).await.unwrap();
         assert_eq!(recovered.acp_session_id, metadata.acp_session_id);
         assert_eq!(recovered.status, "interrupted");
@@ -137,7 +156,7 @@ async fn catalog_has_one_owner_revalidates_workspace_policy_and_fails_closed_on_
     let outside = directory.path().join("different-workspace");
     std::fs::create_dir(&outside).unwrap();
     config.workspace_roots = vec![outside];
-    let host = Host::new(config.clone(), registry.clone()).unwrap();
+    let host = reopen(&config, &registry).await;
     assert!(host.sessions.list().await.is_empty());
     assert!(host.sessions.metadata(id).await.is_err());
     drop(host);
