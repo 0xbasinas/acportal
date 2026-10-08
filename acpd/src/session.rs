@@ -293,6 +293,7 @@ impl SessionManager {
             self.config.runtime.clone(),
             &workspace,
             access,
+            self.config.shell_review.get(agent_id),
         )?;
         let setup_result = async {
             let mut initialization_request = initialize_params();

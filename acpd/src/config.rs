@@ -1,5 +1,7 @@
+use crate::shell_review::ShellReviewConfig;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -11,6 +13,9 @@ pub struct Config {
     pub server: ServerConfig,
     pub state_directory: PathBuf,
     pub logging: LoggingConfig,
+    /// Opt-in automatic review of agent shell lines, keyed by agent id. Absent = off:
+    /// every shell line needs explicit phone approval.
+    pub shell_review: BTreeMap<String, ShellReviewConfig>,
 }
 
 /// Optional bounded file sink for host lifecycle logs. Stderr output is unchanged.
@@ -92,6 +97,7 @@ impl Default for Config {
             server: ServerConfig::default(),
             state_directory: default_directory().join("state"),
             logging: LoggingConfig::default(),
+            shell_review: BTreeMap::new(),
         }
     }
 }
@@ -175,6 +181,19 @@ impl Config {
         {
             bail!("log file must name a file")
         }
+        for (agent, review) in &self.shell_review {
+            if agent.is_empty()
+                || agent.len() > 64
+                || !agent
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                bail!("shell_review keys must be agent ids")
+            }
+            review
+                .validate()
+                .with_context(|| format!("shell_review.{agent}"))?;
+        }
         Ok(())
     }
     pub fn workspace(&self, requested: &Path) -> Result<PathBuf> {
@@ -229,6 +248,34 @@ mod tests {
             config.workspace(dir.path()).unwrap(),
             dir.path().canonicalize().unwrap()
         );
+    }
+    #[test]
+    fn shell_review_is_off_by_default_and_parses_per_agent() {
+        assert!(Config::default().shell_review.is_empty());
+        let config: Config = toml::from_str(
+            "[shell_review.goose]\nrules = true\n[shell_review.goose.model]\nbase_url = 'https://api.deepseek.com'\nmodel = 'deepseek-flash'\napi_key_env = 'DEEPSEEK_API_KEY'\n",
+        )
+        .unwrap();
+        config.validate().unwrap();
+        let goose = &config.shell_review["goose"];
+        assert!(goose.rules);
+        let model = goose.model.as_ref().unwrap();
+        assert_eq!(
+            (
+                model.timeout_seconds,
+                model.max_requests_per_minute,
+                model.max_command_bytes
+            ),
+            (10, 6, 2048)
+        );
+        let retired: Config = toml::from_str(
+            "[shell_review.goose]\nrules = true\n[shell_review.goose.model]\nbase_url = 'https://api.deepseek.com'\nmodel = 'deepseek-chat'\napi_key_env = 'K'\n",
+        )
+        .unwrap();
+        assert!(retired.validate().is_err());
+        assert!(toml::from_str::<Config>("[shell_review.goose]\nauto = true\n").is_err());
+        let off: Config = toml::from_str("[shell_review.goose]\n").unwrap();
+        assert!(!off.shell_review["goose"].rules);
     }
     #[test]
     fn catches_invalid_limits_and_unknown_keys() {

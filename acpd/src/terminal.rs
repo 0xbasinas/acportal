@@ -128,6 +128,14 @@ pub fn is_shell_line(command: &str, args: &[String]) -> bool {
             || (cfg!(unix) && command.contains('\\')))
 }
 impl PreparedTerminal {
+    /// The exact shell line, when this request runs through the host shell.
+    pub fn shell_line(&self) -> Option<&str> {
+        self.shell.then_some(self.request.command.as_str())
+    }
+    /// Canonical working directory inside the workspace.
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
+    }
     pub fn is_shell(&self) -> bool {
         self.shell
     }
@@ -244,6 +252,10 @@ impl TerminalService {
             maximum_output,
             terminals: HashMap::new(),
         })
+    }
+    /// Canonical workspace root of this session.
+    pub fn workspace(&self) -> &Path {
+        &self.workspace
     }
     pub fn prepare(&self, params: Value) -> Result<PreparedTerminal> {
         if params.to_string().len() > 128 * 1024 {

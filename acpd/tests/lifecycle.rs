@@ -610,6 +610,358 @@ async fn shell_lines_require_their_own_approval_and_run_exactly_as_shown() {
     manager.shutdown().await;
 }
 
+#[cfg(target_os = "linux")]
+fn manager_with_review(
+    workspace: &Path,
+    args: &[&str],
+    review: acpd::shell_review::ShellReviewConfig,
+) -> SessionManager {
+    let mut shell_review = std::collections::BTreeMap::new();
+    shell_review.insert("test-agent".into(), review);
+    let config = Config {
+        workspace_roots: vec![workspace.into()],
+        runtime: RuntimeConfig {
+            request_timeout_seconds: 5,
+            max_sessions: 4,
+            ..Default::default()
+        },
+        shell_review,
+        ..Default::default()
+    };
+    let registry =
+        Registry::parse(&serde_json::to_string(&vec![definition(args)]).unwrap()).unwrap();
+    SessionManager::new(config, registry).unwrap()
+}
+
+#[cfg(target_os = "linux")]
+async fn create_shell(
+    session: &Arc<acpd::session::AcpSession>,
+    session_id: &str,
+    line: &str,
+) -> tokio::task::JoinHandle<anyhow::Result<Value>> {
+    let worker = session.clone();
+    let request = json!({"sessionId":session_id,"command":line,"args":[],"cwd":session.metadata().workspace,"outputByteLimit":4096});
+    tokio::spawn(async move {
+        worker
+            .connection
+            .request(
+                "_mock/terminal",
+                json!({"method":"terminal/create","request":request}),
+            )
+            .await
+    })
+}
+
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn shell_review_rules_auto_allow_deny_and_ask() {
+    use acpd::shell_review::ShellReviewConfig;
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("a.txt"), "x").unwrap();
+    let reviewed = manager_with_review(
+        workspace.path(),
+        &[],
+        ShellReviewConfig {
+            rules: true,
+            model: None,
+        },
+    );
+    let session = reviewed
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    // Allow: no phone consent; the timeline shows the auto-decision.
+    let allowed = create_shell(&session, &session_id, "ls a.txt").await;
+    let created = timeout(Duration::from_secs(3), allowed)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let _: acp::CreateTerminalResponse = serde_json::from_value(created.clone()).unwrap();
+    let auto = session
+        .connection
+        .replay(0)
+        .events
+        .iter()
+        .find_map(|event| {
+            let update = &event.message["params"]["update"];
+            (update["sessionUpdate"] == "tool_call")
+                .then(|| update["_meta"]["acpdAutoReview"].clone())
+                .filter(|value| !value.is_null())
+        })
+        .expect("auto-allow must be visible in the session");
+    assert_eq!(auto["decision"], "allow");
+    assert_eq!(auto["layer"], "rules");
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/wait_for_exit","request":scope}),
+        )
+        .await
+        .unwrap();
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/release","request":scope}),
+        )
+        .await
+        .unwrap();
+    // Deny: hard-deny list refuses without a phone prompt.
+    let denied = create_shell(&session, &session_id, "rm -rf /").await;
+    let error = timeout(Duration::from_secs(3), denied)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    let code = error.downcast_ref::<AgentRpcError>().unwrap().0;
+    assert_eq!(code, acpd::connection::CALLBACK_DENIED);
+    assert!(session.connection.replay(0).pending_permissions.is_empty());
+    // Ask: redirects still need explicit phone approval.
+    let asked = create_shell(&session, &session_id, "echo hi > out.txt").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdSource"],
+        "host-shell-command"
+    );
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["decision"],
+        "ask"
+    );
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+        "rules"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(asked.await.unwrap().is_err());
+    // Off by default: a manager without shell_review still prompts.
+    let plain_manager = manager(workspace.path(), &[], 4);
+    let session = plain_manager
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    let pending = create_shell(&session, &session_id, "ls -la").await;
+    let consent = next_permission(&session.connection).await;
+    assert!(consent["params"]["_meta"].get("acpdAutoReview").is_none());
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(pending.await.unwrap().is_err());
+    reviewed.shutdown().await;
+    plain_manager.shutdown().await;
+}
+
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn shell_review_model_layer_allow_deny_malformed_and_timeout() {
+    use acpd::shell_review::{ModelReviewConfig, ShellReviewConfig};
+    use axum::{Router, body::Bytes, http::StatusCode, routing::post};
+    use std::sync::Arc as StdArc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = StdArc::new(AtomicUsize::new(0));
+    let state = hits.clone();
+    let app = Router::new().route(
+        "/chat/completions",
+        post(move |body: Bytes| {
+            let state = state.clone();
+            async move {
+                state.fetch_add(1, Ordering::SeqCst);
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let user: Value =
+                    serde_json::from_str(request["messages"][1]["content"].as_str().unwrap())
+                        .unwrap();
+                assert_eq!(user["agent"], "test-agent");
+                assert_eq!(user["shell"], "/bin/sh -c");
+                assert!(user.get("env").is_none());
+                let command = user["command"].as_str().unwrap().to_owned();
+                let content = if command.contains("wc") || command.contains("allowme") {
+                    r#"{"decision":"allow","reason":"counts lines"}"#
+                } else if command.contains("make") {
+                    r#"{"decision":"deny","reason":"looks destructive"}"#
+                } else if command.contains("grep") {
+                    "not-json"
+                } else {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    r#"{"decision":"allow","reason":"late"}"#
+                };
+                (
+                    StatusCode::OK,
+                    axum::Json(json!({"choices":[{"message":{"content":content}}]})),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let key = "ACPD_SHELL_REVIEW_TEST_KEY";
+    // SAFETY: test-only env, single-threaded per process for this name.
+    unsafe { std::env::set_var(key, "synthetic-test-key") };
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("a.txt"), "x").unwrap();
+    let review = ShellReviewConfig {
+        rules: true,
+        model: Some(ModelReviewConfig {
+            base_url: format!("http://{address}"),
+            model: "test-model".into(),
+            api_key_env: key.into(),
+            timeout_seconds: 1,
+            max_requests_per_minute: 30,
+            max_command_bytes: 2048,
+        }),
+    };
+    let manager = manager_with_review(workspace.path(), &[], review);
+    let session = manager
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    // Model allow of an undecided low-risk line.
+    let allowed = create_shell(&session, &session_id, "wc -l a.txt").await;
+    let created = timeout(Duration::from_secs(3), allowed)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let auto = session
+        .connection
+        .replay(0)
+        .events
+        .iter()
+        .rev()
+        .find_map(|event| {
+            let update = &event.message["params"]["update"];
+            update
+                .get("_meta")
+                .and_then(|meta| meta.get("acpdAutoReview"))
+                .cloned()
+        })
+        .unwrap();
+    assert_eq!(auto["decision"], "allow");
+    assert_eq!(auto["layer"], "model");
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/release","request":scope}),
+        )
+        .await
+        .unwrap();
+    // Model deny.
+    let denied = create_shell(&session, &session_id, "make test").await;
+    let error = timeout(Duration::from_secs(3), denied)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<AgentRpcError>().unwrap().0,
+        acpd::connection::CALLBACK_DENIED
+    );
+    // Malformed reply → ask the phone.
+    let asked = create_shell(&session, &session_id, "grep -n add a.txt").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["decision"],
+        "ask"
+    );
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+        "model"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(asked.await.unwrap().is_err());
+    // Timeout → ask the phone.
+    let timed = create_shell(&session, &session_id, "python3 calc.py").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+        "model"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(timed.await.unwrap().is_err());
+    // A model "allow" cannot auto-run a line the rules mark sensitive.
+    let sensitive = create_shell(&session, &session_id, "echo allowme > out.txt").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["decision"],
+        "ask"
+    );
+    assert_eq!(
+        consent["params"]["_meta"]["acpdAutoReview"]["layer"],
+        "model"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(sensitive.await.unwrap().is_err());
+    assert!(!workspace.path().join("out.txt").exists());
+    // Cancel while the model is still reviewing: nothing runs and no consent appears.
+    let reviewing = create_shell(&session, &session_id, "python3 slow.py").await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    session
+        .connection
+        .notify("session/cancel", json!({"sessionId":session_id}))
+        .await
+        .unwrap();
+    let error = timeout(Duration::from_secs(3), reviewing)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<AgentRpcError>().unwrap().0, -32800);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(session.connection.replay(0).pending_permissions.is_empty());
+    // Rules already deny, so the model is never called for that line.
+    let before = hits.load(Ordering::SeqCst);
+    let hard = create_shell(&session, &session_id, "sudo ls").await;
+    assert!(
+        timeout(Duration::from_secs(3), hard)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), before);
+    manager.shutdown().await;
+}
+
 #[tokio::test]
 async fn a_quiet_terminal_wait_pauses_prompt_inactivity_until_command_exit() {
     let workspace = tempfile::tempdir().unwrap();

@@ -1,5 +1,7 @@
 //! One Tokio actor owns stdin, stdout and the child process. Subscribers never own it.
 use crate::filesystem::WorkspaceFiles;
+use crate::shell_review::{AutoDecision, Decision, ShellReviewConfig, ShellReviewer};
+use crate::terminal::{PreparedTerminal, TerminalService};
 use crate::{config::RuntimeConfig, registry::AgentDefinition};
 use acportal_protocol::{acp, error, request, response, validate_message};
 use anyhow::{Context, Result, anyhow, bail};
@@ -310,6 +312,169 @@ fn publish_terminal(
         json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":status,"content":[{"type":"terminal","terminalId":terminal_id}],"_meta":{"acpdTerminal":terminal}}}}),
     );
 }
+fn terminal_tool(prepared: &PreparedTerminal, consent_id: &Value) -> Value {
+    let operation = prepared.operation();
+    let title = if prepared.is_shell() {
+        "Run shell command".to_owned()
+    } else {
+        format!(
+            "Run {}",
+            Path::new(operation["command"].as_str().unwrap_or_default())
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        )
+    };
+    json!({"toolCallId":consent_id,"title":title,"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]})
+}
+fn log_auto_review(auto: &AutoDecision) {
+    // Decision and layer only: never the command line, cwd or reason text.
+    tracing::info!(
+        decision = auto.decision.label(),
+        layer = auto.layer,
+        "shell line auto-review"
+    );
+}
+/// Ask the phone to approve a prepared terminal. Shell lines get their own source and
+/// option ids, so an answer meant for a plain command can never approve one; there is
+/// no "always" option. `announce` publishes the tool call first.
+#[allow(clippy::too_many_arguments)]
+fn offer_terminal_consent(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    limits: &RuntimeConfig,
+    host_terminals: &mut HashMap<String, HostTerminalCreate>,
+    session_id: &Option<String>,
+    consent_id: Value,
+    callback_id: Value,
+    prepared: PreparedTerminal,
+    auto: Option<&AutoDecision>,
+    announce: bool,
+) -> Result<()> {
+    let tool = terminal_tool(&prepared, &consent_id);
+    let (source, options) = if prepared.is_shell() {
+        (
+            "host-shell-command",
+            json!([{"optionId":"acpd-shell-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-shell-allow","name":"Run this shell line once","kind":"allow_once"}]),
+        )
+    } else {
+        (
+            "host-terminal",
+            json!([{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]),
+        )
+    };
+    let mut meta = json!({ "acpdSource": source });
+    if let Some(auto) = auto {
+        meta["acpdAutoReview"] = auto.to_json();
+    }
+    let consent = json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":meta,"options":options}});
+    let size = consent.to_string().len();
+    let inserted = {
+        let mut history = journal.lock().unwrap();
+        let bytes: usize = history
+            .permissions
+            .values()
+            .map(|value| value.to_string().len())
+            .sum();
+        if size + 256 > limits.max_frame_bytes
+            || history.permissions.len() >= 128
+            || bytes + size > limits.history_bytes
+        {
+            false
+        } else {
+            history
+                .permissions
+                .insert(consent_id.to_string(), consent.clone());
+            true
+        }
+    };
+    if !inserted {
+        bail!("permission capacity exceeded")
+    }
+    host_terminals.insert(
+        consent_id.to_string(),
+        HostTerminalCreate {
+            callback_id,
+            prepared,
+        },
+    );
+    if announce {
+        publish_host(
+            events,
+            journal,
+            json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}),
+        );
+    }
+    publish_host(events, journal, consent);
+    Ok(())
+}
+/// Run or refuse a shell line decided automatically, show the decision to the phone
+/// and return the answer for the agent's `terminal/create`.
+#[allow(clippy::too_many_arguments)]
+fn apply_auto_decision(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    terminals: &mut TerminalService,
+    terminal_tools: &mut HashMap<String, (String, Value)>,
+    session_id: &Option<String>,
+    consent_id: &Value,
+    callback_id: Value,
+    prepared: PreparedTerminal,
+    auto: &AutoDecision,
+    announce: bool,
+) -> Value {
+    log_auto_review(auto);
+    let mut tool = terminal_tool(&prepared, consent_id);
+    tool["_meta"] = json!({ "acpdAutoReview": auto.to_json() });
+    let result = if auto.decision == Decision::Allow {
+        terminals.create_approved(prepared)
+    } else {
+        Err(anyhow!("denied by auto-review"))
+    };
+    tool["status"] = json!(if result.is_ok() {
+        "in_progress"
+    } else {
+        "failed"
+    });
+    if let Ok(created) = &result {
+        terminal_tools.insert(
+            created["terminalId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            (
+                consent_id.as_str().unwrap_or_default().to_owned(),
+                json!({}),
+            ),
+        );
+    }
+    let kind = if announce {
+        "tool_call"
+    } else {
+        "tool_call_update"
+    };
+    publish_host(
+        events,
+        journal,
+        json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,kind)}}),
+    );
+    match result {
+        Ok(value) => response(callback_id, value),
+        Err(_) if auto.decision == Decision::Deny => error(
+            callback_id,
+            CALLBACK_DENIED,
+            &format!(
+                "Shell line refused by acpd auto-review ({}): {}. Do not retry it unchanged.",
+                auto.layer, auto.reason
+            ),
+        ),
+        Err(_) => error(
+            callback_id,
+            -32602,
+            "Terminal creation denied or unavailable",
+        ),
+    }
+}
 fn tool_update(mut tool: Value, kind: &str) -> Value {
     tool["sessionUpdate"] = json!(kind);
     tool
@@ -321,6 +486,7 @@ struct ActorContext<'a> {
     limits: &'a RuntimeConfig,
     files: Option<Arc<WorkspaceFiles>>,
     access: WorkspaceAccess,
+    review: Option<Arc<ShellReviewer>>,
 }
 
 impl AcpConnection {
@@ -341,6 +507,7 @@ impl AcpConnection {
                 write_files: false,
                 terminal: false,
             },
+            None,
         )
     }
     pub fn spawn_with_filesystem(
@@ -357,6 +524,7 @@ impl AcpConnection {
             limits,
             workspace,
             WorkspaceAccess::default(),
+            None,
         )
     }
     pub fn spawn_with_access(
@@ -366,13 +534,23 @@ impl AcpConnection {
         limits: RuntimeConfig,
         workspace: &Path,
         access: WorkspaceAccess,
+        review: Option<&ShellReviewConfig>,
     ) -> Result<Self> {
         // Reserve worst-case JSON escaping plus envelope bytes inside the ACP frame limit.
         let files = Arc::new(WorkspaceFiles::open(
             workspace,
             (limits.max_frame_bytes - 256) / 6,
         )?);
-        Self::spawn_inner(definition, executable, cwd, limits, Some(files), access)
+        let review = ShellReviewer::new(review, &definition.id)?.map(Arc::new);
+        Self::spawn_inner(
+            definition,
+            executable,
+            cwd,
+            limits,
+            Some(files),
+            access,
+            review,
+        )
     }
     fn spawn_inner(
         definition: &AgentDefinition,
@@ -381,6 +559,7 @@ impl AcpConnection {
         limits: RuntimeConfig,
         files: Option<Arc<WorkspaceFiles>>,
         access: WorkspaceAccess,
+        review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
         let mut command = Command::new(executable);
@@ -446,6 +625,7 @@ impl AcpConnection {
                     limits: &limits,
                     files,
                     access,
+                    review,
                 },
             )
             .await;
@@ -675,6 +855,7 @@ async fn actor(
         limits,
         files,
         access,
+        review,
     } = context;
     let mut pending: HashMap<u64, Pending> = HashMap::new();
     let mut next_id = 0u64;
@@ -687,6 +868,9 @@ async fn actor(
     let mut terminal_waits = tokio::task::JoinSet::<(Value, Result<Value>)>::new();
     let mut wait_ids = std::collections::HashSet::new();
     let mut terminal_poll = Instant::now();
+    // Shell lines waiting for the optional model reviewer, keyed like consents.
+    let mut reviewing: HashMap<String, (Value, PreparedTerminal)> = HashMap::new();
+    let mut model_reviews = tokio::task::JoinSet::<(String, AutoDecision)>::new();
     let mut timer = tokio::time::interval(Duration::from_millis(100));
     // A dedicated bounded reader preserves partial frames across select branches.
     let reason = loop {
@@ -730,7 +914,7 @@ async fn actor(
                         continue;
                     }
                     if message["method"].as_str().is_some_and(|method|method.starts_with("terminal/")) {
-                        if host_terminals.values().any(|entry|entry.callback_id==*id) || host_writes.values().any(|entry|entry.callback_id==*id) || wait_ids.contains(&id.to_string()) {break "duplicate client callback id".into()}
+                        if host_terminals.values().any(|entry|entry.callback_id==*id) || reviewing.values().any(|(callback,_)|callback==id) || host_writes.values().any(|entry|entry.callback_id==*id) || wait_ids.contains(&id.to_string()) {break "duplicate client callback id".into()}
                         let params=&message["params"];
                         if !matches!(message["method"].as_str(),Some("terminal/create"|"terminal/output"|"terminal/wait_for_exit"|"terminal/kill"|"terminal/release")) {
                             if write(&mut stdin,&error(id.clone(),-32601,"Terminal method unsupported"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
@@ -745,22 +929,27 @@ async fn actor(
                             match service.prepare(params.clone()) {
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
-                                    let operation=prepared.operation();
-                                    // Shell lines get their own source and option ids, so an answer meant for a
-                                    // plain command can never approve one; there is no "always" option.
-                                    let (title,source,options)=if prepared.is_shell() {
-                                        ("Run shell command".to_owned(),"host-shell-command",json!([{"optionId":"acpd-shell-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-shell-allow","name":"Run this shell line once","kind":"allow_once"}]))
-                                    } else {
-                                        (format!("Run {}",std::path::Path::new(operation["command"].as_str().unwrap()).file_name().unwrap_or_default().to_string_lossy()),"host-terminal",json!([{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]))
-                                    };
-                                    let tool=json!({"toolCallId":consent_id,"title":title,"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]});
-                                    let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":file_session_id,"toolCall":tool,"_meta":{"acpdSource":source},"options":options}});
-                                    let size=consent.to_string().len();
-                                    let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
-                                    if !inserted {Err(anyhow!("permission capacity exceeded"))} else {
-                                        host_terminals.insert(consent_id.to_string(),HostTerminalCreate{callback_id:id.clone(),prepared});
+                                    let rules=match (&review,prepared.shell_line()) {(Some(reviewer),Some(line))=>Some(reviewer.rules(line,prepared.cwd(),service.workspace())),_=>None};
+                                    let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
+                                    if let Some(auto)=decided {
+                                        let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
+                                        if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                                        continue;
+                                    }
+                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
+                                        let future=reviewer.model_future(line,&crate::shell_review::relative_cwd(service.workspace(),prepared.cwd()),verdict);
+                                        let mut tool=terminal_tool(&prepared,&consent_id);
+                                        tool["_meta"]=json!({"acpdAutoReview":{"decision":"reviewing","layer":"model","reason":verdict.reason}});
                                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":tool_update(tool,"tool_call")}}));
-                                        publish_host(events,journal,consent);continue;
+                                        let key=consent_id.to_string();
+                                        reviewing.insert(key.clone(),(id.clone(),prepared));
+                                        model_reviews.spawn(async move {(key,future.await)});
+                                        continue;
+                                    }
+                                    let auto=rules.map(|verdict|AutoDecision{decision:Decision::Ask,layer:"rules",reason:verdict.reason.into()});
+                                    if let Some(auto)=&auto {log_auto_review(auto);}
+                                    match offer_terminal_consent(events,journal,limits,&mut host_terminals,&file_session_id,consent_id,id.clone(),prepared,auto.as_ref(),true) {
+                                        Err(error)=>Err(error),Ok(())=>continue,
                                     }
                                 }
                             }
@@ -883,6 +1072,13 @@ async fn actor(
                                 if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
                             journal.lock().unwrap().permissions.clear();
+                            model_reviews.abort_all();
+                            for (key,(callback_id,_)) in reviewing.drain() {
+                                if failed {break}
+                                let tool_id:Value=serde_json::from_str(&key).unwrap_or_default();
+                                publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed"}}}));
+                                if write(&mut stdin,&error(callback_id,-32800,"Terminal creation cancelled"),limits.max_frame_bytes).await.is_err() {failed=true}
+                            }
                             if let Some(service)=&terminals {service.stop_all();}
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
                                 waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
@@ -942,11 +1138,32 @@ async fn actor(
                     }}
                 }
                 let awaiting_permission = !journal.lock().unwrap().permissions.is_empty();
-                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && !(waiter.method == "session/prompt" && (awaiting_permission || !terminal_waits.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
+                if pending.values().any(|waiter| waiter.deadline <= Instant::now() && !(waiter.method == "session/prompt" && (awaiting_permission || !terminal_waits.is_empty() || !reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
                 match child.try_wait() {
                     Ok(Some(status)) => break format!("agent exited with {status}"),
                     Err(_) => break "agent process status failed".into(),
                     Ok(None) => {}
+                }
+            }
+            reviewed=model_reviews.join_next(),if !model_reviews.is_empty()=> {
+                let Some(Ok((key,auto)))=reviewed else {continue};
+                let Some((callback_id,prepared))=reviewing.remove(&key) else {continue};
+                let consent_id:Value=serde_json::from_str(&key).unwrap_or_default();
+                let answer=if auto.decision==Decision::Ask {
+                    log_auto_review(&auto);
+                    match offer_terminal_consent(events,journal,limits,&mut host_terminals,&file_session_id,consent_id.clone(),callback_id.clone(),prepared,Some(&auto),false) {
+                        Ok(())=>None,
+                        Err(_)=> {
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":consent_id,"status":"failed"}}}));
+                            Some(error(callback_id,CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"))
+                        }
+                    }
+                } else if let Some(service)=terminals.as_mut() {
+                    Some(apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,callback_id,prepared,&auto,false))
+                } else {Some(error(callback_id,CALLBACK_UNAVAILABLE,"Terminal runtime unavailable"))};
+                if let Some(answer)=answer {
+                    if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                    for waiter in pending.values_mut().filter(|waiter|waiter.method=="session/prompt") {waiter.deadline=Instant::now()+Duration::from_secs(limits.request_timeout_seconds);}
                 }
             }
             completed=terminal_waits.join_next(),if !terminal_waits.is_empty()=> {
@@ -957,6 +1174,7 @@ async fn actor(
         }
     };
     terminal_waits.abort_all();
+    model_reviews.abort_all();
     if let Some(service) = &mut terminals {
         service.shutdown().await;
     }
