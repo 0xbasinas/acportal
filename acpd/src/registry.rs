@@ -223,6 +223,19 @@ fn executable(path: &Path) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn shipped_example_registries_parse_and_templates_stay_disabled() {
+        let goose = Registry::parse(include_str!("../../examples/agents.json")).unwrap();
+        assert!(goose.get("goose").unwrap().enabled);
+        let custom = Registry::parse(include_str!("../../examples/agents.custom.json")).unwrap();
+        assert!(custom.agents.len() >= 4);
+        // Templates are placeholders; an operator enables only what they installed.
+        assert!(custom.agents.values().all(|agent| !agent.enabled));
+        let opencode = custom.get("opencode").unwrap();
+        assert_eq!(opencode.args, ["acp"]);
+        let gemini = custom.get("gemini-cli-node").unwrap();
+        assert_eq!(gemini.args.last().map(String::as_str), Some("--acp"));
+    }
+    #[test]
     fn arbitrary_custom_agents_and_literal_arguments() {
         let registry = Registry::parse(r#"[{"id":"future","name":"Future","command":"future-agent","args":["$(touch hacked)","; rm -rf /"],"env":{"KEY":"secret"},"icon":"future.svg"}]"#).unwrap();
         assert_eq!(registry.get("future").unwrap().args[0], "$(touch hacked)");
