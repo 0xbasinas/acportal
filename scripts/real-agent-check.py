@@ -33,7 +33,7 @@ FIXTURE = {
 STEPS = ["inspect", "approve", "deny", "terminal", "kill", "reconnect", "load", "cancel", "outside"]
 # Opt-in steps: autoreview needs [shell_review.<agent>] rules = true; denyagent refuses every
 # permission, including the agent's own (useful for agents that edit files with their own tools).
-OPTIONAL_STEPS = ["autoreview", "denyagent"]
+OPTIONAL_STEPS = ["autoreview", "denyagent", "always"]
 
 
 def init_fixture(path):
@@ -220,6 +220,8 @@ class Session:
                 report["updates"][kind] = report["updates"].get(kind, 0) + 1
                 if kind == "agent_message_chunk":
                     report["reply"] += update.get("content", {}).get("text", "")
+                if kind in ("tool_call", "tool_call_update") and (update.get("_meta") or {}).get("acpdWrite"):
+                    report.setdefault("host_write_notices", []).append(update["_meta"]["acpdWrite"])
                 if kind in ("tool_call", "tool_call_update"):
                     report["tools"].append({k: update.get(k) for k in ("toolCallId", "title", "kind", "status") if update.get(k) is not None})
                 if on_update and await on_update(self, update) == "detach":
@@ -231,7 +233,8 @@ class Session:
                 params = message["params"]
                 report["permissions"].append({"id": message["id"], "source": (params.get("_meta") or {}).get("acpdSource", "agent"),
                                               "title": params["toolCall"].get("title"), "kind": params["toolCall"].get("kind"),
-                                              "options": [o["optionId"] for o in params["options"]], "chosen": option})
+                                              "options": [o["optionId"] for o in params["options"]],
+                                              "option_kinds": [{"kind": o.get("kind")} for o in params["options"]], "chosen": option})
                 if option == "hold":
                     # The caller answers later; give its hook a chance to act now (e.g. cancel).
                     if on_update:
@@ -284,6 +287,17 @@ def terminal_snapshots(store):
         if snapshot is not None:
             store.append(snapshot)
     return on_update
+
+
+def prefer_agent(kind):
+    """Answer agent permissions with an option of `kind` (allow_always, reject_always)
+    and host consents, which only offer once-options, with allow_once."""
+    def decide(request):
+        if (request["params"].get("_meta") or {}).get("acpdSource"):
+            return choose("allow_once")(request)
+        # Agents without the "always" variant get the once-option of the same polarity.
+        return choose(kind)(request) or choose(kind.replace("always", "once"))(request)
+    return decide
 
 
 def deny_host_writes(request):
@@ -357,6 +371,32 @@ async def main(args):
             with open(os.path.join(args.workspace, "README.md")) as handle:
                 report["disk"] = {"readme_unchanged": handle.read() == readme, "git_status": git_status(args.workspace)}
             show("denyagent", report)
+        if "always" in steps:
+            # "Always" choices are the agent's to remember; acpd only forwards them. A second,
+            # identical request should then not reach the phone at all. Host consents
+            # (acpdSource) never offer "always": each host write or command is asked again.
+            with open(os.path.join(args.workspace, "README.md")) as handle:
+                readme = handle.read()
+            reports = {}
+            for name, text, decide in [
+                ("allow_first", "Run `git log --oneline -1` with your shell tool and print its output. Do not modify anything.", prefer_agent("allow_always")),
+                ("allow_again", "Run `git log --oneline -1` with your shell tool once more and print its output. Do not modify anything.", choose("reject_once")),
+                ("edit_first", "Append the line 'Always note A.' to README.md. Do not run any command.", prefer_agent("allow_always")),
+                ("edit_again", "Append the line 'Always note B.' to README.md. Do not run any command.", choose("reject_once")),
+            ]:
+                reports[name] = await session.prompt("always-" + name, text, decide)
+            with open(os.path.join(args.workspace, "README.md")) as handle:
+                after = handle.read()
+            kinds = sorted({o["kind"] for r in reports.values() for p in r["permissions"] for o in p.get("option_kinds", [])})
+            report = {"steps": {name: {"permissions": r["permissions"], "tools": r["tools"], "final": r.get("final"),
+                                       "host_write_notices": r.get("host_write_notices", [])} for name, r in reports.items()},
+                      "agent_option_kinds": kinds,
+                      "disk": {"readme_unchanged": after == readme, "git_status": git_status(args.workspace)}}
+            show("always", report)
+            for name, r in reports.items():
+                chosen = [(p["source"], p["kind"], p["chosen"]) for p in r["permissions"]]
+                print(f"   {name}: permissions {chosen} host write notices {r.get('host_write_notices', [])}")
+            print(f"   option kinds offered: {kinds}")
         if "terminal" in steps:
             lines, snapshots = [], []
             report = await session.prompt("terminal", "Run `python3 -m unittest -v` in this project with your shell tool and tell me how many tests passed.",
