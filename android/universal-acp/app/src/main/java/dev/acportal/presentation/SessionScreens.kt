@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -27,6 +28,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.text.font.FontFamily
@@ -103,7 +107,8 @@ import kotlinx.coroutines.*
     var attachmentLoading by remember(info.id) {mutableStateOf(false)}
     var sentDraft by remember(info.id) {mutableStateOf<Pair<Long,String>?>(null)}
     val list=rememberLazyListState()
-    var followLatest by remember(info.id) {mutableStateOf(true)}
+    val conversationUi=rememberSaveableStateHolder()
+    var followLatest by rememberSaveable(info.id) {mutableStateOf(true)}
     var dragging by remember(info.id) {mutableStateOf(false)}
     var showPermission by remember(info.id) {mutableStateOf(false)}
     var showMenu by remember(info.id) {mutableStateOf(false)}
@@ -125,7 +130,7 @@ import kotlinx.coroutines.*
         is DragInteraction.Start->{dragging=true;followLatest=false}
         is DragInteraction.Stop,is DragInteraction.Cancel->{dragging=false;followLatest=!list.canScrollForward}
     } } }
-    LaunchedEffect(list) {snapshotFlow {!list.canScrollForward && !dragging}.collect {atEnd->if(atEnd)followLatest=true}}
+    LaunchedEffect(list) {snapshotFlow {list.layoutInfo.visibleItemsInfo.isNotEmpty() && !list.canScrollForward && !dragging}.collect {atEnd->if(atEnd)followLatest=true}}
     LaunchedEffect(state.items.size,state.items.lastOrNull(),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToItem(state.items.lastIndex)}
     androidx.activity.compose.BackHandler(changedFile!=null || showOptions || showAgent || connectionPage>0) {if(changedFile!=null)changedFile=null else if(connectionPage>0)connectionPage-- else {showOptions=false;showAgent=false}}
     changedFile?.let {id->ChangesScreen(sessionFileChanges(state),id,{changedFile=null});return}
@@ -133,6 +138,7 @@ import kotlinx.coroutines.*
     if(connectionPage==1) {ConnectionDetailsScreen(hostLabel ?: "Host",hostAddress,connection,{connectionPage=0},{connectionPage=2},onReconnect,onDisconnect,info.initialization["agentInfo"].objectValue()["name"].text().ifBlank {info.agentId});return}
     if(showOptions) {SessionOptionsScreen(info,state,connected && !state.replaying && info.acpSessionId.isNotBlank(),{showOptions=false},onConfigure);return}
     if(showAgent) {AgentDetailsScreen(info,{showAgent=false},hostLabel,state.usage,state.sessionInfo);return}
+    conversationUi.SaveableStateProvider(info.id) {
     Column(Modifier.fillMaxSize().imePadding()) {
         ScreenHeader(state.sessionInfo["title"].text().takeIf {it.isNotBlank()}?.lineSequence()?.firstOrNull()?.take(64) ?: state.items.filterIsInstance<TimelineItem.Text>().firstOrNull {it.role=="user"}?.text?.lineSequence()?.firstOrNull()?.take(36) ?: "New conversation","${info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')} · ${info.agentId}",onBack,action={Box {
             IconButton({showMenu=true}) {Icon(Icons.Outlined.MoreVert,"Session menu",Modifier.size(20.dp))}
@@ -185,6 +191,7 @@ import kotlinx.coroutines.*
             }
         } }
     }
+    }
     if(showHistory)PromptHistorySheet(promptHistory(state),{showHistory=false}) {text->
         showHistory=false
         if(draft.isNotBlank() && draft!=text)historyChoice=text
@@ -234,7 +241,7 @@ import kotlinx.coroutines.*
     var expanded by rememberSaveable(id) {mutableStateOf(false)}
     Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
         Column {
-            TextButton({expanded=!expanded},Modifier.fillMaxWidth().heightIn(min=48.dp)) {
+            TextButton({expanded=!expanded},Modifier.fillMaxWidth().heightIn(min=48.dp).semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {
                 Text("Agent thoughts",Modifier.weight(1f),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Hide agent thoughts" else "Show agent thoughts")
             }
@@ -255,7 +262,7 @@ import kotlinx.coroutines.*
 @Composable fun ToolCard(tool:TimelineItem.Tool,terminals:Map<String,JsonObject> = emptyMap(),onChange:((String)->Unit)?=null) {
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("tool-card")) {
-        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Collapse tool" else "Expand tool")}})
+        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).testTag("tool-disclosure-${tool.id}").semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,(if(expanded)"Collapse tool: " else "Expand tool: ")+tool.title)}})
         if(expanded)Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             tool.locations.forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.labelSmall) }
             tool.autoReview?.let {review->
@@ -295,7 +302,7 @@ import kotlinx.coroutines.*
         Surface(Modifier.fillMaxSize()) {ChangesScreen(proposedChanges,proposedChanges.first().id,{fullReview=false})}
     }
     Column(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text(if(permission.request["_meta"].objectValue()["acpdSource"].text().isNotBlank())"Host permission needed" else "Permission needed",style=MaterialTheme.typography.labelLarge)
+            Text(if(permission.request["_meta"].objectValue()["acpdSource"].text().isNotBlank())"Host permission needed" else "Permission needed",Modifier.semantics {heading()},style=MaterialTheme.typography.labelLarge)
             Text(permission.title,Modifier.padding(vertical=8.dp),style=MaterialTheme.typography.titleLarge)
             permission.request["toolCall"].objectValue()["locations"].arrayValue().forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.bodySmall) }
             val rawInput=permission.request["toolCall"].objectValue()["rawInput"]
@@ -320,9 +327,9 @@ import kotlinx.coroutines.*
     Column(Modifier.fillMaxWidth().testTag("shell-command-review"),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Surface(color=MaterialTheme.colorScheme.errorContainer,shape=RoundedCornerShape(6.dp)) {Text("Shell command",Modifier.padding(horizontal=8.dp,vertical=4.dp),color=MaterialTheme.colorScheme.onErrorContainer,style=MaterialTheme.typography.labelMedium)}
         Text(approval.runsWith(),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(color=MaterialTheme.colorScheme.surfaceVariant,shape=RoundedCornerShape(8.dp),modifier=Modifier.fillMaxWidth()) {
+        Surface(color=MaterialTheme.colorScheme.surfaceContainerHigh,contentColor=MaterialTheme.colorScheme.onSurface,shape=RoundedCornerShape(8.dp),modifier=Modifier.fillMaxWidth()) {
             androidx.compose.foundation.text.selection.SelectionContainer {
-                Text(approval.line,Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodyMedium,softWrap=true)
+                Text(approval.line,Modifier.testTag("shell-command-line").heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),color=MaterialTheme.colorScheme.onSurface,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodyMedium,softWrap=true)
             }
         }
         approval.autoReviewReason?.let {Text("Not auto-approved — $it",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}

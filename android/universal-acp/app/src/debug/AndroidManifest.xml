@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <application android:name="dev.acportal.presentation.TaskRecoveryFixtureApplication" android:usesCleartextTraffic="true" tools:replace="android:name,android:usesCleartextTraffic">
         <activity android:name="dev.acportal.presentation.McpLifecycleFixtureActivity" android:exported="false" />
+        <activity android:name="dev.acportal.presentation.UiAccessibilityFixtureActivity" android:exported="false" android:taskAffinity="dev.acportal.uiaccessibilityfixture" />
         <activity android:name="dev.acportal.presentation.TaskRecoveryFixtureActivity" android:exported="true" android:permission="android.permission.DUMP" android:taskAffinity="dev.acportal.taskrecoveryfixture" />
     </application>
 </manifest>

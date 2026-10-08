@@ -105,7 +105,7 @@ class HostLifecycleTest {
         compose.onNodeWithText("Permission needed").assertDoesNotExist()
         capture("conversation-ready")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Proposed example.rs change"))
-        compose.onNode(hasContentDescription("Expand tool") and hasAnyAncestor(hasTestTag("tool-card") and hasAnyDescendant(hasText("Proposed example.rs change")))).performClick()
+        compose.onNode(hasContentDescription("Expand tool: Proposed example.rs change") and hasAnyAncestor(hasTestTag("tool-card") and hasAnyDescendant(hasText("Proposed example.rs change")))).performClick()
         compose.onNodeWithText("let expired = false;",substring=true).assertExists()
         compose.onNodeWithText("View changes").performClick()
         awaitText("Changes")
@@ -114,7 +114,7 @@ class HostLifecycleTest {
         compose.onNodeWithContentDescription("Back").performClick()
         if(InstrumentationRegistry.getArguments().getString("expectTerminal")=="true") {
             compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Run ACP terminal fixture"))
-            compose.onNode(hasContentDescription("Expand tool") and hasAnyAncestor(hasTestTag("tool-card") and hasAnyDescendant(hasText("Run ACP terminal fixture")))).performClick()
+            compose.onNode(hasContentDescription("Expand tool: Run ACP terminal fixture") and hasAnyAncestor(hasTestTag("tool-card") and hasAnyDescendant(hasText("Run ACP terminal fixture")))).performClick()
             compose.onNodeWithText("ACP terminal output verified.\n").assertIsDisplayed()
             compose.onNodeWithText("Exit code 0").assertIsDisplayed()
         }
