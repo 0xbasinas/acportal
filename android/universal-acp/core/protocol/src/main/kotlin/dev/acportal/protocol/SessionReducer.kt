@@ -2,8 +2,44 @@ package dev.acportal.protocol
 
 import kotlinx.serialization.json.*
 
+class PendingPermissionLimitException : IllegalStateException("Pending permissions exceeded the client retention limit.")
+
 object SessionReducer {
     fun reduce(state: SessionState, envelope: JsonObject): SessionState {
+        val next = reduceEvent(state, envelope)
+        if (next === state) return state
+        if (next.permissions !== state.permissions || next.replayPermissions !== state.replayPermissions) {
+            var permissionBytes = 0L
+            for (permissions in listOfNotNull(next.permissions, next.replayPermissions)) {
+                if (permissions.size > 128) throw PendingPermissionLimitException()
+                for ((id, permission) in permissions) {
+                    permissionBytes += (id.length.toLong() + permission.id.toString().length + permission.request.toString().length) * 3 + 1024
+                    if (permissionBytes > 8L * 1024 * 1024) throw PendingPermissionLimitException()
+                }
+            }
+        }
+        if (next.terminals === state.terminals && next.sessionInfo === state.sessionInfo) return next
+        var omitted = false
+        var terminalBytes = 0L
+        val terminals = linkedMapOf<String, JsonObject>()
+        for ((id, terminal) in next.terminals.entries.toList().asReversed()) {
+            val cost = (id.length.toLong() + terminal.toString().length) * 3 + 1024
+            if (terminals.size >= 16 || cost > 2L * 1024 * 1024 - terminalBytes) {
+                omitted = true
+                continue
+            }
+            terminalBytes += cost
+            terminals[id] = terminal
+        }
+        var result = next.copy(terminals = terminals.entries.toList().asReversed().associate { it.toPair() }, historyGap = next.historyGap || omitted)
+        if (next.sessionInfo.toString().length.toLong() * 3 > 2L * 1024 * 1024) {
+            val previous = state.sessionInfo.takeIf { it.toString().length.toLong() * 3 <= 2L * 1024 * 1024 } ?: JsonObject(emptyMap())
+            result = result.copy(sessionInfo = previous, historyGap = true,
+                error = "Session metadata exceeded the retained limit. Previous details were kept.", errorOrigin = SessionErrorOrigin.PROTOCOL)
+        }
+        return result
+    }
+    private fun reduceEvent(state: SessionState, envelope: JsonObject): SessionState {
         when (envelope["type"].text()) {
             "replay_start" -> return state.copy(replaying = true, permissions=emptyMap(),replayPermissions=emptyMap(),historyGap = state.historyGap || envelope["gap"].flag(), processing = envelope["processing"].flag())
             "replay_complete" -> return state.copy(replaying = false,permissions=state.replayPermissions ?: state.permissions,replayPermissions=null,sequence = maxOf(state.sequence, envelope["latestSequence"].number()), error=if(state.errorOrigin==SessionErrorOrigin.CONNECTION)null else state.error)
@@ -51,7 +87,7 @@ object SessionReducer {
         val update = params["update"].objectValue()
         val terminal=update["_meta"].objectValue()["acpdTerminal"].objectValue()
         val terminalId=terminal["terminalId"].text()
-        if(envelope["direction"].text()=="host" && terminalId.isNotBlank())next=next.copy(terminals=((next.terminals-terminalId)+(terminalId to terminal)).entries.toList().takeLast(16).associate {it.toPair()})
+        if(envelope["direction"].text()=="host" && terminalId.isNotBlank())next=next.copy(terminals=(next.terminals-terminalId)+(terminalId to terminal))
         when (val kind = update["sessionUpdate"].text()) {
             "agent_message_chunk", "user_message_chunk", "agent_thought_chunk" -> {
                 val role = when(kind) {"agent_thought_chunk"->"thought";"agent_message_chunk"->"agent";else->"user"}

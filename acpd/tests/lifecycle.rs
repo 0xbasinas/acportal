@@ -1028,6 +1028,23 @@ async fn duplicate_prompt_and_oversized_input_do_not_corrupt_session() {
         .await
         .unwrap();
     assert!(session.prompt(&"x".repeat(2 * 1024 * 1024)).await.is_err());
+    assert!(
+        session
+            .connection
+            .notify(
+                "_mock/oversized",
+                json!({"text":"x".repeat(2 * 1024 * 1024)})
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        session
+            .connection
+            .permission(json!(1), json!({"text":"x".repeat(2 * 1024 * 1024)}))
+            .await
+            .is_err()
+    );
     assert!(session.connection.closed_reason().is_none());
     let prompt_session = session.clone();
     let prompt = tokio::spawn(async move { prompt_session.prompt("first").await });

@@ -45,7 +45,7 @@ enum Commands {
     },
     /// Discover configured agents without running them or exposing environment values.
     Agents,
-    /// Diagnose configuration, executable discovery and workspace roots.
+    /// Diagnose configuration, executables, workspaces, listener and storage.
     Doctor,
     /// Print effective non-secret host configuration. Does not overwrite files.
     Config,
@@ -116,6 +116,10 @@ async fn main() -> Result<()> {
             config.validate()?;
             let agents = registry.discover();
             let mut healthy = !config.workspace_roots.is_empty();
+            for (message, passed) in acpd::doctor::operational_checks(&config) {
+                println!("{message}");
+                healthy &= passed;
+            }
             for root in &config.workspace_roots {
                 healthy &= config.workspace(root).is_ok();
             }
@@ -138,7 +142,9 @@ async fn main() -> Result<()> {
                 "Provider authentication is agent-owned. Use probe for ACP negotiation; chat exercises the provider."
             );
             if !healthy {
-                bail!("diagnostics found missing enabled executables or workspace configuration")
+                bail!(
+                    "diagnostics failed; review listener, storage, executables and workspace configuration above"
+                )
             }
         }
         Commands::Probe { agent, workspace } => {

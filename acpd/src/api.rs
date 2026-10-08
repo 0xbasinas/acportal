@@ -43,11 +43,73 @@ pub struct Host {
 struct Gateway {
     controller: AtomicBool,
     requests: Mutex<VecDeque<CachedRequest>>,
+    cache_bytes: usize,
+    result_reserve: usize,
 }
 struct CachedRequest {
     id: String,
     input: Value,
     complete: Option<Value>,
+    reserved_bytes: usize,
+}
+fn reserve_cache(requests: &mut VecDeque<CachedRequest>, bytes: usize, limit: usize) -> bool {
+    if bytes > limit {
+        return false;
+    }
+    while requests.len() >= 256
+        || requests
+            .iter()
+            .map(|request| request.reserved_bytes)
+            .sum::<usize>()
+            > limit - bytes
+    {
+        let Some(index) = requests
+            .iter()
+            .position(|request| request.complete.is_some())
+        else {
+            return false;
+        };
+        requests.remove(index);
+    }
+    true
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    fn entry(id: &str, bytes: usize, completed: bool) -> CachedRequest {
+        CachedRequest {
+            id: id.into(),
+            input: json!({"id":id}),
+            complete: completed.then(|| json!({"id":id,"result":{}})),
+            reserved_bytes: bytes,
+        }
+    }
+
+    #[test]
+    fn byte_pressure_evicts_completed_only_and_keeps_pending_input() {
+        let mut requests = VecDeque::from([entry("pending", 60, false), entry("done", 30, true)]);
+        assert!(reserve_cache(&mut requests, 40, 100));
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].input, json!({"id":"pending"}));
+        assert!(!reserve_cache(&mut requests, 41, 100));
+        assert_eq!(requests[0].id, "pending");
+        assert!(!reserve_cache(&mut requests, 101, 100));
+    }
+
+    #[test]
+    fn count_pressure_also_keeps_pending_requests() {
+        let mut requests: VecDeque<_> = (0..256)
+            .map(|id| entry(&id.to_string(), 1, false))
+            .collect();
+        assert!(!reserve_cache(&mut requests, 1, 1000));
+        requests[100].complete = Some(json!({"result":{}}));
+        assert!(reserve_cache(&mut requests, 1, 1000));
+        assert_eq!(requests.len(), 255);
+        assert!(!requests.iter().any(|request| request.id == "100"));
+        assert!(requests.iter().all(|request| request.complete.is_none()));
+    }
 }
 struct Lease {
     gateway: Arc<Gateway>,
@@ -434,6 +496,8 @@ async fn connect(
             Arc::new(Gateway {
                 controller: AtomicBool::new(false),
                 requests: Mutex::new(VecDeque::new()),
+                cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
+                result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
             })
         })
         .clone();
@@ -652,24 +716,23 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             }
             return;
         }
-        if requests.len() >= 256 {
-            if let Some(index) = requests
-                .iter()
-                .position(|request| request.complete.is_some())
-            {
-                requests.remove(index);
-            } else {
-                session.connection.record(
-                    error(id.clone(), -32000, "Too many pending requests"),
-                    "agent",
-                );
-                return;
-            }
+        let reserved_bytes = message.to_string().len() + key.len() + gateway.result_reserve;
+        if !reserve_cache(&mut requests, reserved_bytes, gateway.cache_bytes) {
+            session.connection.record(
+                error(
+                    id.clone(),
+                    -32000,
+                    "Request cache capacity reached; request was not started",
+                ),
+                "agent",
+            );
+            return;
         }
         requests.push_back(CachedRequest {
             id: key,
             input: message.clone(),
             complete: None,
+            reserved_bytes,
         });
     }
     session.connection.record(message, "client");
@@ -680,10 +743,17 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             } else {
                 session.connection.request(&method, params).await
             };
-            let result = match result {
+            let mut result = match result {
                 Ok(value) => response(id.clone(), value),
                 Err(_) => error(id.clone(), -32000, "Agent request failed"),
             };
+            if result.to_string().len() > gateway.result_reserve {
+                result = error(
+                    id.clone(),
+                    -32000,
+                    "Agent response exceeds retained response limit",
+                );
+            }
             let key = id.to_string();
             if let Some(cached) = gateway
                 .requests

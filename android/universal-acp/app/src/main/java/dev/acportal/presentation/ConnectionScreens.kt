@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -74,7 +77,7 @@ import java.util.Locale
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(label,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
             ConnectionStatus(connection)
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.selectableGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 listOf("All","Warnings","Errors").forEach {choice->Column(Modifier.selectable(selected=filter==choice,role=Role.Tab,onClick={filter=choice}).heightIn(min=48.dp).padding(horizontal=12.dp,vertical=12.dp)) {
                     Text(choice,color=if(filter==choice)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
@@ -87,7 +90,7 @@ import java.util.Locale
         Column(verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                 Text("Live updates",Modifier.weight(1f).padding(top=12.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                PortalSwitch(live,{enabled->if(!enabled)frozen=events;live=enabled})
+                PortalSwitch(live,{enabled->if(!enabled)frozen=events;live=enabled},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).semantics {contentDescription="Live updates"})
             }
             Text("Connection events only · latest 200",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }

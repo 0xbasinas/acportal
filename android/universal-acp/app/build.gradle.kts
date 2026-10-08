@@ -87,6 +87,7 @@ dependencies {
   androidTestImplementation(libs.androidx.test.core)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.test.runner)
+  androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
   androidTestImplementation("androidx.room3:room3-testing:3.0.3")
   androidTestImplementation(libs.androidx.test.espresso.core)
 

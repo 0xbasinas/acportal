@@ -115,6 +115,7 @@ impl Journal {
 }
 #[derive(Clone)]
 pub struct AcpConnection {
+    frame_limit: usize,
     commands: mpsc::Sender<Control>,
     events: broadcast::Sender<Event>,
     journal: Arc<Mutex<Journal>>,
@@ -144,6 +145,37 @@ struct Pending {
     session_id: Option<String>,
     deadline: Instant,
     reply: oneshot::Sender<Result<Value>>,
+}
+// Reserve one maximum-size frame for the reader in addition to queued frames.
+// Parsed JSON allocation overhead and the actor's current frame are separate.
+fn frame_queue_capacity(frame_limit: usize) -> usize {
+    let budget = (8 * 1024 * 1024).max(frame_limit * 2);
+    (budget / frame_limit).saturating_sub(1).clamp(1, 64)
+}
+#[derive(Serialize)]
+struct OutboundRequest<'a> {
+    jsonrpc: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<u64>,
+    method: &'a str,
+    params: &'a Value,
+}
+fn check_frame_size(value: &impl Serialize, limit: usize) -> Result<()> {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.0 {
+                return Err(std::io::Error::other("frame limit exceeded"));
+            }
+            self.0 -= bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Counter(limit.saturating_sub(1)), value)
+        .map_err(|_| anyhow!("outbound ACP frame exceeds limit"))
 }
 struct HostWrite {
     callback_id: Value,
@@ -270,11 +302,11 @@ impl AcpConnection {
         let stdin = child.stdin.take().context("agent stdin unavailable")?;
         let stdout = child.stdout.take().context("agent stdout unavailable")?;
         let stderr = child.stderr.take().context("agent stderr unavailable")?;
-        let (commands, receiver) = mpsc::channel(64);
+        let (commands, receiver) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
         let (events, _) = broadcast::channel(256);
         let (closed_tx, closed) = watch::channel(None);
         let (busy_tx, busy) = watch::channel(false);
-        let (frame_tx, frames) = mpsc::channel(64);
+        let (frame_tx, frames) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
         let frame_limit = limits.max_frame_bytes;
         let stdout_task = tokio::spawn(async move {
             let mut stdout = BufReader::new(stdout);
@@ -330,6 +362,7 @@ impl AcpConnection {
             let _ = closed_tx.send(Some(reason));
         });
         Ok(Self {
+            frame_limit,
             commands,
             events,
             journal,
@@ -338,6 +371,15 @@ impl AcpConnection {
         })
     }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        check_frame_size(
+            &OutboundRequest {
+                jsonrpc: "2.0",
+                id: Some(u64::MAX),
+                method,
+                params: &params,
+            },
+            self.frame_limit,
+        )?;
         let (reply, result) = oneshot::channel();
         self.commands
             .send(Control::Request {
@@ -350,6 +392,15 @@ impl AcpConnection {
         result.await.context("agent connection closed")?
     }
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
+        check_frame_size(
+            &OutboundRequest {
+                jsonrpc: "2.0",
+                id: None,
+                method,
+                params: &params,
+            },
+            self.frame_limit,
+        )?;
         let (reply, result) = oneshot::channel();
         self.commands
             .send(Control::Notify {
@@ -362,6 +413,24 @@ impl AcpConnection {
         result.await.context("agent connection closed")?
     }
     pub async fn permission(&self, id: Value, outcome: Value) -> Result<()> {
+        #[derive(Serialize)]
+        struct Outcome<'a> {
+            outcome: &'a Value,
+        }
+        #[derive(Serialize)]
+        struct Answer<'a> {
+            jsonrpc: &'static str,
+            id: &'a Value,
+            result: Outcome<'a>,
+        }
+        check_frame_size(
+            &Answer {
+                jsonrpc: "2.0",
+                id: &id,
+                result: Outcome { outcome: &outcome },
+            },
+            self.frame_limit,
+        )?;
         let (reply, result) = oneshot::channel();
         self.commands
             .send(Control::Permission { id, outcome, reply })
@@ -751,6 +820,36 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn admission_counts_json_escaping_and_envelope_without_retaining_encoded_bytes() {
+        let params = json!({"text":"\n\"é".repeat(100)});
+        let request = OutboundRequest {
+            jsonrpc: "2.0",
+            id: Some(u64::MAX),
+            method: "session/prompt",
+            params: &params,
+        };
+        let size = serde_json::to_vec(&request).unwrap().len();
+        assert!(check_frame_size(&request, size + 1).is_ok());
+        assert!(check_frame_size(&request, size).is_err());
+        assert!(check_frame_size(&request, 0).is_err());
+    }
+    #[test]
+    fn frame_queue_reserves_reader_space_across_supported_frame_limits() {
+        for limit in [
+            1024,
+            64 * 1024,
+            1024 * 1024,
+            3 * 1024 * 1024,
+            16 * 1024 * 1024,
+        ] {
+            let capacity = frame_queue_capacity(limit);
+            assert!((1..=64).contains(&capacity));
+            assert!((capacity + 1) * limit <= (8 * 1024 * 1024).max(limit * 2));
+        }
+        assert_eq!(frame_queue_capacity(1024 * 1024), 7);
+        assert_eq!(frame_queue_capacity(16 * 1024 * 1024), 1);
+    }
     #[tokio::test]
     async fn frame_limits_and_truncated_input() {
         let mut reader = BufReader::new(&b"{\"jsonrpc\":\"2.0\",\"method\":\"x\"}\n"[..]);

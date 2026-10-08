@@ -89,6 +89,13 @@ Implementation boundaries are documented in [architecture](docs/architecture.md)
 
 ## Verification
 
+Current scope, 8 October 2026: tablet/landscape acceptance is excluded for now. Physical-phone testing is suspended and user-owned; signed APK production/verification is also suspended. Supported-build verification will run in GitHub Actions rather than locally. TODO lists active and suspended work separately; suspended checks remain unverified.
+
+Latest device checkpoint, 8 October 2026: four repository/recovery tests pass without skips on emulator-5554. Actual local WebSocket permission overflow detaches the client, retains previous approvals and blocks decisions/prompts despite a late replay completion or error dismissal. Both APK builds/install and lint pass. The fixture owns its Room/DataStore/vault and removes its files. Device byte-overflow, page navigation and physical-host acceptance remain open.
+
+Latest Android checkpoint, 8 October 2026: 45 core and 31 app JVM tests, debug build and lint pass with no test failures or skips. Incoming WebSocket queues have an 8 MiB byte budget; outgoing admission caps queued content at 4 MiB. Terminal snapshots and additive session metadata each have a conservative 2 MiB budget. Pending/replay permissions have a combined 8 MiB estimate and 128 entries per map; overflow rejects the whole update and detaches without sending a decision. Prior consent remains intact. Local queue/replay tests pass; repository/device permission-overflow and physical stress acceptance remain open.
+
+Latest host source checks pass 73 Rust tests, strict Clippy and formatting; an extended oversized-input lifecycle regression also passes. Duplicate-request cache and reader/command queues now have content budgets and pre-enqueue frame validation. Doctor reports listener availability, storage write/remove probe results and effective runtime limits. Missing storage probes its existing parent without creating state directories. Logging, deeper diagnostics, remaining auxiliary fields, waiting callers and whole-process heap measurements remain open. Detailed chronological evidence is in TODO and HANDOFF.
 ```text
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -97,13 +104,13 @@ cargo test --locked --workspace --all-targets
 
 See [development](docs/development.md) for test coverage and the local verification record. Docker is optional and remains unverified here. Its image defaults to help; run the host explicitly with mounted configuration, workspace and state directories and configured TLS for a remote listener.
 
-Latest verified checkpoint, 7 October 2026: 25 app JVM tests, debug/test APK builds, lint and eight targeted Connection logs/Connections device tests pass. Compact dark/light logs at 320×280 dp and 2× text keep wrapping filters, events and pause/resume controls reachable. Normal-window controls retain their placement. Long host summaries remain bounded, and detail recovery actions scroll in short or large-text windows. These component fixtures preserve saved data and display settings; wide-screen, accessibility and physical-network acceptance remain open.
+Latest Android checkpoint, 7 October 2026: 25 app JVM tests, debug/test APK builds, lint and release manifest generation pass. The external task-recovery workflow also passes on actual MainActivity with an isolated debug repository. It restores the same task in a distinct process, returns to the MCP host route and preserves Back navigation through the chooser to Settings. Unsaved MCP drafts are discarded; saved definitions remain available.
 
-Earlier MCP increments verify missing/corrupt ciphertext recovery, failed encrypted writes, injected DataStore commit failure, long values and explicit retries with preserved saved definitions. Actual Activity recreation retains memory-only drafts while serialized saved state excludes fixture secrets. Separate cold-reopen and abrupt foreground-kill/fresh-launch checks verify unchanged encrypted saved values and discarded unsaved drafts. Previous-task/back-stack restoration and broader lifecycle behavior remain open.
+Two separate JUnit storage phases verify fixture data/alias and unchanged production hosts, sessions, MCP aliases and durable UI preferences. Three normal debug lifecycle/layout regressions also pass. The recorded fixture task, callbacks and storage are cleaned up, and the normal repository is restored. Release keeps the production Application. See [task recovery](docs/task-recovery.md) for the exact procedure and limits.
 
-The project is not production complete. Full real Goose tools/permissions/cancel/load workflows, physical-device trusted TLS/network/background behavior, remaining resource budgets, supported-platform reproducibility and signed release delivery are outstanding. Core protocol and Rust sources were unchanged in the latest UI increments; their earlier 40 JVM and 67 Rust test results were not rerun. See [remaining work](TODO.md), [scope audit](docs/requirements-audit.md) and [screen acceptance](docs/screen-acceptance.md).
+Earlier increments cover compact dark/light Connections, logs, Agents, Sessions and Changes controls, MCP encrypted-storage failures, long values and Activity recreation. Detailed chronological results are in [TODO](TODO.md) and [screen acceptance](docs/screen-acceptance.md). Earlier 40 core protocol JVM and 67 Rust test results were not rerun for these Android increments.
 
-Implementation is stopped for the requested handoff. [HANDOFF.md](HANDOFF.md) gives the next agent the checkpoint, verification commands and remaining work order.
+The project is not production complete. More lifecycle routes and pending-permission recovery, page/accessibility checks, memory limits, host hardening, full real Goose workflows, physical-device trusted TLS/network/background behavior, supported-platform reproducibility and signed release delivery remain open. See the [scope audit](docs/requirements-audit.md) and [handoff](HANDOFF.md).
 
 ## Documentation
 
@@ -117,5 +124,6 @@ Implementation is stopped for the requested handoff. [HANDOFF.md](HANDOFF.md) gi
 - [Original request audit and remaining acceptance gates](docs/requirements-audit.md)
 - [Contributor context and test entry points](AGENTS.md)
 - [Current continuation checklist](TODO.md)
+- [Previous-task recovery verification](docs/task-recovery.md)
 
 ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol) and its [v1 initialization specification](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/initialization.mdx). Schema package versions and negotiated ACP wire versions are separate. This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.

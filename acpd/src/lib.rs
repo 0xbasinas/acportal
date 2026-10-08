@@ -1,6 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod connection;
+pub mod doctor;
 pub mod filesystem;
 pub mod mcp;
 pub(crate) mod process_tree;

@@ -2,7 +2,6 @@ package dev.acportal.transport
 
 import dev.acportal.data.validateAddress
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import okhttp3.*
 import okio.ByteString
@@ -13,11 +12,12 @@ class WebSocketTransport(
     private val sessionId:String,private val cursor:()->Long,private val scope:CoroutineScope,
     private val readOnly:Boolean=false,
 ) : AgentTransport {
-    private val incoming = Channel<ByteArray>(256)
+    private val incoming = IncomingMessageQueue()
+    private val sender = BoundedSocketSender()
     private val state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private var job:Job? = null
     @Volatile private var socket:WebSocket? = null
-    override fun messages():Flow<ByteArray> = incoming.receiveAsFlow()
+    override fun messages():Flow<ByteArray> = incoming.messages()
     override fun connectionState():StateFlow<ConnectionState> = state.asStateFlow()
     override suspend fun connect() {
         if (job?.isActive == true) return
@@ -35,7 +35,7 @@ class WebSocketTransport(
                         override fun onOpen(webSocket:WebSocket,response:Response) { socket=webSocket; state.value=ConnectionState.Connected;opened.complete(Unit) }
                         override fun onMessage(webSocket:WebSocket,text:String) {
                             val bytes = text.toByteArray()
-                            if (bytes.size > 1024*1024+4096 || incoming.trySend(bytes).isFailure) { webSocket.cancel();completed.complete(null) }
+                            if (bytes.size > 1024*1024+4096 || !incoming.offer(bytes)) { webSocket.cancel();completed.complete(null) }
                         }
                         override fun onMessage(webSocket:WebSocket,bytes:ByteString) { webSocket.close(1003,"Use JSON text frames");completed.complete(null) }
                         override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { completed.complete(null) }
@@ -62,7 +62,8 @@ class WebSocketTransport(
     override suspend fun disconnect() { job?.cancelAndJoin();job=null;socket?.close(1000,"Client detached");socket=null;state.value=ConnectionState.Disconnected }
     override suspend fun send(message:ByteArray) {
         check(!readOnly) {"This connection is read-only"}
-        require(message.size<=1024*1024) { "Message is too large" }
-        check(state.value == ConnectionState.Connected && socket?.send(message.toString(Charsets.UTF_8)) == true) { "Wait for the connection to recover before sending" }
+        val current = socket
+        check(state.value == ConnectionState.Connected && current != null) { "Wait for the connection to recover before sending" }
+        sender.send(current,message)
     }
 }

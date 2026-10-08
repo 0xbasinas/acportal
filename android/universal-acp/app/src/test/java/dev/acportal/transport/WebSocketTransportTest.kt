@@ -14,6 +14,34 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class WebSocketTransportTest {
+    @Test fun incomingByteOverflowReconnectsWithoutDiscardingAcceptedFramesOrSendingPrompts()=runBlocking {
+        val server=MockWebServer();val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO);val client=OkHttpClient()
+        val restored=CompletableDeferred<WebSocket>()
+        val submissions=java.util.concurrent.atomic.AtomicInteger()
+        val frame="x".repeat(1024*1024)
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener() {
+            override fun onOpen(webSocket:WebSocket,response:Response) {repeat(9) {assertTrue(webSocket.send(frame))}}
+            override fun onMessage(webSocket:WebSocket,text:String) {submissions.incrementAndGet()}
+        }))
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener() {
+            override fun onOpen(webSocket:WebSocket,response:Response) {restored.complete(webSocket)}
+            override fun onMessage(webSocket:WebSocket,text:String) {submissions.incrementAndGet()}
+        }))
+        server.start()
+        val transport=WebSocketTransport(client,server.url("/").toString(),"fixture","s",{42},scope)
+        try {
+            transport.connect()
+            val first=withContext(Dispatchers.IO) {server.takeRequest(10,TimeUnit.SECONDS)}!!
+            val second=withContext(Dispatchers.IO) {server.takeRequest(10,TimeUnit.SECONDS)}!!
+            assertTrue(first.path!!.endsWith("after=42"));assertTrue(second.path!!.endsWith("after=42"))
+            val peer=withTimeout(5000) {restored.await()}
+            repeat(8) {assertEquals(frame,withTimeout(5000) {transport.messages().first().toString(Charsets.UTF_8)})}
+            assertTrue(peer.send("restored"))
+            assertEquals("restored",withTimeout(5000) {transport.messages().first().toString(Charsets.UTF_8)})
+            assertEquals(0,first.bodySize);assertEquals(0,second.bodySize)
+            assertEquals(0,submissions.get())
+        } finally {transport.disconnect();scope.cancel();server.shutdown();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
+    }
     @Test fun terminalFailuresOfferSpecificRecoveryAndStopAutomaticRequests()=runBlocking {
         listOf(403 to ConnectionFailure.AUTHORIZATION,404 to ConnectionFailure.SESSION_UNAVAILABLE,409 to ConnectionFailure.CONTROLLER_BUSY).forEach {(code,kind)->
             val server=MockWebServer();server.enqueue(MockResponse().setResponseCode(code));server.start()

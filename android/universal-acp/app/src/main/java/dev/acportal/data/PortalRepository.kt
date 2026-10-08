@@ -141,6 +141,7 @@ class PortalRepository(
         }
         live.jobs += scope.launch {
             transport.messages().collect { bytes ->
+                if (live.manuallyDetached) return@collect
                 try {
                     val envelope=WireJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).objectValue()
                     live.state.update { SessionReducer.reduce(it,envelope) }
@@ -161,6 +162,13 @@ class PortalRepository(
                         if(!live.manuallyDetached) {transport.disconnect();transport.connect()}
                     }
                 } catch (cancelled:CancellationException) { throw cancelled }
+                catch (_:PendingPermissionLimitException) {
+                    live.transportActions.withLock {
+                        live.manuallyDetached=true
+                        transport.disconnect()
+                        live.state.update { it.copy(replaying=true,error="Pending approvals exceeded the client limit. Connection detached; no decision was sent. Review the host session before reconnecting.",errorOrigin=SessionErrorOrigin.PROTOCOL) }
+                    }
+                }
                 catch (_:Exception) { live.state.update { it.copy(error="An invalid host event was received.",errorOrigin=SessionErrorOrigin.PROTOCOL) } }
             }
         }

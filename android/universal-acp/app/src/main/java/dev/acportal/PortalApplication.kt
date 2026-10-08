@@ -6,9 +6,9 @@ import dev.acportal.storage.*
 import dev.acportal.security.CredentialVault
 import kotlinx.coroutines.*
 
-class PortalApplication : Application() {
+open class PortalApplication : Application() {
     lateinit var repository:PortalRepository
-        private set
+        protected set
     override fun onCreate() {
         super.onCreate()
         cacheDir.listFiles()?.filter {it.isFile && it.name.startsWith("received-audio-") && it.name.endsWith(".tmp")}?.forEach {it.delete()}
