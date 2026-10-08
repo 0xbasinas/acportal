@@ -16,7 +16,8 @@ clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+# 1.27 requires Rust 1.89; preserve the workspace's declared Rust 1.88 minimum.
+uuid = { version = "=1.26.1", features = ["v4", "serde"] }
 directories = "6"
 axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }

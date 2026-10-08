@@ -12,7 +12,7 @@ The user requested completion of the Connection logs increment and a documentati
 
 ## User decisions
 
-- Scope update on 8 October 2026: tablet/landscape acceptance is excluded from current work. Physical-phone testing is suspended and user-owned. Signed APK production/verification is suspended until requested. Verify minimum Rust, Linux/container and reproducible Windows builds through GitHub Actions, not local supported-build runs. This supersedes older remaining-work statements; historical evidence is unchanged. The implementation goal remains paused.
+- Scope update on 8 October 2026: tablet/landscape acceptance is excluded from current work. Physical-phone testing is suspended and user-owned. Signed APK production/verification is suspended until requested. Verify minimum Rust, Linux/container and reproducible Windows builds through GitHub Actions, not local supported-build runs. This supersedes older remaining-work statements; historical evidence is unchanged. The user authorized implementation to resume on 8 October 2026.
 
 - Local agent is Goose ACP, invoked as `goose acp`. Agent executable/arguments/environment belong in the host registry, not Android releases.
 - Phone connections use authenticated REST and WebSocket. The host communicates with agent processes using ACP stdio. Do not add another remote-shell transport or associated connection settings.
@@ -182,6 +182,8 @@ Wait for each started build/instrumentation process to reach terminal output. A 
 Connection logs uses wrapping minimum-height tabs. Below 420 dp or above 1.3× text, host/status/filter and pause/footer controls scroll with events; normal windows retain separate controls. `ConnectionLogsLayoutUiTest` checks compact dark/light filters, frozen events, resume and sanitized diagnostics. Copy availability is checked; the new fixture does not write the clipboard.
 
 ## Latest verified checkpoint and limits
+
+8 October 2026 installation documentation: docs/installation.md covers private configuration/state, direct TLS PEM paths, certificate renewal requiring daemon restart, debug installation and explicit pairing/revocation. examples/agents.custom.json contains disabled native/Node templates; docs/agents.md explains built-in merge and runtime paths. Existing debug CLI parsed templates/effective example config successfully without launching agents. No new build, certificate deployment or custom adapter acceptance. User authorized implementation resumption; supported-build GitHub Actions work remains next.
 
 8 October 2026 device repository overflow: PermissionOverflowRepositoryTest delivers 129 approvals plus late replay completion over an actual local WebSocket into isolated Room/DataStore/vault. It verifies 128 retained approvals/sequence, detached/disconnected/replaying state, blocked decisions/prompts after error dismissal, zero submissions and no automatic reconnect. Four device tests pass without skips with existing recovery guards; both APK builds/install and lint pass. Unique fixture files/resources are cleaned up. Android-test-only MockWebServer 4.12.0 matches the existing JVM version. Emulator small_phone was started headless without wiping data and verified at 720×1280/density320. No production-source changes or repeated core/JVM/Rust checks this increment. Device byte-overflow, route/UI and physical-host acceptance remain open. User requested pausing after this checkpoint.
 

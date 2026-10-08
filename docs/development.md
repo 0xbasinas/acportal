@@ -16,6 +16,12 @@ Use PowerShell 7 for `scripts/dev.ps1`. Native equivalent commands are in the RE
 
 The optional Docker build is `docker build -f docker/Dockerfile -t acpd .`. Supply your agent runtime and config/workspace mounts to use it, then pass `--config /mounted/config.toml start`. The image defaults to help; networking requires explicit listener, TLS and mounted state configuration. Docker has not been tested in this environment.
 
+## Supported-build checks on GitHub Actions
+
+`.github/workflows/rust.yml` runs stable formatting/Clippy/tests on Ubuntu 24.04 and Windows Server 2022, locked builds/tests on Rust 1.88.0 on both platforms, the Docker recipe with help/version and UID smoke checks, and two independent Windows release builds pinned to Rust 1.96.0. The Windows script uses fresh target directories, normalized source/output paths and MSVC deterministic linking, then compares SHA-256 hashes of `acpd.exe`. Actions retains toolchain, runner image, commit and hash evidence.
+
+Run these checks through Actions, not locally. A matching hash establishes repeatability on the same runner/toolchain only; it does not establish cross-runner/toolchain, PDB or signed-artifact reproducibility. Container smoke checks do not verify mounted storage, TLS or agent execution. Inspect terminal job results for the exact commit before recording acceptance. Changing this workflow or script requires another Actions run.
+
 ## Test coverage
 
 Protocol unit tests check JSON-RPC validation, unknown payload preservation, string IDs and upstream initialization deserialization. Host unit tests check invalid/duplicate registry entries, literal arguments, executable resolution, denied workspaces, config-relative paths, bounded frame parsing, history eviction and retained permissions.
