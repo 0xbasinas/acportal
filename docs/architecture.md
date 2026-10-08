@@ -85,7 +85,7 @@ Upstream ACP v1 types define initialization, session responses, capabilities, pe
 
 `api` exposes lifecycle operations and transport metadata. It forwards ACP requests without translating coding actions into agent-specific HTTP endpoints. Authentication belongs at the host API boundary; provider authentication remains ACP/agent-owned.
 
-`process_tree.rs` owns Windows cleanup jobs or Unix process groups for agent and terminal lifetimes. `terminal.rs` supplies the bounded terminal runtime. The connection actor brokers command consent, routes all five terminal callbacks, waits for exits without blocking its reader and publishes retained output for the phone. Executable and WebSocket regression tests run on Windows.
+`process_tree.rs` owns Windows cleanup jobs (processes start suspended and resume only after assignment) or Unix process groups for agent and terminal lifetimes. `terminal.rs` supplies the bounded terminal runtime. The connection actor brokers command consent, routes all five terminal callbacks, waits for exits without blocking its reader and publishes retained output for the phone. Executable and WebSocket regression tests run on Windows and Linux; descendant cleanup has platform-specific tests on both.
 
 ## Ownership and recovery
 

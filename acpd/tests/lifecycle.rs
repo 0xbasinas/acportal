@@ -320,6 +320,81 @@ async fn descendants_stop_on_session_removal_agent_crash_and_request_timeout() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
+async fn unix_descendants_stop_on_session_removal_agent_crash_and_request_timeout() {
+    let workspace = tempfile::tempdir().unwrap();
+    let manager = manager(workspace.path(), &[], 8);
+    let own_group = unsafe { libc::getpgid(0) };
+    for reason in ["remove", "crash", "timeout"] {
+        let session = manager
+            .create("test-agent", workspace.path())
+            .await
+            .unwrap();
+        let descendants = session
+            .connection
+            .request("_mock/spawn_descendant", json!({}))
+            .await
+            .unwrap();
+        let pids: Vec<u32> = ["childPid", "grandchildPid"]
+            .into_iter()
+            .map(|key| descendants[key].as_u64().unwrap() as u32)
+            .collect();
+        for pid in &pids {
+            let group = running_process_group(*pid)
+                .unwrap_or_else(|| panic!("descendant must run before stopping {reason}"));
+            assert_ne!(group, own_group, "agent tree must not share the host group");
+        }
+        match reason {
+            "remove" => manager.remove(session.metadata().id).await.unwrap(),
+            "crash" => {
+                assert!(
+                    session
+                        .connection
+                        .request("_mock/crash", json!({}))
+                        .await
+                        .is_err()
+                );
+            }
+            "timeout" => {
+                assert!(
+                    session
+                        .connection
+                        .request("_mock/stall", json!({}))
+                        .await
+                        .is_err()
+                );
+            }
+            _ => unreachable!(),
+        }
+        timeout(Duration::from_secs(5), session.connection.wait_closed())
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(5), async {
+            while pids.iter().any(|pid| running_process_group(*pid).is_some()) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("both descendant generations must stop after {reason}"));
+    }
+    manager.shutdown().await;
+}
+
+/// Linux view of a process: `None` once it has exited (gone or zombie), otherwise its
+/// process group. A zombie has stopped running and only awaits reaping by its new parent.
+#[cfg(target_os = "linux")]
+fn running_process_group(pid: u32) -> Option<i32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Fields after the parenthesised command name: state, ppid, pgrp, ...
+    let mut fields = stat[stat.rfind(')')? + 1..].split_whitespace();
+    let state = fields.next()?;
+    if state == "Z" || state == "X" {
+        return None;
+    }
+    fields.nth(1)?.parse().ok()
+}
+
+#[tokio::test]
 async fn a_quiet_terminal_wait_pauses_prompt_inactivity_until_command_exit() {
     let workspace = tempfile::tempdir().unwrap();
     let config = Config {

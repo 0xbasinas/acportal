@@ -66,6 +66,73 @@ async fn terminal_kill_release_and_service_drop_stop_descendants() {
         .expect("terminal descendants must stop");
     }
 }
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_terminal_kill_release_and_service_drop_stop_descendants() {
+    let workspace = tempfile::tempdir().unwrap();
+    let own_group = unsafe { libc::getpgid(0) };
+    for reason in ["kill", "release", "drop"] {
+        let mut service = TerminalService::new("session", workspace.path(), 1024).unwrap();
+        let prepared = service
+            .prepare(request(workspace.path(), vec!["--descendant".into()], 1024))
+            .unwrap();
+        let id = service.create_approved(prepared).unwrap()["terminalId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let pid = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(pid) = service.output("session", &id).unwrap()["output"]
+                    .as_str()
+                    .unwrap()
+                    .trim()
+                    .parse::<u32>()
+                {
+                    break pid;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let group = running_process_group(pid).expect("terminal descendant must run");
+        assert_ne!(
+            group, own_group,
+            "terminal tree must not share the host group"
+        );
+        match reason {
+            "kill" => {
+                service.kill("session", &id).await.unwrap();
+            }
+            "release" => {
+                service.release("session", &id).await.unwrap();
+            }
+            "drop" => drop(service),
+            _ => unreachable!(),
+        }
+        timeout(Duration::from_secs(5), async {
+            while running_process_group(pid).is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("terminal descendant must stop after {reason}"));
+    }
+}
+
+/// Linux view of a process: `None` once it has exited (gone or zombie), otherwise its
+/// process group. A zombie has stopped running and only awaits reaping by its new parent.
+#[cfg(target_os = "linux")]
+fn running_process_group(pid: u32) -> Option<i32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Fields after the parenthesised command name: state, ppid, pgrp, ...
+    let mut fields = stat[stat.rfind(')')? + 1..].split_whitespace();
+    let state = fields.next()?;
+    if state == "Z" || state == "X" {
+        return None;
+    }
+    fields.nth(1)?.parse().ok()
+}
 async fn finished(service: &TerminalService, id: &str) -> Value {
     timeout(
         Duration::from_secs(5),
