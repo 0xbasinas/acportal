@@ -193,6 +193,24 @@ impl WorkspaceFiles {
                 if metadata.permissions().readonly() {
                     bail!("target became read-only")
                 }
+                // The rename replaces the inode, so carry the owner and group over first
+                // (chown can clear set-id bits, so the mode is applied afterwards). If this
+                // process may not give the new file the same owner and group, refuse rather
+                // than silently taking over a file owned by someone else or dropping a
+                // shared group.
+                #[cfg(unix)]
+                {
+                    use cap_std::fs::MetadataExt;
+                    let current = file.metadata()?;
+                    if (current.uid(), current.gid()) != (metadata.uid(), metadata.gid()) {
+                        std::os::unix::fs::fchown(&file, Some(metadata.uid()), Some(metadata.gid()))
+                            .map_err(|_| {
+                                anyhow::anyhow!(
+                                    "cannot keep the existing file's owner or group; the host user may not replace this file"
+                                )
+                            })?;
+                    }
+                }
                 file.set_permissions(metadata.permissions())?;
                 #[cfg(windows)]
                 {
@@ -437,6 +455,103 @@ mod tests {
             std::fs::read_to_string(moved.join("file.txt")).unwrap(),
             "original"
         );
+    }
+    #[cfg(unix)]
+    fn replace(files: &WorkspaceFiles, path: &Path, content: &str) -> Result<()> {
+        let proposed =
+            files.prepare_write(json!({"sessionId":"s","path":path,"content":content}), "s")?;
+        files.commit_write(
+            &proposed,
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unix_replacement_preserves_mode_and_secondary_group() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("shared.txt");
+        std::fs::write(&path, "old\n").unwrap();
+        let primary = std::fs::metadata(&path).unwrap().gid();
+        // A supplementary group of this process other than the file's current group.
+        let status = std::fs::read_to_string("/proc/self/status").unwrap();
+        let secondary = status
+            .lines()
+            .find_map(|line| line.strip_prefix("Groups:"))
+            .unwrap_or("")
+            .split_whitespace()
+            .filter_map(|group| group.parse::<u32>().ok())
+            .find(|group| *group != primary);
+        if let Some(group) = secondary {
+            std::os::unix::fs::chown(&path, None, Some(group)).unwrap();
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let before = std::fs::metadata(&path).unwrap();
+        let files = WorkspaceFiles::open(root.path(), 1024).unwrap();
+        replace(&files, &path, "new\n").unwrap();
+        let after = std::fs::metadata(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+        assert_ne!(
+            after.ino(),
+            before.ino(),
+            "replacement is atomic, not in place"
+        );
+        assert_eq!(after.mode() & 0o7777, 0o640);
+        assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+        if secondary.is_none() {
+            eprintln!("no supplementary group available; only owner and mode were checked");
+        }
+        // New files stay owner-only and leave no temporary file behind.
+        let created = root.path().join("created.txt");
+        replace(&files, &created, "x").unwrap();
+        assert_eq!(std::fs::metadata(&created).unwrap().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
+    /// Needs a prepared file owned by another user in a directory this user can write, e.g.
+    /// `sudo chown 65534:65534 f && sudo chmod 0666 f`. Run without root (refused, unchanged)
+    /// and as root (replaced, owner and group kept). CI does both on Linux.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "needs ACPD_TEST_FOREIGN_FILE prepared with sudo"]
+    fn unix_foreign_owned_target_is_refused_or_keeps_its_owner() {
+        use std::os::unix::fs::MetadataExt;
+        let path = PathBuf::from(
+            std::env::var_os("ACPD_TEST_FOREIGN_FILE").expect("ACPD_TEST_FOREIGN_FILE"),
+        );
+        let before = std::fs::metadata(&path).unwrap();
+        let files = WorkspaceFiles::open(path.parent().unwrap(), 1024).unwrap();
+        let old = std::fs::read_to_string(&path).unwrap();
+        let result = replace(&files, &path, "replaced by acpd test\n");
+        let after = std::fs::metadata(&path).unwrap();
+        let euid = unsafe { libc::geteuid() };
+        assert_ne!(before.uid(), euid, "file must belong to another user");
+        if euid == 0 {
+            result.unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "replaced by acpd test\n"
+            );
+            assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+            assert_eq!(after.mode() & 0o7777, before.mode() & 0o7777);
+        } else {
+            let error = format!("{:#}", result.unwrap_err());
+            assert!(error.contains("owner or group"), "{error}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+            assert_eq!(after.ino(), before.ino());
+            assert_eq!(after.uid(), before.uid());
+            let leftovers = std::fs::read_dir(path.parent().unwrap())
+                .unwrap()
+                .filter(|entry| {
+                    entry
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".acpd-")
+                })
+                .count();
+            assert_eq!(leftovers, 0);
+        }
     }
     #[cfg(windows)]
     #[test]

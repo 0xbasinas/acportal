@@ -21,6 +21,22 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
+      - name: Foreign-owned file replacement (Linux, sudo on the runner only)
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          ws="$(mktemp -d)"
+          echo old > "$ws/foreign.txt"
+          sudo chown 65534:65534 "$ws/foreign.txt"
+          sudo chmod 0666 "$ws/foreign.txt"
+          export ACPD_TEST_FOREIGN_FILE="$ws/foreign.txt"
+          # As the runner user: refused, file and owner unchanged.
+          cargo test --locked -p acpd --lib -- --ignored --exact filesystem::tests::unix_foreign_owned_target_is_refused_or_keeps_its_owner
+          # As root: replaced, owner/group/mode kept. Run the built test binary, not cargo.
+          bin="$(cargo test --locked -p acpd --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "acpd" and (.target.kind | index("lib"))) | .executable')"
+          sudo --preserve-env=ACPD_TEST_FOREIGN_FILE "$bin" --ignored --exact filesystem::tests::unix_foreign_owned_target_is_refused_or_keeps_its_owner
+          stat -c '%u:%g %a' "$ws/foreign.txt"
+          test "$(stat -c '%u:%g' "$ws/foreign.txt")" = 65534:65534
 
   minimum-rust:
     name: Rust 1.88 / ${{ matrix.os }}
