@@ -16,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -38,7 +40,7 @@ import kotlinx.serialization.json.*
 @Composable fun ScreenHeader(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,action:(@Composable ()->Unit)?=null) {
     Row(Modifier.fillMaxWidth().padding(start=if(onBack==null)24.dp else 12.dp,end=16.dp,top=20.dp,bottom=24.dp),verticalAlignment=Alignment.CenterVertically) {
         onBack?.let { IconButton(onClick=it) { Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back",Modifier.size(22.dp)) };Spacer(Modifier.width(4.dp)) }
-        Column(Modifier.weight(1f)) { Text(title,style=MaterialTheme.typography.headlineSmall,maxLines=1,overflow=TextOverflow.Ellipsis);subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis) } }
+        Column(Modifier.weight(1f)) { Text(title,Modifier.semantics {heading()},style=MaterialTheme.typography.headlineSmall,maxLines=1,overflow=TextOverflow.Ellipsis);subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis) } }
         action?.invoke()
     }
 }

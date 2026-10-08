@@ -21,8 +21,10 @@ class PairingLayoutUiTest {
         scroll("Connecting…")
         compose.onNodeWithText("Connecting…").assertIsNotEnabled()
     }
+    @Test fun keyboardSubmissionAndFailedRequestPreserveFieldsUntilExplicitRetry()=checkKeyboard("dark")
+    @Test fun lightKeyboardSubmissionAndFailedRequestPreserveFieldsUntilExplicitRetry()=checkKeyboard("light")
     @OptIn(ExperimentalLayoutApi::class)
-    @Test fun keyboardSubmissionAndFailedRequestPreserveFieldsUntilExplicitRetry() {
+    private fun checkKeyboard(mode:String) {
         if(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("requireLargeFont")=="true")assertTrue(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.fontScale>=1.9f)
         val keyboard=AtomicBoolean(false)
         var loading by mutableStateOf(false)
@@ -31,7 +33,7 @@ class PairingLayoutUiTest {
         compose.setContent {
             val visible=WindowInsets.isImeVisible
             SideEffect {keyboard.set(visible)}
-            PortalTheme {Surface(Modifier.fillMaxSize().systemBarsPadding()) {Column {
+            PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {Column {
                 failure?.let {ConnectionError(it,{failure=null})}
                 PairScreen(loading,{}, {address,code,name->requests+=listOf(address,code,name);loading=true},initialAddress="https://host.example",initialLabel="Workstation")
             }}}

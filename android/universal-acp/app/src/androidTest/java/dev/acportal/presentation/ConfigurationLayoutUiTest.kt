@@ -71,27 +71,31 @@ class ConfigurationLayoutUiTest {
         reveal("Headers")
         compose.onNodeWithText("Headers").assertTextContains("X-Fixture="+original.values.single().value)
     }
+    @Test fun keyboardKeepsTheSaveActionReachableWithoutLosingTheDefinition()=checkKeyboard("light")
+    @Test fun darkKeyboardKeepsTheSaveActionReachableWithoutLosingTheDefinition()=checkKeyboard("dark")
+
     @OptIn(ExperimentalLayoutApi::class)
-    @Test fun keyboardKeepsTheSaveActionReachableWithoutLosingTheDefinition() {
+    private fun checkKeyboard(mode:String) {
         var servers by mutableStateOf(emptyList<McpDefinition>())
         val keyboard=AtomicBoolean(false)
         compose.setContent {
             val visible=WindowInsets.isImeVisible
             SideEffect {keyboard.set(visible)}
-            PortalTheme("light") {Surface(Modifier.fillMaxSize().systemBarsPadding()) {McpServersScreen("Workstation",servers,false,{}, {updated,done->servers=updated;done()})}}
+            PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {McpServersScreen("Workstation",servers,false,{}, {updated,done->servers=updated;done()})}}
         }
-        compose.onNodeWithText("+  Add server").performClick()
-        compose.onNodeWithText("Server name").performClick().performTextInput("Project docs")
+        compose.onNodeWithText("+  Add server").performTouchInput {click()}
+        compose.onNodeWithText("Server name").performTouchInput {click()}
+        compose.onNodeWithText("Server name").performTextInput("Project docs")
         compose.waitUntil(10_000) {keyboard.get()}
         reveal("HTTP")
         compose.onNodeWithText("HTTP").performClick()
         reveal("Server URL")
-        compose.onNodeWithText("Server URL").performClick().performTextInput("https://docs.example.com/mcp")
+        compose.onNodeWithText("Server URL").performTouchInput {click()}
+        compose.onNodeWithText("Server URL").performTextInput("https://docs.example.com/mcp")
         reveal("Save server")
         compose.onNodeWithText("Save server").assertIsDisplayed()
         assertTrue("The native keyboard must still be visible",keyboard.get())
-        capture("mcp-editor-keyboard")
-        compose.onNodeWithText("Save server").performClick()
+        compose.onNodeWithText("Save server").performTouchInput {click()}
         compose.runOnIdle {assertEquals("https://docs.example.com/mcp",servers.single().endpoint);assertEquals("Project docs",servers.single().name)}
     }
 
