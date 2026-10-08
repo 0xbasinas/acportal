@@ -13,3 +13,4 @@
 *.pem
 *.key
 /reproducibility-evidence.txt
+/tools/*/target/

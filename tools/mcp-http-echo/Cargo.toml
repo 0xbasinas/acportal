@@ -1,0 +1,17 @@
+[package]
+name = "mcp-http-echo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+# Test helper for acpd/tests/testy.rs; built by scripts/build-testy.sh, not part of the workspace.
+
+[workspace]
+
+[dependencies]
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "schemars", "macros", "transport-streamable-http-server"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+http = "1"
+serde = { version = "1", features = ["derive"] }
+schemars = { version = "1.0", features = ["derive"] }

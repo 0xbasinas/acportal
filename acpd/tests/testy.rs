@@ -294,6 +294,23 @@ fn mcp_echo_server(testy: &Path) -> Option<PathBuf> {
     }
 }
 
+/// A minimal Streamable HTTP MCP server with one `echo` tool (tools/mcp-http-echo), built
+/// next to testy by `scripts/build-testy.sh` (`ACPD_TESTY_HTTP_MCP_BIN` overrides the path).
+fn mcp_http_echo_server(testy: &Path) -> Option<PathBuf> {
+    let path = std::env::var_os("ACPD_TESTY_HTTP_MCP_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| testy.with_file_name("mcp-http-echo"));
+    if path.is_file() {
+        Some(path)
+    } else {
+        eprintln!(
+            "skipping HTTP MCP test: {} not found; rebuild with scripts/build-testy.sh",
+            path.display()
+        );
+        None
+    }
+}
+
 fn prompt(session: &Value, id: &str, text: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"method":"session/prompt","params":{"sessionId":session["acpSessionId"],"prompt":[{"type":"text","text":text}]}})
 }
@@ -836,4 +853,80 @@ async fn testy_uses_a_phone_supplied_stdio_mcp_server() {
             .unwrap();
     assert_eq!(sse.status(), reqwest::StatusCode::BAD_REQUEST);
     fixture.stop().await;
+}
+
+/// A phone-supplied HTTP MCP definition reaches the agent and works end to end: testy connects
+/// to a real Streamable HTTP MCP server on loopback, lists its tools and calls one. The server
+/// confirms the phone-supplied header arrived; its value stays out of the session metadata.
+#[tokio::test]
+async fn testy_uses_a_phone_supplied_http_mcp_server() {
+    let Some(testy) = testy() else { return };
+    let Some(server) = mcp_http_echo_server(&testy) else {
+        return;
+    };
+    let mut child = tokio::process::Command::new(&server)
+        .arg("0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("start the HTTP MCP server");
+    let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap());
+    let mut url = String::new();
+    timeout(
+        WAIT,
+        tokio::io::AsyncBufReadExt::read_line(&mut lines, &mut url),
+    )
+    .await
+    .expect("HTTP MCP server printed no URL")
+    .unwrap();
+    let url = url.trim().to_owned();
+    assert!(
+        url.starts_with("http://127.0.0.1:") && url.ends_with("/mcp"),
+        "{url}"
+    );
+    let fixture = Fixture::start(&testy, None).await;
+    let definitions = json!([{"type":"http","name":"web","url":url,"headers":[{"name":"X-Acpd-Marker","value":"synthetic-http-header"}]}]);
+    let session = fixture.create_with_mcp(definitions).await;
+    assert_eq!(session["status"], "ready", "{session}");
+    assert!(
+        !session.to_string().contains("synthetic-http-header"),
+        "{session}"
+    );
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    let tools = run(
+        &mut socket,
+        prompt(
+            &session,
+            "tools",
+            r#"{"command":"list_tools","server":"web"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(tools.stop_reason(), "end_turn", "{}", tools.response);
+    let listed = tools.agent_text();
+    assert!(
+        listed.starts_with("Available tools:") && listed.contains("echo"),
+        "{listed}"
+    );
+    let call = run(
+        &mut socket,
+        prompt(
+            &session,
+            "call",
+            r#"{"command":"call_tool","server":"web","tool":"echo","params":{"message":"over http"}}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(call.stop_reason(), "end_turn", "{}", call.response);
+    let reply = call.agent_text();
+    assert!(
+        reply.starts_with("OK:") && reply.contains("HTTP echo: over http (marker header present)"),
+        "{reply}"
+    );
+    assert!(tools.consents.is_empty() && call.consents.is_empty());
+    fixture.stop().await;
+    child.kill().await.ok();
 }
