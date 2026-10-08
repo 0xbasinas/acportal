@@ -12,7 +12,8 @@ concurrency:
 jobs:
   build-and-unit-test:
     name: Debug build, JVM tests and lint
-    runs-on: ubuntu-latest
+    # Pinned like rust.yml; ubuntu-latest moves to a new image on 19 October 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:
       run:
@@ -20,13 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Gradle runs on JDK 21; the modules compile with a JDK 17 toolchain.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: |
             17
             21
-      - uses: android-actions/setup-android@v3
+      # The runner image's preinstalled Android SDK (ANDROID_HOME) with accepted licenses is used;
+      # AGP downloads any missing platform or build-tools package itself.
       - uses: gradle/actions/setup-gradle@v4
       # Debug variants only: no signing secrets or release builds are used.
       - name: Build debug APKs, run JVM unit tests and lint

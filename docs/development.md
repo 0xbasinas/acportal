@@ -24,7 +24,7 @@ Run these checks through Actions, not locally. A matching hash establishes repea
 
 ## Android checks on GitHub Actions
 
-`.github/workflows/android.yml` runs on pull requests and pushes to main. It sets up Temurin JDK 17 and 21 (Gradle runs on 21; modules use a 17 toolchain), the runner's Android SDK through `android-actions/setup-android` and Gradle caching, then runs `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` from `android/universal-acp`. Only debug variants are built; no signing secrets are used. Test and lint reports are uploaded as the `android-reports` artifact. This does not run instrumented device tests, which still need an emulator or phone.
+`.github/workflows/android.yml` runs on pull requests and pushes to main. It sets up Temurin JDK 17 and 21 (Gradle runs on 21; modules use a 17 toolchain), the Ubuntu 24.04 runner's preinstalled Android SDK and Gradle caching, then runs `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` from `android/universal-acp`. Only debug variants are built; no signing secrets are used. Test and lint reports are uploaded as the `android-reports` artifact. This does not run instrumented device tests, which still need an emulator or phone.
 
 ## Test coverage
 
