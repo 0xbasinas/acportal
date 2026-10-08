@@ -233,6 +233,13 @@ async fn provider_prompt_check(
                 "failed; the check prompt returned ACP auth_required (-32000): the agent's provider credentials are missing or were rejected. Fix them in the agent's own configuration (agent error text not printed)".into(),
                 false,
             ),
+            Some(code) if code.1 => (
+                format!(
+                    "failed; the check prompt returned JSON-RPC error code {} and the agent's error text mentions authentication or an API key: the provider credentials are probably missing or were rejected. Fix them in the agent's own configuration (agent error text not printed)",
+                    code.0
+                ),
+                false,
+            ),
             Some(code) => (
                 format!(
                     "failed; the check prompt returned JSON-RPC error code {}. Provider credentials, model name or provider access are likely missing or wrong (agent error text not printed)",

@@ -81,9 +81,34 @@ fn log_frame(direction: &'static str, message: &Value, bytes: usize) {
 pub const CALLBACK_DENIED: i64 = -32602;
 /// JSON-RPC code for a callback the host cannot serve right now (not ready, capacity).
 pub const CALLBACK_UNAVAILABLE: i64 = -32603;
-/// Preserve only the protocol error code; agent text/data may contain credentials.
+/// Preserve only the protocol error code; agent text/data may contain credentials. The second
+/// field records whether that text mentioned authentication or an API key (the text itself is
+/// dropped), so diagnostics can name the likely cause without printing it.
 #[derive(Debug)]
-pub struct AgentRpcError(pub i64);
+pub struct AgentRpcError(pub i64, pub bool);
+
+/// Whether an agent error's message or data mentions authentication, credentials or an API key.
+/// Only these fixed words are matched (no status numbers, which also appear in request ids).
+pub fn mentions_credentials(error: &Value) -> bool {
+    let text = format!(
+        "{} {}",
+        error["message"].as_str().unwrap_or(""),
+        error.get("data").map(Value::to_string).unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    [
+        "authenticat",
+        "unauthori",
+        "api key",
+        "api_key",
+        "apikey",
+        "credential",
+        "invalid key",
+        "invalid_key",
+    ]
+    .iter()
+    .any(|word| text.contains(word))
+}
 impl std::fmt::Display for AgentRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "agent JSON-RPC error code {}", self.0)
@@ -913,7 +938,7 @@ async fn actor(
                             if waiter.method == "session/prompt" { let _ = busy.send(false); }
                             let result = if message.get("error").is_some() {
                                 // Do not include agent-provided error text: it may contain secrets.
-                                Err(AgentRpcError(message["error"]["code"].as_i64().unwrap_or(-32603)).into())
+                                Err(AgentRpcError(message["error"]["code"].as_i64().unwrap_or(-32603),mentions_credentials(&message["error"])).into())
                             } else { Ok(message["result"].clone()) };
                             let _ = waiter.reply.send(result);
                         }
@@ -1224,6 +1249,22 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn credential_words_in_agent_errors_are_detected_without_status_numbers() {
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"Internal error: Authentication Fails, Your api key: **** is invalid"})
+        ));
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"boom","data":{"reason":"Unauthorized"}})
+        ));
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"missing OPENAI_API_KEY"})
+        ));
+        assert!(!mentions_credentials(
+            &json!({"code":-32603,"message":"model not found (request 401f-403a)"})
+        ));
+        assert!(!mentions_credentials(&json!({"code":-32603})));
+    }
     #[test]
     fn admission_counts_json_escaping_and_envelope_without_retaining_encoded_bytes() {
         let params = json!({"text":"\n\"é".repeat(100)});
