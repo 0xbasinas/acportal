@@ -19,3 +19,4 @@ history_bytes = 8388608
 # file = "../.local/acpd.log"
 # max_file_bytes = 4194304
 # retained_files = 3
+# frame_metadata = false   # true logs content-free ACP frame metadata at debug level

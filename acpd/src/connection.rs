@@ -19,6 +19,60 @@ use tokio::{
     time::Instant,
 };
 
+static FRAME_METADATA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Opt-in privacy-preserving frame diagnostics (`[logging] frame_metadata`). Records only the
+/// direction, JSON-RPC kind, a sanitized method/update name, error code and byte size of each
+/// ACP frame at debug level under the `acpd::acp_frames` target. Params, results, error text,
+/// request ids and session ids are never logged.
+pub fn enable_frame_metadata() {
+    FRAME_METADATA.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Fixed-vocabulary summary of a frame: (kind, method, update kind, error code).
+pub fn frame_summary(message: &Value) -> (&'static str, String, String, Option<i64>) {
+    fn label(value: &Value) -> String {
+        match value.as_str() {
+            None => "-".into(),
+            Some(text)
+                if !text.is_empty()
+                    && text.len() <= 64
+                    && text
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"_/.-".contains(&byte)) =>
+            {
+                text.into()
+            }
+            Some(_) => "<other>".into(),
+        }
+    }
+    let kind = match (message.get("method").is_some(), message.get("id").is_some()) {
+        (true, true) => "request",
+        (true, false) => "notification",
+        _ if message.get("error").is_some() => "error",
+        _ => "response",
+    };
+    let update = if message["method"] == "session/update" {
+        label(&message["params"]["update"]["sessionUpdate"])
+    } else {
+        "-".into()
+    };
+    (
+        kind,
+        label(&message["method"]),
+        update,
+        message["error"]["code"].as_i64(),
+    )
+}
+
+fn log_frame(direction: &'static str, message: &Value, bytes: usize) {
+    if !FRAME_METADATA.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let (kind, method, update, code) = frame_summary(message);
+    tracing::debug!(target: "acpd::acp_frames", direction, kind, method = %method, update = %update, code, bytes, "acp frame");
+}
+
 /// Preserve only the protocol error code; agent text/data may contain credentials.
 #[derive(Debug)]
 pub struct AgentRpcError(pub i64);
@@ -311,7 +365,7 @@ impl AcpConnection {
         let stdout_task = tokio::spawn(async move {
             let mut stdout = BufReader::new(stdout);
             loop {
-                let frame = read_frame(&mut stdout, frame_limit).await;
+                let frame = read_sized_frame(&mut stdout, frame_limit).await;
                 let terminal = !matches!(frame, Ok(Some(_)));
                 if frame_tx.send(frame).await.is_err() || terminal {
                     break;
@@ -484,6 +538,15 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     max: usize,
 ) -> Result<Option<Value>> {
+    Ok(read_sized_frame(reader, max)
+        .await?
+        .map(|(message, _)| message))
+}
+/// As [`read_frame`], also returning the frame's encoded byte length.
+pub async fn read_sized_frame<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    max: usize,
+) -> Result<Option<(Value, usize)>> {
     let mut bytes = Vec::with_capacity(4096.min(max));
     loop {
         let available = reader.fill_buf().await?;
@@ -506,7 +569,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     }
     let message: Value = serde_json::from_slice(&bytes).context("invalid ACP JSON")?;
     validate_message(&message)?;
-    Ok(Some(message))
+    Ok(Some((message, bytes.len())))
 }
 async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()> {
     validate_message(message)?;
@@ -522,13 +585,14 @@ async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()
     })
     .await
     .context("agent stdin stalled")??;
+    log_frame("host_to_agent", message, bytes.len());
     Ok(())
 }
 
 async fn actor(
     child: &mut Child,
     mut stdin: ChildStdin,
-    mut frames: mpsc::Receiver<Result<Option<Value>>>,
+    mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
     mut commands: mpsc::Receiver<Control>,
     context: ActorContext<'_>,
 ) -> String {
@@ -556,7 +620,7 @@ async fn actor(
     let reason = loop {
         tokio::select! {
             received = frames.recv() => {
-                let message = match received { Some(Ok(Some(value))) => value,
+                let message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
                     Some(Ok(None)) | None => break "agent stdout closed".into(), Some(Err(_)) => break "malformed or oversized ACP frame".into() };
                 if message.get("method").is_none() {
                     if let Some(id) = message["id"].as_u64()
@@ -859,6 +923,37 @@ mod tests {
         let mut reader = BufReader::new(&b"{\"jsonrpc\":\"2.0\",\"method\":\"x\"}\n"[..]);
         assert!(read_frame(&mut reader, 1024).await.unwrap().is_some());
         assert!(read_frame(&mut reader, 1024).await.unwrap().is_none());
+    }
+    #[test]
+    fn frame_summary_keeps_only_fixed_vocabulary_metadata() {
+        let secret = "sk-synthetic-secret";
+        let update = json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":secret,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":secret}}}});
+        assert_eq!(
+            frame_summary(&update),
+            (
+                "notification",
+                "session/update".into(),
+                "agent_message_chunk".into(),
+                None
+            )
+        );
+        let failure = json!({"jsonrpc":"2.0","id":secret,"error":{"code":-32000,"message":secret,"data":secret}});
+        assert_eq!(
+            frame_summary(&failure),
+            ("error", "-".into(), "-".into(), Some(-32000))
+        );
+        let request = json!({"jsonrpc":"2.0","id":7,"method":format!("_x/{secret} with spaces"),"params":{"token":secret}});
+        assert_eq!(
+            frame_summary(&request),
+            ("request", "<other>".into(), "-".into(), None)
+        );
+        let long = json!({"jsonrpc":"2.0","method":"a".repeat(65)});
+        assert_eq!(frame_summary(&long).1, "<other>");
+        let result = json!({"jsonrpc":"2.0","id":1,"result":{"sessionId":secret}});
+        assert_eq!(
+            frame_summary(&result),
+            ("response", "-".into(), "-".into(), None)
+        );
     }
     #[test]
     fn bounded_history_reports_eviction_and_retains_pending_requests() {

@@ -45,8 +45,16 @@ enum Commands {
     },
     /// Discover configured agents without running them or exposing environment values.
     Agents,
-    /// Diagnose configuration, executables, workspaces, listener and storage.
-    Doctor,
+    /// Diagnose configuration, executables, workspaces, listener, storage, free space, logging and TLS.
+    Doctor {
+        /// Also start this agent with host callbacks disabled and create one session without a
+        /// prompt to check its sign-in state. Requires --workspace.
+        #[arg(long, requires = "workspace")]
+        agent: Option<String>,
+        /// Authorized workspace used for the sign-in check.
+        #[arg(long, requires = "agent")]
+        workspace: Option<PathBuf>,
+    },
     /// Print effective non-secret host configuration. Does not overwrite files.
     Config,
     /// Verify ACP initialization without sending a prompt or starting a model request.
@@ -86,7 +94,10 @@ async fn main() -> Result<()> {
         (Commands::Start, Some(_)) => Some(acpd::logging::BoundedLog::open(&config.logging)?),
         _ => None,
     };
-    init_tracing(log_file);
+    if config.logging.frame_metadata {
+        acpd::connection::enable_frame_metadata();
+    }
+    init_tracing(log_file, config.logging.frame_metadata);
     let registry = Registry::load(&config.registry)?;
     match cli.command {
         Commands::Start => Host::new(config, registry)?.serve().await?,
@@ -111,7 +122,7 @@ async fn main() -> Result<()> {
         Commands::Sessions { address } => host_query(&address, "/v1/sessions").await?,
         Commands::Agents => println!("{}", serde_json::to_string_pretty(&registry.discover())?),
         Commands::Config => println!("{}", toml::to_string_pretty(&config)?),
-        Commands::Doctor => {
+        Commands::Doctor { agent, workspace } => {
             config.validate()?;
             let agents = registry.discover();
             let mut healthy = !config.workspace_roots.is_empty();
@@ -137,12 +148,21 @@ async fn main() -> Result<()> {
                 "Workspace roots configured: {}",
                 config.workspace_roots.len()
             );
-            println!(
-                "Provider authentication is agent-owned. Use probe for ACP negotiation; chat exercises the provider."
-            );
+            match (agent, workspace) {
+                (Some(agent), Some(workspace)) => {
+                    let (message, passed) =
+                        acpd::doctor::agent_sign_in_check(&config, registry, &agent, &workspace)
+                            .await;
+                    println!("{message}");
+                    healthy &= passed;
+                }
+                _ => println!(
+                    "Provider sign-in: not checked. Run doctor --agent <id> --workspace <dir> to start the agent and create one session without a prompt."
+                ),
+            }
             if !healthy {
                 bail!(
-                    "diagnostics failed; review listener, storage, free space, log, TLS, executable and workspace checks above"
+                    "diagnostics failed; review listener, storage, free space, log, TLS, executable, workspace and sign-in checks above"
                 )
             }
         }
@@ -204,13 +224,15 @@ async fn main() -> Result<()> {
     }
     Ok(())
 }
-fn init_tracing(log_file: Option<std::sync::Arc<acpd::logging::BoundedLog>>) {
+fn init_tracing(log_file: Option<std::sync::Arc<acpd::logging::BoundedLog>>, frame_metadata: bool) {
     use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+    let mut filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "acpd=info".into());
+    if frame_metadata {
+        filter = filter.add_directive("acpd::acp_frames=debug".parse().expect("static directive"));
+    }
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "acpd=info".into()),
-        )
+        .with(filter)
         .with(fmt::layer().with_writer(std::io::stderr).with_target(false))
         .with(log_file.map(|log| {
             fmt::layer()

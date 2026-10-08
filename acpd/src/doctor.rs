@@ -70,6 +70,91 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Opt-in sign-in check. Starts the agent with every host callback disabled, sends
+/// `initialize` and `session/new` in an authorized workspace, then stops it. No prompt is sent,
+/// so no model request is made by the host; agents may still contact their provider while
+/// creating a session. Agent error text and credentials are never printed.
+pub async fn agent_sign_in_check(
+    config: &Config,
+    registry: crate::registry::Registry,
+    agent: &str,
+    workspace: &Path,
+) -> (String, bool) {
+    let label = format!("Agent {} sign-in", printable(agent));
+    let manager = match crate::session::SessionManager::new(config.clone(), registry) {
+        Ok(manager) => manager,
+        Err(_) => return (format!("{label}: host configuration is invalid"), false),
+    };
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+    };
+    let opened = manager
+        .open_configured(agent, workspace, None, Vec::new(), access)
+        .await;
+    let result = match opened {
+        Ok(session) => {
+            let metadata = session.metadata();
+            if metadata.acp_session_id.is_empty() {
+                let methods: Vec<String> = metadata.initialization["authMethods"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .take(8)
+                    .map(|method| {
+                        let id = printable(method["id"].as_str().unwrap_or("?"));
+                        match method["name"].as_str() {
+                            Some(name) => format!("{id} ({})", printable(name)),
+                            None => id,
+                        }
+                    })
+                    .collect();
+                (
+                    format!(
+                        "{label}: sign-in required before sessions can start; agent offers {}. Sign in through the agent itself or from the app",
+                        methods.join(", ")
+                    ),
+                    false,
+                )
+            } else {
+                (
+                    format!(
+                        "{label}: ready; initialize and session/new succeeded with no prompt sent. A model request was not exercised"
+                    ),
+                    true,
+                )
+            }
+        }
+        Err(error) => {
+            let reason =
+                if let Some(code) = error.downcast_ref::<crate::connection::AgentRpcError>() {
+                    format!("agent returned JSON-RPC error code {}", code.0)
+                } else {
+                    // Host-side causes are fixed strings (unknown/disabled agent, workspace policy,
+                    // missing executable, protocol mismatch); agent text never reaches here.
+                    format!("{error}")
+                };
+            (format!("{label}: failed; {reason}"), false)
+        }
+    };
+    manager.shutdown().await;
+    result
+}
+
+/// Bounds agent- or operator-supplied labels before printing: at most 64 printable characters.
+fn printable(text: &str) -> String {
+    let mut bounded: String = text
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(64)
+        .collect();
+    if text.chars().count() > 64 {
+        bounded.push('…');
+    }
+    bounded
+}
+
 /// Nearest existing directory at or above `path`, without creating anything.
 fn existing_ancestor(path: &Path) -> Option<PathBuf> {
     let mut directory = path;
@@ -118,6 +203,17 @@ fn free_space_check(state: &Path, log_file: Option<&Path>) -> (String, bool) {
 }
 
 fn logging_check(config: &Config) -> (String, bool) {
+    let (message, passed) = log_file_check(config);
+    if config.logging.frame_metadata {
+        return (
+            format!("{message}; ACP frame metadata (no content) logged at debug level"),
+            passed,
+        );
+    }
+    (message, passed)
+}
+
+fn log_file_check(config: &Config) -> (String, bool) {
     let logging = &config.logging;
     let Some(file) = &logging.file else {
         return (
@@ -524,6 +620,12 @@ mod tests {
 
         let mut config = Config::default();
         assert!(logging_check(&config).1);
+        config.logging.frame_metadata = true;
+        assert!(
+            logging_check(&config)
+                .0
+                .contains("frame metadata (no content)")
+        );
         config.logging.file = Some(directory.path().join("acpd.log"));
         let (message, passed) = logging_check(&config);
         assert!(passed, "{message}");

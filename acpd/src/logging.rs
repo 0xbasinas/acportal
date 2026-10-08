@@ -178,6 +178,7 @@ mod tests {
             file: Some(path.to_owned()),
             max_file_bytes,
             retained_files,
+            ..Default::default()
         }
     }
 

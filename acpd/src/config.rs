@@ -23,6 +23,9 @@ pub struct LoggingConfig {
     pub max_file_bytes: u64,
     /// Rotated files kept beside the active file (`name.1` is newest).
     pub retained_files: u32,
+    /// Log per-frame ACP metadata (direction, kind, sanitized method, error code, size) at
+    /// debug level. Never logs frame content.
+    pub frame_metadata: bool,
 }
 impl Default for LoggingConfig {
     fn default() -> Self {
@@ -30,6 +33,7 @@ impl Default for LoggingConfig {
             file: None,
             max_file_bytes: 4 * 1024 * 1024,
             retained_files: 3,
+            frame_metadata: false,
         }
     }
 }
@@ -211,7 +215,7 @@ mod tests {
         let file = dir.path().join("config.toml");
         std::fs::write(
             &file,
-            "registry = 'agents.json'\nworkspace_roots = ['.']\n[logging]\nfile = 'logs/acpd.log'\n",
+            "registry = 'agents.json'\nworkspace_roots = ['.']\n[logging]\nfile = 'logs/acpd.log'\nframe_metadata = true\n",
         )
         .unwrap();
         let config = Config::load(&file).unwrap();
@@ -220,6 +224,7 @@ mod tests {
             config.logging.file,
             Some(dir.path().join("logs").join("acpd.log"))
         );
+        assert!(config.logging.frame_metadata);
         assert_eq!(
             config.workspace(dir.path()).unwrap(),
             dir.path().canonicalize().unwrap()
