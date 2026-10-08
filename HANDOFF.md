@@ -2,7 +2,7 @@
 
 ## Current continuation checkpoint — 8 October 2026
 
-Continue the existing UI/accessibility work on `codex/ui-accessibility`. Changes are local and uncommitted, including new untracked tests, the debug fixture, runner and `docs/ui-accessibility.md`. Preserve them and the earlier Actions verification notes. Inspect status/diffs before editing; do not assume this work is published. The older entries below are chronological history, including superseded disabled-Actions and merge instructions.
+The UI/accessibility work moved into PR #8 (branch `host-remaining-work-2`) at the user's request on 8 October 2026. The work this checkpoint described as local and uncommitted on `codex/ui-accessibility` was committed to main before PR #8 branched (c7033a3 and earlier). `git fetch` shows nothing newer on that branch or any other, so nothing was merged. The PR #8 progress entry under "Progress after resume" lists what was added there. The Codex notes below stay as the record of the emulator evidence.
 
 Latest completed increment: MCP native keyboard coverage now includes both themes and actual taps on editor fields and Save with the IME visible. All six ConfigurationLayoutUiTest cases pass; both native keyboard cases also pass separately at actual system font 2.0. The test APK build passes, font restores to 1.0, and fixtures use only in-memory definitions/callbacks. No production sources changed in this increment; lint/JVM/core/Rust were not rerun. See docs/ui-accessibility.md and TODO_DONE.md for separate earlier runs and their limits.
 
