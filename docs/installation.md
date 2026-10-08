@@ -20,7 +20,20 @@ From the directory containing the installed binary, check configuration and disc
 ./acpd.exe --config C:/ACPPortal/config.toml start
 ```
 
-On Unix, substitute `./acpd` and your absolute paths. `doctor` probes the listener and storage and checks executable/workspace availability. Run it before `start`; an occupied listener can be the existing daemon. It does not validate certificate trust, provider credentials or free space. `probe` starts the selected executable for ACP negotiation without a model prompt. Use an explicit no-tools `chat` prompt separately when you need to test provider access.
+On Unix, substitute `./acpd` and your absolute paths. `doctor` probes the listener and storage, reports free space (failing below 64 MiB) and checks executable/workspace availability. With TLS configured it loads the PEM chain and key as `start` does, confirms the key matches and prints the leaf certificate's expiry; expired or not-yet-valid certificates fail and certificates within 30 days of expiry pass with a renewal notice. Run it before `start`; an occupied listener can be the existing daemon. It does not validate hostname coverage, issuer trust on the phone or provider credentials. `probe` starts the selected executable for ACP negotiation without a model prompt. Use an explicit no-tools `chat` prompt separately when you need to test provider access.
+
+## Host log file
+
+By default the host logs lifecycle events to stderr only. To also keep a bounded file, add:
+
+```toml
+[logging]
+file = "logs/acpd.log"     # relative to the config file; the directory must already exist
+max_file_bytes = 4194304   # 64 KiB..64 MiB; the active file rotates at this size
+retained_files = 3         # 1..16 older files kept as acpd.log.1 (newest) .. acpd.log.3
+```
+
+Only `start` writes this file. Disk use is at most `max_file_bytes × (retained_files + 1)`; doctor prints that budget. New files are owner-only on Unix and owner/System on Windows. Records contain the same session-UUID lifecycle events as stderr, never prompts, code, environment values, headers, pairing codes, tokens or agent stderr. Set `RUST_LOG` only as broadly as you are willing to store.
 
 ## Configure trusted TLS
 

@@ -1,0 +1,44 @@
+name: Android
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-and-unit-test:
+    name: Debug build, JVM tests and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android/universal-acp
+    steps:
+      - uses: actions/checkout@v4
+      # Gradle runs on JDK 21; the modules compile with a JDK 17 toolchain.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      # Debug variants only: no signing secrets or release builds are used.
+      - name: Build debug APKs, run JVM unit tests and lint
+        run: ./gradlew --stacktrace -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64 :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            android/universal-acp/core/protocol/build/reports/
+            android/universal-acp/app/build/reports/
+            android/universal-acp/core/protocol/build/test-results/
+            android/universal-acp/app/build/test-results/
+          if-no-files-found: ignore

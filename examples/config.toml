@@ -13,3 +13,9 @@ max_frame_bytes = 1048576
 max_sessions = 8
 history_events = 2048
 history_bytes = 8388608
+
+# Optional bounded log file for `start`; the directory must already exist.
+# [logging]
+# file = "../.local/acpd.log"
+# max_file_bytes = 4194304
+# retained_files = 3

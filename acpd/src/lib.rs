@@ -3,6 +3,7 @@ pub mod config;
 pub mod connection;
 pub mod doctor;
 pub mod filesystem;
+pub mod logging;
 pub mod mcp;
 pub(crate) mod process_tree;
 pub mod registry;

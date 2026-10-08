@@ -10,6 +10,34 @@ pub struct Config {
     pub runtime: RuntimeConfig,
     pub server: ServerConfig,
     pub state_directory: PathBuf,
+    pub logging: LoggingConfig,
+}
+
+/// Optional bounded file sink for host lifecycle logs. Stderr output is unchanged.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LoggingConfig {
+    /// Active log file. Absent keeps logging on stderr only.
+    pub file: Option<PathBuf>,
+    /// Size at which the active file rotates.
+    pub max_file_bytes: u64,
+    /// Rotated files kept beside the active file (`name.1` is newest).
+    pub retained_files: u32,
+}
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            file: None,
+            max_file_bytes: 4 * 1024 * 1024,
+            retained_files: 3,
+        }
+    }
+}
+impl LoggingConfig {
+    /// Maximum bytes the active plus retained files can occupy.
+    pub fn disk_budget(&self) -> u64 {
+        self.max_file_bytes * (u64::from(self.retained_files) + 1)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,6 +87,7 @@ impl Default for Config {
             runtime: RuntimeConfig::default(),
             server: ServerConfig::default(),
             state_directory: default_directory().join("state"),
+            logging: LoggingConfig::default(),
         }
     }
 }
@@ -90,6 +119,7 @@ impl Config {
         for path in [
             &mut config.server.tls_certificate,
             &mut config.server.tls_private_key,
+            &mut config.logging.file,
         ]
         .into_iter()
         .flatten()
@@ -126,6 +156,20 @@ impl Config {
             || runtime.history_bytes > 256 * 1024 * 1024
         {
             bail!("invalid history limits")
+        }
+        let logging = &self.logging;
+        if !(64 * 1024..=64 * 1024 * 1024).contains(&logging.max_file_bytes) {
+            bail!("log file size must be 64 KiB..64 MiB")
+        }
+        if !(1..=16).contains(&logging.retained_files) {
+            bail!("retained log files must be 1..16")
+        }
+        if logging
+            .file
+            .as_ref()
+            .is_some_and(|file| file.file_name().is_none())
+        {
+            bail!("log file must name a file")
         }
         Ok(())
     }
@@ -165,9 +209,17 @@ mod tests {
     fn relative_paths_resolve_against_config_not_cwd() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("config.toml");
-        std::fs::write(&file, "registry = 'agents.json'\nworkspace_roots = ['.']\n").unwrap();
+        std::fs::write(
+            &file,
+            "registry = 'agents.json'\nworkspace_roots = ['.']\n[logging]\nfile = 'logs/acpd.log'\n",
+        )
+        .unwrap();
         let config = Config::load(&file).unwrap();
         assert_eq!(config.registry, dir.path().join("agents.json"));
+        assert_eq!(
+            config.logging.file,
+            Some(dir.path().join("logs").join("acpd.log"))
+        );
         assert_eq!(
             config.workspace(dir.path()).unwrap(),
             dir.path().canonicalize().unwrap()
@@ -177,6 +229,15 @@ mod tests {
     fn catches_invalid_limits_and_unknown_keys() {
         let mut config = Config::default();
         config.runtime.max_sessions = 0;
+        assert!(config.validate().is_err());
+        let mut config = Config::default();
+        config.logging.max_file_bytes = 1024;
+        assert!(config.validate().is_err());
+        let mut config = Config::default();
+        config.logging.retained_files = 0;
+        assert!(config.validate().is_err());
+        let mut config = Config::default();
+        config.logging.file = Some(PathBuf::from(".."));
         assert!(config.validate().is_err());
         assert!(toml::from_str::<Config>("typo = true").is_err());
     }

@@ -22,6 +22,10 @@ The Docker recipe is `docker/Dockerfile`. Verify its build through GitHub Action
 
 Run these checks through Actions, not locally. A matching hash establishes repeatability on the same runner/toolchain only; it does not establish cross-runner/toolchain, PDB or signed-artifact reproducibility. Container smoke checks do not verify mounted storage, TLS or agent execution. Inspect terminal job results for the exact commit before recording acceptance. Changing this workflow or script requires another Actions run.
 
+## Android checks on GitHub Actions
+
+`.github/workflows/android.yml` runs on pull requests and pushes to main. It sets up Temurin JDK 17 and 21 (Gradle runs on 21; modules use a 17 toolchain), the runner's Android SDK through `android-actions/setup-android` and Gradle caching, then runs `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` from `android/universal-acp`. Only debug variants are built; no signing secrets are used. Test and lint reports are uploaded as the `android-reports` artifact. This does not run instrumented device tests, which still need an emulator or phone.
+
 ## Test coverage
 
 Protocol unit tests check JSON-RPC validation, unknown payload preservation, string IDs and upstream initialization deserialization. Host unit tests check invalid/duplicate registry entries, literal arguments, executable resolution, denied workspaces, config-relative paths, bounded frame parsing, history eviction and retained permissions.

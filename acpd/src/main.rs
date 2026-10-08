@@ -70,14 +70,6 @@ enum Commands {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "acpd=info".into()),
-        )
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .init();
     let cli = Cli::parse();
     let default_file = default_directory().join("config.toml");
     let mut config = match &cli.config {
@@ -88,6 +80,13 @@ async fn main() -> Result<()> {
     if let Some(path) = cli.registry {
         config.registry = path;
     }
+    // Only the long-running host writes the optional bounded file sink; diagnostics and the
+    // local client keep stderr-only output and never create log files.
+    let log_file = match (&cli.command, &config.logging.file) {
+        (Commands::Start, Some(_)) => Some(acpd::logging::BoundedLog::open(&config.logging)?),
+        _ => None,
+    };
+    init_tracing(log_file);
     let registry = Registry::load(&config.registry)?;
     match cli.command {
         Commands::Start => Host::new(config, registry)?.serve().await?,
@@ -143,7 +142,7 @@ async fn main() -> Result<()> {
             );
             if !healthy {
                 bail!(
-                    "diagnostics failed; review listener, storage, executables and workspace configuration above"
+                    "diagnostics failed; review listener, storage, free space, log, TLS, executable and workspace checks above"
                 )
             }
         }
@@ -204,6 +203,22 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+fn init_tracing(log_file: Option<std::sync::Arc<acpd::logging::BoundedLog>>) {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "acpd=info".into()),
+        )
+        .with(fmt::layer().with_writer(std::io::stderr).with_target(false))
+        .with(log_file.map(|log| {
+            fmt::layer()
+                .with_ansi(false)
+                .with_target(false)
+                .with_writer(log.writer())
+        }))
+        .init();
 }
 async fn host_query(address: &str, endpoint: &str) -> Result<()> {
     let url = reqwest::Url::parse(address)?;
