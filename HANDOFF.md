@@ -133,7 +133,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
 ```
 
-adb is `C:/Users/basin/AppData/Local/Android/Sdk/platform-tools/adb.exe`. Install both latest APKs before testing changed production sources. APKs are under `android/universal-acp/app/build/outputs/apk/debug/` and `androidTest/debug/`. The last selected device command was:
+adb is `C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe`. Install both latest APKs before testing changed production sources. APKs are under `android/universal-acp/app/build/outputs/apk/debug/` and `androidTest/debug/`. The last selected device command was:
 
 ```powershell
 adb shell am instrument -w -r -e class 'dev.acportal.presentation.ConnectionLogsLayoutUiTest,dev.acportal.presentation.ConnectionsPageLayoutUiTest,dev.acportal.presentation.ConnectionScreensUiTest' dev.acportal.test/androidx.test.runner.AndroidJUnitRunner

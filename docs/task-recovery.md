@@ -18,9 +18,9 @@ Build with JDK 21 and install both current APKs first. Do not start another inst
 
 ```powershell
 # Repository root, after building/installing both debug APKs
-./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/basin/AppData/Local/Android/Sdk/platform-tools/adb.exe'
+./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe'
 # Actual MainActivity with an owned debug repository
-./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/basin/AppData/Local/Android/Sdk/platform-tools/adb.exe' -MainActivity
+./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe' -MainActivity
 ```
 
 MainActivity mode uses a debug-only TaskRecoveryFixtureApplication. Its normal startup constructs the production repository; only the app-owned `main-enabled` fixture marker switches presentation to the fixture store. Activity lifecycle callbacks record MainActivity task identity and completed state saving. Cleanup unregisters callbacks, closes the fixture store and restores the normal repository. Production PortalApplication is open with a protected repository setter to support this debug subclass. Release manifests keep PortalApplication and contain neither fixture Application nor fixture Activity.

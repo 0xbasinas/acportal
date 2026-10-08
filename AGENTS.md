@@ -17,8 +17,8 @@ The user requested completion of the Connection logs increment and a documentati
 - Local agent is Goose ACP, invoked as `goose acp`. Agent executable/arguments/environment belong in the host registry, not Android releases.
 - Phone connections use authenticated REST and WebSocket. The host communicates with agent processes using ACP stdio. Do not add another remote-shell transport or associated connection settings.
 - Use the supplied UI mockups rather than the original visual direction. Their recorded guide is `docs/ui-reference.md`.
-- The original images were supplied at `C:\Users\basin\Downloads\Page 1`. That folder was absent at the latest check. Do not claim a fresh image comparison without finding and inspecting the images.
-- The original pasted request was at `C:\Users\basin\.codex\attachments\0be47343-c011-4049-8f3f-0276730c574d\Pasted text.txt`. The audit preserves its requirement map and later scope decisions.
+- The original images were supplied at `C:\Users\<you>\Downloads\Page 1`. That folder was absent at the latest check. Do not claim a fresh image comparison without finding and inspecting the images.
+- The original pasted request was at `C:\Users\<you>\.codex\attachments\0be47343-c011-4049-8f3f-0276730c574d\Pasted text.txt`. The audit preserves its requirement map and later scope decisions.
 
 ## Where code lives
 
@@ -144,7 +144,7 @@ $env:JAVA_HOME='C:/Program Files/Amazon Corretto/jdk21.0.11_10'
 
 For UI-only changes, run appropriate app checks and targeted device regressions. Broaden testing when the changed boundary warrants it. Record actual results, not commands merely planned or started.
 
-APK paths are `app/build/outputs/apk/debug/app-debug.apk` and `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`, relative to the Android project. On this machine adb is `C:/Users/basin/AppData/Local/Android/Sdk/platform-tools/adb.exe`.
+APK paths are `app/build/outputs/apk/debug/app-debug.apk` and `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`, relative to the Android project. On this machine adb is `C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe`.
 
 After installing both APKs, run selected classes, for example:
 
