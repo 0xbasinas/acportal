@@ -105,11 +105,14 @@ impl Fixture {
         }
     }
     async fn create(&self) -> Value {
+        self.create_with_mcp(json!([])).await
+    }
+    async fn create_with_mcp(&self, mcp_servers: Value) -> Value {
         let info: Value = self
             .client
             .post(format!("{}/v1/sessions", self.base))
             .bearer_auth(&self.token)
-            .json(&json!({"agentId":"testy","workspace":self.workspace}))
+            .json(&json!({"agentId":"testy","workspace":self.workspace,"mcpServers":mcp_servers}))
             .send()
             .await
             .unwrap()
@@ -264,6 +267,23 @@ async fn run(socket: &mut Socket, request: Value, answer: Answer) -> Turn {
             consents.push((source, option_id));
         }
         events.push(value);
+    }
+}
+
+/// The SDK's stdio MCP test server, built next to testy by `scripts/build-testy.sh`
+/// (`ACPD_TESTY_MCP_BIN` overrides the path).
+fn mcp_echo_server(testy: &Path) -> Option<PathBuf> {
+    let path = std::env::var_os("ACPD_TESTY_MCP_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| testy.with_file_name("mcp-echo-server"));
+    if path.is_file() {
+        Some(path)
+    } else {
+        eprintln!(
+            "skipping MCP part: {} not found; rebuild with scripts/build-testy.sh",
+            path.display()
+        );
+        None
     }
 }
 
@@ -594,5 +614,112 @@ async fn testy_callbacks_and_full_inside_the_workspace_follow_phone_decisions() 
         std::fs::read_to_string(target).unwrap(),
         "written by testy\n"
     );
+    fixture.stop().await;
+}
+
+/// A custom registry entry (testy) through the same checks as `acpd doctor --agent`:
+/// sign-in without a prompt, then the opt-in provider check with one prompt.
+#[tokio::test]
+async fn testy_doctor_reports_ready_and_the_opt_in_prompt_check_passes() {
+    let Some(testy) = testy() else { return };
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = directory.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let config = Config {
+        workspace_roots: vec![workspace.clone()],
+        state_directory: directory.path().join("state"),
+        ..Default::default()
+    };
+    let registry = || {
+        Registry::parse(
+            &json!([{"id":"custom-testy","name":"Custom testy","command":testy,"args":[],"transport":"stdio"}])
+                .to_string(),
+        )
+        .unwrap()
+    };
+    let (message, passed) =
+        acpd::doctor::agent_check(&config, registry(), "custom-testy", &workspace, false).await;
+    assert!(passed, "{message}");
+    assert!(
+        message.contains("ready") && message.contains("no prompt sent"),
+        "{message}"
+    );
+    let (message, passed) =
+        acpd::doctor::agent_check(&config, registry(), "custom-testy", &workspace, true).await;
+    assert!(passed, "{message}");
+    assert!(
+        message.contains("provider responded (stopReason end_turn)"),
+        "{message}"
+    );
+    // testy's greeting must not be printed; doctor reports only the stop reason.
+    assert!(!message.contains("Hello"), "{message}");
+}
+
+/// A phone-supplied stdio MCP definition reaches the agent unchanged: testy starts the SDK's
+/// echo MCP server from it, lists its tools and calls one. The env value stays out of the
+/// session metadata the phone receives.
+#[tokio::test]
+async fn testy_uses_a_phone_supplied_stdio_mcp_server() {
+    let Some(testy) = testy() else { return };
+    let Some(server) = mcp_echo_server(&testy) else {
+        return;
+    };
+    let fixture = Fixture::start(&testy, None).await;
+    let definitions = json!([{"name":"echo","command":server,"args":[],"env":[{"name":"ACPD_MCP_MARKER","value":"synthetic-mcp-secret"}]}]);
+    let session = fixture.create_with_mcp(definitions).await;
+    assert!(
+        !session.to_string().contains("synthetic-mcp-secret"),
+        "{session}"
+    );
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    let tools = run(
+        &mut socket,
+        prompt(
+            &session,
+            "tools",
+            r#"{"command":"list_tools","server":"echo"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(tools.stop_reason(), "end_turn", "{}", tools.response);
+    let listed = tools.agent_text();
+    assert!(
+        listed.starts_with("Available tools:") && listed.contains("echo"),
+        "{listed}"
+    );
+    let call = run(
+        &mut socket,
+        prompt(
+            &session,
+            "call",
+            r#"{"command":"call_tool","server":"echo","tool":"echo","params":{"message":"through acpd"}}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(call.stop_reason(), "end_turn", "{}", call.response);
+    let reply = call.agent_text();
+    assert!(
+        reply.starts_with("OK:") && reply.contains("through acpd"),
+        "{reply}"
+    );
+    // An unknown server name is the agent's own error, reported as text by testy.
+    let missing = run(
+        &mut socket,
+        prompt(
+            &session,
+            "missing",
+            r#"{"command":"list_tools","server":"absent"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert!(
+        missing.agent_text().starts_with("ERROR:"),
+        "{}",
+        missing.agent_text()
+    );
+    assert!(tools.consents.is_empty() && call.consents.is_empty());
     fixture.stop().await;
 }

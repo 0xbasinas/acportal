@@ -22,7 +22,10 @@ if [ "$(git -C "$SRC" rev-parse HEAD)" != "$REV" ]; then
   git -C "$SRC" -c advice.detachedHead=false checkout --quiet "$REV" >&2
 fi
 # The SDK's own lockfile keeps the build reproducible.
-cargo build --locked --manifest-path "$SRC/Cargo.toml" -p agent-client-protocol-test --bin testy >&2
+# mcp-echo-server is the SDK's stdio MCP test server; the MCP test finds it next to testy.
+cargo build --locked --manifest-path "$SRC/Cargo.toml" -p agent-client-protocol-test \
+  --bin testy --bin mcp-echo-server >&2
 BIN="$SRC/target/debug/testy"
 test -x "$BIN"
+test -x "$SRC/target/debug/mcp-echo-server"
 echo "$BIN"
