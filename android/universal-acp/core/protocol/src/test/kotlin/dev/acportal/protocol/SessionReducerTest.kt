@@ -74,6 +74,29 @@ class SessionReducerTest {
         assertEquals("Auto-denied by model",autoReviewLabel(buildJsonObject {put("decision","deny");put("layer","model")}))
         assertEquals("Sent to you by rules review",autoReviewLabel(buildJsonObject {put("decision","ask");put("layer","rules")}))
     }
+    @Test fun oversizedAgentConfigurationKeepsThePreviousChoices() {
+        val huge="x".repeat(800*1024)
+        val state=SessionState(configOptions=WireJson.parseToJsonElement("""[{"id":"engine"}]""").arrayValue(),
+            commands=WireJson.parseToJsonElement("""[{"name":"plan"}]""").arrayValue())
+        val config=SessionReducer.reduce(state,event(1,"""{"method":"session/update","params":{"update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"$huge"}]}}}"""))
+        assertEquals("engine",config.configOptions.single().objectValue()["id"].text())
+        assertEquals(SessionErrorOrigin.PROTOCOL,config.errorOrigin);assertTrue(config.historyGap);assertEquals(1L,config.sequence)
+        val commands=SessionReducer.reduce(state,event(1,"""{"method":"session/update","params":{"update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"$huge"}]}}}"""))
+        assertEquals("plan",commands.commands.single().objectValue()["name"].text())
+        val usage=SessionReducer.reduce(state,event(1,"""{"method":"session/update","params":{"update":{"sessionUpdate":"usage_update","note":"$huge"}}}"""))
+        assertTrue(usage.usage.isEmpty());assertNotNull(usage.error)
+        val response=SessionReducer.reduce(state,event(1,"""{"id":"config","result":{"configOptions":[{"id":"$huge"}]}}"""))
+        assertEquals("engine",response.configOptions.single().objectValue()["id"].text())
+        // A normal-sized update still replaces the field and leaves no error.
+        val small=SessionReducer.reduce(config.copy(error=null),event(2,"""{"method":"session/update","params":{"update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"reasoning"}]}}}"""))
+        assertEquals("reasoning",small.configOptions.single().objectValue()["id"].text());assertNull(small.error)
+        // Host setup metadata applied outside the reducer uses the same limit.
+        val models=WireJson.parseToJsonElement("""{"availableModels":[{"modelId":"$huge"}],"currentModelId":"m"}""").objectValue()
+        val setup=SessionReducer.limitMetadata(state,state.copy(models=models))
+        assertTrue(setup.models.isEmpty());assertNotNull(setup.error)
+        val tooLongModel=SessionReducer.reduce(state,event(1,"""{"id":"select","method":"session/set_model","params":{"modelId":"${"m".repeat(2000)}"}}""","client"))
+        assertTrue(tooLongModel.modelRequests.isEmpty())
+    }
     private fun event(sequence:Int,message:String,direction:String="agent")=WireJson.parseToJsonElement("""{"type":"event","sequence":$sequence,"direction":"$direction","message":$message}""").objectValue()
     @Test fun streamedChunksMergeAndReplayDuplicatesAreIgnored() {
         val one=event(1,"""{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello "}}}}""")

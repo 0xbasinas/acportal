@@ -179,8 +179,10 @@ Goose's own store recorded about 36.5k accumulated tokens (34.7k cache-read,
 token counts, not a billing statement).
 
 Not covered by this run: the Android shell-approval screen (CI builds it and runs
-JVM unit tests; it was not tried on a device), Windows `cmd.exe` execution
-(compile/strict-clippy cross-check only), and a phone-initiated `terminal/kill`
+JVM unit tests; it was not tried on a device), Windows `cmd.exe` execution with a
+real agent (the host path itself is now tested on Windows CI with the mock agent:
+quoting, `&&`, redirection, exit codes, multi-line refusal and descendant
+cleanup on kill), and a phone-initiated `terminal/kill`
 (the phone stops a running command with session cancel).
 
 ## Shell-line auto-review (8 October 2026, Linux, 17:03 Athens)
