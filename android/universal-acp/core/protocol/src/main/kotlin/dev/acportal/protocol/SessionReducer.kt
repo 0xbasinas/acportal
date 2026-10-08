@@ -108,7 +108,8 @@ object SessionReducer {
                     update["kind"].text().ifBlank { previous?.kind ?: "other" },
                     update["status"].text().ifBlank { previous?.status ?: "pending" },
                     (update["content"] as? JsonArray) ?: previous?.content ?: JsonArray(emptyList()),
-                    (update["locations"] as? JsonArray) ?: previous?.locations ?: JsonArray(emptyList()))
+                    (update["locations"] as? JsonArray) ?: previous?.locations ?: JsonArray(emptyList()),
+                    autoReview(envelope,update) ?: previous?.autoReview)
                 next = next.copy(items = if (previous == null) next.items + item else next.items.map { if (it.id == id) item else it })
             }
             "plan" -> next = next.copy(items = next.items.filterNot { it is TimelineItem.Plan } + TimelineItem.Plan("plan", update["entries"].arrayValue()))
@@ -120,6 +121,16 @@ object SessionReducer {
             else -> next = next.copy(items = next.items + TimelineItem.Notice("unknown-$sequence", kind.replace('_', ' ').replaceFirstChar(Char::uppercase)))
         }
         return bounded(next)
+    }
+    /** Only the host may report an auto-review; the shell line it decided is kept with it (bounded). */
+    private fun autoReview(envelope:JsonObject,update:JsonObject):JsonObject? {
+        if(envelope["direction"].text()!="host")return null
+        val review=update["_meta"].objectValue()["acpdAutoReview"] as? JsonObject ?: return null
+        val line=update["rawInput"].objectValue()["shellLine"].text()
+        return buildJsonObject {
+            put("decision",review["decision"].text().take(16));put("layer",review["layer"].text().take(16));put("reason",review["reason"].text().take(400))
+            if(line.isNotEmpty())put("shellLine",line.take(16000))
+        }
     }
     private fun permission(state: SessionState, message: JsonObject,snapshot:Boolean=false): SessionState {
         val id = message["id"] ?: return state
@@ -138,7 +149,7 @@ object SessionReducer {
             val cost=when(item) {
                 is TimelineItem.Text->(item.text.length.toLong()+(item.promptText?.length ?: 0))*3L+item.id.length*3L+1024
                 is TimelineItem.Content->item.content.toString().length*3L+1024
-                is TimelineItem.Tool->(item.content.toString().length.toLong()+item.locations.toString().length+item.title.length)*3+1024
+                is TimelineItem.Tool->(item.content.toString().length.toLong()+item.locations.toString().length+item.title.length+(item.autoReview?.toString()?.length ?: 0))*3+1024
                 is TimelineItem.Plan->item.entries.toString().length*3L+1024
                 is TimelineItem.Notice->item.text.length*3L+1024
             }

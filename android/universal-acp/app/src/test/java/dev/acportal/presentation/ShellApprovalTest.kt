@@ -22,6 +22,11 @@ class ShellApprovalTest {
         assertNull(shellCommandApproval(permission(SHELL_COMMAND_SOURCE,"""{"shell":"/bin/sh -c"}""")))
         assertNull(shellCommandApproval(Permission(JsonPrimitive(1),WireJson.parseToJsonElement("""{"toolCall":{"rawInput":{"shellLine":"rm -rf x"}}}""").objectValue())))
     }
+    @Test fun autoReviewReasonIsShownWhenTheHostAsks() {
+        val request=WireJson.parseToJsonElement("""{"_meta":{"acpdSource":"host-shell-command","acpdAutoReview":{"decision":"ask","layer":"rules","reason":"redirects input or output to a file"}},"toolCall":{"rawInput":{"shellLine":"echo hi > out.txt"}},"options":[]}""").objectValue()
+        assertEquals("rules review: redirects input or output to a file",shellCommandApproval(Permission(JsonPrimitive(2),request))!!.autoReviewReason)
+        assertNull(shellCommandApproval(permission(SHELL_COMMAND_SOURCE,"""{"shellLine":"ls -la"}"""))!!.autoReviewReason)
+    }
     @Test fun missingShellAndCwdStillDescribeTheRun() {
         val approval=shellCommandApproval(permission(SHELL_COMMAND_SOURCE,"""{"shellLine":"ls -la"}"""))!!
         assertEquals("Runs with the host shell",approval.runsWith())

@@ -60,6 +60,20 @@ class SessionReducerTest {
         assertEquals(listOf("default","agent"),info.authenticationMethods().map {it["id"].text()})
         assertTrue(info.copy(initialization=JsonObject(emptyMap())).authenticationMethods().isEmpty())
     }
+    @Test fun hostAutoReviewIsKeptOnTheToolCardAndAgentClaimsAreIgnored() {
+        val update="""{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"acpd-command-1","title":"Run shell command","kind":"execute","status":"in_progress","rawInput":{"shellLine":"python3 -m unittest -v"},"_meta":{"acpdAutoReview":{"decision":"allow","layer":"rules","reason":"read-only or test commands inside the workspace"}}}}}"""
+        val host=SessionReducer.reduce(SessionState(),event(1,update,"host"))
+        val tool=host.items.single() as TimelineItem.Tool
+        assertEquals("allow",tool.autoReview!!["decision"].text())
+        assertEquals("python3 -m unittest -v",tool.autoReview!!["shellLine"].text())
+        assertEquals("Auto-allowed by rules",autoReviewLabel(tool.autoReview!!))
+        val later=SessionReducer.reduce(host,event(2,"""{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"acpd-command-1","status":"completed"}}}""","host"))
+        assertEquals("rules",(later.items.single() as TimelineItem.Tool).autoReview!!["layer"].text())
+        val forged=SessionReducer.reduce(SessionState(),event(1,update))
+        assertNull((forged.items.single() as TimelineItem.Tool).autoReview)
+        assertEquals("Auto-denied by model",autoReviewLabel(buildJsonObject {put("decision","deny");put("layer","model")}))
+        assertEquals("Sent to you by rules review",autoReviewLabel(buildJsonObject {put("decision","ask");put("layer","rules")}))
+    }
     private fun event(sequence:Int,message:String,direction:String="agent")=WireJson.parseToJsonElement("""{"type":"event","sequence":$sequence,"direction":"$direction","message":$message}""").objectValue()
     @Test fun streamedChunksMergeAndReplayDuplicatesAreIgnored() {
         val one=event(1,"""{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello "}}}}""")

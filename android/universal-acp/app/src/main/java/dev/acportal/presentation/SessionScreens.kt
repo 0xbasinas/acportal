@@ -255,9 +255,13 @@ import kotlinx.coroutines.*
 @Composable fun ToolCard(tool:TimelineItem.Tool,terminals:Map<String,JsonObject> = emptyMap(),onChange:((String)->Unit)?=null) {
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("tool-card")) {
-        ListItem(headlineContent={Text(tool.title)},supportingContent={Text("${tool.kind} · ${tool.status}")},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Collapse tool" else "Expand tool")}})
+        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,if(expanded)"Collapse tool" else "Expand tool")}})
         if(expanded)Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             tool.locations.forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.labelSmall) }
+            tool.autoReview?.let {review->
+                if(review["reason"].text().isNotBlank())Text("Reason: "+review["reason"].text(),style=MaterialTheme.typography.bodySmall)
+                if(review["shellLine"].text().isNotEmpty())TerminalOutput(review["shellLine"].text())
+            }
             tool.content.forEachIndexed {index,content->val block=content.objectValue();when(block["type"].text()) {
                 "diff"->{DiffViewer(block["path"].text(),block["oldText"]?.takeUnless {it==JsonNull}?.text(),block["newText"].text());onChange?.let {callback->TextButton({callback("${tool.id}/$index")}) {Icon(Icons.Outlined.OpenInFull,null,Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text("View changes")}}}
                 "content"->ReceivedContentView(block["content"].objectValue())
@@ -321,6 +325,7 @@ import kotlinx.coroutines.*
                 Text(approval.line,Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodyMedium,softWrap=true)
             }
         }
+        approval.autoReviewReason?.let {Text("Not auto-approved — $it",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         if(approval.environmentNames.isNotEmpty())Text("Environment: "+approval.environmentNames.joinToString(", "),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Approve only if you want this exact line to run once on your host.",style=MaterialTheme.typography.bodySmall)
     }
