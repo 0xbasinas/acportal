@@ -10,6 +10,7 @@ Maintenance: periodically move completed checklist items and their verification 
 
 Scope update, 8 October 2026: tablet/landscape acceptance is excluded from the current work. Physical-phone checks are suspended and owned by the user. Signed APK production/verification is suspended. Supported-build verification must run in GitHub Actions rather than locally. Historical results in TODO_DONE.md remain evidence of earlier checks, not current task requirements.
 
+- [ ] GitHub Actions is disabled (8 October 2026, user request). Before relying on CI, re-enable `Rust` and `Android` (`gh workflow enable …`) and confirm the trimmed workflows from b5701fb pass once (Windows Clippy via mingw on Linux, Android on JDK 17 only); they have never completed a run.
 - [ ] Finish Connection logs TalkBack/accessibility review and physical-network recovery. Current semantics/layout checks use component events rather than live connection failures.
 - [ ] Verify Agents TalkBack and lifecycle acceptance, then remaining page recovery and previous-task restoration.
 - [ ] Broaden MainActivity task recovery to more routes, conversations/pending permissions and failure states, then remaining error/accessibility states and the page matrix. Abrupt-kill recovery launches a fresh Activity through instrumentation; it does not restore the prior task. Current refinements follow `docs/ui-reference.md`; the supplied mockup folder remains absent at its recorded path.
