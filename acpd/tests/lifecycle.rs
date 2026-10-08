@@ -55,6 +55,7 @@ async fn workspace_access_is_negotiated_and_enforced_even_when_agent_ignores_it(
             read_files: mask & 1 != 0,
             write_files: mask & 2 != 0,
             terminal: mask & 4 != 0,
+            form_elicitation: false,
         };
         let manager = manager(
             workspace.path(),
@@ -196,6 +197,38 @@ async fn mcp_definitions_reach_new_load_and_post_authentication_setup() {
         manager.remove(session.metadata().id).await.unwrap();
     }
     manager.shutdown().await;
+}
+
+/// The registry's `ownTools` flag reaches session metadata (and stays off by default), so
+/// the phone can warn inside the conversation.
+#[tokio::test]
+async fn registry_own_tools_flag_reaches_session_metadata() {
+    let workspace = tempfile::tempdir().unwrap();
+    for flagged in [false, true] {
+        let mut agent = serde_json::to_value(definition(&[])).unwrap();
+        if flagged {
+            agent["ownTools"] = json!(true);
+        }
+        let config = Config {
+            workspace_roots: vec![workspace.path().into()],
+            ..Default::default()
+        };
+        let registry = Registry::parse(&json!([agent]).to_string()).unwrap();
+        let manager = SessionManager::new(config, registry).unwrap();
+        let session = manager
+            .open_configured(
+                "test-agent",
+                workspace.path(),
+                None,
+                Vec::new(),
+                acpd::connection::WorkspaceAccess::default(),
+            )
+            .await
+            .unwrap();
+        let metadata = serde_json::to_value(session.metadata()).unwrap();
+        assert_eq!(metadata["ownTools"], flagged, "{metadata}");
+        manager.shutdown().await;
+    }
 }
 
 #[tokio::test]

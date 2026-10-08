@@ -10,6 +10,7 @@ async fn restart_retains_effective_access_and_explicit_load_can_choose_new_acces
         read_files: true,
         write_files: false,
         terminal: false,
+        form_elicitation: false,
     };
     let session = host
         .sessions
@@ -34,6 +35,7 @@ async fn restart_retains_effective_access_and_explicit_load_can_choose_new_acces
         read_files: false,
         write_files: false,
         terminal: false,
+        form_elicitation: false,
     };
     let loaded = host
         .sessions

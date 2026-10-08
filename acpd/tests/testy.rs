@@ -108,11 +108,18 @@ impl Fixture {
         self.create_with_mcp(json!([])).await
     }
     async fn create_with_mcp(&self, mcp_servers: Value) -> Value {
+        self.create_with(json!({"mcpServers":mcp_servers})).await
+    }
+    async fn create_with(&self, extra: Value) -> Value {
+        let mut body = json!({"agentId":"testy","workspace":self.workspace});
+        for (key, value) in extra.as_object().unwrap() {
+            body[key] = value.clone();
+        }
         let info: Value = self
             .client
             .post(format!("{}/v1/sessions", self.base))
             .bearer_auth(&self.token)
-            .json(&json!({"agentId":"testy","workspace":self.workspace,"mcpServers":mcp_servers}))
+            .json(&body)
             .send()
             .await
             .unwrap()
@@ -457,8 +464,9 @@ async fn testy_session_updates_tool_calls_modes_config_and_auth_pass_through() {
     fixture.stop().await;
 }
 
-/// acpd does not advertise elicitation, so testy refuses its elicitation scenario with a
-/// deterministic invalid-params prompt error and the session stays usable.
+/// Without the phone's opt-in acpd does not advertise elicitation, so testy refuses its
+/// elicitation scenario with a deterministic invalid-params prompt error and the session
+/// stays usable.
 #[tokio::test]
 async fn testy_elicitation_is_not_advertised_and_fails_cleanly() {
     let Some(testy) = testy() else { return };
@@ -473,6 +481,90 @@ async fn testy_elicitation_is_not_advertised_and_fails_cleanly() {
     .await;
     assert_eq!(elicit.error_code(), Some(-32602), "{}", elicit.response);
     assert!(elicit.consents.is_empty());
+    let echo = run(
+        &mut socket,
+        prompt(&session, "after", "echo still usable"),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(echo.agent_text(), "still usable");
+    fixture.stop().await;
+}
+
+/// A phone that opts in with `workspaceAccess.formElicitation` gets testy's three form
+/// elicitations (accept, decline, cancel). The host refuses answers that miss a required
+/// field or name an unknown one and keeps the request pending. testy then asks for URL
+/// elicitation, which the host never advertises, so the prompt ends with invalid params.
+#[tokio::test]
+async fn testy_form_elicitations_reach_a_phone_that_opts_in() {
+    let Some(testy) = testy() else { return };
+    let fixture = Fixture::start(&testy, None).await;
+    let status: Value = fixture
+        .client
+        .get(format!("{}/v1/status", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["features"], json!(["formElicitation"]), "{status}");
+    let session = fixture
+        .create_with(json!({"workspaceAccess":{"readFiles":true,"writeFiles":true,"terminal":true,"formElicitation":true}}))
+        .await;
+    assert_eq!(session["workspaceAccess"]["formElicitation"], true);
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    send(&mut socket, prompt(&session, "elicit", "elicitations")).await;
+    let mut seen = Vec::new();
+    let mut rejected = 0;
+    let response = loop {
+        let value = next_value(&mut socket).await;
+        let message = &value["message"];
+        if message["id"] == "elicit" && message.get("method").is_none() {
+            break message.clone();
+        }
+        if value["direction"] == "host"
+            && message["error"]["message"] == "Permission response rejected"
+        {
+            rejected += 1;
+            continue;
+        }
+        if message["method"] != "elicitation/create" || message.get("id").is_none() {
+            continue;
+        }
+        let params = &message["params"];
+        assert_eq!(params["mode"], "form", "{message}");
+        assert!(
+            params["requestedSchema"]["properties"].is_object(),
+            "{message}"
+        );
+        let id = message["id"].clone();
+        let result = match seen.len() {
+            0 => {
+                assert_eq!(params["sessionId"], session["acpSessionId"]);
+                // Missing required fields, then an unknown field: both refused.
+                send(&mut socket, json!({"jsonrpc":"2.0","id":id,"result":{"action":"accept","content":{"name":"Ada"}}})).await;
+                send(&mut socket, json!({"jsonrpc":"2.0","id":id,"result":{"action":"accept","content":{"name":"Ada","confidence":0.5,"age":36,"confirmed":true,"injected":"x"}}})).await;
+                json!({"action":"accept","content":{"name":"Ada","confidence":0.5,"age":36,"confirmed":true,"priority":"high","tags":["acp","rust"]}})
+            }
+            1 => json!({"action":"decline"}),
+            _ => json!({"action":"cancel"}),
+        };
+        send(
+            &mut socket,
+            json!({"jsonrpc":"2.0","id":id,"result":result}),
+        )
+        .await;
+        seen.push(params["message"].as_str().unwrap_or_default().to_owned());
+    };
+    assert_eq!(seen.len(), 3, "{seen:?}");
+    assert!(
+        seen[0].contains("Accept") && seen[1].contains("Decline") && seen[2].contains("Cancel"),
+        "{seen:?}"
+    );
+    assert_eq!(rejected, 2);
+    assert_eq!(response["error"]["code"], -32602, "{response}");
     let echo = run(
         &mut socket,
         prompt(&session, "after", "echo still usable"),

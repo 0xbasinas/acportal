@@ -24,7 +24,8 @@
     "args": ["acp"],
     "transport": "stdio",
     "enabled": false,
-    "env": {}
+    "env": {},
+    "ownTools": true
   },
   {
     "id": "gemini-cli-node",

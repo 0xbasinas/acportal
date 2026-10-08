@@ -122,6 +122,10 @@ pub struct WorkspaceAccess {
     pub read_files: bool,
     pub write_files: bool,
     pub terminal: bool,
+    /// The phone can render form elicitations. Older phones omit it, so the host keeps
+    /// `elicitation` out of the agent's client capabilities unless a phone asks for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub form_elicitation: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -129,12 +133,80 @@ impl Default for WorkspaceAccess {
             read_files: true,
             write_files: true,
             terminal: true,
+            form_elicitation: false,
         }
     }
 }
 impl WorkspaceAccess {
     pub fn capabilities(self) -> Value {
-        json!({"fs":{"readTextFile":self.read_files,"writeTextFile":self.write_files},"terminal":self.terminal})
+        let mut capabilities = json!({"fs":{"readTextFile":self.read_files,"writeTextFile":self.write_files},"terminal":self.terminal});
+        if self.form_elicitation {
+            // Only form mode: URL mode would ask the phone to open agent-supplied links.
+            capabilities["elicitation"] = json!({"form":{}});
+        }
+        capabilities
+    }
+}
+
+/// A forwarded elicitation must be a well-formed form request for this session (or scoped
+/// to a request). URL mode is never forwarded: it would ask the phone to open an
+/// agent-supplied link.
+fn elicitation_request_supported(params: &Value, session_id: Option<&str>) -> bool {
+    let Ok(request) = serde_json::from_value::<acp::CreateElicitationRequest>(params.clone())
+    else {
+        return false;
+    };
+    match request.mode {
+        acp::ElicitationMode::Form(form) => match form.scope {
+            acp::ElicitationScope::Session(scope) => Some(&*scope.session_id.0) == session_id,
+            acp::ElicitationScope::Request(_) => true,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Validates the phone's answer to a form elicitation and rebuilds it from known fields.
+/// Accepted content may only name properties of the requested schema, must include every
+/// required one and must match each property's JSON type. The agent validates further.
+fn elicitation_answer(request: &Value, result: &Value) -> Option<Value> {
+    let parsed: acp::CreateElicitationResponse = serde_json::from_value(result.clone()).ok()?;
+    match parsed.action {
+        acp::ElicitationAction::Accept(_) => {
+            let schema = &request["requestedSchema"];
+            let properties = schema["properties"].as_object()?;
+            let content = match &result["content"] {
+                Value::Null => serde_json::Map::new(),
+                Value::Object(content) => content.clone(),
+                _ => return None,
+            };
+            let required = schema["required"].as_array().cloned().unwrap_or_default();
+            if required
+                .iter()
+                .any(|name| name.as_str().is_none_or(|name| !content.contains_key(name)))
+            {
+                return None;
+            }
+            for (name, value) in &content {
+                let matches = match properties.get(name)?["type"].as_str()? {
+                    "string" => value.is_string(),
+                    "number" => value.is_number(),
+                    "integer" => value.is_i64() || value.is_u64(),
+                    "boolean" => value.is_boolean(),
+                    "array" => value
+                        .as_array()
+                        .is_some_and(|items| items.iter().all(Value::is_string)),
+                    _ => false,
+                };
+                if !matches {
+                    return None;
+                }
+            }
+            Some(json!({"action":"accept","content":content}))
+        }
+        acp::ElicitationAction::Decline => Some(json!({"action":"decline"})),
+        acp::ElicitationAction::Cancel => Some(json!({"action":"cancel"})),
+        _ => None,
     }
 }
 
@@ -245,7 +317,8 @@ enum Control {
     },
     Permission {
         id: Value,
-        outcome: Value,
+        /// The phone's whole JSON-RPC `result` (permission outcome or elicitation action).
+        result: Value,
         reply: oneshot::Sender<Result<()>>,
     },
     Shutdown(oneshot::Sender<()>),
@@ -553,6 +626,7 @@ impl AcpConnection {
                 read_files: false,
                 write_files: false,
                 terminal: false,
+                form_elicitation: false,
             },
             None,
         )
@@ -760,31 +834,31 @@ impl AcpConnection {
         result.await.context("agent connection closed")?
     }
     pub async fn permission(&self, id: Value, outcome: Value) -> Result<()> {
-        #[derive(Serialize)]
-        struct Outcome<'a> {
-            outcome: &'a Value,
-        }
+        self.answer(id, json!({ "outcome": outcome })).await
+    }
+    /// Delivers the phone's answer to a pending permission or elicitation request.
+    pub async fn answer(&self, id: Value, result: Value) -> Result<()> {
         #[derive(Serialize)]
         struct Answer<'a> {
             jsonrpc: &'static str,
             id: &'a Value,
-            result: Outcome<'a>,
+            result: &'a Value,
         }
         let size = check_frame_size(
             &Answer {
                 jsonrpc: "2.0",
                 id: &id,
-                result: Outcome { outcome: &outcome },
+                result: &result,
             },
             self.frame_limit,
         )?;
         let admitted = self.admit(size)?;
-        let (reply, result) = oneshot::channel();
+        let (reply, receiver) = oneshot::channel();
         self.commands
-            .send((Control::Permission { id, outcome, reply }, Some(admitted)))
+            .send((Control::Permission { id, result, reply }, Some(admitted)))
             .await
             .context("agent connection closed")?;
-        result.await.context("agent connection closed")?
+        receiver.await.context("agent connection closed")?
     }
     pub fn subscribe(&self) -> EventReceiver {
         EventReceiver(self.events.subscribe())
@@ -1079,6 +1153,22 @@ async fn actor(
                             else { history.permissions.insert(key, message.clone()); true }
                         };
                         if !inserted { break "duplicate permission id or too many pending permissions".into() }
+                    } else if message["method"] == "elicitation/create" && access.form_elicitation {
+                        if !elicitation_request_supported(&message["params"],file_session_id.as_deref()) {
+                            if write(&mut stdin, &error(id.clone(), -32602, "Only form elicitation for this session is supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            continue;
+                        }
+                        let inserted = {
+                            let mut history = journal.lock().unwrap();
+                            let key = id.to_string();
+                            let permission_bytes: usize = history.permissions.values().map(|value| value.to_string().len()).sum();
+                            if history.permissions.contains_key(&key) || history.permissions.len() >= 128 || permission_bytes + message.to_string().len() > limits.history_bytes { false }
+                            else { history.permissions.insert(key, message.clone()); true }
+                        };
+                        if !inserted {
+                            if write(&mut stdin, &error(id.clone(), CALLBACK_UNAVAILABLE, "Host elicitation capacity exceeded or duplicate id"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            continue;
+                        }
                     } else {
                         if write(&mut stdin, &error(id.clone(), -32601, "Client capability not supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                         continue;
@@ -1125,6 +1215,7 @@ async fn actor(
                                     let update=refused_write_update(&files,&permission["params"]["toolCall"]["toolCallId"],host_write.prepared).await;
                                     publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                                     error(host_write.callback_id,-32800,"Host file write cancelled")
+                                } else if permission["method"]=="elicitation/create" {response(permission["id"].clone(), json!({"action":"cancel"}))
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
                                 if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
@@ -1147,13 +1238,21 @@ async fn actor(
                         let _ = reply.send(result);
                         if failed { break "agent stdin failed".into() }
                     }
-                    Some(Control::Permission { id, outcome, reply }) => {
+                    Some(Control::Permission { id, result, reply }) => {
                         let permission = journal.lock().unwrap().permissions.get(&id.to_string()).cloned();
                         let Some(permission) = permission else { let _ = reply.send(Err(anyhow!("permission request is not pending"))); continue };
-                        let valid = outcome["outcome"] == "cancelled" || (outcome["outcome"] == "selected" && outcome["optionId"].is_string() &&
+                        let elicited = if permission["method"]=="elicitation/create" {
+                            match elicitation_answer(&permission["params"],&result) {
+                                Some(answer)=>Some(answer),
+                                None=>{let _ = reply.send(Err(anyhow!("invalid elicitation answer"))); continue}
+                            }
+                        } else {None};
+                        let outcome = &result["outcome"];
+                        let valid = elicited.is_some() || outcome["outcome"] == "cancelled" || (outcome["outcome"] == "selected" && outcome["optionId"].is_string() &&
                             permission["params"]["options"].as_array().is_some_and(|options| options.iter().any(|option| option["optionId"] == outcome["optionId"])));
                         if !valid { let _ = reply.send(Err(anyhow!("invalid permission outcome"))); continue }
-                        let answer=if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
+                        let answer=if let Some(answer)=elicited {response(id.clone(),answer)
+                        } else if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
                             let allow=if host_terminal.prepared.is_shell() {"acpd-shell-allow"} else {"acpd-command-allow"};
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]==allow;
                             let result=if accepted {terminals.as_mut().unwrap().create_approved(host_terminal.prepared)} else {Err(anyhow!("command denied"))};
@@ -1249,6 +1348,63 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn elicitation_is_advertised_only_on_opt_in_and_answers_are_checked() {
+        let default = WorkspaceAccess::default();
+        assert!(default.capabilities().get("elicitation").is_none());
+        let opted = WorkspaceAccess {
+            form_elicitation: true,
+            ..default
+        };
+        assert_eq!(opted.capabilities()["elicitation"], json!({"form":{}}));
+        // Older phones send no flag; it defaults off.
+        let parsed: WorkspaceAccess =
+            serde_json::from_value(json!({"readFiles":true,"writeFiles":true,"terminal":true}))
+                .unwrap();
+        assert!(!parsed.form_elicitation);
+
+        let schema = json!({"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"ratio":{"type":"number"},"ok":{"type":"boolean"},"tags":{"type":"array","items":{"type":"string","enum":["a","b"]}}},"required":["name"]});
+        let form =
+            json!({"mode":"form","sessionId":"s1","requestedSchema":schema,"message":"Fill"});
+        assert!(elicitation_request_supported(&form, Some("s1")));
+        assert!(!elicitation_request_supported(&form, Some("other")));
+        assert!(!elicitation_request_supported(&form, None));
+        let request_scoped =
+            json!({"mode":"form","requestId":"r1","requestedSchema":schema,"message":"Fill"});
+        assert!(elicitation_request_supported(&request_scoped, Some("s1")));
+        let url = json!({"mode":"url","sessionId":"s1","elicitationId":"e1","url":"https://example.com","message":"Open"});
+        assert!(!elicitation_request_supported(&url, Some("s1")));
+
+        let accepted = elicitation_answer(
+            &form,
+            &json!({"action":"accept","content":{"name":"Ada","age":3,"ratio":0.5,"ok":true,"tags":["a"]},"_meta":{"x":1}}),
+        )
+        .unwrap();
+        assert_eq!(
+            accepted,
+            json!({"action":"accept","content":{"name":"Ada","age":3,"ratio":0.5,"ok":true,"tags":["a"]}})
+        );
+        for bad in [
+            json!({"action":"accept","content":{}}),
+            json!({"action":"accept","content":{"name":"Ada","extra":"x"}}),
+            json!({"action":"accept","content":{"name":7}}),
+            json!({"action":"accept","content":{"name":"Ada","age":1.5}}),
+            json!({"action":"accept","content":{"name":"Ada","tags":[1]}}),
+            json!({"action":"accept","content":"Ada"}),
+            json!({"action":"open"}),
+            json!({"outcome":{"outcome":"cancelled"}}),
+        ] {
+            assert!(elicitation_answer(&form, &bad).is_none(), "{bad}");
+        }
+        assert_eq!(
+            elicitation_answer(&form, &json!({"action":"decline","content":{"x":1}})),
+            Some(json!({"action":"decline"}))
+        );
+        assert_eq!(
+            elicitation_answer(&form, &json!({"action":"cancel"})),
+            Some(json!({"action":"cancel"}))
+        );
+    }
     #[test]
     fn credential_words_in_agent_errors_are_detected_without_status_numbers() {
         assert!(mentions_credentials(
