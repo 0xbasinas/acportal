@@ -218,9 +218,15 @@ token counts, not a billing statement).
   now shows such lines as a `host-shell-command` consent and runs them through
   `/bin/sh -c` only after per-line approval. Goose also asks its own shell
   permission first, so each command needs two approvals in `approve` mode.
-- **Doctor cannot see missing provider credentials for Goose.** Goose creates
-  sessions without talking to the provider, so `doctor --agent` reports `ready`
-  even with an unconfigured provider; the first prompt then fails with `-32603`.
+- **Doctor sign-in alone cannot see bad provider credentials for Goose.** Goose
+  creates sessions without talking to the provider, so `doctor --agent` reports
+  `ready` even with an unconfigured provider. Use `doctor --agent goose
+  --workspace <dir> --prompt-check` (one small model request). On 8 October 2026
+  it printed `provider responded (stopReason end_turn)` with a working DeepSeek
+  key and failed with `auth_required (-32000)` when `OPENAI_API_KEY` was an
+  invalid dummy value (an unconfigured provider earlier failed with `-32603`).
+  Unsetting the variable did not fail, because this Goose install also had a key
+  in its own stored configuration.
 - **Empty Goose sessions.** Each doctor or short-lived session leaves a row in
   Goose's own session store.
 - **Android phone UI.** This check drives the host API only. Instrumenting the

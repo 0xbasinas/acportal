@@ -80,6 +80,25 @@ pub async fn agent_sign_in_check(
     agent: &str,
     workspace: &Path,
 ) -> (String, bool) {
+    agent_check(config, registry, agent, workspace, false).await
+}
+
+/// Text of the opt-in provider check prompt. Short, tool-free and answerable in one word.
+pub const PROMPT_CHECK_TEXT: &str =
+    "acpd doctor provider check: reply with the single word OK. Do not use any tools.";
+
+/// Like [`agent_sign_in_check`], and when `prompt_check` is set and the session is ready,
+/// also sends [`PROMPT_CHECK_TEXT`] as one prompt so the agent must reach its model
+/// provider. This costs one small model request. Every permission the agent asks for is
+/// refused, host callbacks stay disabled, and neither the reply nor agent error text is
+/// printed: only the stop reason or the JSON-RPC error code.
+pub async fn agent_check(
+    config: &Config,
+    registry: crate::registry::Registry,
+    agent: &str,
+    workspace: &Path,
+    prompt_check: bool,
+) -> (String, bool) {
     let label = format!("Agent {} sign-in", printable(agent));
     let manager = match crate::session::SessionManager::new(config.clone(), registry) {
         Ok(manager) => manager,
@@ -117,6 +136,15 @@ pub async fn agent_sign_in_check(
                     ),
                     false,
                 )
+            } else if prompt_check {
+                let (message, passed) = provider_prompt_check(&session, config).await;
+                (
+                    format!(
+                        "{label}: ready; initialize and session/new succeeded.\nAgent {} provider check: {message}",
+                        printable(agent)
+                    ),
+                    passed,
+                )
             } else {
                 (
                     format!(
@@ -140,6 +168,88 @@ pub async fn agent_sign_in_check(
     };
     manager.shutdown().await;
     result
+}
+
+async fn provider_prompt_check(
+    session: &std::sync::Arc<crate::session::AcpSession>,
+    config: &Config,
+) -> (String, bool) {
+    // No phone is attached: refuse every permission request so the turn cannot block.
+    let refuser = {
+        let session = session.clone();
+        tokio::spawn(async move {
+            loop {
+                for permission in session.connection.replay(0).pending_permissions {
+                    let reject = permission["params"]["options"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|option| {
+                            option["kind"]
+                                .as_str()
+                                .is_some_and(|kind| kind.starts_with("reject"))
+                        })
+                        .map(|option| option["optionId"].clone());
+                    let outcome = match reject {
+                        Some(id) => serde_json::json!({"outcome":"selected","optionId":id}),
+                        None => serde_json::json!({"outcome":"cancelled"}),
+                    };
+                    let _ = session
+                        .connection
+                        .permission(permission["id"].clone(), outcome)
+                        .await;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+    };
+    let deadline =
+        std::time::Duration::from_secs(config.runtime.request_timeout_seconds.saturating_add(5));
+    let result = tokio::time::timeout(deadline, session.prompt(PROMPT_CHECK_TEXT)).await;
+    refuser.abort();
+    match result {
+        Ok(Ok(response)) => {
+            let reason = response["stopReason"].as_str().unwrap_or("unknown");
+            let passed = matches!(reason, "end_turn" | "max_tokens" | "max_turn_requests");
+            let shown = if passed || matches!(reason, "refusal" | "cancelled") {
+                reason
+            } else {
+                "unrecognized"
+            };
+            (
+                format!(
+                    "{} (stopReason {shown}); one small model request was sent, reply not printed",
+                    if passed {
+                        "provider responded"
+                    } else {
+                        "agent did not complete the check prompt"
+                    }
+                ),
+                passed,
+            )
+        }
+        Ok(Err(error)) => match error.downcast_ref::<crate::connection::AgentRpcError>() {
+            Some(code) if code.0 == -32000 => (
+                "failed; the check prompt returned ACP auth_required (-32000): the agent's provider credentials are missing or were rejected. Fix them in the agent's own configuration (agent error text not printed)".into(),
+                false,
+            ),
+            Some(code) => (
+                format!(
+                    "failed; the check prompt returned JSON-RPC error code {}. Provider credentials, model name or provider access are likely missing or wrong (agent error text not printed)",
+                    code.0
+                ),
+                false,
+            ),
+            None => (
+                "failed; the agent connection ended during the check prompt".into(),
+                false,
+            ),
+        },
+        Err(_) => (
+            format!("failed; no answer within {} seconds", deadline.as_secs()),
+            false,
+        ),
+    }
 }
 
 /// Bounds agent- or operator-supplied labels before printing: at most 64 printable characters.

@@ -1,6 +1,6 @@
 use acpd::{
     config::{Config, RuntimeConfig},
-    doctor::agent_sign_in_check as check_without_secret_scan,
+    doctor::{agent_check, agent_sign_in_check as check_without_secret_scan},
     registry::Registry,
 };
 use serde_json::json;
@@ -72,4 +72,39 @@ async fn sign_in_check_reports_ready_required_and_failures_without_secrets() {
     let (message, passed) =
         agent_sign_in_check(&config, registry, "missing-agent", workspace.path()).await;
     assert!(!passed && message.contains("unknown agent"), "{message}");
+}
+
+#[tokio::test]
+async fn prompt_check_is_opt_in_and_reports_provider_failures_by_code_only() {
+    let workspace = tempfile::tempdir().unwrap();
+    // A turn that asks for permission still completes: doctor refuses it.
+    let (config, registry) = setup(workspace.path(), &[]);
+    let (message, passed) =
+        agent_check(&config, registry, "test-agent", workspace.path(), true).await;
+    assert!(passed, "{message}");
+    assert!(
+        message.contains("provider responded (stopReason end_turn)")
+            && message.contains("one small model request"),
+        "{message}"
+    );
+    // Session creation works but the first model call fails, as with real Goose and no key.
+    let (config, registry) = setup(workspace.path(), &["--fault", "prompt-error"]);
+    let (message, passed) =
+        agent_check(&config, registry, "test-agent", workspace.path(), false).await;
+    assert!(passed, "without the opt-in, no prompt is sent: {message}");
+    assert!(message.contains("no prompt sent"), "{message}");
+    let (config, registry) = setup(workspace.path(), &["--fault", "prompt-error"]);
+    let (message, passed) =
+        agent_check(&config, registry, "test-agent", workspace.path(), true).await;
+    assert!(!passed, "{message}");
+    assert!(message.contains("JSON-RPC error code -32603"), "{message}");
+    assert!(
+        !message.contains("synthetic-provider-secret") && !message.contains("Provider rejected")
+    );
+    let (config, registry) = setup(workspace.path(), &["--fault", "prompt-auth"]);
+    let (message, passed) =
+        agent_check(&config, registry, "test-agent", workspace.path(), true).await;
+    assert!(!passed, "{message}");
+    assert!(message.contains("auth_required (-32000)"), "{message}");
+    assert!(!message.contains("synthetic-provider-secret"));
 }

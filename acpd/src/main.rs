@@ -54,6 +54,10 @@ enum Commands {
         /// Authorized workspace used for the sign-in check.
         #[arg(long, requires = "agent")]
         workspace: Option<PathBuf>,
+        /// Also send one tiny prompt ("reply with OK") so the agent must reach its model
+        /// provider. Costs one small model request; off by default.
+        #[arg(long, requires = "agent")]
+        prompt_check: bool,
     },
     /// Print effective non-secret host configuration. Does not overwrite files.
     Config,
@@ -122,7 +126,11 @@ async fn main() -> Result<()> {
         Commands::Sessions { address } => host_query(&address, "/v1/sessions").await?,
         Commands::Agents => println!("{}", serde_json::to_string_pretty(&registry.discover())?),
         Commands::Config => println!("{}", toml::to_string_pretty(&config)?),
-        Commands::Doctor { agent, workspace } => {
+        Commands::Doctor {
+            agent,
+            workspace,
+            prompt_check,
+        } => {
             config.validate()?;
             let agents = registry.discover();
             let mut healthy = !config.workspace_roots.is_empty();
@@ -150,14 +158,19 @@ async fn main() -> Result<()> {
             );
             match (agent, workspace) {
                 (Some(agent), Some(workspace)) => {
-                    let (message, passed) =
-                        acpd::doctor::agent_sign_in_check(&config, registry, &agent, &workspace)
-                            .await;
+                    let (message, passed) = acpd::doctor::agent_check(
+                        &config,
+                        registry,
+                        &agent,
+                        &workspace,
+                        prompt_check,
+                    )
+                    .await;
                     println!("{message}");
                     healthy &= passed;
                 }
                 _ => println!(
-                    "Provider sign-in: not checked. Run doctor --agent <id> --workspace <dir> to start the agent and create one session without a prompt."
+                    "Provider sign-in: not checked. Run doctor --agent <id> --workspace <dir> to start the agent and create one session without a prompt; add --prompt-check to also send one tiny prompt (one small model request)."
                 ),
             }
             if !healthy {

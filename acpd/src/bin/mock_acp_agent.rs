@@ -183,6 +183,21 @@ async fn main() -> anyhow::Result<()> {
                     out.send(response(id, json!({}))).await?;
                 }
             }
+            "session/prompt"
+                if matches!(
+                    options.fault.as_deref(),
+                    Some("prompt-error" | "prompt-auth")
+                ) =>
+            {
+                // Like an agent whose provider fails or rejects the credentials on the first
+                // model call (Goose 1.53.0 answers an invalid key with -32000).
+                let code = if options.fault.as_deref() == Some("prompt-auth") {
+                    -32000
+                } else {
+                    -32603
+                };
+                out.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":"Provider rejected key synthetic-provider-secret"}})).await?;
+            }
             "session/prompt" => {
                 last_prompt = params.clone();
                 permission_counter += 1;
