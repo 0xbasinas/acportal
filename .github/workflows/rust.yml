@@ -1,7 +1,8 @@
 name: Rust
-# Private repo: every minute counts against the owner's Actions quota (Windows bills 2x).
+# Keep Actions usage low (user request; the repo is public, Windows bills 2x on private repos).
 # PRs run Linux stable checks, a Linux Rust 1.88 test and a Windows stable test. The container
-# and Windows reproducibility jobs run only by hand (workflow_dispatch). Docs-only changes run
+# and Windows reproducibility jobs run only by hand (workflow_dispatch); the testy end-to-end
+# job runs by hand (on by default) and on pushes to main. Docs-only changes run
 # nothing. See docs/development.md, "Continuous integration".
 on:
   pull_request:
@@ -12,6 +13,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain*"
+      - "scripts/build-testy.sh"
       - ".github/workflows/rust.yml"
   push:
     branches: [main]
@@ -21,6 +23,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain*"
+      - "scripts/build-testy.sh"
       - ".github/workflows/rust.yml"
   workflow_dispatch:
     inputs:
@@ -28,6 +31,10 @@ on:
         description: "Also run the container smoke check and the Windows reproducibility build"
         type: boolean
         default: false
+      testy:
+        description: "Run the testy end-to-end tests (builds the pinned rust-sdk testy agent)"
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -97,6 +104,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Clippy for this target runs on Linux (above); here only the real Windows tests.
       - run: cargo test --locked --workspace --all-targets
+
+  testy:
+    name: Linux testy end-to-end (pinned rust-sdk agent)
+    # Manual runs (default on) and pushes to main; never on PRs.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.testy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ACPD_TESTY_CACHE: ${{ github.workspace }}/../acpd-testy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The pinned revision lives in scripts/build-testy.sh; hashing the script keys the cache.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../acpd-testy
+          key: testy-${{ runner.os }}-${{ hashFiles('scripts/build-testy.sh') }}
+      - name: Build testy
+        run: echo "ACPD_TESTY_BIN=$(scripts/build-testy.sh)" >> "$GITHUB_ENV"
+      - name: Run the testy tests
+        run: cargo test --locked -p acpd --test testy -- --nocapture
 
   container:
     if: github.event_name == 'workflow_dispatch' && inputs.extras
