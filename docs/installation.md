@@ -33,6 +33,8 @@ max_file_bytes = 4194304   # 64 KiB..64 MiB; the active file rotates at this siz
 retained_files = 3         # 1..16 older files kept as acpd.log.1 (newest) .. acpd.log.3
 ```
 
+Shell-line auto-review is configured per agent with `[shell_review.<agent-id>]` (off by default); see the commented example in `examples/config.toml` and [Shell-line auto-review](security.md#shell-line-auto-review-opt-in).
+
 Add `frame_metadata = true` to also log, at debug level, one line per ACP frame with its direction, JSON-RPC kind, method or update name, error code and size. Frame content, ids and error text are never logged. Only `start` writes the file; frame metadata also goes to stderr for every command. Disk use is at most `max_file_bytes × (retained_files + 1)`; doctor prints that budget. New files are owner-only on Unix and owner/System on Windows. Records contain the same session-UUID lifecycle events as stderr, never prompts, code, environment values, headers, pairing codes, tokens or agent stderr. Set `RUST_LOG` only as broadly as you are willing to store.
 
 ## Configure trusted TLS

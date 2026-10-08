@@ -6,11 +6,48 @@ The local client and network host use trusted operator registry files and explic
 
 Registry configuration can set environment values and commands, so write access to the registry is equivalent to permission to run an executable. Protect host config files with OS permissions. The registry is not editable by an unauthenticated remote caller.
 
-Permission callbacks wait for explicit choice. Supplied option IDs are validated, duplicate answers fail, and cancellation responds with a cancelled outcome. No host-level automatic approval policy exists. Goose's registry sets approval mode; agents remain responsible for correctly requesting consent for their own operations.
+Permission callbacks wait for explicit choice. Supplied option IDs are validated, duplicate answers fail, and cancellation responds with a cancelled outcome. The only host-level automatic decision is the opt-in, per-agent shell-line auto-review described below; it is off by default and never applies to file writes or plain program terminals. Goose's registry sets approval mode; agents remain responsible for correctly requesting consent for their own operations.
 
 The host implements workspace-scoped ACP text reads and writes. A directory handle is opened for the selected workspace; actual file operations stay relative to that capability. Reads validate the attached ACP session ID, file type, UTF-8 and size. Unix file opens use nonblocking flags to avoid hanging on named pipes, and filesystem workers are bounded globally. Every write requires an explicit host permission decision for its proposed diff. Denial and cancellation return an error to the original callback. The host checks the approved content snapshot before an atomic replacement, rejects leaf symlinks and preserves existing Windows DACLs. These checks do not provide an atomic compare-and-swap against concurrent external writers. Unix mode bits are preserved; ownership and extended metadata need further verification.
 
 Terminal callbacks require the attached session and a session-owned handle. Creation resolves the executable and requires explicit host consent before launching it with literal arguments. Output, handle count, live process count and runtime are bounded. Cancellation, release and shutdown stop ordinary descendants through the same cleanup guard as agents. Writes and terminal creation during initial session setup are rejected because a controller cannot yet review consent. These restrictions are not an OS sandbox: trusted agents and approved commands run with the operator's privileges. A dedicated service account and OS sandboxing are needed for stronger containment.
+
+## Shell-line auto-review (opt-in)
+
+Off by default. Without a `[shell_review.<agent-id>]` table that sets `rules = true`, every shell line waits for an explicit phone decision, as described above. When enabled for an agent, each shell line is first classified by a deterministic rules layer and, optionally, by a model reviewer. Plain program terminals (`host-terminal`) are never auto-reviewed.
+
+```toml
+[shell_review.goose]
+rules = true
+
+[shell_review.goose.model]          # optional
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"    # env var name only; the key is read from acpd's environment
+timeout_seconds = 10
+max_requests_per_minute = 6         # per session
+max_command_bytes = 2048
+```
+
+**Rules layer** (`acpd/src/shell_review.rs`). The line is tokenized by a POSIX `sh` lexer (single/double quotes, backslashes, `$(...)`/backticks kept as one word, operators `&& || ; | &`, `( )`, redirections with io-numbers). No expansion is performed; expansions are only detected.
+
+- *Hard deny* (refused, the agent gets `-32602` "Shell line refused by acpd auto-review (rules): <reason>"): `sudo`/`su`/`doas`/`pkexec`/`run0`; `shutdown`/`reboot`/`halt`/`poweroff`/`init`, `mkfs*`; recursive `rm` of `/`, `~`, `$HOME`, `.`, `..`, `../*`, a `…/..` path or a top-level system directory, or with `--no-preserve-root`; `dd of=/dev/…`; redirects into raw disk devices; anything piped into a shell (`… | sh`), and download tools piped into an interpreter (`curl … | python3`).
+- *Auto-allow* only when every command is on a small allowlist and they are joined only by `&&` or `;`: `ls`, `pwd`, `cat`/`head`/`tail` on paths inside the workspace, `git status|diff|log` (no options before the subcommand, no `--output`/`--ext-diff`), `python[3] -m unittest|pytest`, `pytest`, `cargo test|check`, `npm test`, and `cd` into a directory inside the workspace (later paths are checked from there). `2>&1`, `>&2` and `>/dev/null` are allowed; every other redirect is not.
+- *Ask the phone* for everything else. Lines with file redirects, pipes into shells, substitution or variables, `eval`/`exec`/`source`, backgrounding, subshells, multiple lines, comments, environment assignments, `~`, paths outside the workspace (lexically or through symlinks), deletion/write/network/process tools (`rm`, `mv`, `cp`, `tee`, `sed`, `curl`, `wget`, `ssh`, `nc`, `kill`, `xargs`, `env`, …), or repository/package changes (`git push/fetch/clone/config/reset/clean/checkout`, `npm/pip install`, `find -exec/-delete`) are marked *sensitive*: the model may deny them or leave them to the phone, but can never allow them. Unknown programs, pipes between programs, `||` and filename patterns are *undecided* and may be allowed by the model.
+- On Windows the rules do not parse `cmd.exe` syntax; every line is undecided-sensitive and goes to the phone (or is denied by the model).
+
+**Model layer** (optional). For lines the rules did not decide, acpd POSTs to `<base_url>/chat/completions` with `temperature 0`, `max_tokens 200`, `response_format: json_object`, a fixed system prompt (`MODEL_SYSTEM_PROMPT` in `shell_review.rs`) and one user message containing only `{"agent","cwd" (relative to the workspace),"shell","command"}`. File contents, env values and conversation text are never sent. The reply must be exactly `{"decision":"allow|ask|deny","reason":"…"}` in `choices[0].message.content`. Any transport error, non-2xx status, timeout, reply over 64 KiB, malformed or fenced JSON, unknown decision, missing key env var, rate limit hit, line over `max_command_bytes` or more than four reviews in flight means *ask the phone*. A model `allow` of a sensitive line becomes *ask*. The rules layer runs first, so a hard-denied line never reaches the model. Redirects are disabled on the HTTP client; `base_url` must be HTTPS (plain HTTP only for loopback, used by tests) and must not embed credentials. Retired DeepSeek models (`deepseek-chat`, `deepseek-reasoner`, `deepseek-v4-flash`) are rejected for `deepseek.com` URLs.
+
+**Visibility.** Every automatic outcome is published to the session as a host tool call with `_meta.acpdAutoReview {decision, layer, reason}` and the exact `rawInput.shellLine`: `allow` starts the terminal (output streams as usual and the phone can stop it with cancel), `deny` shows a failed tool call, `reviewing` marks a line waiting for the model, and a line that still needs the phone carries the same object in the consent's `_meta`. The host log records only `shell line auto-review decision=<allow|ask|deny> layer=<rules|model>`, never the line, cwd or reason. A cancel while the model is reviewing answers the agent with `-32800` and nothing runs.
+
+**Honest limits.**
+
+- An allowlist is not a sandbox. `python -m unittest`, `pytest`, `cargo test` and `npm test` run project code; anyone who can edit the workspace (including the agent, through approved writes) can make "run the tests" do anything the host user can. `git status/diff/log` honour repository config (pagers, `core.fsmonitor`, diff drivers), which an untrusted repository controls. `cat`/`head`/`tail` of a workspace file can print secrets stored there to the agent.
+- Program names are resolved through acpd's `PATH`; a writable directory early on `PATH` can shadow `ls` or `git`.
+- Path checks are lexical plus a symlink check at review time; a file swapped for a symlink between review and execution is not caught.
+- The model is advisory and can be wrong or manipulated by text inside the command; that is why it can only allow lines the rules already consider low-risk and why any doubt goes to the phone. The command line itself (which might contain a secret the agent typed) is sent to the configured provider.
+- Provider keys placed in acpd's environment (for Goose or for the reviewer) are inherited by the agent and therefore by commands it runs; prefer the agent's own credential store.
+- Rate and size limits are per session. Tests cover the rules table, lexing of tricky quoting, config defaults/validation, and the model layer against a local mock server (allow, deny, malformed, timeout, sensitive-allow downgrade, cancel while reviewing).
 
 Frames, pending requests, permission requests, history bytes, history event count, admitted caller input bytes and active sessions are bounded. Live subscribers cannot extend the lifetime of evicted history. A deadline closes ambiguous stalled connections. On shutdown, crash or timeout the host terminates the agent's cleanup job on Windows or its process group on Unix, then reaps the direct child. The Windows job handle is non-inheritable and kills assigned members when closed. Windows processes start suspended and run only after assignment to the job, so they cannot create children outside it first; a failed assignment or resume kills the process. Unix processes that deliberately leave the group also escape group cleanup, and an abrupt daemon kill cannot run Unix cleanup. This is not an OS sandbox. Windows tests verify two descendant generations stop on explicit removal, agent crash and timeout. Linux tests verify the same for agents, and terminal descendants after kill, release and service drop; macOS is not verified.
 

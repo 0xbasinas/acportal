@@ -40,7 +40,19 @@ The default local command is `goose acp`. This is Goose's native stdio ACP serve
 }
 ```
 
-Use Goose's own provider configuration and credential storage. The host inherits the operator environment, then applies registry overrides. `approve` is a documented [Goose mode](https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/config-files.md). Add `--with-builtin`, `developer` to the argument array if that extension is desired. Extension and provider configuration stay on the host. Do not switch Goose into automatic approval mode to bypass the client permission workflow. In `approve` mode an edit asks twice: Goose's own tool permission, then the host's `host-filesystem` write consent with the diff. Goose 1.53.0 often sends a whole shell line as `terminal/create.command` with no `args`; the host treats that as a shell-line consent (`host-shell-command`), shows the exact line on the phone, and only after per-line approval runs it through `/bin/sh -c` (or `cmd.exe /D /S /C` on Windows). Plain argv such as `pwd` still uses the literal `host-terminal` path. See [real-agent testing](real-agent-testing.md) and the terminal section of [protocol](protocol.md).
+Use Goose's own provider configuration and credential storage. The host inherits the operator environment, then applies registry overrides. `approve` is a documented [Goose mode](https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/config-files.md). Add `--with-builtin`, `developer` to the argument array if that extension is desired. Extension and provider configuration stay on the host. Do not switch Goose into automatic approval mode to bypass the client permission workflow. In `approve` mode an edit asks twice: Goose's own tool permission, then the host's `host-filesystem` write consent with the diff. Goose 1.53.0 often sends a whole shell line as `terminal/create.command` with no `args`; the host treats that as a shell-line consent (`host-shell-command`), shows the exact line on the phone, and only after per-line approval runs it through `/bin/sh -c` (or `cmd.exe /D /S /C` on Windows). Plain argv such as `pwd` still uses the literal `host-terminal` path. To avoid approving every `python3 -m unittest` by hand, enable the opt-in auto-review for Goose only:
+
+```toml
+[shell_review.goose]
+rules = true
+# Optional model reviewer for lines the rules leave undecided:
+# [shell_review.goose.model]
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-flash"
+# api_key_env = "DEEPSEEK_API_KEY"
+```
+
+Read the limits in [security](security.md#shell-line-auto-review-opt-in) first: test commands run project code. See [real-agent testing](real-agent-testing.md) and the terminal section of [protocol](protocol.md).
 
 ## Discovery
 
