@@ -1,6 +1,6 @@
 # UI reference
 
-The user's 16 PNG mockups in `C:/Users/basin/Downloads/Page 1` are the visual reference for the Android app. They supersede the earlier teal Material styling. All 16 were inspected directly.
+The user's 16 PNG mockups in `C:/Users/<you>/Downloads/Page 1` are the visual reference for the Android app. They supersede the earlier teal Material styling. All 16 were inspected directly.
 
 Use a near-black background, neutral surfaces, white primary actions, muted secondary text and green online indicators. Keep 24 dp page gutters, compact headings, simple rows and a rounded text-only bottom navigation pill. User messages have a restrained inset surface; agent messages use the page background. The composer has one rounded surface. Permissions open in a bottom sheet and keep the supplied ACP option names and IDs. Dismissal leaves the decision pending.
 
