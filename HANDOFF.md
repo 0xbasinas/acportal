@@ -1,8 +1,10 @@
 # ACP Portal agent handoff
 
-7 October 2026. The user requested completion of the current Connection logs work, current README/TODO/AGENTS documentation and a handoff for the agent continuing the remaining implementation. This checkpoint finishes that request. The user subsequently authorized coding to resume. This document preserves the handoff baseline; TODO records newer implementation and verification.
+7 October 2026. The user requested completion of the current Connection logs work, current README/TODO/AGENTS documentation and a handoff for the agent continuing the remaining implementation. This checkpoint finishes that request. The user subsequently authorized coding to resume. This document preserves the handoff baseline; TODO records remaining/suspended work; TODO_DONE records completed implementation and verification.
 
 ## Progress after resume
+
+Checklist maintenance: periodically move completed items and verification notes from TODO.md to TODO_DONE.md, preferably at each finished increment or handoff. Preserve evidence and limits, keep unfinished follow-ups in TODO.md and update references when needed.
 
 Latest user scope update, 8 October 2026: remove tablet/landscape acceptance from current work; suspend physical-phone checks as user-owned; suspend signed APK production/verification. Supported-build verification must run on GitHub Actions, covering minimum Rust, Linux/container and reproducible Windows builds, with actual workflow results checked on GitHub. TODO separates suspended items; installation/TLS documentation and a scoped acceptance report remain active. This supersedes older suggested work-order/release statements. Work remains paused; this update changes documentation only.
 
@@ -117,4 +119,4 @@ Git is initialized on `main`; origin is the private `https://github.com/0xbasina
 
 Verify remote/account/private visibility before future pushes. Preserve local identity, ignore rules and executable Gradle wrapper mode. Never commit generated APKs, runtime fixtures, ciphertext, tokens, provider secrets or signing keys. No PR or release has been created.
 
-For each next increment, update TODO with the actual behavior and terminal verification results, update README/AGENTS when the checkpoint or entry points change, and amend screen/audit evidence when acceptance changes. Record skipped tests, restored resources and remaining limits explicitly.
+For each next increment, update TODO with remaining work and TODO_DONE with completed behavior and terminal verification results, update README/AGENTS when the checkpoint or entry points change, and amend screen/audit evidence when acceptance changes. Record skipped tests, restored resources and remaining limits explicitly.

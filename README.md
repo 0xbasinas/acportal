@@ -95,7 +95,7 @@ Latest device checkpoint, 8 October 2026: four repository/recovery tests pass wi
 
 Latest Android checkpoint, 8 October 2026: 45 core and 31 app JVM tests, debug build and lint pass with no test failures or skips. Incoming WebSocket queues have an 8 MiB byte budget; outgoing admission caps queued content at 4 MiB. Terminal snapshots and additive session metadata each have a conservative 2 MiB budget. Pending/replay permissions have a combined 8 MiB estimate and 128 entries per map; overflow rejects the whole update and detaches without sending a decision. Prior consent remains intact. Local queue/replay tests pass; repository/device permission-overflow and physical stress acceptance remain open.
 
-Latest host source checks pass 73 Rust tests, strict Clippy and formatting; an extended oversized-input lifecycle regression also passes. Duplicate-request cache and reader/command queues now have content budgets and pre-enqueue frame validation. Doctor reports listener availability, storage write/remove probe results and effective runtime limits. Missing storage probes its existing parent without creating state directories. Logging, deeper diagnostics, remaining auxiliary fields, waiting callers and whole-process heap measurements remain open. Detailed chronological evidence is in TODO and HANDOFF.
+Latest host source checks pass 73 Rust tests, strict Clippy and formatting; an extended oversized-input lifecycle regression also passes. Duplicate-request cache and reader/command queues now have content budgets and pre-enqueue frame validation. Doctor reports listener availability, storage write/remove probe results and effective runtime limits. Missing storage probes its existing parent without creating state directories. Logging, deeper diagnostics, remaining auxiliary fields, waiting callers and whole-process heap measurements remain open. Detailed chronological evidence is in [TODO_DONE](TODO_DONE.md) and HANDOFF.
 ```text
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -108,11 +108,13 @@ Latest Android checkpoint, 7 October 2026: 25 app JVM tests, debug/test APK buil
 
 Two separate JUnit storage phases verify fixture data/alias and unchanged production hosts, sessions, MCP aliases and durable UI preferences. Three normal debug lifecycle/layout regressions also pass. The recorded fixture task, callbacks and storage are cleaned up, and the normal repository is restored. Release keeps the production Application. See [task recovery](docs/task-recovery.md) for the exact procedure and limits.
 
-Earlier increments cover compact dark/light Connections, logs, Agents, Sessions and Changes controls, MCP encrypted-storage failures, long values and Activity recreation. Detailed chronological results are in [TODO](TODO.md) and [screen acceptance](docs/screen-acceptance.md). Earlier 40 core protocol JVM and 67 Rust test results were not rerun for these Android increments.
+Earlier increments cover compact dark/light Connections, logs, Agents, Sessions and Changes controls, MCP encrypted-storage failures, long values and Activity recreation. Detailed chronological results are in [TODO_DONE](TODO_DONE.md) and [screen acceptance](docs/screen-acceptance.md). Earlier 40 core protocol JVM and 67 Rust test results were not rerun for these Android increments.
 
 The project is not production complete. More lifecycle routes and pending-permission recovery, page/accessibility checks, memory limits, host hardening, full real Goose workflows, physical-device trusted TLS/network/background behavior, supported-platform reproducibility and signed release delivery remain open. See the [scope audit](docs/requirements-audit.md) and [handoff](HANDOFF.md).
 
 ## Documentation
+
+Checklist maintenance: periodically move completed items and verification notes from [TODO](TODO.md) to [TODO_DONE](TODO_DONE.md), preferably at each finished increment or handoff. Preserve evidence and limits; keep remaining and suspended work in TODO.
 
 - [Architecture and key models](docs/architecture.md)
 - [ACP forwarding and host API](docs/protocol.md)

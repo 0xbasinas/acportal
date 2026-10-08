@@ -2,11 +2,13 @@
 
 ## Read first
 
+Periodically move completed TODO.md checklist items and their verification notes into TODO_DONE.md, preferably at each finished increment or handoff. Preserve evidence and limits, leave unfinished follow-ups in TODO.md and keep documentation links current. Archive only work actually completed and verified to its stated scope.
+
 This is an existing Android client and Rust host for coding-agent CLIs. Continue the implementation in place. Do not scaffold a replacement or treat the current app as production complete.
 
-Read `TODO.md` for the latest checkpoint and remaining items, then `docs/requirements-audit.md` for the original 39-section scope and its evidence. `docs/screen-acceptance.md` records scoped screen checks. `README.md`, `docs/architecture.md`, `docs/protocol.md`, `docs/android.md` and `docs/security.md` explain the boundaries.
+Read `TODO.md` for remaining/suspended items and `TODO_DONE.md` for completed work and chronological verification, then `docs/requirements-audit.md` for the original 39-section scope and its evidence. `docs/screen-acceptance.md` records scoped screen checks. `README.md`, `docs/architecture.md`, `docs/protocol.md`, `docs/android.md` and `docs/security.md` explain the boundaries.
 
-The user requested completion of the Connection logs increment and a documentation handoff on 7 October 2026. That handoff is complete, and the user subsequently resumed coding. Read `HANDOFF.md` for the baseline and TODO for the latest progress. Keep TODO, README and AGENTS current and distinguish implemented behavior from verified acceptance.
+The user requested completion of the Connection logs increment and a documentation handoff on 7 October 2026. That handoff is complete, and the user subsequently resumed coding. Read `HANDOFF.md` for the baseline, TODO for remaining work and TODO_DONE for completed progress. Keep TODO, TODO_DONE, README and AGENTS current and distinguish implemented behavior from verified acceptance.
 
 ## User decisions
 
@@ -223,7 +225,7 @@ The latest MCP Activity-recreation increment passes 25 app JVM tests, builds/lin
 
 The subsequent cold-reopen increment passes test APK build/lint and two separate device phases. `McpColdProcessNavigationTest#prepareSavedDefinitionAndLeaveDraftUnsaved` writes only to `cacheDir/mcp-cold-process-fixture`, containing its own persistent Room/DataStore/vault. After that instrumentation, adb verified the app process was absent. `#restoreSavedDefinitionAfterVerifiedProcessStop` asserts a distinct PID, unchanged alias/ciphertext digest, no retained draft and full long values in the editor, then removes the fixture root. Run each method alone; running the whole class in one process fails the fresh-PID requirement. Preparation closes the Activity/storage before process exit, so this does not prove abrupt foreground OS kill or restored-task behavior. Never overwrite an existing fixture root; restore/clean it first. No production code changed in this increment; prior unit/core/Rust checks were not rerun.
 
-Earlier recorded checks include 40 core protocol JVM tests and 67 Rust tests with formatting/strict Clippy. Those components were unchanged in the recent UI/storage increments and were not rerun for them. Historical test counts in TODO are chronological, not one combined current suite run. Revalidate affected sources and results for new work.
+Earlier recorded checks include 40 core protocol JVM tests and 67 Rust tests with formatting/strict Clippy. Those components were unchanged in the recent UI/storage increments and were not rerun for them. Historical test counts in TODO_DONE are chronological, not one combined current suite run. Revalidate affected sources and results for new work.
 
 Timeline retention has a conservative 8 MiB content budget, 2,000 items and a 1 Mi-character streamed-text tail with visible history gaps. Attachment checks currently cover four attachments, 256 KiB per file, 384 KiB combined attachment JSON and 512 KiB prompt JSON. These limits do not finish auxiliary-state, transport-queue or request-cache byte budgets; inspect the current constants before changing them.
 
@@ -253,4 +255,4 @@ Prefer targeted fixes and the existing architecture. Avoid agent-specific UI bra
 
 For a handoff, record what changed, which checks actually passed or skipped, resources/settings restored, what remains unverified and the next useful action. Do not declare the overall project complete until every required deliverable and acceptance gate in the audit has evidence. Documentation-only requests while implementation is paused do not authorize resuming the broader build task.
 
-At handoff, update `TODO.md` with the concrete change, exact verification scope, remaining limits and next action. Update screen/audit evidence when its claims change. Keep final updates short and link relevant files.
+At handoff, keep `TODO.md` focused on remaining/suspended items and next actions. Move completed checklist items and exact chronological verification evidence to `TODO_DONE.md`. Update screen/audit evidence when its claims change. Keep final updates short and link relevant files.
