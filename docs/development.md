@@ -2,7 +2,7 @@
 
 ## Toolchain and commands
 
-Use Rust 1.88+ and commit Cargo.lock. The local Windows verification environment has Rust 1.96.0 and Goose 1.53.0. Android uses SDK 36, JDK 17, AGP 9.0.1, Kotlin 2.3.20 and the checked-in Gradle 9.1 wrapper.
+Use Rust 1.88+ and commit Cargo.lock. UUID is pinned to 1.26.1 because 1.27 requires Rust 1.89. The local Windows verification environment has Rust 1.96.0 and Goose 1.53.0. Android uses SDK 36, AGP 9.0.1, Kotlin 2.3.20 and the checked-in Gradle 9.1 wrapper. Run Gradle with JDK 21 on this Windows machine; the configured source/toolchain targets remain in the build files.
 
 ```text
 cargo fetch --locked
@@ -14,7 +14,7 @@ cargo test --locked --workspace --all-targets
 
 Use PowerShell 7 for `scripts/dev.ps1`. Native equivalent commands are in the README. The mock task writes its temporary absolute executable registry under ignored `.local/`, then starts the normal local client with `--agent mock`. Its numbered permission choice is interactive, exactly like a real agent's. Select allow to see simulated execution and a proposed diff. No file is edited.
 
-The optional Docker build is `docker build -f docker/Dockerfile -t acpd .`. Supply your agent runtime and config/workspace mounts to use it, then pass `--config /mounted/config.toml start`. The image defaults to help; networking requires explicit listener, TLS and mounted state configuration. Docker has not been tested in this environment.
+The Docker recipe is `docker/Dockerfile`. Verify its build through GitHub Actions. Supply your agent runtime and config/workspace mounts to use it, then pass `--config /mounted/config.toml start`. The image defaults to help; networking requires explicit listener, TLS and mounted state configuration. Actions build/help/version/UID checks do not establish mounted agent execution or TLS deployment.
 
 ## Supported-build checks on GitHub Actions
 
@@ -62,7 +62,11 @@ Verified on Windows on October 6, 2026:
 
 The first integration run exposed a race in mock cancellation: a cancelled permission could complete the turn before the cancellation notification arrived. The mock now returns a cancelled prompt result for that outcome. The final suite includes this regression.
 
-Linux and Docker have not been verified. The declared Rust 1.88 minimum has not been exercised locally. Advanced UI/accessibility checks, physical-phone TLS deployment and network switching remain separate acceptance work.
+The October 6 record above did not verify Linux, Docker or Rust 1.88. Later Actions results are recorded below and in TODO_DONE. Advanced UI/accessibility checks, physical-phone TLS deployment and network switching remain separate acceptance work.
+
+8 October 2026 Actions run [37756534596](https://github.com/0xbasinas/acportal/actions/runs/37756534596), source commit `4fe4f8bbcb14c2570f4c814f376564ac7775981b`: stable formatting/strict Clippy/tests and Rust 1.88 locked builds/tests pass on Ubuntu 24.04 and Windows Server 2022. Each Linux suite passes 70 tests; each Windows suite passes 73, with zero failures/ignored tests. Docker builds and help/version/UID 10001 checks pass. The preceding run exposed UUID 1.27's Rust 1.89 minimum; the corrected run pins 1.26.1. No supported-build check ran locally. Windows hash-comparison evidence is recorded separately after its terminal result.
+
+The same run finishes successfully with matching Windows release hashes `785EC5A7FC92B2646D69FB5162C3BF012C9C255AAC1F655CB39ADE48D570B016`. The inspected artifact identifies Rust 1.96.0 and Windows runner image `20261004.326.1`. This is two clean target directories on one runner/source checkout, not independent-machine reproducibility. PDBs, signed outputs and mounted container agent/TLS workflows remain outside this evidence.
 
 ## Device-to-host mock test
 

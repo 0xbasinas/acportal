@@ -1,6 +1,6 @@
 # Android implementation
 
-The Android project is in `android/universal-acp`. Build with `./gradlew :app:assembleDebug` and run JVM tests with `./gradlew :core:protocol:test :app:testDebugUnitTest` (use `gradlew.bat` on Windows). SDK 36 and JDK 17 are required; the Gradle toolchain resolver can supply the JDK. Minimum Android version is API 26.
+The Android project is in `android/universal-acp`. Build with `./gradlew :app:assembleDebug` and run JVM tests with `./gradlew :core:protocol:test :app:testDebugUnitTest` (use `gradlew.bat` on Windows). SDK 36 is required. Run Gradle with JDK 21 on this Windows machine; source/toolchain targets remain configured in the build files. Minimum Android version is API 26.
 
 ## Module architecture
 

@@ -104,7 +104,9 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
 ```
 
-See [development](docs/development.md) for test coverage and the local verification record. Docker is optional and remains unverified here. Its image defaults to help; run the host explicitly with mounted configuration, workspace and state directories and configured TLS for a remote listener.
+See [development](docs/development.md) for test coverage and verification records. On 8 October 2026, [Actions run 37756534596](https://github.com/0xbasinas/acportal/actions/runs/37756534596) passes stable source checks and Rust 1.88 locked builds/tests on Linux and Windows, with 70 and 73 tests respectively and zero failures/ignored tests. Docker build/help/version/unprivileged UID checks pass. The image defaults to help; mounted agent execution, storage and TLS deployment remain unverified.
+
+The same Actions run also passes a Windows release hash comparison using Rust 1.96.0 and two clean target directories. This establishes repeatability on that runner/toolchain, excluding cross-runner, PDB and signed-artifact reproducibility. UUID is pinned to 1.26.1 to preserve Rust 1.88 compatibility. The implementation and installation docs are published in [draft PR #1](https://github.com/0xbasinas/acportal/pull/1).
 
 Latest Android checkpoint, 7 October 2026: 25 app JVM tests, debug/test APK builds, lint and release manifest generation pass. The external task-recovery workflow also passes on actual MainActivity with an isolated debug repository. It restores the same task in a distinct process, returns to the MCP host route and preserves Back navigation through the chooser to Settings. Unsaved MCP drafts are discarded; saved definitions remain available.
 
