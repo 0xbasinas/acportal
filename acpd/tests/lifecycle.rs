@@ -1,6 +1,6 @@
 use acpd::{
     config::{Config, RuntimeConfig},
-    connection::AcpConnection,
+    connection::{AcpConnection, AgentRpcError},
     registry::{AgentDefinition, Registry},
     session::SessionManager,
 };
@@ -727,15 +727,18 @@ async fn negotiated_filesystem_reads_are_scoped_and_errors_do_not_break_the_acto
     );
     let secret = outside.path().join("secret.txt");
     std::fs::write(&secret, "outside secret").unwrap();
-    assert!(
-        session
-            .connection
-            .request(
-                "_mock/read_file",
-                json!({"sessionId":session_id,"path":secret})
-            )
-            .await
-            .is_err()
+    let refused = session
+        .connection
+        .request(
+            "_mock/read_file",
+            json!({"sessionId":session_id,"path":secret}),
+        )
+        .await
+        .unwrap_err();
+    // ACP reserves -32000 for auth_required; a containment refusal must not claim it.
+    assert_eq!(
+        refused.downcast_ref::<AgentRpcError>().map(|error| error.0),
+        Some(acpd::connection::CALLBACK_DENIED)
     );
     assert_eq!(
         session
@@ -787,7 +790,11 @@ async fn host_file_writes_require_fresh_permission_and_preserve_concurrent_edits
         )
         .await
         .unwrap();
-    assert!(denied.await.unwrap().is_err());
+    let refused = denied.await.unwrap().unwrap_err();
+    assert_eq!(
+        refused.downcast_ref::<AgentRpcError>().map(|error| error.0),
+        Some(acpd::connection::CALLBACK_DENIED)
+    );
     assert!(!path.exists());
     assert!(
         session

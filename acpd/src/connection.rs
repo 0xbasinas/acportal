@@ -73,6 +73,12 @@ fn log_frame(direction: &'static str, message: &Value, bytes: usize) {
     tracing::debug!(target: "acpd::acp_frames", direction, kind, method = %method, update = %update, code, bytes, "acp frame");
 }
 
+/// JSON-RPC code for a host refusal of an agent callback (outside the workspace, denied
+/// consent, changed file). ACP reserves -32000 for `auth_required`, so it must never be
+/// used here: agents such as Goose report it to the model as "Authentication required".
+pub const CALLBACK_DENIED: i64 = -32602;
+/// JSON-RPC code for a callback the host cannot serve right now (not ready, capacity).
+pub const CALLBACK_UNAVAILABLE: i64 = -32603;
 /// Preserve only the protocol error code; agent text/data may contain credentials.
 #[derive(Debug)]
 pub struct AgentRpcError(pub i64);
@@ -784,18 +790,18 @@ async fn actor(
                             let files=files.clone();
                             crate::filesystem::read_async(files,message["params"].clone(),session_id).await
                         } else {Err(anyhow!("filesystem session is not ready"))};
-                        let reply=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),-32000,"Workspace text read denied or unavailable")};
+                        let reply=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),CALLBACK_DENIED,"Workspace text read denied or unavailable")};
                         if write(&mut stdin,&reply,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                         continue;
                     } else if message["method"] == "fs/write_text_file" && let Some(files)=&files {
-                        if !files_ready {if write(&mut stdin,&error(id.clone(),-32000,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
+                        if !files_ready {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
                         let Some(session_id)=file_session_id.clone() else {
-                            if write(&mut stdin,&error(id.clone(),-32000,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                             continue;
                         };
                         if host_writes.values().any(|entry|entry.callback_id==*id) {break "duplicate filesystem callback id".into()}
                         let prepared=match crate::filesystem::prepare_write_async(files.clone(),message["params"].clone(),session_id.clone()).await {
-                            Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),-32000,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                            Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         };
                         let consent_id=json!(format!("acpd-write-{}",uuid::Uuid::new_v4()));
                         let tool_id=consent_id.as_str().unwrap().to_owned();
@@ -803,7 +809,7 @@ async fn actor(
                         let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":{"acpdSource":"host-filesystem"},"options":[{"optionId":"acpd-write-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-write-allow","name":"Allow write once","kind":"allow_once"}]}});
                         let consent_size=consent.to_string().len();
                         let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
-                        if !inserted {if write(&mut stdin,&error(id.clone(),-32000,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                        if !inserted {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         host_writes.insert(consent_id.to_string(),HostWrite {callback_id:id.clone(),prepared});
                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
                         publish_host(events,journal,consent);
@@ -898,7 +904,7 @@ async fn actor(
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-write-allow";
                             let result=if accepted {crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await} else {Err(anyhow!("write denied"))};
                             publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":if result.is_ok(){"completed"}else{"failed"}}}}));
-                            match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,-32000,"Host write denied, changed or failed; do not retry automatically")}
+                            match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
                         let result = write(&mut stdin, &answer, limits.max_frame_bytes).await;
                         let failed = result.is_err();

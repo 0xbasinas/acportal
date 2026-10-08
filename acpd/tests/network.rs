@@ -702,6 +702,21 @@ async fn session_scope_and_revocation_are_enforced_on_socket_input() {
     })
     .await;
     assert_eq!(rejection["message"]["error"]["code"], -32602);
+    // An agent error keeps the agent's code instead of becoming ACP auth_required.
+    send(
+        &mut socket,
+        json!({"jsonrpc":"2.0","id":3,"method":"_mock/unknown","params":{}}),
+    )
+    .await;
+    let failed = receive(&mut socket, |value| {
+        value["message"]["id"] == 3 && value["message"].get("error").is_some()
+    })
+    .await;
+    assert_eq!(failed["message"]["error"]["code"], -32601);
+    assert_eq!(
+        failed["message"]["error"]["message"],
+        "Agent request failed"
+    );
     let device = fixture.host.security.authorize(&fixture.token).unwrap();
     fixture.host.security.revoke(device.id).unwrap();
     send(&mut socket, json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":session["acpSessionId"],"prompt":[]}})).await;

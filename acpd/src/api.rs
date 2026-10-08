@@ -721,7 +721,7 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             session.connection.record(
                 error(
                     id.clone(),
-                    -32000,
+                    -32603,
                     "Request cache capacity reached; request was not started",
                 ),
                 "agent",
@@ -745,12 +745,20 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             };
             let mut result = match result {
                 Ok(value) => response(id.clone(), value),
-                Err(_) => error(id.clone(), -32000, "Agent request failed"),
+                // Keep the agent's own code (for example ACP auth_required, -32000) but
+                // never its message; host-side failures are internal errors, not -32000.
+                Err(failure) => error(
+                    id.clone(),
+                    failure
+                        .downcast_ref::<crate::connection::AgentRpcError>()
+                        .map_or(-32603, |failure| failure.0),
+                    "Agent request failed",
+                ),
             };
             if result.to_string().len() > gateway.result_reserve {
                 result = error(
                     id.clone(),
-                    -32000,
+                    -32603,
                     "Agent response exceeds retained response limit",
                 );
             }
