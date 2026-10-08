@@ -41,6 +41,10 @@ tempfile = "3"
 tokio-tungstenite = "0.29"
 rcgen = "0.14"
 
+# Test-only: tests/memory_rss.rs reads the process working set on Windows.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
 [[bin]]
 name = "mock-acp-agent"
 path = "src/bin/mock_acp_agent.rs"
