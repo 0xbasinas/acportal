@@ -246,6 +246,10 @@ token counts, not a billing statement).
 - Optional: remove leftover Goose sessions for the fixture workspace from
   Goose's own UI or session store. Do not delete unrelated sessions.
 
+## Deterministic agent: testy
+
+For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release and elicitation (not advertised by acpd; refused cleanly). See [testy](testy.md).
+
 ## See also
 
 - [Adding agents and Goose setup](agents.md)

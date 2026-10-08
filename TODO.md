@@ -10,6 +10,7 @@ Maintenance: periodically move completed checklist items and their verification 
 
 Scope update, 8 October 2026: tablet/landscape acceptance is excluded from the current work. Physical-phone checks are suspended and owned by the user. Signed APK production/verification is suspended. Supported-build verification must run in GitHub Actions rather than locally. Historical results in TODO_DONE.md remain evidence of earlier checks, not current task requirements.
 
+- [ ] Run the testy CI job once after re-enabling Actions (`gh workflow run rust.yml --ref <branch> -f testy=true`) and record the result. Consider elicitation support (needs a phone UI) and MCP pass-through coverage with testy's `mcp-echo-server`; see docs/testy.md.
 - [ ] GitHub Actions is disabled (8 October 2026, user request). Before relying on CI, re-enable `Rust` and `Android` (`gh workflow enable …`) and confirm the trimmed workflows from b5701fb pass once (Windows Clippy via mingw on Linux, Android on JDK 17 only); they have never completed a run.
 - [ ] Finish Connection logs TalkBack/accessibility review and physical-network recovery. Current semantics/layout checks use component events rather than live connection failures.
 - [ ] Verify Agents TalkBack and lifecycle acceptance, then remaining page recovery and previous-task restoration.
