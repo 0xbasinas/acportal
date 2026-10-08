@@ -2,13 +2,16 @@ name: Rust
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   check:
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -18,3 +21,50 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
+
+  minimum-rust:
+    name: Rust 1.88 / ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+      - run: cargo build --locked --workspace --bins
+      - run: cargo test --locked --workspace --all-targets
+
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build host image
+        run: docker build --file docker/Dockerfile --tag acpd-ci .
+      - name: Smoke check unprivileged container
+        run: |
+          test "$(docker run --rm --entrypoint id acpd-ci -u)" = 10001
+          docker run --rm acpd-ci --help
+          docker run --rm acpd-ci --version
+
+  windows-reproducibility:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+      - name: Compare two clean release builds
+        shell: pwsh
+        run: ./scripts/verify-windows-reproducibility.ps1
+      - name: Retain hash and toolchain evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-reproducibility
+          path: reproducibility-evidence.txt
+          if-no-files-found: error

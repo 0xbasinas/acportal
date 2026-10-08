@@ -1,0 +1,20 @@
+[
+  {
+    "id": "custom-native",
+    "name": "Custom native ACP agent",
+    "command": "/opt/acp/bin/custom-agent",
+    "args": ["acp"],
+    "transport": "stdio",
+    "enabled": false,
+    "env": {}
+  },
+  {
+    "id": "custom-node-windows",
+    "name": "Installed Node ACP adapter on Windows",
+    "command": "C:/Program Files/nodejs/node.exe",
+    "args": ["C:/ACPPortal/adapters/custom-agent/server.mjs", "--stdio"],
+    "transport": "stdio",
+    "enabled": false,
+    "env": {}
+  }
+]

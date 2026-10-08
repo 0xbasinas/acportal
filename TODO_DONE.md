@@ -4,6 +4,8 @@ Archived from TODO.md on 8 October 2026. See [TODO.md](TODO.md) for remaining an
 
 ## Completed checklist items
 
+- [x] Document host installation, trusted TLS configuration, debug APK installation, pairing/renewal/revocation and disabled custom-agent registry templates. On 8 October 2026, the existing debug CLI successfully parsed `examples/agents.custom.json` and printed effective example configuration. Both templates stayed disabled; no agent or provider request ran. Source review checked config-relative paths, startup PEM loading, registry merge and CLI options. No new build, TLS deployment, adapter negotiation or physical-phone acceptance is claimed.
+
 Maintenance: periodically transfer completed items and verification notes from [TODO.md](TODO.md), preferably at each finished increment or handoff. Preserve the recorded evidence and limits, and leave unfinished follow-ups in TODO.md. Add new completed items above older entries.
 
 - [x] Verify permission count overflow through actual Android repository and local WebSocket. Isolated in-memory Room, owned DataStore/vault and local server deliver 129 approvals plus a late replay completion. The client retains 128 approvals/sequence, detaches, stays replaying, blocks decisions/prompts after error dismissal and sends no client messages or reconnect. Four device tests pass without skips including existing recovery guards. Both APK builds/install and lint pass. Byte-overflow/device navigation/physical-host acceptance remain open.

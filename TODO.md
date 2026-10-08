@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 8 October 2026. Implementation work remains paused. This checklist contains active and suspended work; completed items and chronological verification history are in [TODO_DONE.md](TODO_DONE.md). Historical passing checks do not establish production completion.
+Updated 8 October 2026. Implementation resumed by user authorization on 8 October 2026. This checklist contains active and suspended work; completed items and chronological verification history are in [TODO_DONE.md](TODO_DONE.md). Historical passing checks do not establish production completion.
 
 Local agent: Goose ACP. Phone connections use authenticated REST/WebSocket; the host communicates with agents over ACP stdio. Follow [HANDOFF.md](HANDOFF.md) and [the requirements audit](docs/requirements-audit.md) for context and scope. The supplied mockup guide is [docs/ui-reference.md](docs/ui-reference.md).
 
@@ -28,8 +28,8 @@ Scope update, 8 October 2026: tablet/landscape acceptance is excluded from the c
 - [ ] Complete persistence checks: Room migrations, process death, restart metadata and explicit load. Decide whether optional host delivery-journal persistence is needed. Unsent attachment payloads intentionally remain in memory and must be selected again after process death.
 - [ ] Close the Windows process-launch-to-JobObject assignment gap and verify Unix process cleanup, metadata ownership and workspace containment. The existing policy controls are not an OS sandbox.
 - [ ] Configure GitHub Actions to verify the declared Rust minimum version, Linux/container builds and reproducible Windows builds. Verify actual workflow results on GitHub; do not perform these supported-build checks locally.
-- [ ] Finish runtime/path/authentication diagnostics and custom registry examples without agent-specific Android branches.
-- [ ] Finish installation and trusted-TLS host instructions and an acceptance report covering the current scope. Record suspended checks as unverified. Keep optional biometric unlock, QR pairing and future protocol features separate.
+- [ ] Finish runtime/path/authentication diagnostics. Disabled custom registry templates and configuration guidance are documented and CLI-parsed; actual adapter negotiation remains unverified.
+- [ ] Finish an acceptance report covering the current scope. Installation/trusted-TLS instructions are documented; physical TLS deployment and signed delivery remain suspended and unverified. Keep optional biometric unlock, QR pairing and future protocol features separate.
 
 ## Suspended work
 
