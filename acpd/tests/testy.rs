@@ -721,5 +721,27 @@ async fn testy_uses_a_phone_supplied_stdio_mcp_server() {
         missing.agent_text()
     );
     assert!(tools.consents.is_empty() && call.consents.is_empty());
+    // Remote MCP is gated on the agent's advertised capabilities: testy v3.2.0 advertises HTTP
+    // (accepted and forwarded) but not SSE (refused before the session is kept).
+    let remote = |definition: Value| {
+        fixture
+            .client
+            .post(format!("{}/v1/sessions", fixture.base))
+            .bearer_auth(&fixture.token)
+            .json(
+                &json!({"agentId":"testy","workspace":fixture.workspace,"mcpServers":[definition]}),
+            )
+            .send()
+    };
+    let http = remote(json!({"type":"http","name":"docs","url":"http://127.0.0.1:9/mcp","headers":[{"name":"Authorization","value":"synthetic-http-secret"}]})).await.unwrap();
+    assert_eq!(http.status(), reqwest::StatusCode::CREATED);
+    let http: Value = http.json().await.unwrap();
+    assert_eq!(http["status"], "ready", "{http}");
+    assert!(!http.to_string().contains("synthetic-http-secret"));
+    let sse =
+        remote(json!({"type":"sse","name":"events","url":"http://127.0.0.1:9/sse","headers":[]}))
+            .await
+            .unwrap();
+    assert_eq!(sse.status(), reqwest::StatusCode::BAD_REQUEST);
     fixture.stop().await;
 }
