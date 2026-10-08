@@ -395,6 +395,222 @@ fn running_process_group(pid: u32) -> Option<i32> {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
+async fn shell_lines_require_their_own_approval_and_run_exactly_as_shown() {
+    let workspace = tempfile::tempdir().unwrap();
+    let manager = manager(workspace.path(), &[], 8);
+    let session = manager
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    let marker = workspace.path().join("marker.txt");
+    let line = r#"printf '%s|' "a  b" $((1+2)) && echo done > marker.txt; cat marker.txt"#;
+    let create = |command: &str, args: Vec<&str>| {
+        let worker = session.clone();
+        let request = json!({"sessionId":session_id,"command":command,"args":args,"cwd":workspace.path(),"env":[{"name":"FIXTURE_SECRET","value":"never-shown"}],"outputByteLimit":4096});
+        tokio::spawn(async move {
+            worker
+                .connection
+                .request(
+                    "_mock/terminal",
+                    json!({"method":"terminal/create","request":request}),
+                )
+                .await
+        })
+    };
+    // Denial: the consent shows the exact line, cwd and env names, and nothing runs.
+    let denied = create(line, vec![]);
+    let consent = next_permission(&session.connection).await;
+    let _: acp::RequestPermissionRequest =
+        serde_json::from_value(consent["params"].clone()).unwrap();
+    assert_eq!(
+        consent["params"]["_meta"]["acpdSource"],
+        "host-shell-command"
+    );
+    let shown = &consent["params"]["toolCall"]["rawInput"];
+    assert_eq!(shown["shellLine"], line);
+    assert_eq!(shown["shell"], "/bin/sh -c");
+    assert_eq!(shown["environmentNames"], json!(["FIXTURE_SECRET"]));
+    assert!(shown.get("command").is_none());
+    assert!(!consent.to_string().contains("never-shown"));
+    let options: Vec<&str> = consent["params"]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["optionId"].as_str().unwrap())
+        .collect();
+    assert_eq!(options, ["acpd-shell-deny", "acpd-shell-allow"]);
+    // A plain-command approval id cannot approve a shell line.
+    assert!(
+        session
+            .connection
+            .permission(
+                consent["id"].clone(),
+                json!({"outcome":"selected","optionId":"acpd-command-allow"})
+            )
+            .await
+            .is_err()
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(denied.await.unwrap().is_err());
+    assert!(!marker.exists());
+    // Cancellation while the approval is pending: nothing runs.
+    let cancelled = create(line, vec![]);
+    next_permission(&session.connection).await;
+    session
+        .connection
+        .notify("session/cancel", json!({"sessionId":session_id}))
+        .await
+        .unwrap();
+    assert!(cancelled.await.unwrap().is_err());
+    assert!(!marker.exists());
+    // Approval runs exactly the shown line through /bin/sh -c.
+    let approved = create(line, vec![]);
+    let consent = next_permission(&session.connection).await;
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-allow"}),
+        )
+        .await
+        .unwrap();
+    let created = approved.await.unwrap().unwrap();
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    let exit = session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/wait_for_exit","request":scope}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exit["exitCode"], 0);
+    let output = session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/output","request":scope}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output["output"], "a  b|3|done\n");
+    assert!(marker.exists());
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/release","request":scope}),
+        )
+        .await
+        .unwrap();
+    // A plain program whose arguments contain shell syntax keeps the literal path.
+    let plain = create(
+        env!("CARGO_BIN_EXE_mock-acp-agent"),
+        vec!["--terminal-fixture", "--fixture-text", "a && b; $(x)"],
+    );
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(consent["params"]["_meta"]["acpdSource"], "host-terminal");
+    assert_eq!(
+        consent["params"]["toolCall"]["rawInput"]["args"][2],
+        "a && b; $(x)"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-command-allow"}),
+        )
+        .await
+        .unwrap();
+    let created = plain.await.unwrap().unwrap();
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/wait_for_exit","request":scope}),
+        )
+        .await
+        .unwrap();
+    let output = session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/output","request":scope}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output["output"], "a && b; $(x)");
+    // A shell line's child and grandchild both stop when the terminal is released.
+    let tree = create("echo $$; sleep 30 & echo $!; wait", vec![]);
+    let consent = next_permission(&session.connection).await;
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-allow"}),
+        )
+        .await
+        .unwrap();
+    let created = tree.await.unwrap().unwrap();
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    let pids: Vec<u32> = timeout(Duration::from_secs(5), async {
+        loop {
+            let output = session
+                .connection
+                .request(
+                    "_mock/terminal",
+                    json!({"method":"terminal/output","request":scope}),
+                )
+                .await
+                .unwrap();
+            let pids: Vec<u32> = output["output"]
+                .as_str()
+                .unwrap()
+                .lines()
+                .filter_map(|line| line.trim().parse().ok())
+                .collect();
+            if pids.len() == 2 {
+                break pids;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let own_group = unsafe { libc::getpgid(0) };
+    for pid in &pids {
+        let group = running_process_group(*pid).expect("shell tree must be running");
+        assert_ne!(group, own_group);
+    }
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/release","request":scope}),
+        )
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        while pids.iter().any(|pid| running_process_group(*pid).is_some()) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("shell and its background child must stop on release");
+    manager.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_quiet_terminal_wait_pauses_prompt_inactivity_until_command_exit() {
     let workspace = tempfile::tempdir().unwrap();
     let config = Config {

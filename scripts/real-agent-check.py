@@ -30,7 +30,7 @@ FIXTURE = {
     "test_calc.py": "import unittest\n\nfrom calc import add, multiply\n\n\nclass CalcTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n\n    def test_multiply(self):\n        self.assertEqual(multiply(4, 5), 20)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
     "README.md": "# calc\n\nA tiny calculator with `add` and `multiply`. Run the tests with:\n\n    python3 -m unittest -v\n",
 }
-STEPS = ["inspect", "approve", "deny", "terminal", "reconnect", "load", "cancel", "outside"]
+STEPS = ["inspect", "approve", "deny", "terminal", "kill", "reconnect", "load", "cancel", "outside"]
 
 
 def init_fixture(path):
@@ -260,6 +260,29 @@ def choose(kind):
     return decide
 
 
+def approve_shell_lines(log):
+    """Approve host shell-line consents once, recording the exact line shown, and
+    allow everything else once. This is what a person tapping Approve would do."""
+    def decide(request):
+        params = request["params"]
+        if (params.get("_meta") or {}).get("acpdSource") == "host-shell-command":
+            raw = params["toolCall"].get("rawInput") or {}
+            log.append({"shellLine": raw.get("shellLine"), "shell": raw.get("shell"), "cwd": raw.get("cwd"),
+                        "environmentNames": raw.get("environmentNames")})
+            return "acpd-shell-allow"
+        return choose("allow_once")(request)
+    return decide
+
+
+def terminal_snapshots(store):
+    """Collect host terminal snapshots (_meta.acpdTerminal) from streamed updates."""
+    async def on_update(current, update):
+        snapshot = (update.get("_meta") or {}).get("acpdTerminal")
+        if snapshot is not None:
+            store.append(snapshot)
+    return on_update
+
+
 def deny_host_writes(request):
     """Let the agent propose an edit, but refuse the host filesystem write consent.
     Other permissions (reads, agent-level prompts) are allowed once."""
@@ -282,7 +305,8 @@ def show(name, report):
     statuses = [tool["status"] for tool in report.get("tools", []) if tool.get("status")]
     print(f"   tools: {titles} statuses: {statuses}")
     for key in ("disk", "replay_on_reconnect", "history_replayed_on_load", "cancel_sent", "marker_exists",
-                "processes_before_cancel", "processes_after", "agent_processes_after", "duplicates"):
+                "processes_before_cancel", "processes_after", "agent_processes_after", "duplicates",
+                "shell_lines_approved", "terminal_final", "sleep_still_running", "finished_printed"):
         if key in report:
             print(f"   {key}: {report[key]}")
     print(f"   reply: {report.get('reply', '')[:300]!r}")
@@ -323,9 +347,38 @@ async def main(args):
                 report["disk"] = {"readme_unchanged": handle.read() == readme, "git_status": git_status(args.workspace)}
             show("deny", report)
         if "terminal" in steps:
-            report = await session.prompt("terminal", "Run `python3 -m unittest -v` in this project and tell me how many tests passed.", choose("allow_once"))
+            lines, snapshots = [], []
+            report = await session.prompt("terminal", "Run `python3 -m unittest -v` in this project with your shell tool and tell me how many tests passed.",
+                                          approve_shell_lines(lines), terminal_snapshots(snapshots))
+            report["shell_lines_approved"] = lines
+            last = snapshots[-1] if snapshots else {}
+            report["terminal_final"] = {"exitStatus": last.get("exitStatus"), "truncated": last.get("truncated"),
+                                        "snapshots": len(snapshots), "output_tail": str(last.get("output", ""))[-400:]}
             report["agent_processes_after"] = descendants(host.process.pid)
             show("terminal", report)
+        if "kill" in steps:
+            lines, snapshots, state = [], [], {"sent": False}
+            approve = approve_shell_lines(lines)
+
+            async def cancel_while_running(current, update):
+                snapshot = (update.get("_meta") or {}).get("acpdTerminal")
+                if snapshot is not None:
+                    snapshots.append(snapshot)
+                    if not state["sent"] and snapshot.get("exitStatus") is None:
+                        await asyncio.sleep(2)  # let the shell start its child
+                        state["running_before_cancel"] = descendants(host.process.pid)
+                        await current.send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": current.acp_id}})
+                        state["sent"] = True
+            report = await session.prompt("kill", "Use your shell tool to run exactly this command and wait for it: sleep 45 && echo finished-after-sleep",
+                                          approve, cancel_while_running)
+            await asyncio.sleep(1)
+            report["shell_lines_approved"] = lines
+            report["cancel_sent"] = state["sent"]
+            report["processes_before_cancel"] = state.get("running_before_cancel")
+            report["processes_after"] = descendants(host.process.pid)
+            report["sleep_still_running"] = any("sleep 45" in cmd for _, cmd in report["processes_after"])
+            report["finished_printed"] = any("finished-after-sleep\n" in str(s.get("output", "")) for s in snapshots)
+            show("kill", report)
         if "reconnect" in steps:
             async def detach(current, update):
                 return "detach" if update.get("sessionUpdate") in ("agent_message_chunk", "tool_call") else None

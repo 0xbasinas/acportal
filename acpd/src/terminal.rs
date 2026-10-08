@@ -46,6 +46,28 @@ mod tests {
         assert_eq!(output.snapshot().0, "stderr🙂��");
     }
     #[test]
+    fn shell_lines_are_detected_only_without_separate_arguments() {
+        let none: Vec<String> = vec![];
+        for line in [
+            "cd /w && python3 -m unittest -v 2>&1",
+            "ls | head",
+            "echo hi; echo there",
+            "cat *.py",
+            "python3 -m unittest -v",
+            "echo $HOME",
+            "a > b",
+            "run `x`",
+        ] {
+            assert!(is_shell_line(line, &none), "{line}");
+        }
+        for plain in ["pwd", "python3", "/usr/bin/ls", "./tool"] {
+            assert!(!is_shell_line(plain, &none), "{plain}");
+        }
+        // Explicit argv is never reinterpreted, whatever its text contains.
+        assert!(!is_shell_line("python3", &["-c".into(), "a && b".into()]));
+        assert!(!is_shell_line("bad name", &["x".into()]));
+    }
+    #[test]
     fn retained_output_starts_at_a_character_boundary() {
         let mut output = Output {
             bytes: VecDeque::new(),
@@ -69,12 +91,60 @@ pub struct PreparedTerminal {
     cwd: PathBuf,
     limit: usize,
     executable: PathBuf,
+    /// True when `request.command` is a shell line that runs through [`SHELL_LABEL`].
+    shell: bool,
+}
+/// The fixed shell used for approved shell lines, as shown in consent.
+#[cfg(unix)]
+pub const SHELL_LABEL: &str = "/bin/sh -c";
+#[cfg(windows)]
+pub const SHELL_LABEL: &str = "cmd.exe /D /S /C";
+#[cfg(unix)]
+fn shell_executable() -> Result<PathBuf> {
+    let shell = PathBuf::from("/bin/sh");
+    anyhow::ensure!(shell.is_file(), "/bin/sh unavailable");
+    Ok(shell)
+}
+#[cfg(windows)]
+fn shell_executable() -> Result<PathBuf> {
+    // Use the system cmd.exe, never one found through PATH or the agent's environment.
+    let root = std::env::var_os("SystemRoot").context("SystemRoot unavailable")?;
+    let shell = PathBuf::from(root).join("System32").join("cmd.exe");
+    anyhow::ensure!(shell.is_file(), "cmd.exe unavailable");
+    Ok(shell)
+}
+/// A request is a shell line when it has no separate arguments and its command text
+/// contains whitespace or shell syntax, so it cannot be a literal program path.
+/// Plain program + args requests keep the literal argv path.
+pub fn is_shell_line(command: &str, args: &[String]) -> bool {
+    const SYNTAX: &[char] = &[
+        '&', '|', ';', '<', '>', '(', ')', '$', '`', '"', '\'', '*', '?', '[', ']', '{', '}', '~',
+        '!', '#', '%', '^',
+    ];
+    // Backslash is a path separator on Windows, but escape syntax on Unix shells.
+    args.is_empty()
+        && (command.chars().any(char::is_whitespace)
+            || command.contains(SYNTAX)
+            || (cfg!(unix) && command.contains('\\')))
 }
 impl PreparedTerminal {
+    pub fn is_shell(&self) -> bool {
+        self.shell
+    }
     pub fn operation(&self) -> Value {
         // Values can contain credentials; show names in consent and never log the request.
-        json!({"command":self.request.command,"executable":self.executable,"args":self.request.args,"cwd":self.cwd,
-            "environmentNames":self.request.env.iter().map(|entry|&entry.name).collect::<Vec<_>>()})
+        let names = self
+            .request
+            .env
+            .iter()
+            .map(|entry| &entry.name)
+            .collect::<Vec<_>>();
+        if self.shell {
+            // The complete line, verbatim; this exact text is what runs after approval.
+            json!({"shellLine":self.request.command,"shell":SHELL_LABEL,"executable":self.executable,"cwd":self.cwd,"environmentNames":names})
+        } else {
+            json!({"command":self.request.command,"executable":self.executable,"args":self.request.args,"cwd":self.cwd,"environmentNames":names})
+        }
     }
 }
 struct Output {
@@ -215,6 +285,23 @@ impl TerminalService {
         if !cwd.is_dir() || !cwd.starts_with(&self.workspace) {
             bail!("terminal working directory outside workspace")
         }
+        let limit = request
+            .output_byte_limit
+            .unwrap_or(self.maximum_output as u64)
+            .min(self.maximum_output as u64) as usize;
+        if is_shell_line(&request.command, &request.args) {
+            // cmd.exe stops at a line break, so a multi-line command could not run as approved.
+            if cfg!(windows) && request.command.contains(['\r', '\n']) {
+                bail!("multi-line shell commands are not supported on Windows")
+            }
+            return Ok(PreparedTerminal {
+                request,
+                cwd,
+                limit,
+                executable: shell_executable()?,
+                shell: true,
+            });
+        }
         let program =
             if Path::new(&request.command).is_relative() && request.command.contains(['/', '\\']) {
                 cwd.join(&request.command).to_string_lossy().into_owned()
@@ -235,15 +322,12 @@ impl TerminalService {
         let executable = crate::registry::resolve_executable(&program, path)
             .context("terminal executable unavailable")?
             .canonicalize()?;
-        let limit = request
-            .output_byte_limit
-            .unwrap_or(self.maximum_output as u64)
-            .min(self.maximum_output as u64) as usize;
         Ok(PreparedTerminal {
             request,
             cwd,
             limit,
             executable,
+            shell: false,
         })
     }
     pub fn create_approved(&mut self, prepared: PreparedTerminal) -> Result<Value> {
@@ -266,8 +350,19 @@ impl TerminalService {
             bail!("terminal directory changed while awaiting consent")
         }
         let mut command = Command::new(&prepared.executable);
+        if prepared.shell {
+            // The approved line is passed as one argument and never re-parsed by the host.
+            #[cfg(unix)]
+            command.arg("-c").arg(&prepared.request.command);
+            // /S makes cmd strip only the outer quotes and run the inner text unchanged.
+            #[cfg(windows)]
+            command
+                .raw_arg("/D /S /C")
+                .raw_arg(format!("\"{}\"", prepared.request.command));
+        } else {
+            command.args(&prepared.request.args);
+        }
         command
-            .args(&prepared.request.args)
             .envs(
                 prepared
                     .request

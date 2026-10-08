@@ -127,7 +127,7 @@ harmless path outside the workspace (default `/etc/hostname`).
 
 ## Results (8 October 2026, Linux)
 
-One continuous run through all eight steps, with the host on the branch tip that
+One continuous run through all eight steps (the script now has nine; `kill` was added later), with the host on the branch tip that
 includes the callback error-code fix. Usage numbers are the per-prompt totals
 Goose reported on each response (they accumulate context, so later steps look
 larger); Goose's own session record for this run shows about 2.9k output tokens
@@ -140,7 +140,7 @@ about \$0.014.
 | 1. Tool use (inspect) | **pass** | Goose listed the tree and read `README.md`, `calc.py` and `test_calc.py` through agent permissions plus host `fs/read_text_file`. It correctly reported that `add` subtracts and that `test_add` should fail. |
 | 2. Permission approve | **pass** | Agent `edit` was allowed, then host `Write calc.py` (`_meta.acpdSource: host-filesystem`, option `acpd-write-allow`). On disk: tests went from `FAILED (failures=1)` to `OK`; `git` showed only `calc.py` modified. |
 | 3. Permission deny | **pass** | Host `Write README.md` was answered with `acpd-write-deny` (twice when Goose retried via `write`). README stayed unchanged; Goose reported the host refusal and stopped retrying after the second denial. |
-| 4. Terminal | **partial** | Goose usually sends a shell string as `terminal/create.command` (for example `cd … && python3 -m unittest -v`) with no `args`. The host correctly requires a resolved executable and returns `-32602`. When Goose did send a plain argv (`pwd`, `ls`) the full host path ran: consent (`host-terminal` / `Run once`), create, output, wait, release, with exit code 0 and the retained output published. Running the project's tests through Goose therefore did not succeed in this run; the host terminal path itself is covered by the mock-agent tests and by those argv cases. |
+| 4. Terminal | **partial (superseded below)** | At the time the host only accepted a resolved executable with literal args, so Goose's shell strings (`cd … && python3 -m unittest -v`, no `args`) were refused with `-32602`; plain argv (`pwd`, `ls`) ran through `host-terminal`. Shell lines are now supported after per-line approval; see *Shell-line terminals* below. |
 | 5. Reconnect | **pass** | Client detached after the first message chunk, then reconnected with `?after=`. Replay reported `gap: false` and delivered the remaining chunks plus the final `end_turn` response. |
 | 6. Session load | **pass** | After deleting the host session, `POST /v1/sessions` with `loadSessionId` returned `ready` with the same ACP session id. The new attachment replayed prior user/agent/tool history; a follow-up prompt answered `calc.py` as the file changed earlier. |
 | 7. Cancel mid write | **pass** | While a host `Write CANCEL_MARKER.txt` consent was outstanding, the client sent `session/cancel` and answered the consent with `cancelled`. Prompt `stopReason` was `cancelled`; `CANCEL_MARKER.txt` was never created. The host answered the agent's pending `fs/write_text_file` with `-32800`. |
@@ -152,6 +152,35 @@ Doctor against the same Goose install, run separately earlier the same day, repo
 `ready` (exit 0) once Gemini was disabled. See also the sign-in / frame-metadata
 checkpoint in `AGENTS.md`.
 
+## Shell-line terminals (8 October 2026, Linux, 16:55 Athens)
+
+After shell-line support landed (consent `_meta.acpdSource: host-shell-command`,
+options `acpd-shell-deny` / `acpd-shell-allow`), the script was extended: the
+`terminal` step approves shell-line consents with `acpd-shell-allow` and records
+the exact line shown plus the host terminal snapshots, and a new `kill` step
+approves `sleep 45 && echo finished-after-sleep`, waits until the host reports
+the terminal running, then sends `session/cancel`.
+
+Command: `real-agent-check.py --steps approve,terminal,kill` on a fresh fixture
+(Goose 1.53.0, `deepseek-flash`, env-only key).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| approve | **pass** | Host `Write calc.py` approved; tests went `FAILED (failures=1)` → `OK`. |
+| terminal | **pass** | Goose asked its own `shell · python3 -m unittest -v` permission, then the host showed `Run shell command` with `shellLine: "python3 -m unittest -v"`, `shell: "/bin/sh -c"`, cwd = the fixture and `environmentNames: ["AGENT_SESSION_ID"]` (no values). After approval the terminal snapshot ended with `Ran 2 tests in 0.000s` / `OK` and `exitStatus: {exitCode: 0}`; Goose answered "2 tests passed … exit code 0". |
+| kill | **pass** | Approved line `sleep 45 && echo finished-after-sleep`. Before cancel the host had `/bin/sh -c sleep 45 && echo finished-after-sleep` and its `sleep 45` grandchild running; after `session/cancel` both were gone (only `goose acp` remained), the tool ended `failed`, `finished-after-sleep` never appeared, prompt `stopReason: cancelled`. |
+| cleanup | **pass** | After session delete and host stop no process the host had started was still running. |
+| logs | **pass** | The frame-metadata log contained no `unittest`, `sleep 45` or env names. |
+
+Goose's own store recorded about 36.5k accumulated tokens (34.7k cache-read,
+528 output) for this session, so the cost was well under \$0.001 (estimated from
+token counts, not a billing statement).
+
+Not covered by this run: the Android shell-approval screen (CI builds it and runs
+JVM unit tests; it was not tried on a device), Windows `cmd.exe` execution
+(compile/strict-clippy cross-check only), and a phone-initiated `terminal/kill`
+(the phone stops a running command with session cancel).
+
 ## Bugs found and fixed
 
 | Issue | Status |
@@ -162,8 +191,9 @@ checkpoint in `AGENTS.md`.
 
 - **Goose shell strings.** Goose's shell tool often puts a whole shell line in
   `terminal/create.command` instead of a resolved executable plus `args`. The host
-  rejects that, by design (literal argv, no shell). Plain commands such as `pwd`
-  and `ls` do go through.
+  now shows such lines as a `host-shell-command` consent and runs them through
+  `/bin/sh -c` only after per-line approval. Goose also asks its own shell
+  permission first, so each command needs two approvals in `approve` mode.
 - **Doctor cannot see missing provider credentials for Goose.** Goose creates
   sessions without talking to the provider, so `doctor --agent` reports `ready`
   even with an unconfigured provider; the first prompt then fails with `-32603`.

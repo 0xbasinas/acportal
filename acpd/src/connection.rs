@@ -746,8 +746,15 @@ async fn actor(
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
                                     let operation=prepared.operation();
-                                    let tool=json!({"toolCallId":consent_id,"title":format!("Run {}",std::path::Path::new(operation["command"].as_str().unwrap()).file_name().unwrap_or_default().to_string_lossy()),"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]});
-                                    let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":file_session_id,"toolCall":tool,"_meta":{"acpdSource":"host-terminal"},"options":[{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]}});
+                                    // Shell lines get their own source and option ids, so an answer meant for a
+                                    // plain command can never approve one; there is no "always" option.
+                                    let (title,source,options)=if prepared.is_shell() {
+                                        ("Run shell command".to_owned(),"host-shell-command",json!([{"optionId":"acpd-shell-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-shell-allow","name":"Run this shell line once","kind":"allow_once"}]))
+                                    } else {
+                                        (format!("Run {}",std::path::Path::new(operation["command"].as_str().unwrap()).file_name().unwrap_or_default().to_string_lossy()),"host-terminal",json!([{"optionId":"acpd-command-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-command-allow","name":"Run once","kind":"allow_once"}]))
+                                    };
+                                    let tool=json!({"toolCallId":consent_id,"title":title,"kind":"execute","status":"pending","rawInput":operation,"locations":[{"path":operation["cwd"]}]});
+                                    let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":file_session_id,"toolCall":tool,"_meta":{"acpdSource":source},"options":options}});
                                     let size=consent.to_string().len();
                                     let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
                                     if !inserted {Err(anyhow!("permission capacity exceeded"))} else {
@@ -894,7 +901,8 @@ async fn actor(
                             permission["params"]["options"].as_array().is_some_and(|options| options.iter().any(|option| option["optionId"] == outcome["optionId"])));
                         if !valid { let _ = reply.send(Err(anyhow!("invalid permission outcome"))); continue }
                         let answer=if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
-                            let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-command-allow";
+                            let allow=if host_terminal.prepared.is_shell() {"acpd-shell-allow"} else {"acpd-command-allow"};
+                            let accepted=outcome["outcome"]=="selected" && outcome["optionId"]==allow;
                             let result=if accepted {terminals.as_mut().unwrap().create_approved(host_terminal.prepared)} else {Err(anyhow!("command denied"))};
                             let tool_id=permission["params"]["toolCall"]["toolCallId"].as_str().unwrap().to_string();
                             if let Ok(created)=&result {terminal_tools.insert(created["terminalId"].as_str().unwrap().to_owned(),(tool_id.clone(),json!({})));}
