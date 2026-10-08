@@ -16,15 +16,22 @@ Use PowerShell 7 for `scripts/dev.ps1`. Native equivalent commands are in the RE
 
 The Docker recipe is `docker/Dockerfile`. Verify its build through GitHub Actions. Supply your agent runtime and config/workspace mounts to use it, then pass `--config /mounted/config.toml start`. The image defaults to help; networking requires explicit listener, TLS and mounted state configuration. Actions build/help/version/UID checks do not establish mounted agent execution or TLS deployment.
 
-## Supported-build checks on GitHub Actions
+## Continuous integration (GitHub Actions)
 
-`.github/workflows/rust.yml` runs stable formatting/Clippy/tests on Ubuntu 24.04 and Windows Server 2022, locked builds/tests on Rust 1.88.0 on both platforms, the Docker recipe with help/version and UID smoke checks, and two independent Windows release builds pinned to Rust 1.96.0. The Windows script uses fresh target directories, normalized source/output paths and MSVC deterministic linking, then compares SHA-256 hashes of `acpd.exe`. Actions retains toolchain, runner image, commit and hash evidence.
+The repository is private, so every Actions minute comes out of the owner's quota; Windows minutes bill at 2× and macOS at 10×. The workflows are cut down to a gate that still covers each changed area (policy since 8 October 2026):
 
-Run these checks through Actions, not locally. A matching hash establishes repeatability on the same runner/toolchain only; it does not establish cross-runner/toolchain, PDB or signed-artifact reproducibility. Container smoke checks do not verify mounted storage, TLS or agent execution. Inspect terminal job results for the exact commit before recording acceptance. Changing this workflow or script requires another Actions run.
+- **Triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review) and `push` to `main` only, so a branch with an open PR no longer runs every job twice. Draft PRs run nothing until marked ready. `workflow_dispatch` starts a full run by hand (Actions tab → workflow → Run workflow, or `gh workflow run rust.yml -f extras=true --ref <branch>` / `gh workflow run android.yml --ref <branch>`).
+- **Path filters.** Rust runs only for `acpd/**`, `protocol/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*` and `.github/workflows/rust.yml`. Android runs only for `android/**` and `.github/workflows/android.yml`. Docs-only changes (README, `docs/`, TODO/HANDOFF/AGENTS, scripts, examples, docker) run nothing.
+- **Concurrency.** One group per workflow and ref; a newer PR push cancels the older run. Pushes to `main` are not cancelled.
+- **Rust jobs on a PR** (`.github/workflows/rust.yml`), each with a timeout and `Swatinem/rust-cache`:
+  - *Linux stable:* `cargo fmt --check`, strict Clippy, strict Clippy for `x86_64-pc-windows-gnu` (mingw installed on the runner), `cargo test --locked --workspace --all-targets`, and the sudo foreign-owned file replacement check.
+  - *Linux Rust 1.88:* locked build and tests (the declared minimum; no longer run on Windows).
+  - *Windows stable:* `cargo test --locked --workspace --all-targets` only; Windows Clippy runs on Linux.
+  - *Manual only* (`workflow_dispatch` with `extras=true`): the Docker build/help/version/UID 10001 smoke check and the two-build Windows reproducibility comparison (Rust 1.96.0, about 13 minutes at 2×).
+- **Android job on a PR** (`.github/workflows/android.yml`): one JDK (Temurin 17; Gradle 9.1, AGP 9.0.1 and the module toolchains all use 17), the runner's preinstalled SDK, Gradle caching that PR runs may also write, then `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug`. `:app:assembleDebugAndroidTest :app:lintDebug` run only on pushes to `main` and on manual runs (`full=true`, the default). Only debug variants are built; no signing secrets are used. Reports are uploaded as `android-reports` (kept 7 days). Instrumented device tests still need an emulator or phone.
+- **Working rule.** Batch work locally (fmt, strict Clippy for Linux and the Windows target, full `cargo test`) and push less often; do not push each small commit just to see CI.
 
-## Android checks on GitHub Actions
-
-`.github/workflows/android.yml` runs on pull requests and pushes to main. It sets up Temurin JDK 17 and 21 (Gradle runs on 21; modules use a 17 toolchain), the Ubuntu 24.04 runner's preinstalled Android SDK and Gradle caching, then runs `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` from `android/universal-acp`. Only debug variants are built; no signing secrets are used. Test and lint reports are uploaded as the `android-reports` artifact. This does not run instrumented device tests, which still need an emulator or phone.
+The Windows reproducibility script uses fresh target directories, normalized source/output paths and MSVC deterministic linking, then compares SHA-256 hashes of `acpd.exe`, keeping toolchain, runner image, commit and hash evidence. A matching hash shows repeatability on one runner/toolchain only, not cross-runner, PDB or signed-artifact reproducibility. Container smoke checks do not verify mounted storage, TLS or agent execution. Inspect job results for the exact commit before recording acceptance. Changing a workflow or script requires another Actions run.
 
 ## Test coverage
 

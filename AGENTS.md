@@ -29,7 +29,7 @@ The user requested completion of the Connection logs increment and a documentati
 | `protocol/` | Rust ACP protocol boundary and upstream schema exports |
 | `examples/` | Goose registry and host configuration |
 | `scripts/` | PowerShell development and mock-host entry points |
-| `.github/workflows/` | `rust.yml` supported-build checks; `android.yml` debug APK builds, JVM tests and lint on GitHub Actions |
+| `.github/workflows/` | `rust.yml` host checks; `android.yml` debug APK build and JVM tests (lint on main/manual). Private repo: path-filtered, PR + main only, see docs/development.md "Continuous integration" |
 | `android/universal-acp/app/` | Compose Android application and instrumented tests |
 | `android/universal-acp/core/protocol/` | Independently tested JVM protocol models, reducer, content and diff logic |
 | `docs/` | Design decisions, security boundaries, UI guide and acceptance evidence |

@@ -1,43 +1,64 @@
 name: Android
+# Private repo: keep minutes low. PRs build the debug APK and run the JVM unit tests. Lint and
+# the instrumented-test APK build run on pushes to main and on manual runs (workflow_dispatch).
+# Docs-only changes run nothing. See docs/development.md, "Continuous integration".
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
   push:
     branches: [main]
-  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Also run lint and build the instrumented-test APK"
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build-and-unit-test:
-    name: Debug build, JVM tests and lint
+    name: Debug build and JVM tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     # Pinned like rust.yml; ubuntu-latest moves to a new image on 19 October 2026.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: android/universal-acp
     steps:
       - uses: actions/checkout@v4
-      # Gradle runs on JDK 21; the modules compile with a JDK 17 toolchain.
+      # One JDK: Gradle 9 and AGP run on 17, and the modules use a JDK 17 toolchain.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: |
-            17
-            21
+          java-version: "17"
       # The runner image's preinstalled Android SDK (ANDROID_HOME) with accepted licenses is used;
       # AGP downloads any missing platform or build-tools package itself.
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Let PR runs save the Gradle cache too (main has no cache of its own yet).
+          cache-read-only: false
       # Debug variants only: no signing secrets or release builds are used.
-      - name: Build debug APKs, run JVM unit tests and lint
-        run: ./gradlew --stacktrace -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64 :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+      - name: Build debug APK and run JVM unit tests
+        run: ./gradlew --stacktrace :core:protocol:test :app:testDebugUnitTest :app:assembleDebug
+      - name: Lint and instrumented-test APK (main and manual runs)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.full)
+        run: ./gradlew --stacktrace :app:assembleDebugAndroidTest :app:lintDebug
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-reports
+          retention-days: 7
           path: |
             android/universal-acp/core/protocol/build/reports/
             android/universal-acp/app/build/reports/
