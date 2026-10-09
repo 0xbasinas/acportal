@@ -78,4 +78,21 @@ class ElicitationTest {
         assertEquals("Choose at most 2",titled.problems(ElicitationInput(selections=mapOf("days" to setOf("mo","tu","we"))))["days"])
         assertNull(titled.content(ElicitationInput())["days"])
     }
+
+    @Test fun limitsAndEdgeValues() {
+        // Only the first 64 fields are shown; a required field past the limit blocks Accept.
+        val many=(0 until 65).joinToString(",") {"\"f$it\":{\"type\":\"string\"}"}
+        val capped=elicitationForm(SessionReducer.reduce(SessionState(),request("e4","""{"type":"object","properties":{$many},"required":["f64"]}""")).permissions.values.single())
+        assertEquals(64,capped.fields.size);assertFalse(capped.canAccept);assertEquals(listOf("f64"),capped.unsupportedRequired)
+        // Negative bounds, whitespace-only text and minLength.
+        val edges=elicitationForm(SessionReducer.reduce(SessionState(),request("e5","""{"type":"object","properties":{"n":{"type":"integer","minimum":-5},"x":{"type":"number"},"code":{"type":"string","minLength":2}},"required":["code"]}""")).permissions.values.single())
+        assertEquals(mapOf("n" to "Use -5 or more","x" to "Enter a number","code" to "Required"),edges.problems(ElicitationInput(text=mapOf("n" to "-6","x" to "NaN","code" to "   "))))
+        assertEquals("Use at least 2 characters",edges.problems(ElicitationInput(text=mapOf("code" to "a")))["code"])
+        assertEquals(emptyMap<String,String>(),edges.problems(ElicitationInput(text=mapOf("n" to "-5","x" to "1e3","code" to "ab"))))
+        assertEquals(JsonPrimitive(-5L),edges.content(ElicitationInput(text=mapOf("n" to "-5","code" to "ab")))["n"])
+        // Text longer than the global limit is refused even without maxLength.
+        val text=elicitationForm(SessionReducer.reduce(SessionState(),request("e6","""{"type":"object","properties":{"t":{"type":"string"}}}""")).permissions.values.single())
+        assertNotNull(text.problems(ElicitationInput(text=mapOf("t" to "a".repeat(10_001))))["t"])
+        assertNull(text.problems(ElicitationInput(text=mapOf("t" to "a".repeat(10_000))))["t"])
+    }
 }

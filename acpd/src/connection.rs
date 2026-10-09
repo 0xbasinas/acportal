@@ -1406,6 +1406,47 @@ mod tests {
         );
     }
     #[test]
+    fn elicitation_answer_edge_cases() {
+        let optional = json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":{"type":"object","properties":{"note":{"type":"string"}}}});
+        // Accept without content is an empty answer when nothing is required.
+        assert_eq!(
+            elicitation_answer(&optional, &json!({"action":"accept"})),
+            Some(json!({"action":"accept","content":{}}))
+        );
+        assert!(elicitation_answer(&optional, &json!({"action":"accept","content":[]})).is_none());
+        // A whole number written as a float is not an integer; a number field takes both.
+        let numbers = json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":{"type":"object","properties":{"n":{"type":"integer"},"x":{"type":"number"}}}});
+        assert!(
+            elicitation_answer(&numbers, &json!({"action":"accept","content":{"n":3.0}})).is_none()
+        );
+        assert!(
+            elicitation_answer(
+                &numbers,
+                &json!({"action":"accept","content":{"n":-3,"x":2}})
+            )
+            .is_some()
+        );
+        // Malformed schemas refuse every accept but still allow decline and cancel.
+        for schema in [
+            json!({"type":"object"}),
+            json!({"type":"object","properties":{"v":{}}}),
+            json!({"type":"object","properties":{"v":{"type":"object"}}}),
+            json!({"type":"object","properties":{"v":{"type":"string"}},"required":[7]}),
+        ] {
+            let request =
+                json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":schema});
+            assert!(
+                elicitation_answer(&request, &json!({"action":"accept","content":{"v":"x"}}))
+                    .is_none(),
+                "{schema}"
+            );
+            assert_eq!(
+                elicitation_answer(&request, &json!({"action":"decline"})),
+                Some(json!({"action":"decline"}))
+            );
+        }
+    }
+    #[test]
     fn credential_words_in_agent_errors_are_detected_without_status_numbers() {
         assert!(mentions_credentials(
             &json!({"code":-32603,"message":"Internal error: Authentication Fails, Your api key: **** is invalid"})
