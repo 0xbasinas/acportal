@@ -29,6 +29,24 @@ data class StoredAgentCatalog(@PrimaryKey val hostId:String,val metadata:String,
 @Entity(tableName="ui_state")
 data class StoredUiState(@PrimaryKey val id:Int=1,val mainPage:String="connections",val sessionsArchived:Boolean=false,val sessionsActive:Boolean=false,val sessionsQuery:String="")
 
+/**
+ * Per-row column budgets. Android reads rows through a 2 MiB cursor window, and a row that
+ * does not fit fails the whole query (SQLiteBlobTooBigException), so the session list would
+ * stop loading. New writes stay under these limits; the guarded queries below also return a
+ * small placeholder for any older row written before the limits existed, instead of the value.
+ */
+const val STORED_STATE_MAX_BYTES = 1024 * 1024
+const val STORED_METADATA_MAX_BYTES = 256 * 1024
+const val STORED_DRAFT_MAX_BYTES = 512 * 1024
+const val STORED_CATALOG_MAX_BYTES = 1024 * 1024
+/** What a guarded query returns for an oversized saved conversation: an empty copy marked as a gap. */
+const val OVERSIZED_STATE_PLACEHOLDER = """{"historyGap":true}"""
+private const val GUARDED_SESSION_COLUMNS = "hostId, id, " +
+    "CASE WHEN length(CAST(metadata AS BLOB)) <= $STORED_METADATA_MAX_BYTES THEN metadata ELSE '' END AS metadata, " +
+    "CASE WHEN length(CAST(state AS BLOB)) <= $STORED_STATE_MAX_BYTES THEN state ELSE '$OVERSIZED_STATE_PLACEHOLDER' END AS state, " +
+    "CASE WHEN length(CAST(draft AS BLOB)) <= $STORED_DRAFT_MAX_BYTES THEN draft ELSE '' END AS draft, " +
+    "updatedAt, archived"
+
 @Dao
 interface PortalDao {
     @Query("SELECT * FROM ui_state WHERE id=1") fun uiState():Flow<StoredUiState?>
@@ -43,14 +61,14 @@ interface PortalDao {
         require(query.length<=512)
         initializeUiState(StoredUiState());updateSessionFilters(archived,active,query)
     }
-    @Query("SELECT * FROM agent_catalogs") fun agentCatalogs():Flow<List<StoredAgentCatalog>>
+    @Query("SELECT hostId, CASE WHEN length(CAST(metadata AS BLOB)) <= $STORED_CATALOG_MAX_BYTES THEN metadata ELSE '' END AS metadata, discoveredAt FROM agent_catalogs") fun agentCatalogs():Flow<List<StoredAgentCatalog>>
     @Upsert suspend fun saveAgentCatalog(catalog:StoredAgentCatalog)
     @Query("SELECT * FROM hosts ORDER BY label COLLATE NOCASE") fun hosts(): Flow<List<HostProfile>>
     @Query("SELECT * FROM hosts WHERE id = :id") suspend fun host(id: String): HostProfile?
     @Upsert suspend fun saveHost(host: HostProfile)
     @Query("DELETE FROM hosts WHERE id = :id") suspend fun deleteHost(id: String)
-    @Query("SELECT * FROM sessions ORDER BY updatedAt DESC") fun sessions(): Flow<List<StoredSession>>
-    @Query("SELECT * FROM sessions WHERE hostId = :hostId AND id = :id") suspend fun session(hostId: String,id: String): StoredSession?
+    @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions ORDER BY updatedAt DESC") fun sessions(): Flow<List<StoredSession>>
+    @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions WHERE hostId = :hostId AND id = :id") suspend fun session(hostId: String,id: String): StoredSession?
     @Upsert suspend fun saveSession(session: StoredSession)
     @Query("UPDATE sessions SET state = :state, updatedAt = :timestamp WHERE hostId = :hostId AND id = :id") suspend fun saveState(hostId:String,id:String,state:String,timestamp:Long)
     @Query("UPDATE sessions SET draft = :draft WHERE hostId = :hostId AND id = :id") suspend fun saveDraft(hostId:String,id:String,draft:String)

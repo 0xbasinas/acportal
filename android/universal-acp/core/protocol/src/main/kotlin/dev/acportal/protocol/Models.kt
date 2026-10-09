@@ -40,17 +40,27 @@ const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
 @Serializable
 data class PairingResult(val hostId: String, val deviceId: String, val token: String, val expiresAt: Long)
 
+/** Counts JSON serialisations made to size timeline items for retention (tests only). */
+internal val timelineSizeComputations=java.util.concurrent.atomic.AtomicLong()
+private fun serialisedChars(value:JsonElement):Long {timelineSizeComputations.incrementAndGet();return value.toString().length.toLong()}
 @Serializable
 sealed interface TimelineItem {
     val id: String
     @Serializable
     data class Text(override val id: String, val role: String, val text: String,val messageId:String?=null,val promptText:String?=null) : TimelineItem
     @Serializable
-    data class Content(override val id:String,val role:String,val content:JsonObject) : TimelineItem
+    data class Content(override val id:String,val role:String,val content:JsonObject) : TimelineItem {
+        /** Serialised length, computed once per instance (not serialised). */
+        internal val contentChars:Long by lazy(LazyThreadSafetyMode.PUBLICATION) {serialisedChars(content)}
+    }
     @Serializable
-    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList()),val autoReview:JsonObject?=null,val hostWrite:String?=null) : TimelineItem
+    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList()),val autoReview:JsonObject?=null,val hostWrite:String?=null) : TimelineItem {
+        internal val contentChars:Long by lazy(LazyThreadSafetyMode.PUBLICATION) {serialisedChars(content)+serialisedChars(locations)+(autoReview?.let(::serialisedChars) ?: 0)}
+    }
     @Serializable
-    data class Plan(override val id: String, val entries: JsonArray) : TimelineItem
+    data class Plan(override val id: String, val entries: JsonArray) : TimelineItem {
+        internal val contentChars:Long by lazy(LazyThreadSafetyMode.PUBLICATION) {serialisedChars(entries)}
+    }
     @Serializable
     data class Notice(override val id: String, val text: String, val error: Boolean = false) : TimelineItem
 }

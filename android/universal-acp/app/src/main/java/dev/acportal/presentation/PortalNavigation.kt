@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.*
 import androidx.navigation3.ui.NavDisplay
 import dev.acportal.storage.StoredSession
+import dev.acportal.data.storedSessionInfo
 import dev.acportal.protocol.*
 import kotlinx.serialization.Serializable
 
@@ -42,6 +43,7 @@ import kotlinx.serialization.Serializable
     val stack=rememberNavBackStack(initialPage)
     val hosts by vm.hosts.collectAsStateWithLifecycle()
     val sessions by vm.sessions.collectAsStateWithLifecycle()
+    val sessionSummaries by vm.sessionSummaries.collectAsStateWithLifecycle()
     val liveActivities by vm.liveActivities.collectAsStateWithLifecycle()
     val agentCatalogs by vm.agentCatalogs.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -89,11 +91,11 @@ import kotlinx.serialization.Serializable
                             LaunchedEffect(key.hostId) { if(ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
                             NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->stack.removeLastOrNull();openSession(stored) }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)})
                         }
-                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={stack.add(HostsRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters) }
+                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={stack.add(HostsRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries) }
                         entry<SessionRoute> { key ->
                             val conversationState=rememberConversationUiState(key.hostId+"/"+key.id)
                             val stored=sessions.find { it.hostId==key.hostId && it.id==key.id }
-                            val info=stored?.let {WireJson.decodeFromString<SessionInfo>(it.metadata)}
+                            val info=stored?.let(::storedSessionInfo)
                             LaunchedEffect(key.hostId,key.id,stored!=null,info?.status) { if(info?.status!="interrupted")stored?.let(vm::open) }
                             val live=ui.live?.takeIf { it.host.id==key.hostId && it.info.id==key.id }
                             if(info?.status=="interrupted") InterruptedSessionScreen(info,ui.loading,back,{vm.resume(stored,openSession)},{vm.create(stored.hostId,info.agentId,info.workspace,openSession)},onViewSaved={stack.add(SavedSessionRoute(key.hostId,key.id))})
@@ -103,7 +105,7 @@ import kotlinx.serialization.Serializable
                         }
                         entry<SavedSessionRoute> {key->
                             val stored=sessions.firstOrNull {it.hostId==key.hostId && it.id==key.id}
-                            val info=stored?.let {WireJson.decodeFromString<SessionInfo>(it.metadata)}
+                            val info=stored?.let(::storedSessionInfo)
                             if(stored!=null && info!=null)SavedSessionScreen(info,stored,hosts.firstOrNull {it.id==key.hostId},false,back,{vm.draft(stored,it)},back,onRetryLabel="Session actions")
                             else Column(Modifier.fillMaxSize()) {ScreenHeader("Session unavailable",onBack=back);EmptyState("This session is no longer saved","Return to Sessions to choose another conversation.")}
                         }

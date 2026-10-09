@@ -14,6 +14,9 @@ data class PortalUiState(val loading:Boolean=false,val error:String?=null,val er
 class PortalViewModel(val repository:PortalRepository):ViewModel() {
     val hosts=repository.hosts.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val sessions=repository.sessions.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    private val summaryMemo=SessionListSummaries()
+    /** Row titles, times and search text, decoded off the main thread and only for changed rows. */
+    val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),null)
     val liveActivities=repository.liveActivities
     val agentCatalogs=repository.agentCatalogs.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val savedUiState=repository.uiState.stateIn(viewModelScope,SharingStarted.Eagerly,null)
@@ -66,7 +69,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun archive(stored:StoredSession) = work { repository.archive(stored) }
     fun delete(stored:StoredSession,onDone:()->Unit) = work { repository.delete(stored);onDone() }
     fun resume(stored:StoredSession,onDone:(StoredSession)->Unit) = work {
-        val info=WireJson.decodeFromString<SessionInfo>(stored.metadata)
+        val info=storedSessionInfo(stored)
         check(info.supportsLoad()) { "This agent does not advertise session loading" }
         check(info.acpSessionId.isNotBlank()) { "Sign in before resuming this session" }
         onDone(repository.create(stored.hostId,info.agentId,info.workspace,info.acpSessionId))

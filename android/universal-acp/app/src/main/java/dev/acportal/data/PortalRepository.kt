@@ -66,7 +66,7 @@ class PortalRepository(
     }}
     suspend fun mcpHost(hostId:String):HostProfile = dao.host(hostId) ?: error("Connection is no longer saved")
     suspend fun workspaceAccess(hostId:String,path:String):WorkspaceAccess = settings.workspacePolicies.first()[workspacePolicyKey(hostId,path)] ?: WorkspaceAccess()
-    suspend fun sessionAccess(hostId:String,id:String):WorkspaceAccess? = dao.session(hostId,id)?.let {WireJson.decodeFromString<SessionInfo>(it.metadata).workspaceAccess}
+    suspend fun sessionAccess(hostId:String,id:String):WorkspaceAccess? = dao.session(hostId,id)?.let {storedSessionInfo(it).takeIf {info->info.status!=STORED_DETAILS_UNAVAILABLE}?.workspaceAccess}
     suspend fun saveWorkspaceAccess(hostId:String,path:String,value:WorkspaceAccess) {
         check(dao.host(hostId)!=null) {"Connection is no longer saved"}
         require(path.isNotBlank() && path.length<=4096) {"Choose a workspace"}
@@ -96,7 +96,7 @@ class PortalRepository(
             val updated=host.copy(online=true,lastSeen=System.currentTimeMillis(),agentCount=agents.count { it.canStartSession() })
             dao.saveHost(updated)
             val catalog=WireJson.encodeToString(agents)
-            require(catalog.toByteArray(Charsets.UTF_8).size<=1024*1024) {"Agent discovery is too large to save"}
+            require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
             HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId))
@@ -115,7 +115,8 @@ class PortalRepository(
     }
     private suspend fun saveMetadata(hostId:String,info:SessionInfo): StoredSession {
         val previous=dao.session(hostId,info.id)
-        val stored=previous?.copy(metadata=WireJson.encodeToString(info)) ?: StoredSession(hostId,info.id,WireJson.encodeToString(info))
+        val metadata=storedMetadata(info)
+        val stored=previous?.copy(metadata=metadata) ?: StoredSession(hostId,info.id,metadata)
         dao.saveSession(stored)
         return stored
     }
@@ -127,7 +128,7 @@ class PortalRepository(
         val info=api.session(host,id)
         saveMetadata(hostId,info)
         check(info.status!="interrupted") { "The host restarted. Resume this session to continue." }
-        val cached=runCatching { WireJson.decodeFromString<SessionState>(stored.state) }.getOrDefault(SessionState())
+        val cached=storedSessionState(stored)
         val state=SessionReducer.limitMetadata(cached,cached.copy(replaying=true,modes=if(cached.modes.isEmpty())info.setup["modes"].objectValue() else cached.modes,
             models=if(cached.models.isEmpty())info.setup["models"].objectValue() else cached.models,
             configOptions=if(cached.configOptions.isEmpty())info.setup["configOptions"].arrayValue() else cached.configOptions))
@@ -275,7 +276,7 @@ class PortalRepository(
             throw failure
         }
     }
-    suspend fun draft(hostId:String,id:String,text:String) = cacheStorage.withLock {dao.saveDraft(hostId,id,text)}
+    suspend fun draft(hostId:String,id:String,text:String) = cacheStorage.withLock {dao.saveDraft(hostId,id,storedDraft(text))}
     suspend fun removeLocalCopy(live:LiveSession) = cacheStorage.withLock {
         var previous:SessionState
         var cleared:SessionState
@@ -303,7 +304,7 @@ class PortalRepository(
     suspend fun clearCache() = lifecycle.withLock {cacheStorage.withLock {
         val records=dao.sessions().first()
         for(record in records) {
-            val current=active["${record.hostId}/${record.id}"]?.state?.value ?: runCatching {WireJson.decodeFromString<SessionState>(record.state)}.getOrDefault(SessionState())
+            val current=active["${record.hostId}/${record.id}"]?.state?.value ?: storedSessionState(record)
             dao.saveState(record.hostId,record.id,WireJson.encodeToString(SessionState(sequence=current.sequence,historyGap=current.historyGap,localHistoryCleared=true)),record.updatedAt)
         }
     }}
