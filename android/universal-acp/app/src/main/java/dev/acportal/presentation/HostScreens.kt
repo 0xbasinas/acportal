@@ -228,7 +228,11 @@ import kotlinx.serialization.json.*
     val records=remember(sessions) {sessions.map {it to storedSessionInfo(it)}}
     val localSummaries=remember {SessionListSummaries()}
     val rowSummaries=remember(sessions,summaries) {if(summaries!=null)summaries else localSummaries.update(sessions)}
-    fun summaryOf(stored:StoredSession,info:SessionInfo)=rowSummaries[sessionKey(stored)] ?: sessionListSummary(stored,info)
+    // Production supplies background summaries. A newly emitted row may reach Compose
+    // before its summary; show a cheap placeholder instead of decoding history on Main.
+    fun summaryOf(stored:StoredSession,info:SessionInfo)=rowSummaries[sessionKey(stored)]
+        ?: if(summaries==null)sessionListSummary(stored,info)
+        else SessionListSummary("Agent session",stored.updatedAt.takeIf {it>0}?.let {SessionActivityTime(it,false)},"")
     val keyboard=LocalSoftwareKeyboardController.current
     val focus=LocalFocusManager.current
     val visible=records.filter { (stored,info)->stored.archived==archived && (!activeOnly || (liveActivities["${stored.hostId}/${stored.id}"]!=LiveSessionActivity.STOPPED && info.status in listOf("ready","running","authentication_required"))) && (query.isBlank() || summaryOf(stored,info).searchText.contains(query,ignoreCase=true)) }

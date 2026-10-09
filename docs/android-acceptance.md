@@ -1,5 +1,7 @@
 # Android recovery, stress and UI acceptance
 
+9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.
+
 Active implementation branch: `codex/android-recovery-acceptance`, starting from merged PR #8 (`ada4798`). This checklist preserves the full work requested on 9 October 2026. Existing scoped evidence is in TODO_DONE.md and ui-accessibility.md; it does not prove these remaining gates.
 
 ## Conversation recovery

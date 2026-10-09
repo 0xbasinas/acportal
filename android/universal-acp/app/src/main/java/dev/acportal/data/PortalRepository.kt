@@ -117,7 +117,7 @@ class PortalRepository(
         val previous=dao.session(hostId,info.id)
         val metadata=storedMetadata(info)
         val stored=previous?.copy(metadata=metadata) ?: StoredSession(hostId,info.id,metadata)
-        dao.saveSession(stored)
+        dao.saveSessionMetadata(stored)
         return stored
     }
     suspend fun open(hostId:String,id:String): LiveSession = lifecycle.withLock {

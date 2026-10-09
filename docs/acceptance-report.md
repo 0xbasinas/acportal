@@ -6,6 +6,10 @@ product is ready for production. Results from other checks are in [TODO_DONE.md]
 [android-acceptance.md](android-acceptance.md), [ui-accessibility.md](ui-accessibility.md) and
 [real-agent-testing.md](real-agent-testing.md). Open work is in [TODO.md](../TODO.md).
 
+## PR #10 review verification
+
+9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.
+
 ## How to read the status column
 
 - **Verified**: a named check ran and passed on the platform listed, and its output was read.
@@ -56,7 +60,7 @@ on the same commit passed its 3 PR jobs.
 | Area | Status | Evidence |
 | --- | --- | --- |
 | JVM tests, debug and test APK builds, lint | **Verified** (box) | 115 core and app JVM tests (0 failures, 0 skipped); `assembleDebug`, `assembleDebugAndroidTest` and `lintDebug` pass. Android CI runs on the PR. |
-| Older-data safety (oversized or unreadable rows, draft and metadata write limits) | **Partial** | The guarded Room queries, tolerant decoding and write limits are covered by JVM tests (`StoredLimitsTest`). The Room and CursorWindow behaviour itself needs a device: run `OversizedSessionRowsTest` (it compiles, but has not been run). |
+| Older-data safety (oversized or unreadable rows, draft and metadata write limits) | **Partial** | The guarded Room queries, tolerant decoding and write limits are covered by JVM tests (`StoredLimitsTest`). Both Room tests now pass on the API 36 emulator, including preservation of original oversized columns during metadata refresh. A full old-build upgrade remains open. |
 | Sessions list memory (decode only changed rows, off the main thread, bounded search text) | **Verified** (JVM) | `SessionListSummaryTest`. |
 | Timeline retention without re-serialising history | **Verified** (JVM) | `TimelineRetentionCostTest`. |
 | Heap profiling on a device | **Not verified** | Steps are in [android-acceptance.md](android-acceptance.md#heap-profiling-android-studio). |

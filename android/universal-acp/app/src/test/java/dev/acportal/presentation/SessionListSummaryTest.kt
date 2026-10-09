@@ -8,6 +8,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionListSummaryTest {
+    @Test fun sameTimestampAndLengthStillRefreshChangedContent() {
+        val memo = SessionListSummaries()
+        val first = row("s", SessionState(items = listOf(TimelineItem.Text("1", "user", "old"))))
+        val changed = row("s", SessionState(items = listOf(TimelineItem.Text("1", "user", "new"))))
+        assertEquals(first.state.length, changed.state.length)
+        memo.update(listOf(first))
+        assertEquals("new", memo.update(listOf(changed)).getValue("h/s").title)
+        assertEquals(2, memo.decoded)
+        val collision = changed.copy(metadata = changed.metadata.replace("goose", "Aa"))
+        val other = collision.copy(metadata = collision.metadata.replace("Aa", "BB"))
+        assertEquals(collision.metadata.hashCode(), other.metadata.hashCode())
+        memo.update(listOf(collision))
+        assertTrue(memo.update(listOf(other)).getValue("h/s").searchText.contains("BB"))
+    }
     private val info = SessionInfo("s", "goose", "acp", "/home/me/project")
     private fun row(id: String, state: SessionState, updatedAt: Long = 1) =
         StoredSession("h", id, WireJson.encodeToString(info.copy(id = id)), WireJson.encodeToString(state), updatedAt = updatedAt)

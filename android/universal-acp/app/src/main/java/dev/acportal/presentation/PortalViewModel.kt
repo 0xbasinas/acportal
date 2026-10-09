@@ -16,7 +16,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     val sessions=repository.sessions.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private val summaryMemo=SessionListSummaries()
     /** Row titles, times and search text, decoded off the main thread and only for changed rows. */
-    val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),null)
+    val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyMap())
     val liveActivities=repository.liveActivities
     val agentCatalogs=repository.agentCatalogs.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val savedUiState=repository.uiState.stateIn(viewModelScope,SharingStarted.Eagerly,null)

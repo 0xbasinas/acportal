@@ -15,6 +15,35 @@ import org.junit.Test
  * whole query. The guarded DAO queries must replace such columns instead (device only).
  */
 class OversizedSessionRowsTest {
+    @Test fun metadataRefreshPreservesOriginalLegacyColumns() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = java.io.File(context.cacheDir, "pr10-rows-${java.util.UUID.randomUUID()}.db")
+        val database = Room.databaseBuilder<PortalDatabase>(context, file.absolutePath).setDriver(AndroidSQLiteDriver()).build()
+        try {
+            val dao = database.portal()
+            dao.saveHost(HostProfile("h", "Host", "https://host.invalid", "alias", "device", Long.MAX_VALUE))
+            val huge = "x".repeat(STORED_STATE_MAX_BYTES + 1)
+            dao.saveSession(StoredSession("h", "big", "old", state = huge, draft = huge, updatedAt = 7, archived = true))
+            val guarded = dao.session("h", "big")!!
+            dao.saveSessionMetadata(guarded.copy(metadata = "fresh"))
+            // Read only scalar lengths directly, so this assertion cannot hit CursorWindow's row budget.
+            AndroidSQLiteDriver().open(file.absolutePath).use { connection ->
+                connection.prepare("SELECT metadata, length(state), length(draft), updatedAt, archived FROM sessions WHERE id='big'").use { row ->
+                    assertTrue(row.step())
+                    assertEquals("fresh", row.getText(0))
+                    assertEquals(huge.length.toLong(), row.getLong(1))
+                    assertEquals(huge.length.toLong(), row.getLong(2))
+                    assertEquals(7L, row.getLong(3))
+                    assertEquals(1L, row.getLong(4))
+                }
+            }
+            dao.saveSessionMetadata(StoredSession("h", "new", "new metadata"))
+            assertEquals("new metadata", dao.session("h", "new")!!.metadata)
+        } finally {
+            database.close()
+            listOf(file, java.io.File(file.path + "-wal"), java.io.File(file.path + "-shm"), java.io.File(file.path + "-journal")).forEach { it.delete() }
+        }
+    }
     @Test fun oversizedLegacyColumnsAreReplacedInsteadOfFailingTheList() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val database = Room.inMemoryDatabaseBuilder<PortalDatabase>(context).setDriver(AndroidSQLiteDriver()).build()

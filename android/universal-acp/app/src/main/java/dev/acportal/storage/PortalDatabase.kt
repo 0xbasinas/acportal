@@ -70,6 +70,13 @@ interface PortalDao {
     @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions ORDER BY updatedAt DESC") fun sessions(): Flow<List<StoredSession>>
     @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions WHERE hostId = :hostId AND id = :id") suspend fun session(hostId: String,id: String): StoredSession?
     @Upsert suspend fun saveSession(session: StoredSession)
+    @Insert(onConflict=OnConflictStrategy.IGNORE) suspend fun insertSession(session: StoredSession)
+    @Query("UPDATE sessions SET metadata = :metadata WHERE hostId = :hostId AND id = :id") suspend fun updateSessionMetadata(hostId:String,id:String,metadata:String)
+    /** Guarded reads are presentation copies; never upsert their placeholders over saved data. */
+    @Transaction suspend fun saveSessionMetadata(session:StoredSession) {
+        insertSession(session)
+        updateSessionMetadata(session.hostId,session.id,session.metadata)
+    }
     @Query("UPDATE sessions SET state = :state, updatedAt = :timestamp WHERE hostId = :hostId AND id = :id") suspend fun saveState(hostId:String,id:String,state:String,timestamp:Long)
     @Query("UPDATE sessions SET draft = :draft WHERE hostId = :hostId AND id = :id") suspend fun saveDraft(hostId:String,id:String,draft:String)
     @Transaction suspend fun clearLocalCopy(hostId:String,id:String,state:String,timestamp:Long) {
