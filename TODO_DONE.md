@@ -1,5 +1,7 @@
 # Completed work and verification history
 
+9 October 2026 PR #12 merge reconciliation: merged PR #11 from main at `7856be1`, preserving its historical acceptance corrections and the newer implementation evidence. Pre-merge PR #12 checks at `98ddb70` passed Android debug/JVM, Linux stable and Rust 1.88, Windows stable and security checks; macOS/container/reproducibility/testy extras were skipped. These results do not establish the final merge-head checks. Conflict resolution changes Markdown only; no implementation tests were rerun locally.
+
 ## 9 October 2026 — TODO reconciliation
 
 Completed implementation summaries and older continuation context were removed from TODO. The following text is preserved as historical evidence; its PR/branch and open-work statements are superseded by the current TODO and subsequent scoped verification elsewhere in this file. No new tests were run for this documentation reconciliation.
@@ -65,6 +67,18 @@ Final verification: 52 app JVM tests, zero failures/errors/skips; both debug APK
 
 Device: small_phone, emulator-5554, API 36, 720x1280, density 320. Font restored to 1.0; accessibility services remain null, accessibility/touch exploration 0, rotation 1. Isolated composable fixtures use no production storage/network or provider credentials. Logs are `.local/model-picker-font1.txt` and `.local/model-picker-font2.txt`. Core/Rust unchanged and not rerun. This is structural/lifecycle regression evidence, not a measured real-phone latency/allocator profile or native TalkBack acceptance for the new picker. The user's real-provider phone retest remains in TODO.
 
+
+## Checklist reconciliation, 9 October 2026
+
+Completed scoped items are removed from the active TODO and retained here with their existing detailed evidence below:
+
+- PR #9 controlled live/offline two-session process death, cached-before-network restoration, authoritative replaced/removed approvals, exact conversation scroll/offscreen disclosures and count/byte overflow.
+- Scoped elicitation form validation, native keyboard, dismissal/recreation and explicit-answer checks; saved/error Agents, all review badges, own-tools warnings and write notices in separate 20-case native TalkBack runs at normal and actual 2.0 font.
+- PR #10 ordinary macOS process cleanup/RSS, Windows executable reproducibility across two independent runners, and container test-CA TLS/mounted state/mock-agent execution/restart/revocation. Dispatch evidence remains [37940712823](https://github.com/0xbasinas/acportal/actions/runs/37940712823) at `404bb7f`.
+- Host-side real Goose workflows including MCP form acceptance/decline, with provider and platform limits preserved in docs/real-agent-testing.md.
+- PR #10 review storage/cache fixes: 64 core/52 app JVM tests, both debug APK builds/lint, two isolated oversized-row/preservation Room checks and four dark/light Sessions layout/native-keyboard checks. Reviewed-head [Android 37949743658](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust 37949743959](https://github.com/0xbasinas/acportal/actions/runs/37949743959) pass at `d4ba9f2`.
+
+This reconciliation changes documentation only. No new implementation or test run is claimed. A full old-build upgrade, real-agent Android recovery/screens, exact heap/provider profiling and wider page/focus/content acceptance remain open; physical-phone/signed checks stay suspended and tablet/landscape excluded. Original failed attempts and narrower historical evidence remain intact below.
 
 ## PR #10 review fixes, 9 October 2026
 

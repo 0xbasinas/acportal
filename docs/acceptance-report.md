@@ -2,8 +2,7 @@
 
 9 October 2026 current continuation: PR #10 is the merged baseline; later model-picker/header, session-creation, pairing/Markdown, native setup/motion and daemon/reload increments are local on `codex/session-model-picker`. Their scoped verification is recorded in [TODO_DONE.md](../TODO_DONE.md). The current host suite passes 116 Windows Rust tests plus strict Clippy/formatting; earlier platform Actions below do not cover these newer sources. [TODO.md](../TODO.md) has been reconciled to outstanding checks, suspended phone/release work and separate future decisions. The dated PR #10 report below remains historical evidence.
 
-Status on 9 October 2026 (Europe/Athens), branch `remaining-work-batch-6` (PR #10) on top of
-main `cf8fa26`. This is a record of what has been checked and where. It is not a claim that the
+Historical PR #10 status on 9 October 2026 (Europe/Athens): PR #10 merged on main at `6ec49de`, after review at `d4ba9f2`. Documentation continuation is `codex/docs-acceptance-reconciliation`. This is a record of what has been checked and where. It is not a claim that the
 product is ready for production. Results from other checks are in [TODO_DONE.md](../TODO_DONE.md),
 [android-acceptance.md](android-acceptance.md), [ui-accessibility.md](ui-accessibility.md) and
 [real-agent-testing.md](real-agent-testing.md). Open work is in [TODO.md](../TODO.md).
@@ -11,6 +10,8 @@ product is ready for production. Results from other checks are in [TODO_DONE.md]
 ## PR #10 review verification
 
 9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.
+
+Current reviewed-head CI: [Android 37949743658](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust 37949743959](https://github.com/0xbasinas/acportal/actions/runs/37949743959) both completed successfully at `d4ba9f2`. The PR run skips manual extras; their evidence remains the explicitly scoped `404bb7f` dispatch below. Documentation reconciliation adds no implementation or test run. The current remaining checklist is [TODO.md](../TODO.md).
 
 ## How to read the status column
 
@@ -23,12 +24,13 @@ product is ready for production. Results from other checks are in [TODO_DONE.md]
 
 | Commit | Workflow | Result |
 | --- | --- | --- |
+| `6ec49de` (PR #10 merge) | [Android 37950223344](https://github.com/0xbasinas/acportal/actions/runs/37950223344) | success observed during documentation reconciliation. |
+| `6ec49de` | [Rust 37950223574](https://github.com/0xbasinas/acportal/actions/runs/37950223574) | in progress when checked during reconciliation; not claimed passing. Reviewed-head Rust checks at `d4ba9f2` pass as recorded above. |
 | `cf8fa26` (PR #9 merge) | [Android 37939942253](https://github.com/0xbasinas/acportal/actions/runs/37939942253) | success: debug build and JVM tests. PR #9 touched only Android, so the Rust workflow (path filters) did not run on this commit. |
 | `ada4798` (PR #8 merge) | [Rust 37925483694](https://github.com/0xbasinas/acportal/actions/runs/37925483694) | success: Linux stable (fmt, strict Clippy including the Windows target, tests), Linux Rust 1.88, Windows stable and the testy end-to-end job. The container and reproducibility jobs are manual-only and were skipped. |
 | `ada4798` | [Android 37925483582](https://github.com/0xbasinas/acportal/actions/runs/37925483582) | success |
 
-The Rust code on main has not changed since `ada4798`, so that Rust run still describes the
-host on main.
+PR #10 changes platform tests and container/workflow checks. The older merged-main runs above are historical baselines. Latest reviewed code checks are the `d4ba9f2` runs above; manual platform evidence is explicitly tied to `404bb7f`.
 
 ## Platform verification (PR #10, manual dispatch)
 
@@ -66,7 +68,7 @@ on the same commit passed its 3 PR jobs.
 | Sessions list memory (decode only changed rows, off the main thread, bounded search text) | **Verified** (JVM) | `SessionListSummaryTest`. |
 | Timeline retention without re-serialising history | **Verified** (JVM) | `TimelineRetentionCostTest`. |
 | Heap profiling on a device | **Not verified** | Steps are in [android-acceptance.md](android-acceptance.md#heap-profiling-android-studio). |
-| Emulator UI, TalkBack and process-death recovery | **Partial** | These are scoped emulator results from PR #8 and PR #9 (Codex). They are recorded in [android-acceptance.md](android-acceptance.md) and were not re-run in this batch. |
+| Emulator UI, TalkBack and process-death recovery | **Partial** | PR #8/#9 broader TalkBack/recovery results are historical scoped evidence in [android-acceptance.md](android-acceptance.md). PR #10 review adds six storage/Sessions layout/keyboard regressions; it does not rerun the full TalkBack/recovery suites. |
 
 ## Suspended or owned by the user
 
