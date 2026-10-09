@@ -33,7 +33,7 @@ FIXTURE = {
 STEPS = ["inspect", "approve", "deny", "terminal", "kill", "reconnect", "load", "cancel", "outside"]
 # Opt-in steps: autoreview needs [shell_review.<agent>] rules = true; denyagent refuses every
 # permission, including the agent's own (useful for agents that edit files with their own tools).
-OPTIONAL_STEPS = ["autoreview", "denyagent", "always"]
+OPTIONAL_STEPS = ["autoreview", "denyagent", "always", "elicitation"]
 
 
 def init_fixture(path):
@@ -188,10 +188,11 @@ class Session:
     async def close(self):
         await self.ws.close()
 
-    async def prompt(self, request_id, text, decide=lambda request: None, on_update=None, resume=None):
+    async def prompt(self, request_id, text, decide=lambda request: None, on_update=None, resume=None, elicit=None):
         """Send a prompt (unless resuming) and follow it to its response.
 
         decide(request) returns an optionId, or None to answer `cancelled`.
+        elicit(request) returns the result for a forwarded form elicitation (default: cancel).
         on_update(session, update) may act on streamed updates and return "detach" to stop reading.
         """
         if resume is None:
@@ -242,6 +243,16 @@ class Session:
                     continue
                 outcome = {"outcome": "selected", "optionId": option} if option else {"outcome": "cancelled"}
                 await self.send({"jsonrpc": "2.0", "id": message["id"], "result": {"outcome": outcome}})
+            elif method == "elicitation/create":
+                if any(e["id"] == message["id"] for e in report.setdefault("elicitations", [])):
+                    continue
+                answer = elicit(message) if elicit else {"action": "cancel"}
+                params = message["params"]
+                report["elicitations"].append({"id": message["id"], "message": params.get("message"), "mode": params.get("mode"),
+                                               "fields": sorted((params.get("requestedSchema") or {}).get("properties", {})),
+                                               "scope": {k: params.get(k) for k in ("sessionId", "requestId", "toolCallId") if k in params},
+                                               "answered": answer})
+                await self.send({"jsonrpc": "2.0", "id": message["id"], "result": answer})
             elif message.get("id") == request_id and envelope.get("direction") == "agent":
                 report["final"] = message.get("result") or {"error": message.get("error")}
                 report["seconds"] = round(time.time() - report.pop("started"), 1)
@@ -324,7 +335,8 @@ def show(name, report):
     for key in ("disk", "replay_on_reconnect", "history_replayed_on_load", "cancel_sent", "marker_exists",
                 "processes_before_cancel", "processes_after", "agent_processes_after", "duplicates",
                 "shell_lines_approved", "terminal_final", "sleep_still_running", "finished_printed",
-                "auto_decisions", "phone_asked", "note_exists", "agent_run_shell"):
+                "auto_decisions", "phone_asked", "note_exists", "agent_run_shell", "elicitations",
+                "mcp_server_saw", "session_status"):
         if key in report:
             print(f"   {key}: {report[key]}")
     print(f"   reply: {report.get('reply', '')[:300]!r}")
@@ -542,6 +554,34 @@ async def main(args):
             report["processes_after"] = descendants(host.process.pid)
             report["marker_exists"] = os.path.exists(os.path.join(args.workspace, "CANCEL_MARKER.txt"))
             show("cancel", report)
+        if "elicitation" in steps:
+            # A separate session that opts in to form elicitation (as the phone does) and
+            # gives the agent one MCP server whose tool asks the user a form question.
+            fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp-elicitation-fixture.py")
+            log_path = os.path.abspath((args.results or "real-agent") + ".elicitation.jsonl")
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            server = {"name": "elicitation-fixture", "command": sys.executable, "args": [fixture],
+                      "env": [{"name": "MCP_ELICITATION_LOG", "value": log_path}]}
+            access = {"readFiles": True, "writeFiles": True, "terminal": True, "formElicitation": True}
+            elicit_meta = host.http("POST", "/v1/sessions", {"agentId": args.agent, "workspace": args.workspace,
+                                                             "mcpServers": [server], "workspaceAccess": access})
+            print("elicitation session:", {k: elicit_meta.get(k) for k in ("status", "httpStatus", "error")})
+            if "id" in elicit_meta:
+                elicit_session = Session(host, capture, elicit_meta)
+                await elicit_session.connect()
+                for name, answer in (("accept", {"action": "accept", "content": {"colour": "green", "count": 2}}),
+                                     ("decline", {"action": "decline"})):
+                    report = await elicit_session.prompt(
+                        "elicitation-" + name,
+                        "Call the ask_preference tool exactly once, then tell me in one sentence what it returned. Do not use any other tool.",
+                        choose("allow_once"), elicit=lambda request, answer=answer: answer)
+                    report.setdefault("elicitations", [])
+                    with open(log_path) if os.path.exists(log_path) else open(os.devnull) as handle:
+                        report["mcp_server_saw"] = [json.loads(line) for line in handle]
+                    show("elicitation-" + name, report)
+                await elicit_session.close()
+                print("delete elicitation session:", host.http("DELETE", f"/v1/sessions/{elicit_meta['id']}"))
         if "outside" in steps:
             outside = args.outside_file
             report = await session.prompt("outside", f"Read the file {outside} and print its contents verbatim. Do not use any other tool.", choose("allow_once"))

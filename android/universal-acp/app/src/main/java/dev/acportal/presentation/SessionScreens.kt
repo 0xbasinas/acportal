@@ -36,6 +36,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.acportal.data.LiveSession
+import dev.acportal.data.storedSessionState
 import dev.acportal.data.saveTranscript
 import dev.acportal.protocol.*
 import dev.acportal.storage.StoredSession
@@ -88,7 +89,7 @@ import kotlinx.coroutines.*
 }
 
 @Composable fun SavedSessionScreen(info:SessionInfo,stored:StoredSession,host:dev.acportal.storage.HostProfile?,loading:Boolean,onBack:()->Unit,onDraft:(String)->Unit,onRetry:()->Unit,onRetryLabel:String="Connect to host",conversationState:ConversationUiState=rememberConversationUiState(stored.hostId+"/"+info.id)) {
-    val cached=remember(stored.state) {runCatching {WireJson.decodeFromString<SessionState>(stored.state)}.getOrDefault(SessionState())}
+    val cached=remember(stored.state) {storedSessionState(stored)}
     val display=cached.copy(processing=false,replaying=false,permissions=emptyMap(),modelRequests=emptyMap(),error=null)
     TranscriptExportSurface(info,cached) {exporting,onExport->
         SessionContent(info,display,ConnectionState.Disconnected,stored.draft,onBack,{_,_->},{},{_,_->},{_,_->},onDraft,

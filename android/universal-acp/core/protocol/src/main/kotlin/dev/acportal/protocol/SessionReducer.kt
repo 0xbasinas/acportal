@@ -176,12 +176,13 @@ object SessionReducer {
         for(original in state.items.asReversed()) {
             if(retained.size>=2000) {omitted=true;break}
             val item=if(original is TimelineItem.Text && original.text.length>1024*1024) {omitted=true;original.copy(text=original.text.takeLast(1024*1024))} else original
-            // Three bytes per UTF-16 character bounds UTF-8, including non-ASCII text.
+            // Three bytes per UTF-16 character bounds UTF-8, including non-ASCII text. JSON sizes
+            // are computed once per item instance, so an update does not re-serialise the history.
             val cost=when(item) {
                 is TimelineItem.Text->(item.text.length.toLong()+(item.promptText?.length ?: 0))*3L+item.id.length*3L+1024
-                is TimelineItem.Content->item.content.toString().length*3L+1024
-                is TimelineItem.Tool->(item.content.toString().length.toLong()+item.locations.toString().length+item.title.length+(item.autoReview?.toString()?.length ?: 0))*3+1024
-                is TimelineItem.Plan->item.entries.toString().length*3L+1024
+                is TimelineItem.Content->item.contentChars*3L+1024
+                is TimelineItem.Tool->(item.contentChars+item.title.length)*3+1024
+                is TimelineItem.Plan->item.contentChars*3L+1024
                 is TimelineItem.Notice->item.text.length*3L+1024
             }
             if(bytes+cost>8L*1024*1024) {omitted=true;break}

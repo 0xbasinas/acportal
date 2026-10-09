@@ -122,7 +122,7 @@ to succeed: an enabled but missing built-in fails the executable check.
 7. Optional: wrap the agent with `scripts/acp-stdio-tap.py` (see its docstring) when
    you need raw frames. Delete `TAP_FILE` afterwards.
 
-Useful flags: `--steps inspect,approve` to run a subset; `--steps autoreview`
+Useful flags: `--steps inspect,approve` to run a subset; `--steps elicitation` (opt-in) opens a second session with form elicitation and the MCP fixture `scripts/mcp-elicitation-fixture.py`; `--steps autoreview`
 (not in the default list) exercises shell-line auto-review and needs
 `[shell_review.<agent>] rules = true` in the host config; `--outside-file` for a
 harmless path outside the workspace (default `/etc/hostname`).
@@ -206,6 +206,55 @@ Cost: Goose's store recorded about 45.2k accumulated tokens (41.3k cache-read,
 1.4k output) for the session; the two reviewer calls were a few hundred tokens
 each. Together with the shell-line run above, well under \$0.002 (estimated from
 token counts, not a billing statement).
+
+## Batch 6 run (9 October 2026, Linux, 17:07 Athens)
+
+This was one run of every default step plus the new opt-in `elicitation` step, on PR #10's host (`target/debug/acpd`, with Rust unchanged since main `ada4798`). The setup was:
+
+- Goose 1.53.0 was extracted from the 1.53.0 `.deb` into a scratch directory, because the package was no longer installed at `/usr/lib/goose` on the box.
+- `GOOSE_MODE=approve`, with DeepSeek `deepseek-flash` through the OpenAI-compatible provider.
+- The key was passed only in the environment.
+- The registry `env` pointed `HOME` and `XDG_*_HOME` at a scratch directory, so no existing Goose configuration was read or written.
+
+Command:
+
+```bash
+real-agent-check.py --steps inspect,approve,deny,terminal,kill,reconnect,load,cancel,outside,elicitation
+```
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| inspect | **pass** | Agent permissions for `tree` and `read` came first. Goose then also tried to run the tests: an agent `shell` permission, then a host `host-shell-command` consent. The tests failed as expected, because the bug was not fixed yet. |
+| approve | **pass** | Agent `edit`, then host `Write calc.py` approved. Tests went from `FAILED (failures=1)` to `OK`. |
+| deny | **pass** | Host `Write README.md` was answered with `acpd-write-deny`. README was unchanged, and Goose reported that the host refused the write. |
+| terminal | **pass** | Approved line `cd … && python3 -m unittest -v 2>&1`, run with `/bin/sh -c`, with only the variable name `AGENT_SESSION_ID` shown. Exit code 0, `Ran 2 tests … OK`. |
+| kill | **pass** | `/bin/sh -c sleep 45 && echo finished-after-sleep` and its `sleep 45` were running. After `session/cancel` both were gone, `stopReason: cancelled`, and nothing was printed. |
+| reconnect | **pass** | Reconnected with `?after=1435`. The replay had `gap: false` and 131 events, including the final response. |
+| load | **pass** | Deleted the session, then opened it again with `loadSessionId`: same ACP id, and 36 history events replayed. The follow-up prompt answered `calc.py`. |
+| cancel | **pass** | Host write consent held, then `session/cancel` sent. `stopReason: cancelled` and `CANCEL_MARKER.txt` was never created. |
+| outside | **pass** | Reading `/etc/hostname` was refused with "Workspace text read denied or unavailable". |
+| elicitation (accept) | **pass** | See below. |
+| elicitation (decline) | **pass** | See below. |
+| cleanup and logs | **pass** | No process the host had started remained. The frame-metadata log (0600) contained none of the prompt words, form values, shell lines or the bearer token, and none of the output files contained the key. |
+
+### How the elicitation step works
+
+This step opens a second session the way the phone does. The session opts in with `workspaceAccess.formElicitation: true` and has one stdio MCP server, [`scripts/mcp-elicitation-fixture.py`](../scripts/mcp-elicitation-fixture.py). Its only tool, `ask_preference`, asks the MCP client (Goose) to fill in a form with a colour choice and a count.
+
+Results:
+
+- Goose advertised `elicitation` to the MCP server.
+- After the agent permission for the tool, Goose sent the client an ACP `elicitation/create` with `mode: form`, the server's message, fields `colour` and `count`, and `sessionId` scope. The host accepted it and forwarded it.
+- The script's answer `{"action":"accept","content":{"colour":"green","count":2}}` reached the MCP server unchanged, and Goose told the model "green, count 2".
+- A second prompt answered with `{"action":"decline"}`. That also reached the server, and Goose reported that the user declined.
+
+So Goose does send elicitation through ACP, but only when an MCP server asks for it. Goose does not ask for it by itself. The [testy suite](testy.md) remains the proof for malformed requests, and for the case where the phone does not opt in.
+
+Not covered: the Android elicitation sheet with a real agent (it was not run on a device or emulator in this batch).
+
+### Cost
+
+Goose's session store (in the scratch directory) recorded about 126k accumulated tokens over the two sessions: 114.6k cache-read and 3.4k output. Based on those token counts and the earlier runs, the cost was about $0.003. This is an estimate, not a billing statement. No host bug was found.
 
 ## Bugs found and fixed
 

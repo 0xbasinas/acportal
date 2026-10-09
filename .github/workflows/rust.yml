@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       extras:
-        description: "Also run the container smoke check and the Windows reproducibility build"
+        description: "Also run the platform jobs: container smoke (TLS, mounts, agent), Windows reproducibility on two runners, macOS tests"
         type: boolean
         default: false
       testy:
@@ -132,34 +132,91 @@ jobs:
         run: bash scripts/run-testy-isolated.sh
 
   container:
+    name: Container smoke (TLS, state mount, mock agent)
     if: github.event_name == 'workflow_dispatch' && inputs.extras
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Build host image
-        run: docker build --file docker/Dockerfile --tag acpd-ci .
-      - name: Smoke check unprivileged container
+      - name: Build host image and the test-only smoke image
+        run: |
+          docker build --file docker/Dockerfile --tag acpd-ci .
+          docker build --file docker/Dockerfile --target smoke --tag acpd-smoke .
+      - name: Smoke check unprivileged production image
         run: |
           test "$(docker run --rm --entrypoint id acpd-ci -u)" = 10001
           docker run --rm acpd-ci --help
           docker run --rm acpd-ci --version
+          # The mock agent exists only in the test image.
+          docker run --rm --entrypoint sh acpd-ci -c 'test ! -e /usr/local/bin/mock-acp-agent'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet websockets==15.0.1
+      - name: TLS, state/workspace mounts, pairing, agent execution and restart
+        run: PYTHON=python bash scripts/container-smoke.sh
 
   windows-reproducibility:
+    name: Windows reproducibility (${{ matrix.copy }})
     if: github.event_name == 'workflow_dispatch' && inputs.extras
+    # Two independent runners and checkouts at different paths; each also compares two
+    # clean builds of its own, and the next job compares the runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: [first-runner, second-runner]
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: src-${{ matrix.copy }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96.0
       - name: Compare two clean release builds
         shell: pwsh
+        working-directory: src-${{ matrix.copy }}
         run: ./scripts/verify-windows-reproducibility.ps1
       - name: Retain hash and toolchain evidence
         uses: actions/upload-artifact@v4
         with:
-          name: windows-reproducibility
-          path: reproducibility-evidence.txt
+          name: windows-reproducibility-${{ matrix.copy }}
+          path: src-${{ matrix.copy }}/reproducibility-evidence.txt
           if-no-files-found: error
+
+  windows-reproducibility-compare:
+    name: Windows reproducibility across runners
+    needs: windows-reproducibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-reproducibility-*
+      - name: Same release executable hash on both runners
+        run: |
+          set -eu
+          for copy in first-runner second-runner; do
+            echo "== $copy"; cat "windows-reproducibility-$copy/reproducibility-evidence.txt"
+          done
+          a="$(sed -n 's/^First SHA256: //p' windows-reproducibility-first-runner/reproducibility-evidence.txt)"
+          b="$(sed -n 's/^First SHA256: //p' windows-reproducibility-second-runner/reproducibility-evidence.txt)"
+          test -n "$a" && test "$a" = "$b"
+          echo "Both runners built acpd.exe with SHA256 $a"
+
+  macos:
+    name: macOS stable (tests incl. process cleanup and RSS)
+    if: github.event_name == 'workflow_dispatch' && inputs.extras
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked --workspace --all-targets
+      - name: Process cleanup and RSS tests, named so a skip would show
+        run: |
+          cargo test --locked -p acpd --test lifecycle -- --exact unix_descendants_stop_on_session_removal_agent_crash_and_request_timeout --nocapture
+          cargo test --locked -p acpd --test terminal -- --exact unix_terminal_kill_release_and_service_drop_stop_descendants --nocapture
+          cargo test --locked -p acpd --test memory_rss -- --nocapture

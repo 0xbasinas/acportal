@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import dev.acportal.data.HostDetails
+import dev.acportal.data.storedSessionInfo
 import dev.acportal.data.LiveSessionActivity
 import dev.acportal.data.recentWorkspaceChoices
 import dev.acportal.data.workspaceInCurrentRoots
@@ -215,7 +216,7 @@ import kotlinx.serialization.json.*
     }
 }
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null) {
+@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null) {
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit) {while(true) {delay(60_000);now=System.currentTimeMillis()}}
     var archived by rememberSaveable {mutableStateOf(initialUiState.sessionsArchived)}
@@ -224,10 +225,17 @@ import kotlinx.serialization.json.*
     LaunchedEffect(archived,activeOnly,query) {onFiltersChanged?.invoke(archived,activeOnly,query)}
     var delete by remember {mutableStateOf<StoredSession?>(null)}
     var screenMenu by remember {mutableStateOf(false)}
-    val records=remember(sessions) {sessions.map {it to WireJson.decodeFromString<SessionInfo>(it.metadata)}}
+    val records=remember(sessions) {sessions.map {it to storedSessionInfo(it)}}
+    val localSummaries=remember {SessionListSummaries()}
+    val rowSummaries=remember(sessions,summaries) {if(summaries!=null)summaries else localSummaries.update(sessions)}
+    // Production supplies background summaries. A newly emitted row may reach Compose
+    // before its summary; show a cheap placeholder instead of decoding history on Main.
+    fun summaryOf(stored:StoredSession,info:SessionInfo)=rowSummaries[sessionKey(stored)]
+        ?: if(summaries==null)sessionListSummary(stored,info)
+        else SessionListSummary("Agent session",stored.updatedAt.takeIf {it>0}?.let {SessionActivityTime(it,false)},"")
     val keyboard=LocalSoftwareKeyboardController.current
     val focus=LocalFocusManager.current
-    val visible=records.filter { (stored,info)->stored.archived==archived && (!activeOnly || (liveActivities["${stored.hostId}/${stored.id}"]!=LiveSessionActivity.STOPPED && info.status in listOf("ready","running","authentication_required"))) && (query.isBlank() || (info.workspace+" "+info.agentId+" "+stored.state).contains(query,ignoreCase=true)) }
+    val visible=records.filter { (stored,info)->stored.archived==archived && (!activeOnly || (liveActivities["${stored.hostId}/${stored.id}"]!=LiveSessionActivity.STOPPED && info.status in listOf("ready","running","authentication_required"))) && (query.isBlank() || summaryOf(stored,info).searchText.contains(query,ignoreCase=true)) }
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
     val scrollFilters=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
     val tabs:@Composable ()->Unit={
@@ -263,9 +271,9 @@ import kotlinx.serialization.json.*
                 item {Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp),horizontalArrangement=Arrangement.SpaceBetween) {Text(group.second.substringAfterLast('/').substringAfterLast('\\'),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(hosts.find {it.id==group.first}?.label ?: "Connection",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
                 items(entries,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->
                     var menu by remember {mutableStateOf(false)}
-                    val cached=remember(stored.state) {runCatching {WireJson.decodeFromString<SessionState>(stored.state)}.getOrDefault(SessionState())}
-                    val title=cached.sessionInfo["title"].text().takeIf {it.isNotBlank()}?.lineSequence()?.firstOrNull()?.take(64) ?: cached.items.filterIsInstance<TimelineItem.Text>().firstOrNull {it.role=="user"}?.text?.lineSequence()?.firstOrNull()?.take(64) ?: "Agent session"
-                    val activity=sessionActivityTime(stored,cached)
+                    val summary=summaryOf(stored,info)
+                    val title=summary.title
+                    val activity=summary.activity
                     val liveActivity=liveActivities["${stored.hostId}/${stored.id}"]
                     val status=when {
                         liveActivity==LiveSessionActivity.READY && info.status=="authentication_required" -> info.statusLabel()

@@ -353,7 +353,7 @@ async fn descendants_stop_on_session_removal_agent_crash_and_request_timeout() {
 }
 
 #[tokio::test]
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 async fn unix_descendants_stop_on_session_removal_agent_crash_and_request_timeout() {
     let workspace = tempfile::tempdir().unwrap();
     let manager = manager(workspace.path(), &[], 8);
@@ -411,6 +411,22 @@ async fn unix_descendants_stop_on_session_removal_agent_crash_and_request_timeou
         .unwrap_or_else(|_| panic!("both descendant generations must stop after {reason}"));
     }
     manager.shutdown().await;
+}
+
+/// Other Unix systems (macOS): the same view through `ps`, which reports a zombie as `Z`.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn running_process_group(pid: u32) -> Option<i32> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-o", "pgid=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut fields = text.split_whitespace();
+    let state = fields.next()?;
+    if state.starts_with('Z') {
+        return None;
+    }
+    fields.next()?.parse().ok()
 }
 
 /// Linux view of a process: `None` once it has exited (gone or zombie), otherwise its
