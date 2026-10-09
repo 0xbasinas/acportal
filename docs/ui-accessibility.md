@@ -1,5 +1,7 @@
 # UI and accessibility verification
 
+9 October 2026 PR #8 validation follow-up: exact single-choice constants (whitespace/empty strings) and required empty multi-select arrays now have five passing JVM regression cases. Final suite passes59 core/36 app JVM tests, both debug APK builds and lint (0 errors,15 existing warnings). These are schema/serialization fixes; no native screen, keyboard, TalkBack or screenshot acceptance was added. The full checklist below remains open.
+
 Active work, 8 October 2026. It continues in PR #8 (branch `host-remaining-work-2`); see "PR #8 increment" at the end. This keeps the full requested UI/accessibility scope open. Follow [ui-reference.md](ui-reference.md) and the scoped evidence in [screen-acceptance.md](screen-acceptance.md). Tablet/landscape acceptance is excluded. Physical-phone testing remains user-owned and suspended.
 
 ## Acceptance checklist

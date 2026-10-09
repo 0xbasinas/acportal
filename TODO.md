@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 8 October 2026. Implementation resumed by user authorization on 8 October 2026. This checklist contains active and suspended work; completed items and chronological verification history are in [TODO_DONE.md](TODO_DONE.md). Historical passing checks do not establish production completion.
+Updated 9 October 2026. Implementation resumed by user authorization on 8 October 2026. This checklist contains active and suspended work; completed items and chronological verification history are in [TODO_DONE.md](TODO_DONE.md). Historical passing checks do not establish production completion.
 
 Local agent: Goose ACP. Phone connections use authenticated REST/WebSocket; the host communicates with agents over ACP stdio. Follow [HANDOFF.md](HANDOFF.md) and [the requirements audit](docs/requirements-audit.md) for context and scope. The supplied mockup guide is [docs/ui-reference.md](docs/ui-reference.md).
 
@@ -12,7 +12,7 @@ Active UI/accessibility goal: [docs/ui-accessibility.md](docs/ui-accessibility.m
 
 Scope update, 8 October 2026: tablet/landscape acceptance is excluded from the current work. Physical-phone checks are suspended and owned by the user. Signed APK production/verification is suspended. Supported-build verification must run in GitHub Actions rather than locally. Historical results in TODO_DONE.md remain evidence of earlier checks, not current task requirements.
 
-- [ ] Elicitation follow-ups. Form elicitation now works end to end behind a phone opt-in (see TODO_DONE). URL-mode elicitation and `elicitation/complete` are not supported and never advertised. Check the Android form sheet on an emulator, with TalkBack and at large text; it has JVM tests only.
+- [ ] Elicitation follow-ups. Form elicitation now works end to end behind a phone opt-in (see TODO_DONE). PR #8 review fixes for exact choice constants and required empty arrays pass JVM regressions. URL-mode elicitation and `elicitation/complete` are not supported and never advertised. Check the Android form sheet on an emulator, with TalkBack and at large text; it has JVM tests only.
 - [ ] Agents that use their own tools (OpenCode) bypass host write/terminal consents and workspace containment. The registry `ownTools` flag, the phone warning and prominent `acpdWrite` notices now exist (PR #8; see TODO_DONE), JVM-tested only. Check them on an emulator and with TalkBack. The flag is declared by the operator; the host cannot detect own-tool use. OpenCode 1.18.35 offers no "always reject", and after "Always allow" for edits it writes later edits with no prompt at all.
 - [ ] Broaden Connection logs accessibility to automatic focus restoration and failure states, plus suspended physical-network recovery. Native TalkBack tabs/switch pass in both themes at normal/2.0 font scales; events remain isolated component fixtures.
 - [ ] Broaden Agents TalkBack to saved/error states and full-navigation lifecycle/page recovery and previous-task restoration. Fresh-list Inspect agent/details/Back and automatic returned-page focus pass native TalkBack in both themes at normal/2.0 font scales.

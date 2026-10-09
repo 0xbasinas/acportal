@@ -125,22 +125,27 @@ private fun formatNumber(value: Double): String = if (value == Math.floor(value)
 fun ElicitationForm.problems(input: ElicitationInput): Map<String, String> {
     val problems = LinkedHashMap<String, String>()
     for (field in fields) {
-        val text = input.text[field.name].orEmpty().trim()
+        // Choice values are schema constants; whitespace (or an empty string) is significant.
+        val rawText = input.text[field.name]
+        val text = rawText.orEmpty().trim()
         val problem: String? = when (field.kind) {
             ElicitationKind.BOOLEAN -> null
             ElicitationKind.MULTI_CHOICE -> {
                 val count = input.selections[field.name].orEmpty().size
                 when {
-                    field.required && count == 0 -> "Choose at least one"
-                    count == 0 -> null
+                    count == 0 && !field.required -> null
                     field.minItems != null && count < field.minItems -> "Choose at least ${field.minItems}"
                     field.maxItems != null && count > field.maxItems -> "Choose at most ${field.maxItems}"
                     else -> null
                 }
             }
             else -> when {
+                field.kind == ElicitationKind.CHOICE -> when {
+                    rawText == null -> if (field.required) "Required" else null
+                    field.choices.none { it.value == rawText } -> "Choose one of the options"
+                    else -> null
+                }
                 text.isEmpty() -> if (field.required) "Required" else null
-                field.kind == ElicitationKind.CHOICE -> if (field.choices.none { it.value == text }) "Choose one of the options" else null
                 field.kind == ElicitationKind.INTEGER -> text.toLongOrNull().let { value -> if (value == null) "Enter a whole number" else range(field, value.toDouble()) }
                 field.kind == ElicitationKind.NUMBER -> text.toDoubleOrNull()?.takeIf { it.isFinite() }.let { value -> if (value == null) "Enter a number" else range(field, value) }
                 field.minLength != null && text.length < field.minLength -> "Use at least ${field.minLength} characters"
@@ -174,6 +179,7 @@ fun ElicitationForm.content(input: ElicitationInput): JsonObject = buildJsonObje
             }
             ElicitationKind.INTEGER -> text.toLongOrNull()?.let { put(field.name, it) }
             ElicitationKind.NUMBER -> text.toDoubleOrNull()?.let { put(field.name, it) }
+            ElicitationKind.CHOICE -> input.text[field.name]?.let { put(field.name, it) }
             else -> if (text.isNotEmpty()) put(field.name, text)
         }
     }

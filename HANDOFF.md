@@ -1,5 +1,11 @@
 # ACP Portal agent handoff
 
+## PR #8 review fixes — 9 October 2026
+
+The review reproduced two elicitation bugs before fixing them: a single-choice constant with surrounding whitespace could never pass validation, and a required array with minItems0 incorrectly required a selection. Choice validation/serialization now preserves exact constants (including an empty string); required arrays may be empty unless their item bounds forbid it. Optional unselected fields remain omitted.
+
+Five permanent ElicitationValueTest cases cover these paths, missing required choice, unknown choice and retained min/max enforcement. Final affected verification: 59 core and 36 app JVM tests pass with zero failures/errors/skips; both debug APK builds and lint pass (0 errors,15 existing warnings). JDK21 on Windows; isolated PR checkout. Production data/emulator settings untouched. Rust source unchanged and not rerun for this fix; the preceding review passed101 Windows Rust tests separately. No native elicitation/TalkBack acceptance is claimed. Continue the remaining TODO.md/docs/ui-accessibility.md work.
+
 ## Current continuation checkpoint — 8 October 2026
 
 The UI/accessibility work moved into PR #8 (branch `host-remaining-work-2`) at the user's request on 8 October 2026. The work this checkpoint described as local and uncommitted on `codex/ui-accessibility` was committed to main before PR #8 branched (c7033a3 and earlier). `git fetch` shows nothing newer on that branch or any other, so nothing was merged. The PR #8 progress entry under "Progress after resume" lists what was added there. The Codex notes below stay as the record of the emulator evidence.
