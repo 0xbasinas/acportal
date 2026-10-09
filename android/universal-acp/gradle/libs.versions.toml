@@ -18,8 +18,13 @@ sqliteFramework = "2.7.1"
 datastore = "1.2.1"
 okhttp = "4.12.0"
 kotlinxSerializationJson = "1.11.0"
+commonmark = "0.27.1"
+codeScanner = "16.1.0"
 
 [libraries]
+google-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
+commonmark-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }

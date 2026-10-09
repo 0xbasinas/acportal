@@ -32,7 +32,9 @@ class PairingLayoutUiTest {
         val requests=mutableListOf<List<String>>()
         compose.setContent {
             val visible=WindowInsets.isImeVisible
-            SideEffect {keyboard.set(visible)}
+            val density=androidx.compose.ui.platform.LocalDensity.current
+            val keyboardSettled=WindowInsets.ime.getBottom(density)==WindowInsets.imeAnimationTarget.getBottom(density)
+            SideEffect {keyboard.set(visible && keyboardSettled)}
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {Column {
                 failure?.let {ConnectionError(it,{failure=null})}
                 PairScreen(loading,{}, {address,code,name->requests+=listOf(address,code,name);loading=true},initialAddress="https://host.example",initialLabel="Workstation")
@@ -58,6 +60,7 @@ class PairingLayoutUiTest {
         compose.runOnIdle {assertEquals(2,requests.size)}
     }
     private fun scroll(label:String) {
+        if(label=="Pair connection" || label=="Connecting…") {compose.onNodeWithText(label).assertIsDisplayed();return}
         compose.onNode(hasScrollAction() and !hasSetTextAction()).performScrollToNode(hasText(label))
     }
 }

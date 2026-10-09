@@ -155,12 +155,8 @@ import kotlinx.coroutines.*
                 onExport?.let {callback->DropdownMenuItem(text={Text(if(exporting)"Preparing transcript" else "Export transcript")},enabled=!exporting,leadingIcon={Icon(Icons.Outlined.FileDownload,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()})}
                 onRemoveLocal?.let {HorizontalDivider(Modifier.padding(horizontal=12.dp),color=MaterialTheme.colorScheme.outlineVariant);DropdownMenuItem(text={Text("Remove local copy",color=MaterialTheme.colorScheme.error)},leadingIcon={Icon(Icons.Outlined.DeleteOutline,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.error)},onClick={showMenu=false;removeCopy=true})}
             }
-        }})
+        }},status=if(state.replaying)"$status · Restoring conversation" else status)
         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-        Row(Modifier.padding(horizontal=20.dp).fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-            Text(status,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            if(state.replaying)Text("Restoring conversation",style=MaterialTheme.typography.labelMedium)
-        }
         if(offlineCopy && !keyboardVisible)Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(if(info.status=="interrupted")"This conversation was saved before the host restarted. Open Session actions to resume or start again." else "Showing messages saved on this device. Connect to check the latest activity.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -264,7 +260,7 @@ import kotlinx.coroutines.*
     val user=item.role=="user"
     Box(Modifier.fillMaxWidth(),contentAlignment=if(user)Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(color=if(user)MaterialTheme.colorScheme.surfaceContainer else Color.Transparent,shape=RoundedCornerShape(8.dp),modifier=if(user)Modifier.fillMaxWidth(0.88f) else Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(if(user)16.dp else 8.dp)) {Text(if(user)"You" else agent,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,Modifier.padding(top=8.dp),style=MaterialTheme.typography.bodyLarge)}}
+            Column(Modifier.padding(if(user)16.dp else 8.dp)) {Text(if(user)"You" else agent,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);if(user)androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,Modifier.padding(top=8.dp),style=MaterialTheme.typography.bodyLarge)} else MarkdownMessage(item.text,Modifier.padding(top=8.dp))}
         }
     }
 }

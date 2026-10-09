@@ -1,5 +1,11 @@
 # Development
 
+## Background host and reload checks
+
+Use the native [daemon commands](daemon-and-reload.md) for operator lifecycle control. `acpd/tests/daemon.rs` creates private temporary configs, profiles, state and ephemeral listeners, and stops only its owned workers. It checks startup readiness, duplicate exclusion, graceful stop/restart, rejected/accepted reload, pending-approval replay, credentials, malformed/unauthorized control traffic and stale-record safety. Do not point this fixture at production configuration or remove production control records to resolve a failed run.
+
+The current normal Windows suite passes 116 Rust tests, strict Clippy and formatting. Unix/macOS detachment, SIGTERM and supported-build checks for these sources still require GitHub Actions. Earlier platform runs do not cover the new implementation. [Verification history](../TODO_DONE.md) records separate Android evidence and the remaining acceptance limits.
+
 ## Toolchain and commands
 
 Use Rust 1.88+ and commit Cargo.lock. UUID is pinned to 1.26.1 because 1.27 requires Rust 1.89. The local Windows verification environment has Rust 1.96.0 and Goose 1.53.0. Android uses SDK 36, AGP 9.0.1, Kotlin 2.3.20 and the checked-in Gradle 9.1 wrapper. Run Gradle with JDK 21 on this Windows machine; the configured source/toolchain targets remain in the build files.

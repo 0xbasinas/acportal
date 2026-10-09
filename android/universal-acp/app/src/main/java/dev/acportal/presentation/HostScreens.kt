@@ -38,10 +38,14 @@ import dev.acportal.protocol.*
 import dev.acportal.storage.*
 import kotlinx.serialization.json.*
 
-@Composable fun ScreenHeader(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,action:(@Composable ()->Unit)?=null) {
+@Composable fun ScreenHeader(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,action:(@Composable ()->Unit)?=null,status:String?=null) {
     Row(Modifier.fillMaxWidth().padding(start=if(onBack==null)24.dp else 12.dp,end=16.dp,top=20.dp,bottom=24.dp),verticalAlignment=Alignment.CenterVertically) {
         onBack?.let { IconButton(onClick=it) { Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back",Modifier.size(22.dp)) };Spacer(Modifier.width(4.dp)) }
-        Column(Modifier.weight(1f)) { Text(title,Modifier.semantics {heading()},style=MaterialTheme.typography.headlineSmall,maxLines=1,overflow=TextOverflow.Ellipsis);subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis) } }
+        Column(Modifier.weight(1f)) {
+            Text(title,Modifier.semantics {heading()},style=MaterialTheme.typography.headlineSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+            subtitle?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)}
+            status?.let {Text(it,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        }
         action?.invoke()
     }
 }
@@ -76,17 +80,45 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun PairScreen(loading:Boolean,onBack:()->Unit,onPair:(String,String,String)->Unit,initialAddress:String="",initialLabel:String="") {
-    var address by rememberSaveable(initialAddress) { mutableStateOf(initialAddress) };var code by remember { mutableStateOf("") };var label by rememberSaveable(initialLabel) { mutableStateOf(initialLabel) }
+@Composable fun PairScreen(loading:Boolean,onBack:()->Unit,onPair:(String,String,String)->Unit,initialAddress:String="",initialLabel:String="",scanner:PairingScan?=null) {
+    var address by rememberSaveable(initialAddress) {mutableStateOf(initialAddress)}
+    var code by remember {mutableStateOf("")}
+    var label by rememberSaveable(initialLabel) {mutableStateOf(initialLabel)}
+    var scanning by remember {mutableStateOf(false)}
+    var scanError by remember {mutableStateOf<String?>(null)}
+    val active=remember {java.util.concurrent.atomic.AtomicBoolean(true)}
+    DisposableEffect(Unit) {onDispose {active.set(false)}}
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val busy=loading || scanning
+    val normalizedCode=dev.acportal.data.normalizePairingCode(code)
+    val addressValid=remember(address) {runCatching {dev.acportal.data.validateAddress(address.trim())}.isSuccess}
     Column(Modifier.fillMaxSize().imePadding()) {
-        ScreenHeader(if(initialAddress.isBlank())"Add connection" else "Pair connection again",onBack=onBack)
-        LazyColumn(Modifier.fillMaxWidth().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
-            item { Text("Start acpd, then run acpd pair on that machine. Enter its HTTPS address and pairing code below.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            item { OutlinedTextField(label={Text("Connection name")},value=label,onValueChange={label=it},singleLine=true,enabled=!loading,modifier=Modifier.fillMaxWidth(),placeholder={Text("My development machine")}) }
-            item { OutlinedTextField(label={Text("Address")},value=address,onValueChange={address=it},singleLine=true,enabled=!loading,modifier=Modifier.fillMaxWidth(),placeholder={Text("https://dev.example.com:8765")}) }
-            item { OutlinedTextField(label={Text("Pairing code")},value=code,onValueChange={code=it.uppercase()},singleLine=true,enabled=!loading,modifier=Modifier.fillMaxWidth(),placeholder={Text("XXXX-XXXX-XXXX")}) }
-            item { Button(onClick={onPair(address,code,label)},enabled=!loading && address.isNotBlank() && code.isNotBlank(),modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Text(if(loading)"Connecting…" else "Pair connection") } }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp),contentPadding=PaddingValues(bottom=24.dp)) {
+            item {ScreenHeader(if(initialAddress.isBlank())"Add connection" else "Pair connection again",onBack=onBack)}
+            item {Text("1. Start acpd on your computer.\n2. Run acpd pair for a fresh code.\n3. Scan its QR code or enter the details below.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            item {OutlinedButton({
+                scanning=true;scanError=null
+                val result:(String)->Unit={raw->if(active.get()) {
+                    scanning=false
+                    try {val imported=dev.acportal.data.parsePairingInput(raw,dev.acportal.BuildConfig.DEBUG);address=imported.address;code=imported.code;if(imported.name.isNotBlank())label=imported.name}
+                    catch(_:Exception) {scanError="This is not a valid ACP Portal pairing QR code. Ask the host for a fresh QR code or enter its details below."}
+                }}
+                val failed:()->Unit={if(active.get()) {scanning=false;scanError="QR scanning is unavailable. Check Google Play services or enter the address and code below."}}
+                val cancelled:()->Unit={if(active.get())scanning=false}
+                if(scanner!=null)scanner(result,failed,cancelled) else scanPairingQr(context,result,failed,cancelled)
+            },enabled=!busy,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Icon(Icons.Outlined.QrCodeScanner,null);Spacer(Modifier.width(8.dp));Text(if(scanning)"Scanning…" else "Scan pairing QR code")}}
+            item {Text("On the host: acpd pair --address https://YOUR-HOST --qr",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            scanError?.let {message->item {Text(message,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)}}
+            item {Text("Or enter manually",style=MaterialTheme.typography.titleMedium)}
+            item {OutlinedTextField(label={Text("Connection name")},value=label,onValueChange={label=it.take(120)},singleLine=true,enabled=!busy,modifier=Modifier.fillMaxWidth(),placeholder={Text("My development machine")})}
+            item {OutlinedTextField(label={Text("Address")},value=address,onValueChange={address=it.take(2048)},singleLine=true,enabled=!busy,keyboardOptions=KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Uri,imeAction=ImeAction.Next),modifier=Modifier.fillMaxWidth(),placeholder={Text("https://my-host.example.com")},supportingText={Text("Use the address reachable from your phone, including any custom port. A Tailscale Serve address uses HTTPS.")})}
+            item {OutlinedTextField(label={Text("Pairing code")},value=code,onValueChange={code=it.take(64).uppercase(java.util.Locale.ROOT)},singleLine=true,enabled=!busy,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false,imeAction=ImeAction.Done),modifier=Modifier.fillMaxWidth(),placeholder={Text("XXXX-XXXX-XXXX")})}
+            item {Text("Codes expire after 60 seconds. Spaces and letter case are handled for you.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            if(address.isNotBlank() && !addressValid)item {Text("Enter an HTTPS host address without a path or credentials.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)}
+
+            item {Text("Scanning only fills this form. Review the host address and tap Pair connection to connect.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
+        Button({onPair(address.trim(),normalizedCode,label.trim())},enabled=!busy && addressValid && normalizedCode.isNotBlank(),modifier=Modifier.padding(horizontal=24.dp,vertical=8.dp).fillMaxWidth().heightIn(min=52.dp)) {Text(if(loading)"Connecting…" else "Pair connection")}
     }
 }
 @Composable fun HostDetailsScreen(details:HostDetails?,onBack:()->Unit,onNew:()->Unit,onSession:(SessionInfo)->Unit,onRefresh:()->Unit,onForget:()->Unit,onAgent:((String)->Unit)?=null,loading:Boolean=false) {
@@ -132,10 +164,11 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={}) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by remember {mutableStateOf(false)}
+    var agentPicker by remember {mutableStateOf(false)}
     var browsePath by rememberSaveable {mutableStateOf<String?>(null)}
     LaunchedEffect(details?.host?.id) {
         if(agentId.isBlank())agentId=details?.agents?.firstOrNull {it.canStartSession()}?.id.orEmpty()
@@ -144,12 +177,13 @@ import kotlinx.serialization.json.*
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val scrollActions=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader("New session",onBack=onBack)
+            ScreenHeader("New session",subtitle=details?.host?.label,onBack=onBack)
             if(details==null) {
                 if(loading)EmptyState("Loading connection","Waiting for agents and workspaces.")
                 else {
                     Box(Modifier.weight(1f)) {EmptyState("Connection unavailable","Reload this connection to choose an agent and workspace, or return to Connections.")}
                     TextButton(onReload,Modifier.fillMaxWidth().padding(24.dp)) {Text("Reload connection")}
+                    onChangeConnection?.let {TextButton(it,Modifier.fillMaxWidth().padding(horizontal=24.dp)) {Text("Choose another connection")}}
                 }
             } else {
                 val recents=recentWorkspaceChoices(details,initialAgentId).take(5)
@@ -164,6 +198,7 @@ import kotlinx.serialization.json.*
                     startAction()
                 }
                 LazyColumn(Modifier.weight(1f).testTag("new-session-choices"),contentPadding=PaddingValues(bottom=24.dp)) {
+                    onChangeConnection?.let {change->item {SectionLabel("Connection");SelectionCard(details.host.label,"Change",change)}}
                     if(recents.isNotEmpty()) {
                         item {SectionLabel("Recent")}
                         items(recents,key={"recent:${it.agentId}:${it.path}"}) {recent->
@@ -180,7 +215,8 @@ import kotlinx.serialization.json.*
                         }
                     }
                     item {SectionLabel("Workspace")}
-                    items(details.workspaces,key={it.path}) {workspace->
+                    if(onChangeConnection!=null)item {SelectionCard(details.workspaces.firstOrNull {it.path==path}?.name?.ifBlank {path} ?: path.ifBlank {"Choose workspace"},path) {workspacePicker=true;browsePath=null}}
+                    else items(details.workspaces,key={it.path}) {workspace->
                         Row(Modifier.fillMaxWidth().clickable {path=workspace.path}.padding(horizontal=24.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Folder,null,Modifier.size(22.dp))
                             Spacer(Modifier.width(16.dp))
@@ -192,7 +228,8 @@ import kotlinx.serialization.json.*
                     item {TextButton({workspacePicker=true;browsePath=null},Modifier.padding(start=12.dp)) {Text("Browse folders",style=MaterialTheme.typography.bodySmall)}}
                     if(path.isNotBlank() && details.workspaces.none {it.path==path})item {Text(path,Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                     item {SectionLabel("Agent")}
-                    items(details.agents,key={it.id}) {agent->
+                    if(onChangeConnection!=null)item {SelectionCard(details.agents.firstOrNull {it.id==agentId}?.name ?: "Choose agent","") {agentPicker=true}}
+                    else items(details.agents,key={it.id}) {agent->
                         Row(Modifier.fillMaxWidth().testTag("agent-choice:${agent.id}").clickable(enabled=agent.canStartSession()) {agentId=agent.id}.padding(start=24.dp,end=12.dp,top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(agent.name,style=MaterialTheme.typography.titleMedium,color=if(agent.canStartSession())MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -210,6 +247,7 @@ import kotlinx.serialization.json.*
                     }
                 }
                 if(!scrollActions)actions()
+                if(agentPicker)AlertDialog(onDismissRequest={agentPicker=false},confirmButton={},dismissButton={TextButton({agentPicker=false}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {AgentPicker(details.agents) {agentId=it.id;agentPicker=false}}})
                 if(workspacePicker)AlertDialog(onDismissRequest={workspacePicker=false;onDismissBrowse()},confirmButton={},dismissButton={TextButton({workspacePicker=false;onDismissBrowse()}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {WorkspacePicker(if(browsePath==null)details.workspaces else browsed.orEmpty(),browsePath,onSelect={path=it;workspacePicker=false;onDismissBrowse()},onBrowse={browsePath=it;onBrowse(details.host,it)},loading=browsePath!=null && browseLoading,error=browseError.takeIf {browsePath!=null},onRetry={browsePath?.let {onBrowse(details.host,it)}})}})
             }
         }

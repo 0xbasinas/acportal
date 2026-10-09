@@ -175,12 +175,26 @@ impl Host {
             .with_state(self.clone())
     }
     pub async fn serve(&self) -> Result<()> {
+        self.serve_controlled(None, None).await
+    }
+    pub async fn serve_controlled(
+        &self,
+        stop: Option<tokio::sync::watch::Receiver<bool>>,
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> Result<()> {
         self.config.validate()?;
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
         let host = self.clone();
         tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
+            match stop {
+                Some(mut stop) => {
+                    tokio::select! { _ = ctrl_c_or_pending() => {}, _ = stop.changed() => {} }
+                }
+                None => {
+                    ctrl_c_or_pending().await;
+                }
+            }
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(5)));
             host.sessions.shutdown().await;
         });
@@ -197,6 +211,9 @@ impl Host {
             let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(certificate, key)
                 .await
                 .context("read TLS certificate and private key")?;
+            if let Some(ready) = ready {
+                let _ = ready.send(());
+            }
             axum_server::from_tcp_rustls(listener, tls)?
                 .handle(handle)
                 .serve(self.router().into_make_service())
@@ -205,6 +222,9 @@ impl Host {
             if !address.ip().is_loopback() {
                 bail!("cleartext listener must be loopback")
             }
+            if let Some(ready) = ready {
+                let _ = ready.send(());
+            }
             axum_server::from_tcp(listener)?
                 .handle(handle)
                 .serve(self.router().into_make_service())
@@ -212,6 +232,21 @@ impl Host {
         }
         self.sessions.shutdown().await;
         Ok(())
+    }
+}
+async fn ctrl_c_or_pending() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut terminate) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+            return;
+        }
+    }
+    // Detached Windows processes may have no console signal source.
+    if tokio::signal::ctrl_c().await.is_err() {
+        std::future::pending::<()>().await;
     }
 }
 async fn no_browser_and_no_cache(request: Request, next: Next) -> Response {
@@ -274,7 +309,10 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;
-    Json(discovered_agents(&host.registry, &active))
+    Json(discovered_agents(
+        &host.sessions.launch_settings().registry,
+        &active,
+    ))
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();
@@ -368,9 +406,10 @@ mod discovery_tests {
     }
 }
 async fn workspaces(State(host): State<Host>) -> ApiResult<Json<Value>> {
+    let settings = host.sessions.launch_settings();
     let mut entries = vec![];
-    for root in &host.config.workspace_roots {
-        let path = host.config.workspace(root).map_err(internal)?;
+    for root in &settings.config.workspace_roots {
+        let path = settings.config.workspace(root).map_err(internal)?;
         entries.push(json!({"path":path,"name":path.file_name().map(|name|name.to_string_lossy()).unwrap_or_default()}));
     }
     Ok(Json(json!(entries)))
@@ -383,11 +422,15 @@ async fn browse(
     State(host): State<Host>,
     Query(input): Query<BrowseInput>,
 ) -> ApiResult<Json<Value>> {
-    let directory = host.config.workspace(&input.path).map_err(input_error)?;
+    let settings = host.sessions.launch_settings();
+    let directory = settings
+        .config
+        .workspace(&input.path)
+        .map_err(input_error)?;
     let mut entries = vec![];
     for entry in std::fs::read_dir(directory).map_err(internal)?.take(1024) {
         let entry = entry.map_err(internal)?;
-        if let Ok(path) = host.config.workspace(&entry.path()) {
+        if let Ok(path) = settings.config.workspace(&entry.path()) {
             entries.push(json!({"path":path,"name":entry.file_name().to_string_lossy()}));
         }
     }

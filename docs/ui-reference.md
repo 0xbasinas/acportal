@@ -1,5 +1,7 @@
 # UI reference
 
+9 October 2026: [native CLI setup and motion](native-cli-and-motion.md) adds short host commands and 150/100 ms ordinary page fades with NavDisplay size interpolation disabled. Selected-tab taps retain the route. Predictive Back and sheet defaults are preserved; physical frame-time and broader motion acceptance remain open.
+
 The user's 16 PNG mockups in `C:/Users/<you>/Downloads/Page 1` are the visual reference for the Android app. They supersede the earlier teal Material styling. All 16 were inspected directly.
 
 Use a near-black background, neutral surfaces, white primary actions, muted secondary text and green online indicators. Keep 24 dp page gutters, compact headings, simple rows and a rounded text-only bottom navigation pill. User messages have a restrained inset surface; agent messages use the page background. The composer has one rounded surface. Permissions open in a bottom sheet and keep the supplied ACP option names and IDs. Dismissal leaves the decision pending.
@@ -41,3 +43,7 @@ Browsing has separate request state, so its loading and errors do not also appea
 Prompt history uses a neutral bottom sheet reached through the composer's + menu. Rows show a compact three-line preview of retained submitted text. Choosing a row fills the draft; existing draft replacement requires confirmation and Send remains explicit. Empty history explains its conversation retention scope.
 
 The original request also requires rich conversation controls beyond these mockups. A full Changes page follows the same visual system, with file selection, modification navigation, expandable unchanged sections, syntax colors and wide-window split view. The composer supports native file/image/audio selection and context references. Received content uses compact title/type rows and explicit image-preview, audio-playback, resource-save and link actions in conversations and expanded tools. Recovery messages use neutral inset surfaces with explicit dismissal, pairing, session-list or reconnect actions. Broader codec/device/accessibility verification remains separate work.
+
+The All sessions creation extension is now designed in the user's Penpot file, boards 17–23. Original Sessions and workspace/agent shapes and a fresh Sessions export were inspected on 9 October 2026. See [session-creation-design.md](session-creation-design.md) for the flow, styles, prototype limits and pending implementation.
+
+9 October 2026: the [All sessions creation flow](session-creation-design.md) is implemented. Scoped verification and limits are in [TODO_DONE.md](../TODO_DONE.md); real-phone/native TalkBack acceptance remains open.

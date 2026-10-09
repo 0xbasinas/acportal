@@ -28,10 +28,25 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun mcpEdit(hostId:String)=mcpEdits.getOrPut(hostId) {McpEditState()}
     private var browseJob:Job?=null
     private var browseVersion=0L
+    private var detailsJob:Job?=null
+    private var detailsVersion=0L
     init { refresh() }
     private fun work(onRetry:(()->Unit)?=null,action:suspend ()->Unit) { viewModelScope.launch { ui.update { it.copy(loading=true,error=null,errorRetry=null) };try { action() } catch (cancelled:CancellationException) { throw cancelled } catch (failure:Exception) { ui.update { it.copy(error=failure.message ?: "Something went wrong. Try again.",errorRetry=onRetry) } } finally { ui.update { it.copy(loading=false) } } } }
     fun refresh() = work { repository.refreshHosts() }
-    fun details(id:String) {cancelBrowse();work(onRetry={details(id)}) { ui.update { it.copy(details=null) };val details=repository.details(id);ui.update { it.copy(details=details) } }}
+    fun details(id:String) {
+        cancelBrowse()
+        val version=++detailsVersion
+        detailsJob?.cancel()
+        ui.update {it.copy(details=null,loading=true,error=null,errorRetry=null)}
+        detailsJob=viewModelScope.launch {
+            try {
+                val details=repository.details(id)
+                if(version==detailsVersion)ui.update {it.copy(details=details)}
+            } catch(cancelled:CancellationException) {throw cancelled}
+            catch(failure:Exception) {if(version==detailsVersion)ui.update {it.copy(error=failure.message ?: "Check the host connection and try again.",errorRetry={details(id)})}}
+            finally {if(version==detailsVersion)ui.update {it.copy(loading=false)}}
+        }
+    }
     fun pair(address:String,code:String,label:String,onDone:()->Unit) = work { repository.pair(address,code,label);repository.refreshHosts();onDone() }
     fun cancelBrowse() {
         browseVersion++

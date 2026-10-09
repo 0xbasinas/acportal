@@ -1,5 +1,7 @@
 # Acceptance report
 
+9 October 2026 current continuation: PR #10 is the merged baseline; later model-picker/header, session-creation, pairing/Markdown, native setup/motion and daemon/reload increments are local on `codex/session-model-picker`. Their scoped verification is recorded in [TODO_DONE.md](../TODO_DONE.md). The current host suite passes 116 Windows Rust tests plus strict Clippy/formatting; earlier platform Actions below do not cover these newer sources. [TODO.md](../TODO.md) has been reconciled to outstanding checks, suspended phone/release work and separate future decisions. The dated PR #10 report below remains historical evidence.
+
 Status on 9 October 2026 (Europe/Athens), branch `remaining-work-batch-6` (PR #10) on top of
 main `cf8fa26`. This is a record of what has been checked and where. It is not a claim that the
 product is ready for production. Results from other checks are in [TODO_DONE.md](../TODO_DONE.md),
