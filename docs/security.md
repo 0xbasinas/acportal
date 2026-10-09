@@ -1,5 +1,7 @@
 # Security model
 
+Android recovery, 9 October 2026: new local history checkpoints omit pending approval/form payloads and model-request correlations. Opening a cached conversation cannot approve a saved request; decisions require a connected controller, completed authoritative replay and an exact current-request match. Unsaved elicitation fields are not placed in saved instance state. Recovery fixtures use their own vault/API/store and disposable loopback credentials; memory regressions report counts/heap samples without heap dumps or user payloads.
+
 ## Host enforcement
 
 The local client and network host use trusted operator registry files and explicitly configured workspace roots. Canonical paths prevent lexical traversal and resolve existing symlinks before root checks. A process cwd outside those roots is rejected. Process arguments are passed as an array; no shell interpolation is used.

@@ -60,12 +60,15 @@ public final class AttachmentTestProvider extends ContentProvider {
                 .putShort((short)2).putShort((short)16)
                 .put("data".getBytes(StandardCharsets.US_ASCII)).putInt(2).putShort((short)0).array(); break;
             case "large": bytes=new byte[262145]; Arrays.fill(bytes,(byte)'a'); break;
+            case "near": bytes=new byte[262144]; break;
             default: bytes=new byte[]{0,(byte)255,1,2};
         }
         File file=new File(getContext().getCacheDir(),"attachment-"+uri.getLastPathSegment()+".fixture");
         try (FileOutputStream output=new FileOutputStream(file)) { output.write(bytes); }
         catch (IOException error) { throw new FileNotFoundException("Fixture unavailable"); }
-        return ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);
+        ParcelFileDescriptor descriptor=ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);
+        if ("near".equals(uri.getLastPathSegment())) file.delete(); // owned, open FD keeps bytes alive
+        return descriptor;
     }
     public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }
     public int delete(Uri uri, String selection, String[] args) { throw new UnsupportedOperationException(); }

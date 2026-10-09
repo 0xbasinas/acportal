@@ -190,9 +190,7 @@ class PortalRepository(
                     val current=live.state.value
                     if(current.sequence!=lastWritten) {
                         val cache=settings.settings.first().cacheMessages
-                        val checkpoint=SessionState(sequence=current.sequence,historyGap=current.historyGap,localHistoryCleared=current.localHistoryCleared || !cache,sessionInfo=JsonObject(current.sessionInfo.filterKeys {it in listOf("title","updatedAt")}))
-                        val serialized=WireJson.encodeToString(if(cache)current else checkpoint)
-                        dao.saveState(hostId,id,if(serialized.length<=4*1024*1024)serialized else WireJson.encodeToString(checkpoint.copy(historyGap=true)),System.currentTimeMillis())
+                        dao.saveState(hostId,id,sessionCache(current,cache),System.currentTimeMillis())
                         lastWritten=current.sequence
                     }
                 }
@@ -218,20 +216,33 @@ class PortalRepository(
     suspend fun prompt(live:LiveSession,text:String,resourceUri:String?=null,attachments:List<PromptAttachment> = live.attachments.value) = live.promptSubmission.withLock {
         check(!live.state.value.sessionClosed && live.info.status!="exited") {"This agent session stopped. Open Sessions to continue."}
         check(!live.state.value.processing && !live.state.value.replaying) { "Wait for the current turn to finish" }
-        val attached=checkedAttachments(live.info,attachments+(resourceUri?.let {listOf(contextReference(it))} ?: emptyList()))
-        require(text.isNotBlank() || attached.isNotEmpty()) {"Enter a message or attach a file."}
-        val message=request(UUID.randomUUID().toString(),"session/prompt",buildJsonObject {
-            put("sessionId",live.info.acpSessionId)
-            put("prompt",promptContent(text,attached))
-        })
-        val bytes=message.toString().toByteArray(Charsets.UTF_8)
-        require(bytes.size<=MAX_PROMPT_WIRE_BYTES) {"This prompt is too large. Shorten the message or remove an attachment."}
-        live.submittedAttachments=message["id"].text() to attachments
-        live.state.update {it.copy(processing=true,promptRequestId=message["id"].toString())}
+        val info=live.info
+        val generation=live.localCopyGeneration.value
+        val id=UUID.randomUUID().toString()
+        val bytes=withContext(Dispatchers.Default) {
+            // Reject obviously oversized text before creating a JSON string and UTF-8 copy.
+            require(text.length<=MAX_PROMPT_WIRE_BYTES) {"This prompt is too large. Shorten the message or remove an attachment."}
+            val attached=checkedAttachments(info,attachments+(resourceUri?.let {listOf(contextReference(it))} ?: emptyList()))
+            require(text.isNotBlank() || attached.isNotEmpty()) {"Enter a message or attach a file."}
+            boundedJsonBytes(request(id,"session/prompt",buildJsonObject {
+                put("sessionId",info.acpSessionId)
+                put("prompt",promptContent(text,attached))
+            }),MAX_PROMPT_WIRE_BYTES,"This prompt is too large. Shorten the message or remove an attachment.")
+        }
+        // Preparation suspends the caller. Recheck execution and local-copy ownership
+        // before sending; reconnect/clear/stop must never revive a prepared submission.
+        check(!live.state.value.sessionClosed && live.info.status!="exited" && !live.manuallyDetached && !live.state.value.processing && !live.state.value.replaying) {"Wait for the session to reconnect before sending."}
+        check(live.info.acpSessionId==info.acpSessionId && live.localCopyGeneration.value==generation) {"File selection expired. Choose the file again."}
+        live.submittedAttachments=id to attachments
+        live.state.update {it.copy(processing=true,promptRequestId=JsonPrimitive(id).toString())}
         try {live.transport.send(bytes)}
         catch(failure:Exception) {live.state.update {it.copy(processing=false,promptRequestId=null)};live.submittedAttachments=null;throw failure}
     }
-    suspend fun cancel(live:LiveSession) { live.transport.send(cancel(live.info.acpSessionId).toString().toByteArray()) }
+    suspend fun cancel(live:LiveSession) {
+        val state=live.state.value
+        check(!state.sessionClosed && state.processing && !state.replaying && live.connection.value==ConnectionState.Connected && !live.manuallyDetached) {"Wait for the active turn to reconnect before stopping it."}
+        live.transport.send(cancel(live.info.acpSessionId).toString().toByteArray())
+    }
     fun dismissSessionError(live:LiveSession) {live.state.update {it.copy(error=null)}}
     suspend fun permission(live:LiveSession,permission:Permission,optionId:String) {
         val state=live.state.value

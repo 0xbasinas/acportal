@@ -1,5 +1,22 @@
 # Previous-task recovery verification
 
+## Controlled live workflow (PR #9)
+
+Start `python scripts/recovery-host.py` in a separate terminal and use its printed loopback port with `verify-task-recovery.ps1 -AdbPath <adb-path> -MainActivity -Scenario LiveConversation -FixturePort <port> -Overflow count` (or `bytes`). Each scenario requires a fresh server with zero counters. The fixture uses only a disposable fixture credential and never launches an agent or writes a workspace. REST metadata and WebSocket replay are held independently. The runner owns/removes its adb reverse port, verifies distinct process/same task and checks cached state before releasing refresh. No instrumentation runs between termination and restoration. Only an explicit scoped denial may increment the mutation counter.
+
+Wait for final verification/cleanup before stopping the server or preparing another run. On failure, inspect the same process/task; do not wipe data or overwrite the fixture. The standalone `TaskRecoveryNavigationTest#cleanOwnedStorageAfterInterruptedWorkflow` checks recorded production fingerprints, removes only the recorded task and closes/restores owned stores before deleting its root. This cleanup is not acceptance and must never run as a whole recovery test class. Historical failures and fixed regressions remain separate evidence.
+
+
+9 October 2026: the external runner also accepts `-Scenario OfflineConversation`. With `-MainActivity`, it verifies restored saved history for two isolated interrupted sessions, retained histories/drafts, hidden stale approvals and Back navigation after actual process absence in the same task. Preparation and final storage/preservation checks pass separately; no instrumentation replaces the task during restoration. This is offline acceptance, not live-session/authoritative-replay or scroll/expansion acceptance. See [the active Android acceptance checklist](android-acceptance.md).
+
+```powershell
+./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe' -MainActivity -Scenario OfflineConversation
+```
+
+If hardware text entry stalls although the owned editor reports focus, inspect the emulator IME before restarting a recovery run. The final follow-up required a data-preserving emulator reboot; a keyboard-service restart alone did not make the complete workflow reliable. The selected IME remained unchanged and no app/AVD data was cleared. Clean an interrupted fixture through its standalone preservation method before preparing another. Trial keyboard-handoff helper changes were discarded; retain the original input checks and record environmental failures separately.
+
+The default scenario remains MCP and its original MainActivity workflow passes as a separate regression. All scenarios use the same owned fixture root and must finish verification/cleanup before preparing another; never overwrite a failed fixture to restart a test.
+
 7 October 2026. This checkpoint verifies the MCP route/back stack after background process termination on emulator-5554, using both the dedicated debug Activity and the actual MainActivity with isolated storage. It does not establish full-session, pending-permission, physical-device or all-route recovery.
 
 ## What the workflow proves

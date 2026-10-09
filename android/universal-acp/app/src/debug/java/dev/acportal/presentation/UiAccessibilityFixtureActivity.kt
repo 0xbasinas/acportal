@@ -40,13 +40,13 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
             val keyboard=WindowInsets.isImeVisible
             SideEffect {fixtureKeyboardVisible=keyboard}
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {
-                if(page=="conversation")ConversationFixture()
+                if(page=="conversation" || page=="elicitation")ConversationFixture(page=="elicitation")
                 else if(page=="logs")ConnectionLogsScreen(listOf(
                     ConnectionDiagnostic(1000,"Info","Fixture connection opened"),
                     ConnectionDiagnostic(2000,"Warning","Fixture reconnect waiting"),
                     ConnectionDiagnostic(3000,"Error","Fixture connection unavailable")
                 ),{fixtureActions.add("back")},"Fixture computer",ConnectionState.Disconnected)
-                else if(page=="agents")AgentsFixture()
+                else if(page.startsWith("agents"))AgentsFixture(page)
                 else if(page=="recovery") {
                     var state by remember {mutableStateOf(SessionState(error="Fixture connection failed"))}
                     Column {
@@ -61,6 +61,11 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
                         var decision by rememberSaveable {mutableStateOf("No decision")}
                         Text("Fixture decision: $decision")
                         PermissionRequest(shellPermission(),decision=="No decision") {decision=it;fixtureDecision=it}
+                    } else if(page=="notices") {
+                        ScreenHeader("Agent safety notices")
+                        OwnToolsNotice(compact=true)
+                        ToolCard(TimelineItem.Tool("write-changed","Fixture changed write","edit","completed",hostWrite=HOST_WRITE_CHANGED))
+                        ToolCard(TimelineItem.Tool("write-unchanged","Fixture unchanged write","edit","completed",hostWrite=HOST_WRITE_UNCHANGED))
                     } else {
                         ScreenHeader("Activity review")
                         for((decision,layer) in listOf("allow" to "rules","deny" to "model","ask" to "rules","reviewing" to "model")) {
@@ -74,19 +79,20 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
             }}
         }
     }
-    @Composable private fun AgentsFixture() {
-        val agent=remember {AgentInfo("fixture-agent","Fixture agent",installed=true,status="available")}
+    @Composable private fun AgentsFixture(page:String) {
+        val saved=if(page=="agents-saved")1000L else null
+        val agent=remember {AgentInfo("fixture-agent","Fixture agent",installed=true,status=if(page=="agents-error")"misconfigured" else "available",reason=if(page=="agents-error")"Fixture executable unavailable" else null)}
         var details by rememberSaveable {mutableStateOf(false)}
         if(details)RegistryAgentDetailsScreen(agent,"Fixture computer",false,
             {details=false;fixtureActions.add("agent-back")},
-            {fixtureActions.add("agent-refresh")},{fixtureActions.add("new-session")})
+            {fixtureActions.add("agent-refresh")},{fixtureActions.add("new-session")},savedAt=saved)
         else RegistryAgentsScreen(HostDetails(
             HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0),
             listOf(agent),emptyList(),emptyList(),emptyList()),
             {fixtureActions.add("back")},{fixtureActions.add("agents-refresh")},
-            {details=true;fixtureActions.add("inspect:$it")})
+            {details=true;fixtureActions.add("inspect:$it")},savedAt=saved)
     }
-    @Composable private fun ConversationFixture() {
+    @Composable private fun ConversationFixture(elicitation:Boolean=false) {
         val info=remember {SessionInfo("native-conversation","fixture-agent","fixture-acp","/workspace/fixture")}
         val live=remember {
             val transport=object:AgentTransport {
@@ -104,11 +110,15 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
                 28->TimelineItem.Text("history-fixture","user","Previously submitted fixture prompt",promptText="Previously submitted fixture prompt")
                 else->TimelineItem.Text("restore-text-$index","agent","Conversation anchor $index\n"+"Fixture retained history. ".repeat(5))
             }}
-            LiveSession(HostProfile("fixture-host","Fixture","https://example.invalid","fixture-alias","fixture-device",0),info,transport,SessionState(items=items)).also {it.connection.value=ConnectionState.Connected}
+            val question=Permission(JsonPrimitive("fixture-question"),buildJsonObject {
+                put("mode","form");put("message","Fixture lifecycle question")
+                putJsonObject("requestedSchema") {put("type","object");putJsonObject("properties") {putJsonObject("name") {put("type","string");put("title","Fixture name")}};putJsonArray("required") {add("name")}}
+            },ELICITATION_METHOD)
+            LiveSession(HostProfile("fixture-host","Fixture","https://example.invalid","fixture-alias","fixture-device",0),info,transport,SessionState(items=items,permissions=if(elicitation)mapOf(question.id.toString() to question) else emptyMap())).also {it.connection.value=ConnectionState.Connected}
         }
         SessionScreen(live,StoredSession("fixture-host",info.id,WireJson.encodeToString(SessionInfo.serializer(),info),draft="Owned conversation draft"),
             onBack={},onPrompt={_,_->error("No fixture prompt")},onCancel={},onPermission={_,_->error("No fixture permission")},onConfigure={_,_->error("No fixture configuration")},onDraft={},
-            onAddAttachment={_,_->error("No fixture attachments")},onRemoveAttachment={})
+            onAddAttachment={_,_->error("No fixture attachments")},onRemoveAttachment={},onElicitation={_,action,_->fixtureActions.add("elicitation:$action")})
     }
     private fun shellPermission()=Permission(JsonPrimitive("native-fixture"),buildJsonObject {
         putJsonObject("_meta") {put("acpdSource","host-shell-command")}

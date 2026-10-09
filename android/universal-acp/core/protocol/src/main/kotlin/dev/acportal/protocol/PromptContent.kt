@@ -16,7 +16,7 @@ fun checkedAttachments(info:SessionInfo,attachments:List<PromptAttachment>):List
         val required=when(attachment.content["type"].text()) {"image"->"image";"audio"->"audio";"resource"->"embeddedContext";"resource_link"->null;else->error("Unsupported attachment type.")}
         require(required==null || info.promptCapability(required)) {"This agent does not support that attachment type."}
     }
-    require(JsonArray(attachments.map {it.content}).toString().toByteArray(Charsets.UTF_8).size<=MAX_ATTACHMENT_WIRE_BYTES) {"Attachments are too large. Remove a file or choose a smaller one."}
+    boundedJsonBytes(JsonArray(attachments.map {it.content}),MAX_ATTACHMENT_WIRE_BYTES,"Attachments are too large. Remove a file or choose a smaller one.")
     return attachments
 }
 

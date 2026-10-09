@@ -15,6 +15,7 @@ import androidx.room3.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import dev.acportal.PortalApplication
 import dev.acportal.data.PortalRepository
+import dev.acportal.data.HostApi
 import dev.acportal.security.CredentialVault
 import dev.acportal.storage.PortalDatabase
 import dev.acportal.storage.SettingsStore
@@ -29,7 +30,7 @@ class TaskRecoveryFixtureStore(context:Context) {
     val db=Room.databaseBuilder<PortalDatabase>(context,File(root,"portal.db").absolutePath).setDriver(AndroidSQLiteDriver()).build()
     val settings=SettingsStore(context,PreferenceDataStoreFactory.create(scope=scope,produceFile={File(root,"settings.preferences_pb")}))
     val vault=CredentialVault(object:ContextWrapper(context) {override fun getNoBackupFilesDir()=root})
-    val repository=PortalRepository(db.portal(),(context.applicationContext as PortalApplication).repository.api,vault,settings,scope)
+    val repository=PortalRepository(db.portal(),HostApi((context.applicationContext as PortalApplication).repository.api.client,vault),vault,settings,scope)
     fun close() {runBlocking {scope.coroutineContext[Job]!!.cancelAndJoin()};db.close()}
 }
 

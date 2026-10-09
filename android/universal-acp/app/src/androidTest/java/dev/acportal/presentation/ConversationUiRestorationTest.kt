@@ -38,6 +38,18 @@ class ConversationUiRestorationTest {
             compose.onNodeWithContentDescription("Collapse tool: Restore anchor tool").assertExists()
             compose.onNodeWithContentDescription("Hide agent thoughts").assertExists()
             compose.onNode(hasSetTextAction()).assertTextEquals("Owned conversation draft")
+            // Move expanded activity offscreen before saving. Lazy item state alone
+            // does not preserve those disclosures across process/task restoration.
+            list.performScrollToNode(hasText("Conversation anchor 50",substring=true))
+            val farBefore=compose.onNodeWithText("Conversation anchor 50",substring=true).getUnclippedBoundsInRoot()
+            scenario.recreate();compose.waitForIdle()
+            val farAfter=compose.onNodeWithText("Conversation anchor 50",substring=true).getUnclippedBoundsInRoot()
+            assertTrue("Offscreen disclosure checkpoint moved the scroll anchor",kotlin.math.abs((farAfter.top-farBefore.top).value)<3.dp.value)
+            list.performScrollToNode(hasText("Restore expanded thought"))
+            compose.onNodeWithContentDescription("Hide agent thoughts").assertExists()
+            list.performScrollToNode(hasContentDescription("Collapse tool: Restore anchor tool"))
+            compose.onNodeWithContentDescription("Collapse tool: Restore anchor tool").assertExists()
+            list.performScrollToNode(hasText("Restore expanded thought"))
             // Leaving and returning from a real conversation detail page retains activity state.
             compose.onNodeWithContentDescription("Session menu").performClick()
             compose.onNodeWithText("Connection details").performClick()

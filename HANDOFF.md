@@ -1,5 +1,20 @@
 # ACP Portal agent handoff
 
+9 October 2026 PR #9 continuation: controlled live MainActivity recovery now verifies cached state before held metadata/replay, two independent sessions, authoritative replaced/removed approvals, exact scroll and offscreen disclosures, and count/byte overflow through actual screens. Cache size and prompt serialization fixes address observed SQLite overflow and main-thread allocations. Scoped JVM/build/device results and remaining limitations are in [Android acceptance](docs/android-acceptance.md). Real-agent recovery, exact allocator profiling and the broader page-state/focus matrix remain open. Native TalkBack passes 20 cases at normal font and separately 20 at actual 2.0; earlier hardware-gesture stalls and the bounded focus-only retry are recorded in the acceptance document.
+
+
+## Next implementation priorities
+
+Finish the remaining page-state/focus/scroll matrix (MCP, workspace policy/browser, Changes and other detail routes) with isolated controlled responses. Broaden elicitation through actual live replay/real agents and verify new warning/notice contrast and navigation on the remaining entry points. Audit pre-existing oversized session rows and other draft/metadata columns without wiping saved data; extend privacy-safe allocator/provider pressure measurements beyond sampled regression bounds. The controlled live process-death/count/byte workflows are now implemented; retain their independent metadata/replay holds and production preservation checks when extending them. Physical-phone and signed acceptance remain suspended/user-owned; tablet/landscape is excluded. Rust is unchanged in this increment.
+
+## Initial Android acceptance checkpoint — 9 October 2026 (historical scope)
+
+PR #8 is merged on main at ada4798. User authorized a new branch and the full conversation recovery, new-screen, memory/stress and remaining UI/accessibility work. Current branch is codex/android-recovery-acceptance. The latest checkpoint above supersedes the initial limits below only to its stated scope. Inspect Git status and preserve any subsequent edits. Full checklist: docs/android-acceptance.md.
+
+First verified increment extends the existing external MainActivity task harness with OfflineConversation: two histories/drafts, hidden cached approvals, same-task/distinct-process restoration after verified absence, Back to session actions/Sessions and independent second conversation. Both storage phases preserve production fingerprints/aliases and clean the fixture. Original MCP MainActivity workflow also passes. Logs and limits are in docs/android-acceptance.md. No live host/replay or conversation scroll/expansion acceptance yet. ElicitationScreenUiTest passes both themes at normal and actual font2.0 for validation/typed values/exact choices/required empty arrays, disabled controls and explicit answers with native IME visible. Font restores1.0. Sheet lifecycle/TalkBack remain open.
+
+Continue with an external controlled host that survives Android process death for live/pending-approval/multi-session recovery, then native new-screen/TalkBack, attachment/heap profiling and remaining page-state/focus/scroll checks. Source inspection found prompt serialization on the UI caller's thread; measure and address this without introducing replay/mutation races. Revalidate emulator/owned fixtures before any run. Do not run TaskRecoveryNavigationTest as a normal full class.
+
 ## PR #8 review fixes — 9 October 2026
 
 The review reproduced two elicitation bugs before fixing them: a single-choice constant with surrounding whitespace could never pass validation, and a required array with minItems0 incorrectly required a selection. Choice validation/serialization now preserves exact constants (including an empty string); required arrays may be empty unless their item bounds forbid it. Optional unselected fields remain omitted.

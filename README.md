@@ -1,5 +1,10 @@
 # ACP Portal
 
+9 October 2026 PR #9 continuation: controlled live MainActivity recovery now verifies cached state before held metadata/replay, two independent sessions, authoritative replaced/removed approvals, exact scroll and offscreen disclosures, and count/byte overflow through actual screens. Cache size and prompt serialization fixes address observed SQLite overflow and main-thread allocations. Scoped JVM/build/device results and remaining limitations are in [Android acceptance](docs/android-acceptance.md). Real-agent recovery, exact allocator profiling and the broader page-state/focus matrix remain open. Native TalkBack passes 20 cases at normal font and separately 20 at actual 2.0; earlier hardware-gesture stalls and the bounded focus-only retry are recorded in the acceptance document.
+
+
+[Android acceptance work](docs/android-acceptance.md) continues after merged PR #8. Scoped offline two-session MainActivity process-death recovery passes; live conversation/approval replay, new-screen device coverage, memory profiling and broader UI acceptance remain active.
+
 PR #8 elicitation validation fixes preserve exact advertised choice values and allow required empty arrays when their item bounds permit them. Verification: 59 core/36 app JVM tests, both debug APK builds and lint pass. Native form/TalkBack acceptance remains open; see [the handoff](HANDOFF.md) and [verification history](TODO_DONE.md).
 
 An Android client and Rust host for coding agents that speak Agent Client Protocol. Agent commands live in a host registry. The Android client will never need a release to learn a new agent's executable or arguments.
@@ -10,7 +15,7 @@ The implemented local client uses **Goose ACP** by default. Tests use a determin
 
 Opt-in shell review requires manual consent for agent-supplied terminal environment overrides and filename patterns. The Linux testy callback runner isolates upstream fixed `/tmp` paths in a private mount; see [testy verification and limits](docs/testy.md).
 
-[UI/accessibility work](docs/ui-accessibility.md) is active. Scoped emulator checks cover review badges, conversation restoration, conversation/history, pairing and MCP keyboards, and native TalkBack including automatic recovery/Agent focus at normal and actual 2.0 font scale. Broader pages, forms and route focus-restoration acceptance remain open. [HANDOFF.md](HANDOFF.md) records the current uncommitted continuation checkpoint.
+[UI/accessibility work](docs/ui-accessibility.md) is active. Scoped emulator checks cover review badges, conversation restoration, conversation/history, pairing and MCP keyboards, and native TalkBack including automatic recovery/Agent focus at normal and actual 2.0 font scale. Broader pages, forms and route focus-restoration acceptance remain open. [HANDOFF.md](HANDOFF.md) records the current continuation checkpoint.
 
 Merged `main` at `981a97a` passes [Rust Actions verification](https://github.com/0xbasinas/acportal/actions/runs/37818450569) and [Android Actions verification](https://github.com/0xbasinas/acportal/actions/runs/37818455265), including the private-mount testy scenarios, Linux shell-review regressions and 47 core/35 app JVM tests. See [verification history](TODO_DONE.md) for coverage and remaining acceptance limits.
 
