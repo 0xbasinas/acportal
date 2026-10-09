@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)][string]$AdbPath,
     [string]$Serial='emulator-5554',
     [switch]$Prepared,
-    [switch]$MainActivity
+    [switch]$MainActivity,
+    [ValidateSet('Mcp','OfflineConversation')][string]$Scenario='Mcp'
 )
 $ErrorActionPreference='Stop'
 $taskComponent=if($MainActivity){'dev.acportal/dev.acportal.MainActivity'}else{'dev.acportal/dev.acportal.presentation.TaskRecoveryFixtureActivity'}
@@ -54,7 +55,7 @@ function Tap-TaskNode([string]$Text='', [string]$Description='') {
     $null=Invoke-TaskAdb @('shell','input','tap',"$taskX","$taskY")
 }
 function Run-TaskTest([string]$Method) {
-    $taskResult=Invoke-TaskAdb @('shell','am','instrument','-w','-r','-e','class',"dev.acportal.presentation.TaskRecoveryNavigationTest#$Method",$taskRunner)
+    $taskResult=Invoke-TaskAdb @('shell','am','instrument','-w','-r','-e','taskScenario',$Scenario,'-e','class',"dev.acportal.presentation.TaskRecoveryNavigationTest#$Method",$taskRunner)
     if ($taskResult -notmatch 'OK \(1 test\)') {throw $taskResult}
     Write-Output "Passed $Method"
 }
@@ -69,6 +70,13 @@ if ($MainActivity) {
 }
 try {
     $null=Invoke-TaskAdb @('shell','am','start','-W','-n',$taskComponent,'-a','android.intent.action.MAIN','-c','android.intent.category.LAUNCHER','-f','0x10000000')
+    if($Scenario -eq 'OfflineConversation') {
+        Tap-TaskNode -Text 'Offline 1 prompt'
+        Tap-TaskNode -Text 'View saved conversation'
+        $null=Wait-TaskNode -Text 'Offline 1 retained answer'
+        $taskUi=Read-TaskUi
+        if($taskUi.OuterXml -match 'Do not approve stale request|Stale offline approval') {throw 'Offline copy exposes stale permission controls'}
+    } else {
     Tap-TaskNode -Description 'Settings tab'
     Tap-TaskNode -Text 'MCP servers'
     Tap-TaskNode -Text 'Task workstation'
@@ -80,6 +88,7 @@ try {
     $null=Invoke-TaskAdb @('shell','input','keyevent','4')
     $taskBeforeBackground=Read-TaskUi
     if ($taskBeforeBackground.OuterXml -notmatch 'unsaved-task-value') {throw 'Keyboard dismissal unexpectedly discarded the editor draft'}
+    }
     $taskPrevious=Read-TaskProperties 'created.properties'
     if ($taskPrevious.savedState -ne 'false') {throw 'Preparation unexpectedly restored old state'}
     $null=Invoke-TaskAdb @('shell','run-as','dev.acportal','cp','cache/task-recovery-fixture/created.properties','cache/task-recovery-fixture/checkpoint.properties')
@@ -97,10 +106,26 @@ try {
     $taskRemaining=& $AdbPath -s $Serial shell pidof dev.acportal
     if ($taskRemaining) {throw 'App process remained alive'}
     $null=Invoke-TaskAdb @('shell','am','start','-W','-n',$taskComponent,'-a','android.intent.action.MAIN','-c','android.intent.category.LAUNCHER','-f','0x10000000')
-    $null=Wait-TaskNode -Text 'Task saved server'
+    if($Scenario -eq 'OfflineConversation') {$null=Wait-TaskNode -Text 'Offline 1 retained answer'}
+    else {$null=Wait-TaskNode -Text 'Task saved server'}
     $taskRestored=Read-TaskProperties 'created.properties'
     if ($taskRestored.pid -eq $taskPrevious.pid -or $taskRestored.task -ne $taskPrevious.task -or $taskRestored.savedState -ne 'true') {throw 'Previous task/framework state was not restored in a distinct process'}
     $taskRestoredUi=Read-TaskUi
+    if($Scenario -eq 'OfflineConversation') {
+        if($taskRestoredUi.OuterXml -match 'Do not approve stale request|Stale offline approval') {throw 'Restored offline copy exposes stale approvals'}
+        Tap-TaskNode -Description 'Back'
+        $null=Wait-TaskNode -Text 'View saved conversation'
+        Tap-TaskNode -Description 'Back'
+        $null=Wait-TaskNode -Description 'Sessions tab'
+        Tap-TaskNode -Text 'Offline 2 prompt'
+        Tap-TaskNode -Text 'View saved conversation'
+        $null=Wait-TaskNode -Text 'Offline 2 retained answer'
+        Tap-TaskNode -Description 'Back'
+        Tap-TaskNode -Description 'Back'
+        $null=Wait-TaskNode -Text 'Offline 1 prompt'
+        $null=Wait-TaskNode -Text 'Offline 2 prompt'
+        Write-Output "Verified task $($taskRestored.task), distinct PID, restored offline history, guarded stale approvals and two-session Back navigation."
+    } else {
     if ($taskRestoredUi.OuterXml -match 'unsaved-task-value|Server name') {throw 'Unsaved editor draft was restored'}
     Tap-TaskNode -Description 'Back'
     $null=Wait-TaskNode -Text 'Task workstation'
@@ -109,6 +134,7 @@ try {
     $null=Wait-TaskNode -Text 'Appearance'
     $null=Wait-TaskNode -Text 'History on this device'
     Write-Output "Verified task $($taskRestored.task), distinct PID, restored MCP route, discarded draft and Back to chooser/Settings."
+    }
     if($MainActivity) {$null=Invoke-TaskAdb @('shell','am','force-stop','dev.acportal')}
     else {$null=Invoke-TaskAdb @('shell','am','start','-n',$taskComponent,'-a','android.intent.action.MAIN','-c','android.intent.category.LAUNCHER','-f','0x30000000','--ez','finish_fixture','true')}
     Run-TaskTest 'verifyRecordedTaskRestorationAndCleanOwnedStorage'

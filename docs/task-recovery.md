@@ -1,5 +1,13 @@
 # Previous-task recovery verification
 
+9 October 2026: the external runner also accepts `-Scenario OfflineConversation`. With `-MainActivity`, it verifies restored saved history for two isolated interrupted sessions, retained histories/drafts, hidden stale approvals and Back navigation after actual process absence in the same task. Preparation and final storage/preservation checks pass separately; no instrumentation replaces the task during restoration. This is offline acceptance, not live-session/authoritative-replay or scroll/expansion acceptance. See [the active Android acceptance checklist](android-acceptance.md).
+
+```powershell
+./scripts/verify-task-recovery.ps1 -AdbPath 'C:/Users/<you>/AppData/Local/Android/Sdk/platform-tools/adb.exe' -MainActivity -Scenario OfflineConversation
+```
+
+The default scenario remains MCP and its original MainActivity workflow passes as a separate regression. Both scenarios use the same owned fixture root and must finish verification/cleanup before preparing another; never overwrite a failed fixture to restart a test.
+
 7 October 2026. This checkpoint verifies the MCP route/back stack after background process termination on emulator-5554, using both the dedicated debug Activity and the actual MainActivity with isolated storage. It does not establish full-session, pending-permission, physical-device or all-route recovery.
 
 ## What the workflow proves

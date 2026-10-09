@@ -1,5 +1,13 @@
 # ACP Portal agent handoff
 
+## Active Android acceptance — 9 October 2026
+
+PR #8 is merged on main at ada4798. User authorized a new branch and the full conversation recovery, new-screen, memory/stress and remaining UI/accessibility work. Current branch is codex/android-recovery-acceptance and contains the initial verified increments below. Inspect Git status and preserve any subsequent edits. Full checklist: docs/android-acceptance.md.
+
+First verified increment extends the existing external MainActivity task harness with OfflineConversation: two histories/drafts, hidden cached approvals, same-task/distinct-process restoration after verified absence, Back to session actions/Sessions and independent second conversation. Both storage phases preserve production fingerprints/aliases and clean the fixture. Original MCP MainActivity workflow also passes. Logs and limits are in docs/android-acceptance.md. No live host/replay or conversation scroll/expansion acceptance yet. ElicitationScreenUiTest passes both themes at normal and actual font2.0 for validation/typed values/exact choices/required empty arrays, disabled controls and explicit answers with native IME visible. Font restores1.0. Sheet lifecycle/TalkBack remain open.
+
+Continue with an external controlled host that survives Android process death for live/pending-approval/multi-session recovery, then native new-screen/TalkBack, attachment/heap profiling and remaining page-state/focus/scroll checks. Source inspection found prompt serialization on the UI caller's thread; measure and address this without introducing replay/mutation races. Revalidate emulator/owned fixtures before any run. Do not run TaskRecoveryNavigationTest as a normal full class.
+
 ## PR #8 review fixes — 9 October 2026
 
 The review reproduced two elicitation bugs before fixing them: a single-choice constant with surrounding whitespace could never pass validation, and a required array with minItems0 incorrectly required a selection. Choice validation/serialization now preserves exact constants (including an empty string); required arrays may be empty unless their item bounds forbid it. Optional unselected fields remain omitted.

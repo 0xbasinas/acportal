@@ -1,5 +1,7 @@
 # Screen acceptance checkpoint
 
+9 October 2026 new-screen checkpoint: isolated production elicitation form checks pass dark/light at normal font and separately actual font2.0, including native IME reachability, explicit answers and validation. Actual MainActivity offline two-session same-task process-death restoration also passes, with cached approvals hidden and data preservation/cleanup checks. This excludes live replay, TalkBack, modal-sheet lifecycle and fresh mockup/screenshot comparison. See [the active Android checklist](android-acceptance.md).
+
 8 October 2026, PR #8: new screens are the host write notices on tool cards, the own-tools warning (agent list and details, new session, conversation, session agent details) and the form elicitation sheet. They pass JVM tests, a local debug build and lint (0 errors), but have no emulator or screenshot evidence yet. See "PR #8 increment" in [ui-accessibility.md](ui-accessibility.md).
 
 8 October 2026 latest MCP keyboard checkpoint: six ConfigurationLayoutUiTest cases pass, followed by two dark/light native-keyboard cases at actual system font2.0. Actual taps reach Save while the IME remains visible; in-memory definitions/callbacks avoid production writes. Test APK build passes and font restores1.0. No new screenshots, live-host write, production source change or lint/JVM/core/Rust rerun. Broader screen acceptance stays open in [the active checklist](ui-accessibility.md); [the current handoff](../HANDOFF.md) records next work and local uncommitted state.

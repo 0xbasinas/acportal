@@ -1,5 +1,7 @@
 # Original request audit
 
+9 October 2026 post-merge Android acceptance: MainActivity restores offline two-session history/navigation after verified process absence; saved drafts/production fingerprints are preserved and stale approval controls hidden. Rendered elicitation/native-keyboard checks pass dark/light at actual font1.0/2.0 separately. Live conversation/replay, memory profiling and broader UI/TalkBack acceptance remain open in [android-acceptance.md](android-acceptance.md). No app-wide or production-completion claim.
+
 9 October 2026 PR #8 review follow-up: exact elicitation choice constants and schema-permitted required empty arrays are corrected with five permanent regression cases. Affected checks pass59 core/36 app JVM tests, both debug APK builds and lint, without native Android acceptance. Broader requirements remain open; see TODO_DONE.md and the UI checklist.
 
 8 October 2026 latest continuation checkpoint: MCP keyboard coverage now passes in both themes with actual taps and explicit Save while native IME is visible. Six layout cases and separately two native keyboard cases at actual font2.0 pass, with restoration to font1.0. Test APK build passes; fixtures use only in-memory data. This adds scoped keyboard evidence, not live MCP/lifecycle or full accessibility acceptance. Remaining saved/error Agents TalkBack, badge screen-reader outcomes, page-state matrix and scroll restoration are tracked in [the active checklist](ui-accessibility.md) and [current handoff](../HANDOFF.md). Implementation is local and uncommitted.

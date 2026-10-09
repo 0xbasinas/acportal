@@ -6,6 +6,8 @@ Local agent: Goose ACP. Phone connections use authenticated REST/WebSocket; the 
 
 ## Next priorities
 
+Current requested implementation, 9 October 2026: PR #8 is merged (`ada4798`); work continues on `codex/android-recovery-acceptance`. [docs/android-acceptance.md](docs/android-acceptance.md) tracks the full conversation recovery, new screens, memory/stress and UI/accessibility scope. Actual MainActivity offline two-session process-death recovery passes; live conversations/authoritative approval replay remain open. The previous-task harness also passes its MCP regression.
+
 Maintenance: periodically move completed checklist items and their verification notes to [TODO_DONE.md](TODO_DONE.md), preferably at each finished increment or handoff. Preserve their wording, evidence and limits; keep remaining follow-up work here. Do not mark unverified work complete merely to archive it.
 
 Active UI/accessibility goal: [docs/ui-accessibility.md](docs/ui-accessibility.md) keeps the full checklist. Shell/recovery, all badge outcomes, actual conversation restoration, conversation/history, pairing and MCP keyboards, and scoped native TalkBack automatic recovery/Agent focus now pass. Broader page states/forms, history cache/process death, page scroll and accessibility focus across more routes remain open. Continue in the order recorded in HANDOFF.md. The work continues in PR #8; the host-write notices, own-tools warning and form elicitation sheet added there have JVM tests only, no emulator or TalkBack checks yet.
