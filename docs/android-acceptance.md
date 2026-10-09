@@ -78,3 +78,43 @@ Offline MainActivity regression passes again on final APKs (task 2079): `.local/
 A final interrupted MCP fixture cleanup passes before a data-preserving emulator reboot. No app/AVD data is wiped, and keyboard selection/font values remain unchanged. The original MCP input steps are retained; the rebooted-device result is recorded separately below.
 
 Final original MCP MainActivity workflow passes after the data-preserving reboot: `.local/mcp-recovery-final-after-emulator-reboot.log`. Preparation, same-task/distinct-process restoration, discarded unsaved draft, Back through chooser/Settings and final production fingerprint/alias preservation/owned cleanup all pass. No instrumentation runs during process absence/restoration. Trial keyboard-helper changes are not shipped. Emulator identity is revalidated as small_phone/API36/720×1280/density320; font 1.0, rotation 1/user rotation 0, services null/accessibility 0/touch exploration 0 and the original selected IME are verified after cleanup. The owned diagnostic hierarchy file is removed. All started builds/instrumentations/fixture servers have terminal outcomes.
+
+## Older-data safety and Sessions memory (PR #10, 9 October 2026)
+
+What changed, all checked by JVM tests only:
+
+- **Reading saved sessions.** The `sessions()` and `session()` queries check each column's size in SQLite (`length(CAST(col AS BLOB))`), so a row can never be larger than Android's 2 MiB CursorWindow:
+  - metadata over 256 KiB is read as empty;
+  - a saved conversation over 1 MiB is read as `{"historyGap":true}`;
+  - a draft over 512 KiB is read as empty.
+
+  Saved agent catalogues over 1 MiB are read as empty. Reading deletes nothing. The next refresh of session details from the host writes the placeholders back, which shrinks the row. The oversized copy could not be loaded anyway, and the host replays the history. Before this, one row written by an older version could fail the whole Sessions query with `SQLiteBlobTooBigException`. The schema is unchanged, so no migration is needed.
+- **Unreadable or replaced data.** Session details now show as "Details unavailable" until the host refreshes them, instead of crashing the Sessions list, navigation, resume or workspace-access checks. Resume and workspace access treat such a session as unknown. A saved conversation that cannot be read opens empty with a history gap, and the host replays it.
+- **Writing.** Drafts are cut at a character boundary to 512 KiB, which is the largest prompt the app can send. Session details first drop the agent's setup choices, which are read from the host again, and then keep only the capabilities the offline pages use. Saving fresh details from the host replaces the empty placeholders.
+- **Sessions list.** Titles, times and search text are worked out off the main thread. Only rows that changed are decoded again (`SessionListSummaries`). Before this, every save, about twice a second while an agent works, decoded the full saved conversation of every row on the main thread. Search now looks at the workspace, the agent, the title and up to 16k characters of conversation text, not the raw stored JSON. Before, words like `role` or `sequence` matched every session.
+- **Timeline retention.** Retention no longer serialises every tool, content or plan item again on each update. Each item's JSON size is computed once and cached in memory, and is not stored (`TimelineRetentionCostTest`).
+
+JVM tests: `StoredLimitsTest` (8), `SessionListSummaryTest` (5) and `TimelineRetentionCostTest` (3).
+
+### Still needs a device or emulator
+
+1. `OversizedSessionRowsTest` (androidTest; it compiles with `assembleDebugAndroidTest`) writes a 3 MB row into an in-memory Room database. It checks that the guarded queries return the placeholders and that the list still loads. Run it with:
+
+   ```bash
+   ./gradlew :app:connectedDebugAndroidTest \
+     -Pandroid.testInstrumentationRunnerArguments.class=dev.acportal.data.OversizedSessionRowsTest
+   ```
+
+2. Install over an older build that already holds a large session, without wiping data. Then check that Sessions opens and that the conversation shows a history gap and is replayed.
+
+### Heap profiling (Android Studio)
+
+This has not been run yet. It needs an emulator or device.
+
+1. Build and install the debug app. Open **View > Tool Windows > Profiler**, choose the app process and pick **Track Memory Consumption (Java/Kotlin Allocations)**.
+2. Pair with a host and start a long session. The mock agent with a large output, or a real agent asked to print a large file, will do. Keep the Sessions page open in split screen or switch to it now and then.
+3. Record allocations for about 30 seconds while the agent streams. Check that `SessionListSummaries.update` and `sessionListSummary` run on `DefaultDispatcher` threads, not `main`. Also check that `SessionReducer.bounded` no longer allocates `JsonElement.toString` strings for every update.
+4. Capture a heap dump after the stream ends and again after leaving the session. Look for retained `SessionState` and `TimelineItem` instances, and for strings of 1 MiB or more beyond the open session.
+5. Repeat with 4 attachments of 256 KiB in the composer. The prompt is encoded on `Dispatchers.Default` (PR #9); check that the main thread shows no large `ByteArray` or `String` allocations when you tap Send.
+
+Record the device, the API level, and the peak and retained heap figures in this file.
