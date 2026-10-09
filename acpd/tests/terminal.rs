@@ -66,7 +66,7 @@ async fn terminal_kill_release_and_service_drop_stop_descendants() {
         .expect("terminal descendants must stop");
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[tokio::test]
 async fn unix_terminal_kill_release_and_service_drop_stop_descendants() {
     let workspace = tempfile::tempdir().unwrap();
@@ -118,6 +118,22 @@ async fn unix_terminal_kill_release_and_service_drop_stop_descendants() {
         .await
         .unwrap_or_else(|_| panic!("terminal descendant must stop after {reason}"));
     }
+}
+
+/// Other Unix systems (macOS): the same view through `ps`, which reports a zombie as `Z`.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn running_process_group(pid: u32) -> Option<i32> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-o", "pgid=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut fields = text.split_whitespace();
+    let state = fields.next()?;
+    if state.starts_with('Z') {
+        return None;
+    }
+    fields.next()?.parse().ok()
 }
 
 /// Linux view of a process: `None` once it has exited (gone or zombie), otherwise its

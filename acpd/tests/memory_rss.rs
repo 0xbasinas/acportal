@@ -5,9 +5,10 @@
 //! limit while one subscriber per session stalls and another drains. The resident set
 //! growth and peak must stay near `sessions × history_bytes`, far below the streamed
 //! volume. Linux reads `/proc/self/status` (VmRSS/VmHWM); Windows reads the process
-//! working set and its peak (`GetProcessMemoryInfo`). Both include allocator slack; this
-//! is a regression bound, not a precise heap profile. macOS is not covered.
-#![cfg(any(target_os = "linux", windows))]
+//! working set and its peak (`GetProcessMemoryInfo`). macOS reads the resident size
+//! (`proc_pidinfo` task info) and the peak (`getrusage`, bytes on macOS). All include
+//! allocator slack; this is a regression bound, not a precise heap profile.
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 use acpd::{
     config::{Config, RuntimeConfig},
     registry::{AgentDefinition, Registry},
@@ -32,6 +33,35 @@ fn resident_kib() -> (usize, usize) {
             .unwrap_or_else(|| panic!("{name} missing"))
     };
     (field("VmRSS:"), field("VmHWM:"))
+}
+
+/// (current, peak) resident memory of this process in KiB.
+#[cfg(target_os = "macos")]
+fn resident_kib() -> (usize, usize) {
+    // SAFETY: both structs are plain data written by the kernel; the buffer size passed
+    // matches the struct, and the return values are checked before use.
+    unsafe {
+        let mut info: libc::proc_taskinfo = std::mem::zeroed();
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+        let written = libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDTASKINFO,
+            0,
+            (&mut info as *mut libc::proc_taskinfo).cast(),
+            size,
+        );
+        assert_eq!(written, size, "proc_pidinfo failed");
+        let mut usage: libc::rusage = std::mem::zeroed();
+        assert_eq!(
+            libc::getrusage(libc::RUSAGE_SELF, &mut usage),
+            0,
+            "getrusage failed"
+        );
+        (
+            (info.pti_resident_size / 1024) as usize,
+            usage.ru_maxrss as usize / 1024,
+        )
+    }
 }
 
 /// (current, peak) working set of this process in KiB.
