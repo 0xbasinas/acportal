@@ -1,6 +1,8 @@
 # Acceptance report
 
-Status on 9 October 2026 (Europe/Athens): PR #10 merged on main at `6ec49de`, after review at `d4ba9f2`. Documentation continuation is `codex/docs-acceptance-reconciliation`. This is a record of what has been checked and where. It is not a claim that the
+9 October 2026 current continuation: PR #10 is the merged baseline; later model-picker/header, session-creation, pairing/Markdown, native setup/motion and daemon/reload increments are local on `codex/session-model-picker`. Their scoped verification is recorded in [TODO_DONE.md](../TODO_DONE.md). The current host suite passes 116 Windows Rust tests plus strict Clippy/formatting; earlier platform Actions below do not cover these newer sources. [TODO.md](../TODO.md) has been reconciled to outstanding checks, suspended phone/release work and separate future decisions. The dated PR #10 report below remains historical evidence.
+
+Historical PR #10 status on 9 October 2026 (Europe/Athens): PR #10 merged on main at `6ec49de`, after review at `d4ba9f2`. Documentation continuation is `codex/docs-acceptance-reconciliation`. This is a record of what has been checked and where. It is not a claim that the
 product is ready for production. Results from other checks are in [TODO_DONE.md](../TODO_DONE.md),
 [android-acceptance.md](android-acceptance.md), [ui-accessibility.md](ui-accessibility.md) and
 [real-agent-testing.md](real-agent-testing.md). Open work is in [TODO.md](../TODO.md).

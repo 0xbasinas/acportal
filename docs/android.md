@@ -1,5 +1,9 @@
 # Android implementation
 
+9 October 2026: [native CLI setup and motion](native-cli-and-motion.md) adds short host commands and 150/100 ms ordinary page fades with NavDisplay size interpolation disabled. Selected-tab taps retain the route. Predictive Back and sheet defaults are preserved; physical frame-time and broader motion acceptance remain open.
+
+9 October 2026 pairing/Markdown increment: QR imports require explicit pairing; existing TLS/token rules remain unchanged. Native Markdown is limited to agent replies, preserves original storage/export and confirms web links. See [behavior and limits](pairing-and-markdown.md) and [verification history](../TODO_DONE.md). Camera and native TalkBack acceptance remain open.
+
 The Android project is in `android/universal-acp`. Build with `./gradlew :app:assembleDebug` and run JVM tests with `./gradlew :core:protocol:test :app:testDebugUnitTest` (use `gradlew.bat` on Windows). SDK 36 is required. Run Gradle with JDK 21 on this Windows machine; source/toolchain targets remain configured in the build files. Minimum Android version is API 26.
 
 ## Module architecture

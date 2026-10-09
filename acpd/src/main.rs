@@ -14,21 +14,59 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Parser)]
-#[command(version, about = "Agent-agnostic ACP host core and local client")]
+#[command(
+    version,
+    about = "Agent-agnostic ACP host core and local client",
+    after_help = "Everyday workflow:\n  acpd setup --config PATH --address https://YOUR-HOST\n  acpd start                 Keep this terminal open\n  acpd pair                  Scan in the Android app\n  acpd pair --manual          Manual code only\n  acpd doctor                Check the saved configuration"
+)]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
     #[arg(long, global = true)]
     registry: Option<PathBuf>,
+    /// Saved operator setup. Defaults to launcher.json in the acpd config directory.
+    #[arg(long, global = true)]
+    profile: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Remember an existing config and HTTPS address for short start/pair commands.
+    Setup {
+        #[arg(long)]
+        address: Option<String>,
+        #[arg(long, default_value = "Workstation")]
+        name: String,
+    },
     /// Start the authenticated host. Remote listeners require configured TLS.
-    Start,
+    Start {
+        /// Run detached and control it with acpd daemon status/stop/reload.
+        #[arg(long)]
+        background: bool,
+    },
+    /// Manage a local host without using phone credentials.
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonAction,
+    },
+    #[command(hide = true)]
+    DaemonWorker,
     /// Generate a one-use pairing code through the local operator store.
-    Pair,
+    Pair {
+        /// Phone-reachable HTTPS address (for example a Tailscale Serve address).
+        #[arg(long)]
+        address: Option<String>,
+        /// Display a QR code in this terminal. Never redirect pairing output to logs.
+        #[arg(long, conflicts_with = "manual")]
+        qr: bool,
+        /// Print only the manual code even when setup has a saved QR address.
+        #[arg(long, conflicts_with = "qr")]
+        manual: bool,
+        /// Optional connection name included in the QR code.
+        #[arg(long, default_value = "", requires = "address")]
+        name: String,
+    },
     /// List paired device names and expiration without credentials.
     Devices,
     /// Revoke a paired device, including its open sockets at the next heartbeat.
@@ -80,22 +118,116 @@ enum Commands {
         load: Option<String>,
     },
 }
+#[derive(Subcommand)]
+enum DaemonAction {
+    /// Start the saved host in the background.
+    Start,
+    /// Check the authenticated local control channel, never just a saved PID.
+    Status,
+    /// Gracefully stop the managed host and its agent sessions.
+    Stop,
+    /// Validate and atomically reload settings for future sessions.
+    Reload,
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let profile_path = cli
+        .profile
+        .clone()
+        .unwrap_or_else(|| default_directory().join("launcher.json"));
+    if let Commands::Setup { address, name } = &cli.command {
+        let config = match &cli.config {
+            Some(path) => path.clone(),
+            None => PathBuf::from(operator_input("Existing host config path")?),
+        };
+        let address = match address {
+            Some(value) => value.clone(),
+            None => operator_input("Phone-reachable HTTPS address (for example Tailscale Serve)")?,
+        };
+        acpd::launcher::Launcher::prepare(&config, &address, name)?.save(&profile_path)?;
+        println!(
+            "Setup saved. Run acpd start, then acpd pair in a second terminal.\nSetup keeps your existing config, workspace roots and credentials unchanged."
+        );
+        return Ok(());
+    }
+    let saved = if profile_path.exists()
+        && (cli.config.is_none() || matches!(&cli.command, Commands::Pair { address: None, .. }))
+    {
+        Some(acpd::launcher::Launcher::load(&profile_path)?)
+    } else {
+        None
+    };
+    let config_file = cli
+        .config
+        .as_ref()
+        .or_else(|| saved.as_ref().map(|p| &p.config));
     let default_file = default_directory().join("config.toml");
-    let mut config = match &cli.config {
+    let selected_file = config_file.cloned().unwrap_or_else(|| default_file.clone());
+    let control_path = acpd::daemon::record_path(&selected_file, &profile_path)?;
+    if let Commands::Daemon { action } = &cli.command {
+        match action {
+            DaemonAction::Status => {
+                if !control_path.exists() {
+                    println!("No managed host for this config.");
+                    return Ok(());
+                }
+                let reply = acpd::daemon::request(&control_path, "status").await?;
+                println!("Host {} (PID {}).", reply.status, reply.pid);
+                return Ok(());
+            }
+            DaemonAction::Stop => {
+                acpd::daemon::stop(&control_path).await?;
+                println!("Host stopped.");
+                return Ok(());
+            }
+            DaemonAction::Reload => {
+                let reply = acpd::daemon::request(&control_path, "reload").await?;
+                match reply.status.as_str() {
+                    "reloaded" => println!(
+                        "Reloaded. Existing sessions keep their launch settings; future sessions use the new settings."
+                    ),
+                    "restart_required" => bail!(
+                        "reload rejected: listener, TLS, tokens, storage, frame size or logging changed; restart required, previous settings retained"
+                    ),
+                    "invalid_configuration" => bail!(
+                        "reload rejected: invalid config or registry; previous settings retained"
+                    ),
+                    _ => bail!("reload was not accepted"),
+                }
+                return Ok(());
+            }
+            DaemonAction::Start => {}
+        }
+    }
+    let mut config = match config_file {
         Some(file) => Config::load(file)?,
         None if default_file.exists() => Config::load(&default_file)?,
         None => Config::default(),
     };
-    if let Some(path) = cli.registry {
-        config.registry = path;
+    if let Some(path) = &cli.registry {
+        config.registry = path.clone();
+    }
+    if matches!(
+        &cli.command,
+        Commands::Start { background: true }
+            | Commands::Daemon {
+                action: DaemonAction::Start
+            }
+    ) {
+        Config::load(&selected_file)?;
+        Registry::load(&config.registry)?;
+        let pid =
+            acpd::daemon::start(&selected_file, cli.registry.as_deref(), &profile_path).await?;
+        println!("Background host started (PID {pid}). Use acpd daemon status, reload or stop.");
+        return Ok(());
     }
     // Only the long-running host writes the optional bounded file sink; diagnostics and the
     // local client keep stderr-only output and never create log files.
     let log_file = match (&cli.command, &config.logging.file) {
-        (Commands::Start, Some(_)) => Some(acpd::logging::BoundedLog::open(&config.logging)?),
+        (Commands::Start { background: false } | Commands::DaemonWorker, Some(_)) => {
+            Some(acpd::logging::BoundedLog::open(&config.logging)?)
+        }
         _ => None,
     };
     if config.logging.frame_metadata {
@@ -103,14 +235,69 @@ async fn main() -> Result<()> {
     }
     init_tracing(log_file, config.logging.frame_metadata);
     let registry = Registry::load(&config.registry)?;
+    let foreground = matches!(&cli.command, Commands::Start { background: false });
     match cli.command {
-        Commands::Start => Host::new(config, registry)?.serve().await?,
-        Commands::Pair => {
+        Commands::Setup { .. } => unreachable!("setup handled before host initialization"),
+        Commands::Start { background: false } | Commands::DaemonWorker => {
+            if foreground {
+                println!(
+                    "Starting ACP Portal. Keep this terminal open; Ctrl+C stops the host.\nTo connect a phone, run acpd pair in a second terminal."
+                );
+            }
+            let host = Host::new(config, registry)?;
+            if selected_file.exists() {
+                acpd::daemon::serve(host, selected_file, cli.registry.clone(), control_path).await?
+            } else {
+                host.serve().await?
+            }
+        }
+        Commands::Start { background: true } | Commands::Daemon { .. } => {
+            unreachable!("daemon command handled before host initialization")
+        }
+        Commands::Pair {
+            address,
+            qr,
+            manual,
+            name,
+        } => {
+            // An explicit different config must never inherit another host's address.
+            let profile = saved
+                .as_ref()
+                .filter(|p| config_file.is_some_and(|f| p.matches_config(f)));
+            let from_setup = address.is_none() && profile.is_some();
+            let address = address.or_else(|| profile.map(|p| p.address.clone()));
+            let name = if from_setup && name.is_empty() {
+                profile.unwrap().name.clone()
+            } else {
+                name
+            };
+            let qr = !manual && (qr || from_setup);
+            if qr && address.is_none() {
+                bail!(
+                    "QR pairing needs an HTTPS address: run acpd setup or acpd pair --address https://YOUR-HOST --qr"
+                )
+            }
+            if let Some(address) = &address {
+                acpd::pairing_input::validate_pairing_address(address)?;
+                // Validate all presentation inputs before replacing an unexpired code.
+                let preview = acpd::pairing_input::pairing_uri(address, "0000-0000-0000", &name)?;
+                if qr {
+                    acpd::pairing_input::terminal_qr(&preview)?;
+                }
+            }
             let store = SecurityStore::open(&config.state_directory)?;
-            println!(
-                "Pairing code: {}\nExpires in 60 seconds.",
-                store.new_pairing_code()?
-            );
+            let code = store.new_pairing_code()?;
+            println!("Pairing code: {}\nExpires in 60 seconds.", code);
+            if let Some(address) = address {
+                println!("Host address: {address}");
+                if qr {
+                    let uri = acpd::pairing_input::pairing_uri(&address, &code, &name)?;
+                    println!("{}", acpd::pairing_input::terminal_qr(&uri)?);
+                    println!(
+                        "In ACP Portal, choose Scan pairing QR code, review the address, then tap Pair connection."
+                    );
+                }
+            }
         }
         Commands::Devices => println!(
             "{}",
@@ -236,6 +423,22 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn operator_input(label: &str) -> Result<String> {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        bail!("non-interactive setup requires --config and --address")
+    }
+    print!("{label}: ");
+    std::io::stdout().flush()?;
+    let mut value = String::new();
+    std::io::stdin().read_line(&mut value)?;
+    let value = value.trim();
+    if value.is_empty() {
+        bail!("setup value cannot be empty")
+    }
+    Ok(value.into())
 }
 fn init_tracing(log_file: Option<std::sync::Arc<acpd::logging::BoundedLog>>, frame_metadata: bool) {
     use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -417,4 +620,30 @@ async fn render_event(
         std::io::stdout().flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pairing_cli_tests {
+    use super::*;
+    #[test]
+    fn original_pair_command_remains_valid() {
+        assert!(matches!(
+            Cli::try_parse_from(["acpd", "pair"]).unwrap().command,
+            Commands::Pair {
+                address: None,
+                qr: false,
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn qr_can_use_setup_and_manual_is_explicit() {
+        assert!(Cli::try_parse_from(["acpd", "pair", "--qr"]).is_ok());
+        assert!(Cli::try_parse_from(["acpd", "pair", "--qr", "--manual"]).is_err());
+        assert!(
+            Cli::try_parse_from(["acpd", "pair", "--address", "https://host.example", "--qr"])
+                .is_ok()
+        );
+        assert!(Cli::try_parse_from(["acpd", "pair", "--name", "Laptop"]).is_err());
+    }
 }

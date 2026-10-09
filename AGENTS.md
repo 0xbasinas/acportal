@@ -1,6 +1,16 @@
 # ACP Portal contributor context
 
-Current checkpoint, 9 October 2026: PR #10 is merged on main at `6ec49de`, after review at `d4ba9f2`. Documentation continuation is `codex/docs-acceptance-reconciliation`. Reviewed-head [Android Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743959) pass. Local 64 core/52 app JVM tests, both debug APK builds/lint and six scoped storage/Sessions emulator cases pass. [TODO.md](TODO.md) is the active checklist; [TODO_DONE.md](TODO_DONE.md) and [the acceptance report](docs/acceptance-report.md) retain exact evidence and limits.
+9 October 2026 daemon/reload increment: native background mode and operator-only local status/stop/reload are implemented. SessionManager publishes coherent launch snapshots; discovery/browse/future sessions use new settings while current sessions and approvals remain unchanged. Listener/TLS/token/storage/frame/logging changes require restart. See [daemon commands and reload rules](docs/daemon-and-reload.md), the ADR and TODO_DONE.md for actual verification and limits.
+
+9 October 2026 native CLI/motion increment: `acpd setup` remembers an existing config and HTTPS address; `acpd start`, `acpd pair` and `acpd doctor` then use that setup. No wrapper script is required. Android ordinary push/Back now use brief overlapping fades, and selected-tab taps no longer rebuild the route. See [native CLI and motion](docs/native-cli-and-motion.md) and TODO_DONE.md for scoped evidence and remaining phone profiling.
+
+9 October 2026 easier pairing and Markdown on `codex/session-model-picker`: Android offers QR scanning and simpler manual entry; `acpd pair --address HTTPS-ADDRESS --qr --name NAME` prints a terminal QR without changing authentication. Scans fill a reviewable form and never pair automatically. Agent replies render native Markdown with bounded off-Main parsing, literal HTML, no remote image fetch and confirmed web links. See [pairing and Markdown](docs/pairing-and-markdown.md) and TODO_DONE.md for verification and limits.
+
+9 October 2026 All sessions creation implemented on `codex/session-model-picker`: + opens connection selection, then the approved connection/workspace/agent form. Fresh discovery gates Start; pairing, unavailable reads and explicit recovery reuse existing boundaries. Isolated checks pass 14 component regressions, one actual-navigation/failed-creation case and four new-screen cases at actual font 2.0. 52 app JVM tests, both debug APKs and lint pass (0 errors, 16 warnings). Real-phone and native TalkBack verification of this flow remain open. See TODO_DONE.md and docs/session-creation-design.md.
+
+9 October 2026 phone-feedback fixes on `codex/session-model-picker`: catalogs over 40 choices use a searchable lazy dialog; smaller catalogs keep their dropdown. Choice mappings are remembered, advertised IDs remain exact, and opening/filtering/cancelling sends no configuration request. Conversation status now aligns with the subtitle inside the header, above the divider. See TODO_DONE.md for scoped verification and remaining phone checks.
+
+Historical PR #10 checkpoint, 9 October 2026: PR #10 is merged on main at `6ec49de`, after review at `d4ba9f2`. Documentation continuation is `codex/docs-acceptance-reconciliation`. Reviewed-head [Android Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743959) pass. Local 64 core/52 app JVM tests, both debug APK builds/lint and six scoped storage/Sessions emulator cases pass. [TODO.md](TODO.md) is the active checklist; [TODO_DONE.md](TODO_DONE.md) and [the acceptance report](docs/acceptance-report.md) retain exact evidence and limits.
 
 ## Historical checkpoints
 
@@ -112,6 +122,8 @@ Settings routes choose a connection before reading MCP, agents or workspace acce
 
 ## Rust host entry points
 
+`daemon.rs` owns bounded, capability-authenticated local status/stop/reload and exclusive instance records. `detached.rs` launches literal worker arguments without inherited Windows handles, or with Unix setsid. Never use a stored PID as authority to terminate a process. `SessionManager` publishes validated config/registry snapshots for discovery and future launches; existing sessions and in-flight launches retain their snapshot. See [daemon/reload rules](docs/daemon-and-reload.md). Current Windows evidence is 116 Rust tests plus strict Clippy/formatting; changed Unix/platform acceptance remains open in Actions.
+
 `main.rs` contains operator commands including start/status/agents/sessions/pair/doctor/config, probe/chat and device revocation. `registry.rs` merges built-ins and configured overrides by ID; discovery resolves configured executables rather than running arbitrary PATH entries. `connection.rs` owns the ACP process actor, JSON-RPC correlation, deadlines, frame reading, callback brokerage and process exit. `session.rs` owns creation/loading, replay and session lifecycle. `api.rs` exposes authenticated management and WebSocket routing.
 
 `filesystem.rs` enforces workspace capability boundaries and consent for writes. `terminal.rs` implements ACP terminal callbacks and bounded output. `process_tree.rs` handles platform process lifetime controls. `logging.rs` owns the optional bounded file sink used by `start`; `doctor.rs` owns operational checks (listener, storage, free space, log path, TLS). `security.rs` owns pairing/tokens; `session_catalog.rs` owns restart metadata; `mcp.rs` validates server setup against agent capabilities. Inspect the corresponding executable tests before changing these boundaries.
@@ -190,6 +202,7 @@ Revalidate emulator identity and settings before use. The latest device was `emu
 | Changes rendering and full context | `ChangesLayoutUiTest`, `ChangesUiTest`, JVM `DiffTest` |
 | Media, native attachments and export | `ReceivedContentUiTest`, `ReceivedMediaTest`, `AttachmentLoaderTest`, `AttachmentPickerNavigationTest`, `TranscriptExportTest` |
 | Host processes, restart, filesystem and terminal | `acpd/tests/lifecycle.rs`, `network.rs`, `restart.rs`, `terminal.rs` and module tests |
+| Background lifecycle and soft reload | `acpd/tests/daemon.rs`, `session::reload_tests`, `detached` module tests; Unix/macOS and supported-build verification through Actions |
 
 Read test fixtures before running them. Some require a paired mock host; others intentionally mutate then restore default-store preferences. Prefer isolated in-memory Room, injected preference files and fixture-owned vault roots for new recovery tests. Keep a record of the production values/resources a fixture promises to preserve and assert that preservation. Cancel fixture scopes, clear ViewModel stores and close databases before deleting their files.
 

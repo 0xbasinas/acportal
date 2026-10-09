@@ -47,6 +47,9 @@ kotlin {
 }
 
 dependencies {
+  implementation(libs.google.code.scanner)
+  implementation(libs.commonmark)
+  implementation(libs.commonmark.tables)
   implementation(project(":core:protocol"))
   implementation(libs.androidx.room3.runtime)
   ksp(libs.androidx.room3.compiler)

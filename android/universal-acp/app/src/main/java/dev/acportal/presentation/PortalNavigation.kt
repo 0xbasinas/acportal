@@ -24,9 +24,10 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object HostsRoute:NavKey
 @Serializable data object SessionsRoute:NavKey
+@Serializable data object SessionConnectionRoute:NavKey
 @Serializable data object SettingsRoute:NavKey
 @Serializable data class HostRoute(val id:String):NavKey
-@Serializable data class NewSessionRoute(val hostId:String,val agentId:String?=null):NavKey
+@Serializable data class NewSessionRoute(val hostId:String,val agentId:String?=null,val fromSessions:Boolean=false):NavKey
 @Serializable data class SessionRoute(val hostId:String,val id:String):NavKey
 @Serializable data class SavedSessionRoute(val hostId:String,val id:String):NavKey
 @Serializable data object PairRoute:NavKey
@@ -61,12 +62,12 @@ import kotlinx.serialization.Serializable
         Row(Modifier.fillMaxSize()) {
             if(wide && showNavigation) NavigationRail {
                 Spacer(Modifier.height(24.dp))
-                navItems.forEach { (key,icon)->NavigationRailItem(selected=selected==key,onClick={stack.clear();stack.add(key)},icon={Icon(icon,contentDescription=null)},label={Text(label(key))}) }
+                navItems.forEach { (key,icon)->NavigationRailItem(selected=selected==key,onClick={if(stack.lastOrNull()!=key) {stack.clear();stack.add(key)}},icon={Icon(icon,contentDescription=null)},label={Text(label(key))}) }
             }
             Scaffold(modifier=Modifier.weight(1f),bottomBar={ if(!wide && showNavigation) Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=32.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
                 Surface(shape=RoundedCornerShape(32.dp),color=MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.widthIn(max=360.dp)) {
                     Row(Modifier.padding(7.dp),horizontalArrangement=Arrangement.spacedBy(2.dp)) {
-                        navItems.forEach { (key,_)->Surface(shape=RoundedCornerShape(24.dp),color=if(selected==key)MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).semantics {contentDescription="${label(key)} tab"}.selectable(selected==key,role=Role.Tab) {stack.clear();stack.add(key)}) {
+                        navItems.forEach { (key,_)->Surface(shape=RoundedCornerShape(24.dp),color=if(selected==key)MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).semantics {contentDescription="${label(key)} tab"}.selectable(selected==key,role=Role.Tab) {if(stack.lastOrNull()!=key) {stack.clear();stack.add(key)}}) {
                             Box(Modifier.heightIn(min=44.dp).padding(horizontal=6.dp),contentAlignment=Alignment.Center) {Text(label(key),style=MaterialTheme.typography.labelSmall,color=if(selected==key)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)}
                         } }
                     }
@@ -75,7 +76,11 @@ import kotlinx.serialization.Serializable
                 Column(Modifier.padding(padding).fillMaxSize()) {
                     if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     ui.error?.let { error -> ConnectionError(error,onDismiss=vm::clearError,onRetry=ui.errorRetry) }
-                    NavDisplay(backStack=stack,onBack=back,modifier=Modifier.weight(1f),entryProvider=entryProvider {
+                    NavDisplay(backStack=stack,onBack=back,modifier=Modifier.weight(1f),
+                        sizeTransform=null,
+                        transitionSpec={portalPageTransition()},
+                        popTransitionSpec={portalPageTransition()},
+                        entryProvider=entryProvider {
                         entry<HostsRoute> { HostsScreen(hosts,onAdd={stack.add(PairRoute)},onHost={stack.add(HostRoute(it.id))},onRefresh=vm::refresh) }
                         entry<PairRoute> { PairScreen(ui.loading,onBack=back,onPair={address,code,label->vm.pair(address,code,label,back)}) }
                         entry<PairHostRoute> {key->
@@ -88,10 +93,11 @@ import kotlinx.serialization.Serializable
                             HostDetailsScreen(ui.details?.takeIf { it.host.id==key.id },onBack=back,onNew={stack.add(NewSessionRoute(key.id))},onSession={info->sessions.find { it.hostId==key.id && it.id==info.id }?.let(openSession)},onRefresh={vm.details(key.id)},onForget={vm.forget(key.id,back)},onAgent={stack.add(AgentRoute(key.id,it))},loading=ui.loading)
                         }
                         entry<NewSessionRoute> { key ->
-                            LaunchedEffect(key.hostId) { if(ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
-                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->stack.removeLastOrNull();openSession(stored) }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)})
+                            LaunchedEffect(key.hostId) { if(key.fromSessions || ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
+                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null)
                         }
-                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={stack.add(HostsRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries) }
+                        entry<SessionConnectionRoute> { SessionConnectionScreen(hosts,onBack=back,onPair={stack.add(PairRoute)},onChoose={vm.clearError();stack.add(NewSessionRoute(it,fromSessions=true))}) }
+                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={vm.clearError();stack.add(SessionConnectionRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries) }
                         entry<SessionRoute> { key ->
                             val conversationState=rememberConversationUiState(key.hostId+"/"+key.id)
                             val stored=sessions.find { it.hostId==key.hostId && it.id==key.id }

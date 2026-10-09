@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -33,6 +33,7 @@ pub struct SessionMetadata {
     #[serde(default)]
     pub own_tools: bool,
 }
+
 pub struct AcpSession {
     metadata: std::sync::Mutex<SessionMetadata>,
     setup_lock: Mutex<()>,
@@ -167,20 +168,45 @@ async fn setup_session(
     Ok((setup, session_id))
 }
 pub struct SessionManager {
-    config: Config,
-    registry: Registry,
+    launch_settings: RwLock<Arc<LaunchSettings>>,
     sessions: Mutex<BTreeMap<Uuid, Arc<AcpSession>>>,
     retained: Mutex<BTreeMap<Uuid, SessionMetadata>>,
     catalog: Option<Arc<SessionCatalog>>,
     // Serializes lifecycle creation to enforce limits without holding the sessions lock across IO.
     lifecycle: Mutex<()>,
 }
+pub struct LaunchSettings {
+    pub config: Config,
+    pub registry: Registry,
+}
 impl SessionManager {
+    pub fn launch_settings(&self) -> Arc<LaunchSettings> {
+        self.launch_settings
+            .read()
+            .expect("launch settings lock")
+            .clone()
+    }
+    /// Existing and in-flight sessions retain their original, coherent launch snapshot.
+    pub fn reload(&self, config: Config, registry: Registry) -> Result<()> {
+        config.validate()?;
+        let old = self.launch_settings();
+        if config.state_directory != old.config.state_directory
+            || config.runtime.max_frame_bytes != old.config.runtime.max_frame_bytes
+            || serde_json::to_value(&config.server)? != serde_json::to_value(&old.config.server)?
+            || serde_json::to_value(&config.logging)? != serde_json::to_value(&old.config.logging)?
+        {
+            bail!(
+                "restart_required: listener, TLS, tokens, storage, frame size and logging cannot be hot-reloaded"
+            )
+        }
+        *self.launch_settings.write().expect("launch settings lock") =
+            Arc::new(LaunchSettings { config, registry });
+        Ok(())
+    }
     pub fn new(config: Config, registry: Registry) -> Result<Self> {
         config.validate()?;
         Ok(Self {
-            config,
-            registry,
+            launch_settings: RwLock::new(Arc::new(LaunchSettings { config, registry })),
             sessions: Mutex::new(BTreeMap::new()),
             retained: Mutex::new(BTreeMap::new()),
             catalog: None,
@@ -196,7 +222,11 @@ impl SessionManager {
             .into_iter()
             .filter_map(|(id, mut metadata)| {
                 // A changed root policy must not expose old workspace metadata.
-                manager.config.workspace(&metadata.workspace).ok()?;
+                manager
+                    .launch_settings()
+                    .config
+                    .workspace(&metadata.workspace)
+                    .ok()?;
                 metadata.status = "interrupted".into();
                 Some((id, metadata))
             })
@@ -276,16 +306,18 @@ impl SessionManager {
     ) -> Result<Arc<AcpSession>> {
         crate::mcp::validate(&mcp_servers, None)?;
         let _lifecycle = self.lifecycle.lock().await;
-        if self.sessions.lock().await.len() >= self.config.runtime.max_sessions {
+        let settings = self.launch_settings();
+        let config = &settings.config;
+        if self.sessions.lock().await.len() >= config.runtime.max_sessions {
             bail!("session limit reached; remove a session first")
         }
-        let definition = self.registry.get(agent_id)?;
+        let definition = settings.registry.get(agent_id)?;
         if !definition.enabled {
             bail!("agent is disabled")
         }
-        let workspace = self.config.workspace(workspace)?;
+        let workspace = config.workspace(workspace)?;
         let cwd = match &definition.working_directory {
-            Some(path) => self.config.workspace(path)?,
+            Some(path) => config.workspace(path)?,
             None => workspace.clone(),
         };
         let discovery = definition.discover();
@@ -294,10 +326,10 @@ impl SessionManager {
             definition,
             &executable,
             &cwd,
-            self.config.runtime.clone(),
+            config.runtime.clone(),
             &workspace,
             access,
-            self.config.shell_review.get(agent_id),
+            config.shell_review.get(agent_id),
         )?;
         let setup_result = async {
             let mut initialization_request = initialize_params();
@@ -433,5 +465,57 @@ impl SessionManager {
         for session in sessions.values() {
             session.connection.shutdown().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod reload_tests {
+    use super::*;
+    #[test]
+    fn restart_only_changes_reject_the_whole_candidate() {
+        let config = Config::default();
+        let registry = Registry::parse("[]").unwrap();
+        let manager = SessionManager::new(config.clone(), registry.clone()).unwrap();
+        for kind in 0..6 {
+            let mut candidate = config.clone();
+            candidate.runtime.max_sessions = 3;
+            match kind {
+                0 => candidate.server.listen = "127.0.0.1:9876".parse().unwrap(),
+                1 => candidate.state_directory = config.state_directory.join("other"),
+                2 => candidate.runtime.max_frame_bytes *= 2,
+                3 => candidate.logging.frame_metadata = true,
+                4 => candidate.server.token_lifetime_seconds += 1,
+                _ => {
+                    candidate.server.tls_certificate = Some("certificate.pem".into());
+                    candidate.server.tls_private_key = Some("key.pem".into());
+                }
+            }
+            assert!(manager.reload(candidate, registry.clone()).is_err());
+            assert_eq!(
+                manager.launch_settings().config.runtime.max_sessions,
+                config.runtime.max_sessions
+            );
+        }
+    }
+    #[test]
+    fn future_launch_settings_swap_as_one_snapshot() {
+        let config = Config::default();
+        let registry = Registry::parse("[]").unwrap();
+        let manager = SessionManager::new(config.clone(), registry.clone()).unwrap();
+        let before = manager.launch_settings();
+        let mut candidate = config.clone();
+        candidate.runtime.max_sessions = 1;
+        candidate.runtime.request_timeout_seconds = 60;
+        candidate.workspace_roots.clear();
+        manager.reload(candidate, registry).unwrap();
+        assert_eq!(manager.launch_settings().config.runtime.max_sessions, 1);
+        assert_eq!(
+            before.config.runtime.max_sessions,
+            config.runtime.max_sessions
+        );
+        assert_eq!(
+            before.config.runtime.request_timeout_seconds,
+            config.runtime.request_timeout_seconds
+        );
     }
 }

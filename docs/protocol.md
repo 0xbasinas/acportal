@@ -1,5 +1,7 @@
 # Protocol and host API
 
+9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.
+
 ## Implemented ACP boundary
 
 Session creation accepts optional `workspaceAccess` with the three required booleans `readFiles`, `writeFiles` and `terminal`. Omission preserves the previous all-enabled default. A provided partial or unknown-field policy is rejected. An optional fourth boolean, `formElicitation` (default false, omitted from metadata when false), opts the session into form elicitation; see below. Because older hosts reject unknown fields, the phone sends it only when `GET /v1/status` lists `formElicitation` in `features`. The effective immutable policy is returned in session metadata and persisted in the restart catalog. It determines both the ACP initialization capabilities and host-side callback enforcement. Disabled callbacks return JSON-RPC method-unavailable errors without publishing permission requests or running the operation. Changing saved phone preferences affects a new or explicitly loaded agent process, not reconnection to an existing process.

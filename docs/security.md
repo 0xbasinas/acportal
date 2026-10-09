@@ -1,5 +1,9 @@
 # Security model
 
+9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.
+
+9 October 2026 pairing/Markdown increment: QR imports require explicit pairing; existing TLS/token rules remain unchanged. Native Markdown is limited to agent replies, preserves original storage/export and confirms web links. See [behavior and limits](pairing-and-markdown.md) and [verification history](../TODO_DONE.md). Camera and native TalkBack acceptance remain open.
+
 Android recovery, 9 October 2026: new local history checkpoints omit pending approval/form payloads and model-request correlations. Opening a cached conversation cannot approve a saved request; decisions require a connected controller, completed authoritative replay and an exact current-request match. Unsaved elicitation fields are not placed in saved instance state. Recovery fixtures use their own vault/API/store and disposable loopback credentials; memory regressions report counts/heap samples without heap dumps or user payloads.
 
 ## Host enforcement

@@ -1,5 +1,11 @@
 # Install and connect a host
 
+9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.
+
+For short native start/pair commands using your existing configuration, follow [native setup](native-cli-and-motion.md).
+
+After setup, `acpd start --background` runs under your operator account and returns after readiness. Use `acpd daemon status`, `acpd daemon reload` after supported config edits, and `acpd daemon stop` for graceful shutdown. Rerunning setup changes the saved launcher selection; it does not reload an existing host. Stop the old instance before switching configs, or select its original config/profile explicitly. Boot startup and automatic crash restart are not installed.
+
 This procedure describes the implemented host and debug Android client. Physical-phone TLS acceptance and signed APK delivery are suspended and remain unverified. Supported-platform builds, including Rust 1.88, belong in GitHub Actions. Normal development builds may run locally.
 
 ## Install the host

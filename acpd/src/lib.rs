@@ -1,10 +1,14 @@
 pub mod api;
 pub mod config;
 pub mod connection;
+pub mod daemon;
+mod detached;
 pub mod doctor;
 pub mod filesystem;
+pub mod launcher;
 pub mod logging;
 pub mod mcp;
+pub mod pairing_input;
 pub(crate) mod process_tree;
 pub mod registry;
 pub mod security;

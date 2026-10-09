@@ -1,5 +1,7 @@
 # Architecture
 
+9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.
+
 ## Product boundary
 
 The phone is an ACP client interface. The development host owns execution, workspaces, agent configuration, and session processes. Android learns names, availability, capabilities, modes, models, and configuration options from the host and ACP responses. No Kotlin branch will select behavior by agent name.
