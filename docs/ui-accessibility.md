@@ -1,23 +1,26 @@
 # UI and accessibility verification
 
-9 October 2026 PR #9 continuation: controlled live MainActivity recovery now verifies cached state before held metadata/replay, two independent sessions, authoritative replaced/removed approvals, exact scroll and offscreen disclosures, and count/byte overflow through actual screens. Cache size and prompt serialization fixes address observed SQLite overflow and main-thread allocations. Scoped JVM/build/device results and remaining limitations are in [Android acceptance](android-acceptance.md). Real-agent recovery, exact allocator profiling and the broader page-state/focus matrix remain open. Native TalkBack passes 20 cases at normal font and separately 20 at actual 2.0; earlier hardware-gesture stalls and the bounded focus-only retry are recorded in the acceptance document.
+Current status, 9 October 2026 after PR #10 review. [TODO.md](../TODO.md) contains active work; [Android acceptance](android-acceptance.md) records recovery/new-screen/memory evidence. PR #9 is merged; PR #10 is merged on main at `6ec49de`, after review at `d4ba9f2`. Historical increments below retain their original evidence and limitations; newer scoped results supersede earlier unverified statements only for the tested cases.
 
+## Completed scoped acceptance
 
-9 October 2026 post-merge work continues on codex/android-recovery-acceptance; [android-acceptance.md](android-acceptance.md) records the full requested recovery/new-screen/memory/UI scope. MainActivity offline two-session process-death restoration and the original MCP workflow pass. New elicitation form/native-keyboard checks pass dark/light at actual font1.0 and separately2.0; modal-sheet lifecycle and TalkBack remain unverified. These later scoped checks supersede earlier JVM-only statements only for the tested rendered form behavior.
+- [x] Shell long-command scrolling, explicit decisions, review outcomes and independent badge/tool expansion in isolated dark/light fixtures.
+- [x] Native TalkBack saved/error Agents, all review badges, own-tools warnings, write notices and elicitation traversal/cancellation. Separate complete 20-case runs pass at normal and actual 2.0 font; speech audibility remains unverified.
+- [x] Scoped native keyboards for conversation/history, pairing, MCP, Sessions search and elicitation; normal/large-font dark/light results are recorded in the Android evidence.
+- [x] Controlled live/offline two-session MainActivity process-death recovery, authoritative approval reconciliation, exact conversation scroll/offscreen disclosures and count/byte overflow. Existing MCP task recovery also passes.
+- [x] PR #10 two oversized-row/preservation Room cases and four dark/light Sessions layout/native-keyboard cases pass on API 36.
 
-9 October 2026 PR #8 validation follow-up: exact single-choice constants (whitespace/empty strings) and required empty multi-select arrays now have five passing JVM regression cases. Final suite passes59 core/36 app JVM tests, both debug APK builds and lint (0 errors,15 existing warnings). These are schema/serialization fixes; no native screen, keyboard, TalkBack or screenshot acceptance was added. The full checklist below remains open.
+## Remaining acceptance
 
-Active work, 8 October 2026. It continues in PR #8 (branch `host-remaining-work-2`); see "PR #8 increment" at the end. This keeps the full requested UI/accessibility scope open. Follow [ui-reference.md](ui-reference.md) and the scoped evidence in [screen-acceptance.md](screen-acceptance.md). Tablet/landscape acceptance is excluded. Physical-phone testing remains user-owned and suspended.
+- [ ] Repeat approval, badge, elicitation, own-tools warning and write-notice screens with real agents, including authoritative replay and process death.
+- [ ] Finish loading/empty/offline/error states with explicit recovery on MCP, workspace policy/browser, Changes, Connection logs and remaining routes.
+- [ ] Verify automatic focus/scroll return, native keyboards and actual large-font touch bounds across those routes after navigation, recreation and process death.
+- [ ] Broaden content/diff/media/provider accessibility and verify TalkBack speech audibility.
+- [ ] Compare every implemented page against supplied mockups once the original images are found. No fresh full comparison is claimed.
 
-## Acceptance checklist
+Tablet/landscape acceptance is excluded. Physical-phone testing and signed APK verification remain suspended/user-owned. Preserve production data and exact device settings in isolated checks.
 
-- [ ] Shell approvals and automatic-review badges: long commands, every review outcome, explicit decisions, scrolling and screen-reader access. Dark/light fixtures cover allow, deny, ask and reviewing outcomes, including retained expansion across Activity recreation. Native TalkBack shell traversal and tool expansion pass at actual font scales 1.0/2.0. Broader badge screen-reader outcomes and real-agent screen acceptance remain open.
-- [ ] TalkBack traversal for shell/tool controls, Connection logs, Agents and targeted recovery/navigation controls. Ten native emulator fixtures pass in both themes at actual font scales 1.0/2.0, including automatic focus after recovery-error dismissal and returning from fresh Agent details. Broader states/navigation and speech audibility remain unverified. Compose semantics alone does not prove TalkBack behavior.
-- [ ] Reachable controls at large text in dark/light themes. Shell/recovery fixtures cover 320×280 dp at synthetic 2×; native shell, tools, logs, Agents and recovery controls pass with TalkBack at actual font scale 2.0. Broader page/form coverage and rendered bounds remain open.
-- [ ] Native keyboard behavior for conversation/composer, prompt history and targeted forms. Conversation history replacement/cancellation, pairing failure/retry, MCP editor Save, Sessions search and shell-sheet transitions pass in both themes, including actual font scale 2.0. Broader forms, document providers and history cache/process-death checks remain open.
-- [ ] Useful dark/light loading, empty, offline and error states, retaining explicit recovery after dismissal. Compact conversation recovery passes; the broader page matrix remains open.
-- [ ] Scroll restoration and independently expanded activity across navigation and Activity recreation. Actual conversation Activity recreation retains the visible scroll anchor, expanded tool/thought and draft in both themes; leaving and returning from Connection details retains expanded activity. Broader pages remain open. Full-session process death is tracked separately in TODO.md.
-- [ ] Screen review and touch bounds for important actions. Command contrast and current permission/tool/recovery controls have scoped checks; this does not establish an app-wide audit or a fresh mockup comparison.
+## Historical increments
 
 ## Shell and recovery increment
 
