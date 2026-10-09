@@ -1,5 +1,8 @@
 # Original request audit
 
+9 October 2026 PR #9 continuation: controlled live MainActivity recovery now verifies cached state before held metadata/replay, two independent sessions, authoritative replaced/removed approvals, exact scroll and offscreen disclosures, and count/byte overflow through actual screens. Cache size and prompt serialization fixes address observed SQLite overflow and main-thread allocations. Scoped JVM/build/device results and remaining limitations are in [Android acceptance](android-acceptance.md). Real-agent recovery, exact allocator profiling and the broader page-state/focus matrix remain open. Native TalkBack passes 20 cases at normal font and separately 20 at actual 2.0; earlier hardware-gesture stalls and the bounded focus-only retry are recorded in the acceptance document.
+
+
 9 October 2026 post-merge Android acceptance: MainActivity restores offline two-session history/navigation after verified process absence; saved drafts/production fingerprints are preserved and stale approval controls hidden. Rendered elicitation/native-keyboard checks pass dark/light at actual font1.0/2.0 separately. Live conversation/replay, memory profiling and broader UI/TalkBack acceptance remain open in [android-acceptance.md](android-acceptance.md). No app-wide or production-completion claim.
 
 9 October 2026 PR #8 review follow-up: exact elicitation choice constants and schema-permitted required empty arrays are corrected with five permanent regression cases. Affected checks pass59 core/36 app JVM tests, both debug APK builds and lint, without native Android acceptance. Broader requirements remain open; see TODO_DONE.md and the UI checklist.

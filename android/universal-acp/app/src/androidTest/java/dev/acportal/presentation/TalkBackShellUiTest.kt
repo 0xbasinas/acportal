@@ -25,6 +25,16 @@ class TalkBackShellUiTest {
     @Test fun lightTalkBackRecoveryDismissalKeepsReconnect()=check("light","recovery")
     @Test fun darkTalkBackToolDisclosureKeepsFocus()=check("dark","tools")
     @Test fun lightTalkBackToolDisclosureKeepsFocus()=check("light","tools")
+    @Test fun darkTalkBackSavedAgentsCannotLaunch()=check("dark","agents-saved")
+    @Test fun lightTalkBackSavedAgentsCannotLaunch()=check("light","agents-saved")
+    @Test fun darkTalkBackErrorAgentsCannotLaunch()=check("dark","agents-error")
+    @Test fun lightTalkBackErrorAgentsCannotLaunch()=check("light","agents-error")
+    @Test fun darkTalkBackRemainingBadgeOutcomes()=check("dark","badges")
+    @Test fun lightTalkBackRemainingBadgeOutcomes()=check("light","badges")
+    @Test fun darkTalkBackOwnToolsAndWriteNotices()=check("dark","notices")
+    @Test fun lightTalkBackOwnToolsAndWriteNotices()=check("light","notices")
+    @Test fun darkTalkBackElicitationExplicitCancel()=check("dark","elicitation")
+    @Test fun lightTalkBackElicitationExplicitCancel()=check("light","elicitation")
     private fun check(mode:String,page:String="shell") {
         assumeTrue("Run this settings-changing fixture through scripts/verify-talkback-ui.ps1",
             InstrumentationRegistry.getArguments().getString("talkback")=="true" &&
@@ -57,7 +67,7 @@ class TalkBackShellUiTest {
             waitFor("TalkBack service connected") {
                 manager.getEnabledAccessibilityServiceList(-1).any {it.resolveInfo.serviceInfo.packageName=="com.google.android.marvin.talkback"} && manager.isTouchExplorationEnabled
             }
-            val title=when(page) {"logs"->"Connection logs";"agents"->"Agents";"recovery"->"Recovery fixture";"tools"->"Activity review";else->"Host permission needed"}
+            val title=when(page) {"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
             waitFor("Fixture window") {
                 val root=automation.rootInActiveWindow
@@ -123,22 +133,29 @@ class TalkBackShellUiTest {
                 waitFor("Live updates paused") {nodes(automation).any {label(it)=="Live updates" && it.isCheckable && !it.isChecked}}
                 scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
             }
-            "agents"->{
-                val row=traverseTo(automation) {it.contains("Fixture agent") && it.contains("Available")}
+            "agents","agents-saved","agents-error"->{
+                val status=if(page=="agents-error")"Configuration problem" else "Available"
+                if(page=="agents-saved")traverseTo(automation) {it.startsWith("Saved agent list")}
+                val row=traverseTo(automation) {it.contains("Fixture agent") && it.contains(status)}
                 assertTrue("Agent exposes inspect action",row.actionList.any {it.label?.toString()=="Inspect agent"})
                 assertTrue(row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 waitFor("Agent details") {find(automation,"Agent details")!=null}
                 assertTrue(find(automation,"Agent details")!!.isHeading)
+                if(page!="agents") {
+                    val launch=traverseTo(automation) {it=="New session"}
+                    assertFalse("Cached/misconfigured discovery cannot launch",launch.isEnabled)
+                    scenario.onActivity {assertFalse(it.fixtureActions.contains("new-session"))}
+                }
                 val back=nodes(automation).first {it.isClickable && label(it)=="Back"}
                 assertTrue(back.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 waitFor("Agents returned") {find(automation,"Agents")!=null}
                 waitFor("Automatic focus on returned Agents page") {
                     val current=label(nodes(automation).firstOrNull {it.isAccessibilityFocused})
                     current in setOf("Agents","Back","Refresh agents","Fixture computer") ||
-                        current.contains("Fixture agent") && current.contains("Available")
+                        current.contains("Fixture agent") && current.contains(status)
                 }
                 reportRecoveredFocus(automation)
-                traverseTo(automation) {it.contains("Fixture agent") && it.contains("Available")}
+                traverseTo(automation) {it.contains("Fixture agent") && it.contains(status)}
                 scenario.onActivity {assertEquals(listOf("inspect:fixture-agent","agent-back"),it.fixtureActions)}
             }
             "recovery"->{
@@ -167,6 +184,36 @@ class TalkBackShellUiTest {
                 traverseTo(automation) {it=="Reason: Fixture allow explanation"}
                 scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
             }
+            "badges"->{
+                for(decision in listOf("deny","ask","reviewing")) {
+                    val expand=traverseTo(automation) {it=="Expand tool: Review $decision command"}
+                    assertEquals("Collapsed",expand.stateDescription?.toString())
+                    assertTrue(expand.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("$decision disclosure keeps focus") {nodes(automation).any {it.isAccessibilityFocused && label(it)=="Collapse tool: Review $decision command" && it.stateDescription?.toString()=="Expanded"}}
+                    traverseTo(automation) {it=="Reason: Fixture $decision explanation"}
+                }
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+            }
+            "notices"->{
+                val warning=traverseTo(automation) {it.contains(dev.acportal.protocol.OWN_TOOLS_LABEL)}
+                assertEquals("Collapsed",warning.stateDescription?.toString())
+                assertTrue(warning.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                traverseTo(automation) {it==dev.acportal.protocol.OWN_TOOLS_WARNING}
+                traverseTo(automation) {it.contains(dev.acportal.protocol.hostWriteLabel(dev.acportal.protocol.HOST_WRITE_CHANGED)!!)}
+                traverseTo(automation) {it==dev.acportal.protocol.hostWriteExplanation(dev.acportal.protocol.HOST_WRITE_CHANGED)}
+                val expand=traverseTo(automation) {it=="Expand tool: Fixture unchanged write"}
+                assertTrue(expand.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                traverseTo(automation) {it==dev.acportal.protocol.hostWriteExplanation(dev.acportal.protocol.HOST_WRITE_UNCHANGED)}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+            }
+            "elicitation"->{
+                traverseTo(automation) {it=="Fixture lifecycle question"}
+                traverseTo(automation) {it.contains("Fixture name")}
+                val cancel=traverseTo(automation) {it=="Cancel"}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+                assertTrue(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scenario.onActivity {assertEquals(listOf("elicitation:cancel"),it.fixtureActions)}
+            }
         }
     }
     private fun reportRecoveredFocus(automation:UiAutomation) {
@@ -186,13 +233,23 @@ class TalkBackShellUiTest {
         error("TalkBack did not reach target: $observed")
     }
     private fun advanceFocus(automation:UiAutomation,focused:AccessibilityNodeInfo?) {
-        InstrumentationRegistry.getInstrumentation().sendStatus(2,android.os.Bundle().apply {
-            putString("acportalFocus",label(focused));putString("acportalGesture","swipeRight")
-        })
-        waitFor("Hardware gesture changes native focus from ${label(focused)}") {
+        fun changed():Boolean {
             val next=nodes(automation).firstOrNull {it.isAccessibilityFocused}
-            next!=null && next!=focused
+            return next!=null && next!=focused
         }
+        // The emulator occasionally drops a hardware swipe. Retry navigation only;
+        // never retry a click, answer or other mutation, and still require real focus.
+        repeat(3) {attempt->
+            if(changed())return
+            InstrumentationRegistry.getInstrumentation().sendStatus(2,android.os.Bundle().apply {
+                putString("acportalFocus",label(focused));putString("acportalGesture","swipeRight")
+                putString("acportalGestureAttempt",(attempt+1).toString())
+            })
+            val deadline=SystemClock.uptimeMillis()+5_000
+            while(!changed() && SystemClock.uptimeMillis()<deadline)SystemClock.sleep(100)
+            if(changed())return
+        }
+        fail("Hardware gesture changes native focus from ${label(focused)}")
     }
     private fun find(automation:UiAutomation,text:String):AccessibilityNodeInfo? = nodes(automation)
         .firstOrNull {it.text?.toString()==text || it.contentDescription?.toString()==text}

@@ -58,4 +58,17 @@ class SessionRecoveryRepositoryTest {
         assertEquals(1,transport.operations);assertEquals(ready,session.state.value)
         Unit
     }
+    @Test fun restoredBusyTurnCannotCancelUntilFreshAndConnected()=runBlocking {
+        val transport=CountingTransport()
+        val session=live(transport,SessionState(processing=true))
+        suspend fun refused() {try {repository.cancel(session);fail("Stale turn cancellation sent")} catch(_:IllegalStateException) {};assertEquals(0,transport.operations)}
+        refused();session.connection.value=ConnectionState.Connected
+        session.state.value=SessionState(processing=true,replaying=true);refused()
+        session.state.value=SessionState(processing=true,sessionClosed=true);refused()
+        session.state.value=SessionState();refused()
+        session.state.value=SessionState(processing=true);session.manuallyDetached=true;refused()
+        session.manuallyDetached=false;repository.cancel(session)
+        assertEquals(1,transport.operations)
+        Unit
+    }
 }

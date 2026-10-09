@@ -33,6 +33,16 @@ class TaskRecoveryNavigationTest {
         })))
         return StoredSession("task-host",info.id,WireJson.encodeToString(info),WireJson.encodeToString(state),"Offline $index retained draft",updatedAt=index.toLong())
     }
+    private fun liveSession(index:Int):StoredSession {
+        val info=SessionInfo("live-$index","fixture-agent","acp-live-$index","/fixture/live-$index",status="running")
+        val state=SessionState(sequence=12,processing=index==1,promptRequestId=if(index==1)JsonPrimitive("fixture-turn").toString() else null,items=(0..19).map {line->TimelineItem.Text("live-history-$index-$line","agent","Live $index history $line. "+"Retained fixture history. ".repeat(8))}+listOf(
+            TimelineItem.Text("live-user-$index","user","Live $index prompt"),
+            TimelineItem.Tool("live-tool-$index","Retained tool $index","execute","completed",content=buildJsonArray {add(buildJsonObject {put("type","content");putJsonObject("content") {put("type","text");put("text","Retained tool output $index")}})}),
+            TimelineItem.Text("live-thought-$index","thought","Retained thought $index"),
+            TimelineItem.Text("live-agent-$index","agent","Live $index retained answer")
+        ))
+        return StoredSession("task-host",info.id,WireJson.encodeToString(info),WireJson.encodeToString(state),"Live $index retained draft",updatedAt=index.toLong())
+    }
     private fun properties(name:String)=Properties().apply {File(root,name).inputStream().use(::load)}
     private fun fingerprint(records:Iterable<Any>):String {
         val digest=MessageDigest.getInstance("SHA-256")
@@ -60,6 +70,17 @@ class TaskRecoveryNavigationTest {
         require(taskId!=null) {"Supply only the verified fixture task ID"}
         removeOwnedTask(taskId)
     }
+    @Test fun cleanOwnedStorageAfterInterruptedWorkflow() {
+        val application=context.applicationContext as TaskRecoveryFixtureApplication
+        val actual=application.productionRepository
+        val snapshot=properties("storage.properties")
+        assertEquals(snapshot.getProperty("productionAliases"),runBlocking {actual.settings.mcpAliases.first().toSortedMap().toString()})
+        productionSnapshot(actual).forEach {key,value->assertEquals("Production records changed: $key",snapshot.getProperty(key),value)}
+        removeOwnedTask(properties("created.properties").getProperty("task").toInt())
+        application.closeFixtureStore()
+        assertSame(actual,application.repository)
+        assertTrue(root.deleteRecursively())
+    }
     @Test fun prepareOwnedStorageForExternalTaskWorkflow() {
         assertFalse("Verify or clean the previous owned fixture first",root.exists())
         assertTrue(root.mkdirs());File(root,"enabled").writeText("")
@@ -70,10 +91,19 @@ class TaskRecoveryNavigationTest {
         var prepared=false
         try {
             runBlocking {
-                store.db.portal().saveHost(HostProfile("task-host","Task workstation","http://127.0.0.1:1","unused","fixture",Long.MAX_VALUE))
+                val address=if(scenario=="LiveConversation") {
+                    val port=InstrumentationRegistry.getArguments().getString("fixturePort")?.toIntOrNull()
+                    require(port!=null && port in 1024..65535) {"Supply the owned reversed fixture port"}
+                    "http://127.0.0.1:$port"
+                } else "http://127.0.0.1:1"
+                val credential=if(scenario=="LiveConversation")store.vault.save("recovery-fixture-only") else "unused"
+                store.db.portal().saveHost(HostProfile("task-host","Task workstation",address,credential,"fixture",Long.MAX_VALUE))
                 store.repository.saveMcpServers("task-host",listOf(definition))
                 if(scenario=="OfflineConversation") {
                     (1..2).forEach {store.db.portal().saveSession(offlineSession(it))}
+                    store.db.portal().saveMainPage("sessions")
+                } else if(scenario=="LiveConversation") {
+                    (1..2).forEach {store.db.portal().saveSession(liveSession(it))}
                     store.db.portal().saveMainPage("sessions")
                 } else require(scenario=="Mcp") {"Unknown task scenario"}
             }
@@ -103,6 +133,20 @@ class TaskRecoveryNavigationTest {
             assertEquals(properties("storage.properties").getProperty("alias"),runBlocking {store.settings.mcpAliases.first().getValue("task-host")})
             if(properties("storage.properties").getProperty("scenario")=="OfflineConversation") {
                 runBlocking {(1..2).forEach {index->assertEquals("Offline history/draft changed",offlineSession(index),store.db.portal().session("task-host","offline-$index"))}}
+            }
+            if(properties("storage.properties").getProperty("scenario")=="LiveConversation") {
+                runBlocking {(1..2).forEach {index->
+                    val saved=store.db.portal().session("task-host","live-$index")!!
+                    assertEquals(liveSession(index).draft,saved.draft)
+                    val state=WireJson.decodeFromString<SessionState>(saved.state)
+                    assertEquals(WireJson.decodeFromString<SessionState>(liveSession(index).state).items,state.items)
+                    val overflow=InstrumentationRegistry.getArguments().getString("fixtureOverflow") ?: "None"
+                    if(index==2 && overflow!="None") {
+                        assertTrue(state.replaying)
+                        assertTrue("Live approvals must not enter disk history",state.permissions.isEmpty())
+                    } else assertFalse(state.replaying)
+                    assertTrue("Stale permission persisted after authoritative replay",state.permissions.values.none {it.id.text().startsWith("old-")})
+                }}
             }
             val actual=application.productionRepository
             assertEquals(properties("storage.properties").getProperty("productionAliases"),runBlocking {actual.settings.mcpAliases.first().toSortedMap().toString()})

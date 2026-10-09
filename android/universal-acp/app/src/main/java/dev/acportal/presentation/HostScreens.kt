@@ -88,11 +88,11 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun HostDetailsScreen(details:HostDetails?,onBack:()->Unit,onNew:()->Unit,onSession:(SessionInfo)->Unit,onRefresh:()->Unit,onForget:()->Unit,onAgent:((String)->Unit)?=null) {
+@Composable fun HostDetailsScreen(details:HostDetails?,onBack:()->Unit,onNew:()->Unit,onSession:(SessionInfo)->Unit,onRefresh:()->Unit,onForget:()->Unit,onAgent:((String)->Unit)?=null,loading:Boolean=false) {
     var confirmForget by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(details?.host?.label ?: "Host",details?.host?.address,onBack,action={IconButton(onRefresh) { Icon(Icons.Outlined.Refresh,"Refresh host") }})
-        if(details==null) EmptyState("Connecting to host","Agent discovery and workspace access are loading.")
+        ScreenHeader(details?.host?.label ?: "Host",details?.host?.address,onBack,action={IconButton(onRefresh,enabled=!loading) { Icon(Icons.Outlined.Refresh,"Refresh host") }})
+        if(details==null) {if(loading)EmptyState("Connecting to host","Agent discovery and workspace access are loading.") else EmptyState("Host unavailable","Refresh this host to check its agents and workspaces, or return to Connections.")}
         else LazyColumn {
             item { FilledTonalButton(onNew,Modifier.padding(horizontal=24.dp,vertical=8.dp)) { Icon(Icons.Outlined.Add,null);Spacer(Modifier.width(8.dp));Text("New session") } }
             item { SectionLabel("Workspaces") }
@@ -131,7 +131,7 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={}) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={}) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by remember {mutableStateOf(false)}
@@ -144,7 +144,13 @@ import kotlinx.serialization.json.*
         val scrollActions=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
         Column(Modifier.fillMaxSize()) {
             ScreenHeader("New session",onBack=onBack)
-            if(details==null)EmptyState("Loading connection","Waiting for agents and workspaces.") else {
+            if(details==null) {
+                if(loading)EmptyState("Loading connection","Waiting for agents and workspaces.")
+                else {
+                    Box(Modifier.weight(1f)) {EmptyState("Connection unavailable","Reload this connection to choose an agent and workspace, or return to Connections.")}
+                    TextButton(onReload,Modifier.fillMaxWidth().padding(24.dp)) {Text("Reload connection")}
+                }
+            } else {
                 val recents=recentWorkspaceChoices(details,initialAgentId).take(5)
                 val startAction:@Composable ()->Unit={
                     Button({onCreate(agentId,path)},enabled=!loading && details.agents.any {it.id==agentId && it.canStartSession()} && workspaceInCurrentRoots(details.host.id,path,details.workspaces),shape=androidx.compose.foundation.shape.RoundedCornerShape(10.dp),modifier=Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=if(scrollActions)12.dp else 24.dp).heightIn(min=52.dp)) {Text("Start session")}

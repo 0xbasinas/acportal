@@ -23,6 +23,8 @@ class ElicitationScreenUiTest {
     @org.junit.After fun closeKeyboard() {androidx.test.espresso.Espresso.closeSoftKeyboard()}
     @Test fun darkFormValidatesAndRequiresExplicitAnswer()=checkForm("dark")
     @Test fun lightFormValidatesAndRequiresExplicitAnswer()=checkForm("light")
+    @Test fun darkBooleanAndArraySelectionsUseTypedAnswers()=checkForm("dark",true)
+    @Test fun lightBooleanAndArraySelectionsUseTypedAnswers()=checkForm("light",true)
 
     private val permission=Permission(JsonPrimitive("fixture-form"),WireJson.parseToJsonElement("""{
         "mode":"form","message":"Fixture information request","requestedSchema":{"type":"object","properties":{
@@ -35,7 +37,7 @@ class ElicitationScreenUiTest {
         """.trimIndent()).jsonObject,ELICITATION_METHOD)
 
     @OptIn(ExperimentalLayoutApi::class)
-    private fun checkForm(mode:String) {
+    private fun checkForm(mode:String,selectFlags:Boolean=false) {
         if(InstrumentationRegistry.getArguments().getString("requireLargeFont")=="true")
             assertTrue(InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.fontScale>=1.9f)
         val keyboard=AtomicBoolean(false)
@@ -61,6 +63,10 @@ class ElicitationScreenUiTest {
         input("age","21")
         input("confidence","0.5")
         compose.onNodeWithText("Padded choice").performScrollTo().performTouchInput {click()}
+        if(selectFlags) {
+            compose.onNode(hasText("Confirmed",substring=true) and isToggleable()).performScrollTo().performTouchInput {click()}
+            compose.onNode(hasText("a") and isToggleable()).performScrollTo().performTouchInput {click()}
+        }
         compose.runOnIdle {assertTrue(answers.isEmpty())}
         compose.onNodeWithTag("elicitation-submit").performScrollTo().assertIsDisplayed()
         assertTrue("Native keyboard remains visible at Submit",keyboard.get())
@@ -69,10 +75,10 @@ class ElicitationScreenUiTest {
             assertEquals(1,answers.size);assertEquals("accept",answers.single().first)
             val content=answers.single().second!!
             assertEquals(JsonPrimitive(" padded "),content["choice"])
-            assertEquals(JsonArray(emptyList()),content["tags"])
+            assertEquals(JsonArray(if(selectFlags)listOf(JsonPrimitive("a")) else emptyList()),content["tags"])
             assertEquals(JsonPrimitive(21L),content["age"])
             assertEquals(JsonPrimitive(0.5),content["confidence"])
-            assertEquals(JsonPrimitive(false),content["confirmed"])
+            assertEquals(JsonPrimitive(selectFlags),content["confirmed"])
             enabled=false
         }
         listOf("elicitation-submit","elicitation-decline","elicitation-cancel").forEach {compose.onNodeWithTag(it).assertIsNotEnabled()}
