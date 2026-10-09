@@ -246,9 +246,60 @@ token counts, not a billing statement).
 - Optional: remove leftover Goose sessions for the fixture workspace from
   Goose's own UI or session store. Do not delete unrelated sessions.
 
+## Doctor against other ACP adapters (8 October 2026, Linux, about 22:57 Athens)
+
+`acpd doctor --agent <id> --workspace <dir> [--prompt-check]` was run against custom registry entries for three agents besides Goose, each with its state redirected into a scratch directory through the registry `env` (`HOME` or `XDG_*_HOME`), so no existing configuration was read or changed. Commands were absolute paths, as the registry requires.
+
+| Agent and entry | Doctor (no prompt) | `--prompt-check` |
+| --- | --- | --- |
+| testy (rust-sdk v3.2.0), native binary, no args | `ready`, exit 0 | `provider responded (stopReason end_turn)`, exit 0 |
+| OpenCode 1.18.35 (`npm install opencode-ai`), native `opencode` binary, `["acp"]`, no provider configured | `ready`, exit 0 | `provider responded (stopReason end_turn)`, exit 0. OpenCode picked its own free hosted model (`opencode/big-pickle`; its session store recorded cost 0) |
+| OpenCode 1.18.35, same, with `OPENCODE_CONFIG_CONTENT={"model":"deepseek/deepseek-flash"}` and an invalid dummy `DEEPSEEK_API_KEY` | `ready`, exit 0 | failed with JSON-RPC `-32603` (OpenCode logged an authentication error), exit 1; no agent text printed |
+| Gemini CLI 0.63.0 (`npm install @google/gemini-cli`), `/usr/bin/node` + `bundle/gemini.js`, `["--acp"]`, no credentials | `sign-in required`, listing `oauth-personal`, `gemini-api-key`, `vertex-ai`, `gateway`, exit 1 | same; no prompt sent because `session/new` already required sign-in |
+
+What this shows: doctor negotiates with third-party adapters configured as custom registry entries, reports the real `sign-in required` path (Gemini) and, with the opt-in prompt, catches a rejected provider key that `session/new` does not reveal (OpenCode, like Goose). OpenCode reports a rejected key as `-32603`, not ACP `auth_required` (`-32000`), with an "Authentication Fails, Your api key ..." message. Doctor now notes when an agent's (unprinted) error text mentions authentication or an API key. For this OpenCode case it says the provider credentials are probably missing or were rejected (rechecked on the real agent). Other `-32603` errors keep the generic credentials/model/provider message. The built-in Gemini entry's `--acp` flag is current (`--experimental-acp` is deprecated in 0.63.0). Templates for both are in `examples/agents.custom.json` (disabled). No session, file, terminal or permission flow was tried with OpenCode or Gemini. Cost: none billed (OpenCode's free model; the invalid DeepSeek key was rejected before any model ran). The testy part is automated in `tests/testy.rs`.
+
+## OpenCode session workflow (8 October 2026, Linux, about 23:15 Athens)
+
+OpenCode 1.18.35 (`opencode acp`, native binary from `npm install opencode-ai`) was driven through `acpd start`, pairing and the `acpd.v1` WebSocket with `scripts/real-agent-check.py --agent opencode` on the calc fixture (a git repository, so changes were visible). The registry `env` pointed all four `XDG_*_HOME` directories at a scratch directory. No provider was configured, so OpenCode used its own free hosted model `opencode/big-pickle`: 43 model turns, about 346k accumulated tokens, cost 0 in OpenCode's session store.
+
+**Default OpenCode configuration** (first run, inspect/approve/deny): no permission request of any kind and no ACP callback. OpenCode ran `ls -la`, read the files and edited `calc.py` and `README.md` with its own tools; the frame log shows only `session/prompt` and `session/update`. The "deny" step could not deny anything, and README changed.
+
+**With `"permission": {"edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask"}`** in OpenCode's own `opencode.json` (later runs):
+
+| Step | Result |
+| --- | --- |
+| inspect | One agent permission (`ls -la`, allowed once), file reads with OpenCode's own `read`, correct summary (`add` is `a - b`, tests fail). |
+| approve | Agent permission for the `calc.py` edit, then a host `Write calc.py` consent with the diff; allowed. Tests went from FAILED to OK. |
+| deny | Agent permission allowed, host `Write README.md` consent denied, but **README changed anyway**. OpenCode writes the file with its own tool at about the same time as it calls `fs/write_text_file` (in one run the file's mtime was 40 ms before the host consent was published). With this branch's change the failed host tool call is marked `_meta.acpdWrite: "changed-without-consent"` with a notice (seen in the real run). |
+| denyagent (new optional step) | OpenCode's own edit permission rejected: README unchanged, tool call `failed`. **The agent's own permission is the effective gate for OpenCode.** |
+| terminal | OpenCode does not use ACP terminals: `python3 -m unittest -v` ran in OpenCode's own `bash` tool after an agent permission (`kind: execute`); "2 tests passed". No host terminal consent or `acpdTerminal` output. |
+| kill | After the agent permission for `sleep 45 && echo finished-after-sleep`, `session/cancel` while it ran: `stopReason: cancelled`; the `bash -c` and `sleep 45` children under `opencode acp` were gone afterwards and `finished-after-sleep` never appeared. The script now also cancels agent-run shell commands (it previously waited only for host terminal output, so the first run let the sleep finish). |
+| reconnect | Detached after the first chunk; `?after=158` replayed 13 events (11 message chunks, usage, response) with no gap or duplicates. |
+| load | After `DELETE`, `loadSessionId` restored the session (same ACP id; 47 history events replayed). The follow-up answered "calc.py and README.md". |
+| cancel | Agent permission allowed, host write consent held, `session/cancel`: `stopReason: cancelled`, but `CANCEL_MARKER.txt` **existed**, again written by OpenCode itself; the cancelled host write was marked `changed-without-consent`. |
+| outside | OpenCode asked for `external_directory` `/etc` (allowed once by the script) and read `/etc/hostname` with its own tool; the host's workspace containment does not apply to agent-side tools. |
+
+Session delete and host shutdown left no OpenCode process. The frame-metadata log held no prompt or file text.
+
+Conclusions: OpenCode works through acpd for prompts, streaming, agent permissions, cancel, reconnect and load. Its file edits, shell commands and reads use its own tools, so the host's write/terminal consents and workspace containment do not control it. Configure OpenCode's permissions to `ask` and treat its own permission prompts as the real decision. Host aids added on this branch: a refused or cancelled host write that turns out to be already applied is flagged, and a write of text the file already holds is answered without a consent (mock-tested; not observed with OpenCode, whose write races the callback). See [security](security.md). Not tested: OpenCode's `allow_always`/`reject_always`, MCP and a paid provider.
+
+### OpenCode "Always allow" (8 October 2026, about 23:50 Athens)
+
+The optional `always` step of `scripts/real-agent-check.py` was run against OpenCode 1.18.35 with `permission: ask`, on the free model `opencode/big-pickle` (cost 0), in a git fixture. It sends four prompts. Host write consents are allowed once; agent permissions get the kind named below.
+
+| Substep | Answer | Result |
+| --- | --- | --- |
+| allow_first | `allow_always` for `git log --oneline -1` (`bash`) | Ran. |
+| allow_again | (would have chosen `reject_once`) | Same command ran again with **no permission request**. |
+| edit_first | `allow_always` for the README edit, host write allowed | README edited. The only `fs/write_text_file` of the step. |
+| edit_again | (would have chosen `reject_once`) | **No agent permission and no host write consent**; OpenCode wrote the second README line itself. |
+
+The agent permission options offered were `allow_once`, `allow_always` and `reject_once`; OpenCode 1.18.35 has no "always reject". After "Always allow" for edits, OpenCode's own tools do not route through the host at all, so neither the host's consent nor its `acpdWrite` notices can show later edits. This is why the registry template marks OpenCode `ownTools` and the phone warns about it. The edit_first step also produced one `failed` tool update without a title, which was not investigated. Session delete and host shutdown left no process.
+
 ## Deterministic agent: testy
 
-For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release and elicitation (not advertised by acpd; refused cleanly). See [testy](testy.md).
+For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release, form elicitation (forwarded only when the phone opts in, otherwise refused cleanly), phone-supplied stdio and HTTP MCP servers (`mcp-echo-server`, `tools/mcp-http-echo`) and doctor against testy as a custom registry entry. See [testy](testy.md).
 
 ## See also
 

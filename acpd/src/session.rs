@@ -28,6 +28,10 @@ pub struct SessionMetadata {
     pub status: String,
     #[serde(default)]
     pub workspace_access: WorkspaceAccess,
+    /// Copied from the registry's `ownTools` when the session starts, so the phone can warn
+    /// inside the conversation.
+    #[serde(default)]
+    pub own_tools: bool,
 }
 pub struct AcpSession {
     metadata: std::sync::Mutex<SessionMetadata>,
@@ -343,6 +347,7 @@ impl SessionManager {
                 setup,
                 status: "ready".into(),
                 workspace_access: access,
+                own_tools: definition.own_tools,
             }),
             setup_lock: Mutex::new(()),
             load_id: load.map(str::to_owned),

@@ -1,6 +1,8 @@
 # UI and accessibility verification
 
-Active work, 8 October 2026. This keeps the full requested UI/accessibility scope open. Follow [ui-reference.md](ui-reference.md) and the scoped evidence in [screen-acceptance.md](screen-acceptance.md). Tablet/landscape acceptance is excluded. Physical-phone testing remains user-owned and suspended.
+9 October 2026 PR #8 validation follow-up: exact single-choice constants (whitespace/empty strings) and required empty multi-select arrays now have five passing JVM regression cases. Final suite passes59 core/36 app JVM tests, both debug APK builds and lint (0 errors,15 existing warnings). These are schema/serialization fixes; no native screen, keyboard, TalkBack or screenshot acceptance was added. The full checklist below remains open.
+
+Active work, 8 October 2026. It continues in PR #8 (branch `host-remaining-work-2`); see "PR #8 increment" at the end. This keeps the full requested UI/accessibility scope open. Follow [ui-reference.md](ui-reference.md) and the scoped evidence in [screen-acceptance.md](screen-acceptance.md). Tablet/landscape acceptance is excluded. Physical-phone testing remains user-owned and suspended.
 
 ## Acceptance checklist
 
@@ -53,3 +55,13 @@ After the heading/native-fixture increment, the final ordinary affected suite pa
 Both debug APK builds and lint pass (0 errors, 29 warnings, 2 hints). Release manifest inspection excludes the debug fixture. Production sources did not change in this follow-up; JVM/core/Rust suites were not rerun. External checks confirm font 1.0, enabled services null, accessibility enabled 0 and touch exploration 0 after the runs. No fresh screenshots, mockup comparison, durable changed-draft recovery, document-provider, physical-phone or real-agent acceptance is claimed. Broader page states, native form keyboards, route focus and page scroll restoration remain open.
 
 The subsequent MCP keyboard follow-up adds dark-theme coverage and uses actual taps for opening the editor, focusing fields and saving while the native keyboard remains visible. It uses only in-memory definitions/callbacks and no host, vault or persisted preferences. All six `ConfigurationLayoutUiTest` cases pass at normal font, including the four existing compact synthetic-large-font cases; the two native keyboard cases also pass separately at actual font 2.0. Font restores to 1.0 in an external finally. The test APK build passes. No production changes, additional lint/JVM/core/Rust run or fresh screenshots in this follow-up. Evidence: `.local/ui-mcp-keyboard-dark-light-final.log` and `.local/ui-mcp-keyboard-system-font-two.log`. This establishes reachable explicit Save for the fixture, not live MCP writes or full editor lifecycle acceptance.
+
+## PR #8 increment (8 October 2026)
+
+The user moved this work into PR #8 and asked for the first changes an emulator can show. Production changes:
+
+- Tool cards show host file-write outcomes from `_meta.acpdWrite`, trusted only on host-direction events. "File changed without your approval" (refused or cancelled write already on disk) uses the error color and is explained in a box that is visible without expanding the card. "Already up to date · nothing written" is a muted badge; its explanation appears when the card is expanded. Transcript export includes the badge text.
+- Agents the registry marks with `ownTools` show "Uses its own tools" in agent rows (Agents list, connection page, new-session picker) and a full warning box on Agent details, under the selected agent on New session, at the top of the conversation (collapsible to one line once there are messages; the line is a 48 dp button that announces Expanded/Collapsed) and on the session's Agent details. The warning title is a heading.
+- Form elicitation sheet. It shows text, number and integer fields with matching keyboards, plus switches, radio choices and checkboxes. Required fields are labelled, a field's problem is shown under it and exposed as a semantics error, and the targets are at least 48 dp. Submit, Decline and Cancel are explicit, and dismissing the sheet leaves the question pending.
+
+Verification on the box (Linux, JDK 17, local Android SDK 36): core 53 and app 36 JVM tests pass (new: HostNoticeTest, ElicitationTest, AgentStatusTest). `:app:assembleDebug`, `:app:assembleDebugAndroidTest` and `:app:lintDebug` pass with 0 errors and 28 warnings. No emulator, TalkBack or screenshot evidence yet for these screens. Compose semantics alone does not prove TalkBack behavior.

@@ -45,7 +45,7 @@ import dev.acportal.transport.ConnectionState
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
 
-@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null) {
+@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->}) {
     val diagnostics by live.diagnostics.collectAsStateWithLifecycle()
     val state by live.state.collectAsStateWithLifecycle()
     val connection by live.connection.collectAsStateWithLifecycle()
@@ -54,7 +54,7 @@ import kotlinx.coroutines.*
     val generation by live.localCopyGeneration.collectAsStateWithLifecycle()
     val attachments by live.attachments.collectAsStateWithLifecycle()
     TranscriptExportSurface(info,state) {exporting,onExport->
-        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost)
+        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation)
     }
 }
 
@@ -99,7 +99,7 @@ import kotlinx.coroutines.*
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host") {
+@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->}) {
     var draft by rememberSaveable(info.id) { mutableStateOf(initialDraft) }
     val focus=LocalFocusManager.current
     val keyboard=LocalSoftwareKeyboardController.current
@@ -116,10 +116,10 @@ import kotlinx.coroutines.*
     var historyChoice by remember(info.id) {mutableStateOf<String?>(null)}
     var showOptions by remember(info.id) {mutableStateOf(false)}
     var showAgent by remember(info.id) {mutableStateOf(false)}
-    var connectionPage by remember(info.id) {mutableStateOf(0)}
+    var connectionPage by remember(info.id) {mutableIntStateOf(0)}
     var removeCopy by remember(info.id) {mutableStateOf(false)}
     var changedFile by rememberSaveable(info.id) {mutableStateOf<String?>(null)}
-    var handledReset by rememberSaveable(info.id) {mutableStateOf(draftResetVersion)}
+    var handledReset by rememberSaveable(info.id) {mutableLongStateOf(draftResetVersion)}
     LaunchedEffect(draftResetVersion) {if(draftResetVersion>handledReset) {draft="";sentDraft=null;showHistory=false;historyChoice=null;focus.clearFocus();keyboard?.hide();handledReset=draftResetVersion}}
     val pendingPermission=state.permissions.values.firstOrNull()
     LaunchedEffect(pendingPermission?.id) {showPermission=pendingPermission!=null}
@@ -167,6 +167,7 @@ import kotlinx.coroutines.*
             AuthenticationPanel(info,connected && !state.replaying,authenticating) { method->onConfigure("authenticate",buildJsonObject { put("methodId",method) }) }
         }
 
+        if(info.ownTools && !offlineCopy)OwnToolsNotice(Modifier.padding(horizontal=16.dp,vertical=4.dp),compact=state.items.isNotEmpty())
         if(state.localHistoryCleared)Text("Earlier messages were removed from this device.",Modifier.padding(horizontal=20.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.historyGap)Text("Some earlier messages are unavailable in this conversation.",Modifier.padding(16.dp),style=MaterialTheme.typography.bodySmall)
         if(state.items.isEmpty())Box(Modifier.weight(1f).fillMaxWidth()) { if(offlineCopy)EmptyState("No messages saved","Connect to view this conversation. Message caching can be changed in Settings.") else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.") }
@@ -179,7 +180,7 @@ import kotlinx.coroutines.*
                 is TimelineItem.Notice->Text(item.text,color=if(item.error)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             } }
         }
-        if(pendingPermission!=null && !showPermission)TextButton({showPermission=true},Modifier.align(Alignment.CenterHorizontally)) {Text("Review permission")}
+        if(pendingPermission!=null && !showPermission)TextButton({showPermission=true},Modifier.align(Alignment.CenterHorizontally)) {Text(if(pendingPermission.isElicitation)"Answer the agent's question" else "Review permission")}
         Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainer,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {Column(Modifier.padding(8.dp)) {
             onRemoveAttachment?.let {AttachmentRows(attachments,!state.processing && !state.replaying,it)}
             TextField(draft,{draft=it;onDraft(it)},placeholder={Text("Message, @files",style=MaterialTheme.typography.bodyMedium)},modifier=Modifier.fillMaxWidth(),minLines=1,maxLines=6,enabled=!state.replaying,colors=TextFieldDefaults.colors(focusedContainerColor=Color.Transparent,unfocusedContainerColor=Color.Transparent,disabledContainerColor=Color.Transparent,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,disabledIndicatorColor=Color.Transparent))
@@ -200,7 +201,11 @@ import kotlinx.coroutines.*
     historyChoice?.let {text->AlertDialog(onDismissRequest={historyChoice=null},title={Text("Replace draft?")},text={Text("Replace the current text with this earlier prompt. Selected attachments stay in the composer.")},confirmButton={TextButton({draft=text;sentDraft=null;onDraft(text);historyChoice=null}) {Text("Replace")}},dismissButton={TextButton({historyChoice=null}) {Text("Cancel")}})}
     if(removeCopy)AlertDialog(onDismissRequest={removeCopy=false},title={Text("Remove local copy?")},text={Text("Remove this phone's messages and draft. The host keeps the session and its history. Pending permission decisions remain available.")},confirmButton={TextButton({removeCopy=false;onRemoveLocal?.invoke()}) {Text("Remove",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({removeCopy=false}) {Text("Cancel")}})
     if(showPermission && pendingPermission!=null)ModalBottomSheet(onDismissRequest={showPermission=false},sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true),containerColor=MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {PermissionRequest(pendingPermission,connected && !state.replaying) {focus.clearFocus();keyboard?.hide();onPermission(pendingPermission,it)};Spacer(Modifier.navigationBarsPadding().height(16.dp))}
+        Column(Modifier.verticalScroll(rememberScrollState()).imePadding()) {
+            if(pendingPermission.isElicitation)ElicitationRequest(pendingPermission,connected && !state.replaying) {action,content->focus.clearFocus();keyboard?.hide();onElicitation(pendingPermission,action,content)}
+            else PermissionRequest(pendingPermission,connected && !state.replaying) {focus.clearFocus();keyboard?.hide();onPermission(pendingPermission,it)}
+            Spacer(Modifier.navigationBarsPadding().height(16.dp))
+        }
     }
 }
 
@@ -262,8 +267,15 @@ import kotlinx.coroutines.*
 @Composable fun ToolCard(tool:TimelineItem.Tool,terminals:Map<String,JsonObject> = emptyMap(),onChange:((String)->Unit)?=null) {
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("tool-card")) {
-        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).testTag("tool-disclosure-${tool.id}").semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,(if(expanded)"Collapse tool: " else "Expand tool: ")+tool.title)}})
+        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.hostWrite?.let {value->hostWriteLabel(value)?.let {label->Text(label,Modifier.testTag("host-write-badge"),style=MaterialTheme.typography.labelMedium,color=if(value==HOST_WRITE_CHANGED)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}};tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({expanded=!expanded},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).testTag("tool-disclosure-${tool.id}").semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,(if(expanded)"Collapse tool: " else "Expand tool: ")+tool.title)}})
+        // A write the user refused that is already on disk stays visible without expanding.
+        if(tool.hostWrite==HOST_WRITE_CHANGED)hostWriteExplanation(HOST_WRITE_CHANGED)?.let {text->
+            Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp).testTag("host-write-notice"),shape=RoundedCornerShape(8.dp),color=MaterialTheme.colorScheme.errorContainer,contentColor=MaterialTheme.colorScheme.onErrorContainer) {
+                Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {Icon(Icons.Outlined.WarningAmber,null,Modifier.size(20.dp));Text(text,style=MaterialTheme.typography.bodySmall)}
+            }
+        }
         if(expanded)Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            if(tool.hostWrite==HOST_WRITE_UNCHANGED)hostWriteExplanation(HOST_WRITE_UNCHANGED)?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             tool.locations.forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.labelSmall) }
             tool.autoReview?.let {review->
                 if(review["reason"].text().isNotBlank())Text("Reason: "+review["reason"].text(),style=MaterialTheme.typography.bodySmall)

@@ -98,6 +98,11 @@ async fn prompt_check_is_opt_in_and_reports_provider_failures_by_code_only() {
         agent_check(&config, registry, "test-agent", workspace.path(), true).await;
     assert!(!passed, "{message}");
     assert!(message.contains("JSON-RPC error code -32603"), "{message}");
+    // "rejected key" alone is not one of the matched words, so the generic message stays.
+    assert!(
+        message.contains("likely missing or wrong") && !message.contains("mentions"),
+        "{message}"
+    );
     assert!(
         !message.contains("synthetic-provider-secret") && !message.contains("Provider rejected")
     );
@@ -107,4 +112,16 @@ async fn prompt_check_is_opt_in_and_reports_provider_failures_by_code_only() {
     assert!(!passed, "{message}");
     assert!(message.contains("auth_required (-32000)"), "{message}");
     assert!(!message.contains("synthetic-provider-secret"));
+    // -32603 whose text mentions authentication: the cause is named, the text is not printed.
+    let (config, registry) = setup(workspace.path(), &["--fault", "prompt-auth-text"]);
+    let (message, passed) =
+        agent_check(&config, registry, "test-agent", workspace.path(), true).await;
+    assert!(!passed, "{message}");
+    assert!(
+        message.contains("-32603") && message.contains("mentions authentication or an API key"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("synthetic-provider-secret") && !message.contains("Authentication Fails")
+    );
 }

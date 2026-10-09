@@ -24,6 +24,7 @@ import kotlinx.serialization.json.*
             Text(hostLabel ?: info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\'),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
             DetailValue("Session setup",if(info.acpSessionId.isBlank())"Sign-in required" else "Complete")
+            if(info.ownTools)OwnToolsNotice()
             sessionInfo["title"].text().takeIf {it.isNotBlank()}?.let {DetailValue("Session title",it)}
             sessionInfo["updatedAt"].text().takeIf {it.isNotBlank()}?.let {DetailValue("Agent updated",it)}
             val used=(usage["used"] as? JsonPrimitive)?.longOrNull
@@ -57,7 +58,7 @@ import kotlinx.serialization.json.*
     val configuration=state.configOptions.map {it.objectValue()}.filter {it["type"].text()=="select"}
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Session options",onBack=onBack)
-        if(state.permissions.isNotEmpty())TextButton(onBack,Modifier.padding(horizontal=24.dp)) {Text("Return to pending permission")}
+        if(state.permissions.isNotEmpty())TextButton(onBack,Modifier.padding(horizontal=24.dp)) {Text(if(state.permissions.values.first().isElicitation)"Return to the agent's question" else "Return to pending permission")}
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Text(state.items.filterIsInstance<TimelineItem.Text>().firstOrNull {it.role=="user"}?.text?.lineSequence()?.firstOrNull()?.take(80) ?: info.agentId,style=MaterialTheme.typography.titleMedium)
             Text("${info.agentId} · ${info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

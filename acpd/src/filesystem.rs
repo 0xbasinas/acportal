@@ -43,6 +43,7 @@ pub struct WorkspaceFiles {
     directory: Dir,
     maximum_bytes: usize,
 }
+#[derive(Clone)]
 pub struct PreparedWrite {
     pub path: PathBuf,
     pub content: String,
@@ -397,6 +398,31 @@ pub async fn commit_write_async(files: Arc<WorkspaceFiles>, prepared: PreparedWr
         .await
         .context("write timed out; completion may be ambiguous")?
         .context("write worker failed")?
+}
+/// True when the target now holds exactly the proposed text, which differs from the text shown
+/// in the consent, although the host did not write it: the agent changed the file with its own
+/// tool. Best effort (a later agent write is not seen); any error counts as false.
+pub async fn written_outside_consent_async(
+    files: Arc<WorkspaceFiles>,
+    prepared: PreparedWrite,
+) -> bool {
+    let Ok(permit) = worker_permit() else {
+        return false;
+    };
+    let worker = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        files
+            .existing_text(&prepared.relative)
+            .ok()
+            .flatten()
+            .is_some_and(|text| {
+                text == prepared.content && prepared.old_text.as_deref() != Some(text.as_str())
+            })
+    });
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), worker).await,
+        Ok(Ok(true))
+    )
 }
 
 #[cfg(test)]

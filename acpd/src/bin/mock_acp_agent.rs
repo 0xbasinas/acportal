@@ -186,17 +186,24 @@ async fn main() -> anyhow::Result<()> {
             "session/prompt"
                 if matches!(
                     options.fault.as_deref(),
-                    Some("prompt-error" | "prompt-auth")
+                    Some("prompt-error" | "prompt-auth" | "prompt-auth-text")
                 ) =>
             {
                 // Like an agent whose provider fails or rejects the credentials on the first
-                // model call (Goose 1.53.0 answers an invalid key with -32000).
-                let code = if options.fault.as_deref() == Some("prompt-auth") {
-                    -32000
-                } else {
-                    -32603
+                // model call (Goose 1.53.0 answers an invalid key with -32000; OpenCode 1.18.35
+                // with -32603 and an "Authentication Fails, Your api key ..." message).
+                let (code, message) = match options.fault.as_deref() {
+                    Some("prompt-auth") => {
+                        (-32000, "Provider rejected key synthetic-provider-secret")
+                    }
+                    Some("prompt-auth-text") => (
+                        -32603,
+                        "Internal error: Authentication Fails, Your api key: ****synthetic-provider-secret is invalid",
+                    ),
+                    _ => (-32603, "Provider rejected key synthetic-provider-secret"),
                 };
-                out.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":"Provider rejected key synthetic-provider-secret"}})).await?;
+                out.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}))
+                    .await?;
             }
             "session/prompt" => {
                 last_prompt = params.clone();

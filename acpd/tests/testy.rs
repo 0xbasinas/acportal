@@ -105,11 +105,21 @@ impl Fixture {
         }
     }
     async fn create(&self) -> Value {
+        self.create_with_mcp(json!([])).await
+    }
+    async fn create_with_mcp(&self, mcp_servers: Value) -> Value {
+        self.create_with(json!({"mcpServers":mcp_servers})).await
+    }
+    async fn create_with(&self, extra: Value) -> Value {
+        let mut body = json!({"agentId":"testy","workspace":self.workspace});
+        for (key, value) in extra.as_object().unwrap() {
+            body[key] = value.clone();
+        }
         let info: Value = self
             .client
             .post(format!("{}/v1/sessions", self.base))
             .bearer_auth(&self.token)
-            .json(&json!({"agentId":"testy","workspace":self.workspace}))
+            .json(&body)
             .send()
             .await
             .unwrap()
@@ -264,6 +274,40 @@ async fn run(socket: &mut Socket, request: Value, answer: Answer) -> Turn {
             consents.push((source, option_id));
         }
         events.push(value);
+    }
+}
+
+/// The SDK's stdio MCP test server, built next to testy by `scripts/build-testy.sh`
+/// (`ACPD_TESTY_MCP_BIN` overrides the path).
+fn mcp_echo_server(testy: &Path) -> Option<PathBuf> {
+    let path = std::env::var_os("ACPD_TESTY_MCP_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| testy.with_file_name("mcp-echo-server"));
+    if path.is_file() {
+        Some(path)
+    } else {
+        eprintln!(
+            "skipping MCP part: {} not found; rebuild with scripts/build-testy.sh",
+            path.display()
+        );
+        None
+    }
+}
+
+/// A minimal Streamable HTTP MCP server with one `echo` tool (tools/mcp-http-echo), built
+/// next to testy by `scripts/build-testy.sh` (`ACPD_TESTY_HTTP_MCP_BIN` overrides the path).
+fn mcp_http_echo_server(testy: &Path) -> Option<PathBuf> {
+    let path = std::env::var_os("ACPD_TESTY_HTTP_MCP_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| testy.with_file_name("mcp-http-echo"));
+    if path.is_file() {
+        Some(path)
+    } else {
+        eprintln!(
+            "skipping HTTP MCP test: {} not found; rebuild with scripts/build-testy.sh",
+            path.display()
+        );
+        None
     }
 }
 
@@ -437,8 +481,9 @@ async fn testy_session_updates_tool_calls_modes_config_and_auth_pass_through() {
     fixture.stop().await;
 }
 
-/// acpd does not advertise elicitation, so testy refuses its elicitation scenario with a
-/// deterministic invalid-params prompt error and the session stays usable.
+/// Without the phone's opt-in acpd does not advertise elicitation, so testy refuses its
+/// elicitation scenario with a deterministic invalid-params prompt error and the session
+/// stays usable.
 #[tokio::test]
 async fn testy_elicitation_is_not_advertised_and_fails_cleanly() {
     let Some(testy) = testy() else { return };
@@ -453,6 +498,90 @@ async fn testy_elicitation_is_not_advertised_and_fails_cleanly() {
     .await;
     assert_eq!(elicit.error_code(), Some(-32602), "{}", elicit.response);
     assert!(elicit.consents.is_empty());
+    let echo = run(
+        &mut socket,
+        prompt(&session, "after", "echo still usable"),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(echo.agent_text(), "still usable");
+    fixture.stop().await;
+}
+
+/// A phone that opts in with `workspaceAccess.formElicitation` gets testy's three form
+/// elicitations (accept, decline, cancel). The host refuses answers that miss a required
+/// field or name an unknown one and keeps the request pending. testy then asks for URL
+/// elicitation, which the host never advertises, so the prompt ends with invalid params.
+#[tokio::test]
+async fn testy_form_elicitations_reach_a_phone_that_opts_in() {
+    let Some(testy) = testy() else { return };
+    let fixture = Fixture::start(&testy, None).await;
+    let status: Value = fixture
+        .client
+        .get(format!("{}/v1/status", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["features"], json!(["formElicitation"]), "{status}");
+    let session = fixture
+        .create_with(json!({"workspaceAccess":{"readFiles":true,"writeFiles":true,"terminal":true,"formElicitation":true}}))
+        .await;
+    assert_eq!(session["workspaceAccess"]["formElicitation"], true);
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    send(&mut socket, prompt(&session, "elicit", "elicitations")).await;
+    let mut seen = Vec::new();
+    let mut rejected = 0;
+    let response = loop {
+        let value = next_value(&mut socket).await;
+        let message = &value["message"];
+        if message["id"] == "elicit" && message.get("method").is_none() {
+            break message.clone();
+        }
+        if value["direction"] == "host"
+            && message["error"]["message"] == "Permission response rejected"
+        {
+            rejected += 1;
+            continue;
+        }
+        if message["method"] != "elicitation/create" || message.get("id").is_none() {
+            continue;
+        }
+        let params = &message["params"];
+        assert_eq!(params["mode"], "form", "{message}");
+        assert!(
+            params["requestedSchema"]["properties"].is_object(),
+            "{message}"
+        );
+        let id = message["id"].clone();
+        let result = match seen.len() {
+            0 => {
+                assert_eq!(params["sessionId"], session["acpSessionId"]);
+                // Missing required fields, then an unknown field: both refused.
+                send(&mut socket, json!({"jsonrpc":"2.0","id":id,"result":{"action":"accept","content":{"name":"Ada"}}})).await;
+                send(&mut socket, json!({"jsonrpc":"2.0","id":id,"result":{"action":"accept","content":{"name":"Ada","confidence":0.5,"age":36,"confirmed":true,"injected":"x"}}})).await;
+                json!({"action":"accept","content":{"name":"Ada","confidence":0.5,"age":36,"confirmed":true,"priority":"high","tags":["acp","rust"]}})
+            }
+            1 => json!({"action":"decline"}),
+            _ => json!({"action":"cancel"}),
+        };
+        send(
+            &mut socket,
+            json!({"jsonrpc":"2.0","id":id,"result":result}),
+        )
+        .await;
+        seen.push(params["message"].as_str().unwrap_or_default().to_owned());
+    };
+    assert_eq!(seen.len(), 3, "{seen:?}");
+    assert!(
+        seen[0].contains("Accept") && seen[1].contains("Decline") && seen[2].contains("Cancel"),
+        "{seen:?}"
+    );
+    assert_eq!(rejected, 2);
+    assert_eq!(response["error"]["code"], -32602, "{response}");
     let echo = run(
         &mut socket,
         prompt(&session, "after", "echo still usable"),
@@ -595,4 +724,209 @@ async fn testy_callbacks_and_full_inside_the_workspace_follow_phone_decisions() 
         "written by testy\n"
     );
     fixture.stop().await;
+}
+
+/// A custom registry entry (testy) through the same checks as `acpd doctor --agent`:
+/// sign-in without a prompt, then the opt-in provider check with one prompt.
+#[tokio::test]
+async fn testy_doctor_reports_ready_and_the_opt_in_prompt_check_passes() {
+    let Some(testy) = testy() else { return };
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = directory.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let config = Config {
+        workspace_roots: vec![workspace.clone()],
+        state_directory: directory.path().join("state"),
+        ..Default::default()
+    };
+    let registry = || {
+        Registry::parse(
+            &json!([{"id":"custom-testy","name":"Custom testy","command":testy,"args":[],"transport":"stdio"}])
+                .to_string(),
+        )
+        .unwrap()
+    };
+    let (message, passed) =
+        acpd::doctor::agent_check(&config, registry(), "custom-testy", &workspace, false).await;
+    assert!(passed, "{message}");
+    assert!(
+        message.contains("ready") && message.contains("no prompt sent"),
+        "{message}"
+    );
+    let (message, passed) =
+        acpd::doctor::agent_check(&config, registry(), "custom-testy", &workspace, true).await;
+    assert!(passed, "{message}");
+    assert!(
+        message.contains("provider responded (stopReason end_turn)"),
+        "{message}"
+    );
+    // testy's greeting must not be printed; doctor reports only the stop reason.
+    assert!(!message.contains("Hello"), "{message}");
+}
+
+/// A phone-supplied stdio MCP definition reaches the agent unchanged: testy starts the SDK's
+/// echo MCP server from it, lists its tools and calls one. The env value stays out of the
+/// session metadata the phone receives.
+#[tokio::test]
+async fn testy_uses_a_phone_supplied_stdio_mcp_server() {
+    let Some(testy) = testy() else { return };
+    let Some(server) = mcp_echo_server(&testy) else {
+        return;
+    };
+    let fixture = Fixture::start(&testy, None).await;
+    let definitions = json!([{"name":"echo","command":server,"args":[],"env":[{"name":"ACPD_MCP_MARKER","value":"synthetic-mcp-secret"}]}]);
+    let session = fixture.create_with_mcp(definitions).await;
+    assert!(
+        !session.to_string().contains("synthetic-mcp-secret"),
+        "{session}"
+    );
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    let tools = run(
+        &mut socket,
+        prompt(
+            &session,
+            "tools",
+            r#"{"command":"list_tools","server":"echo"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(tools.stop_reason(), "end_turn", "{}", tools.response);
+    let listed = tools.agent_text();
+    assert!(
+        listed.starts_with("Available tools:") && listed.contains("echo"),
+        "{listed}"
+    );
+    let call = run(
+        &mut socket,
+        prompt(
+            &session,
+            "call",
+            r#"{"command":"call_tool","server":"echo","tool":"echo","params":{"message":"through acpd"}}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(call.stop_reason(), "end_turn", "{}", call.response);
+    let reply = call.agent_text();
+    assert!(
+        reply.starts_with("OK:") && reply.contains("through acpd"),
+        "{reply}"
+    );
+    // An unknown server name is the agent's own error, reported as text by testy.
+    let missing = run(
+        &mut socket,
+        prompt(
+            &session,
+            "missing",
+            r#"{"command":"list_tools","server":"absent"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert!(
+        missing.agent_text().starts_with("ERROR:"),
+        "{}",
+        missing.agent_text()
+    );
+    assert!(tools.consents.is_empty() && call.consents.is_empty());
+    // Remote MCP is gated on the agent's advertised capabilities: testy v3.2.0 advertises HTTP
+    // (accepted and forwarded) but not SSE (refused before the session is kept).
+    let remote = |definition: Value| {
+        fixture
+            .client
+            .post(format!("{}/v1/sessions", fixture.base))
+            .bearer_auth(&fixture.token)
+            .json(
+                &json!({"agentId":"testy","workspace":fixture.workspace,"mcpServers":[definition]}),
+            )
+            .send()
+    };
+    let http = remote(json!({"type":"http","name":"docs","url":"http://127.0.0.1:9/mcp","headers":[{"name":"Authorization","value":"synthetic-http-secret"}]})).await.unwrap();
+    assert_eq!(http.status(), reqwest::StatusCode::CREATED);
+    let http: Value = http.json().await.unwrap();
+    assert_eq!(http["status"], "ready", "{http}");
+    assert!(!http.to_string().contains("synthetic-http-secret"));
+    let sse =
+        remote(json!({"type":"sse","name":"events","url":"http://127.0.0.1:9/sse","headers":[]}))
+            .await
+            .unwrap();
+    assert_eq!(sse.status(), reqwest::StatusCode::BAD_REQUEST);
+    fixture.stop().await;
+}
+
+/// A phone-supplied HTTP MCP definition reaches the agent and works end to end: testy connects
+/// to a real Streamable HTTP MCP server on loopback, lists its tools and calls one. The server
+/// confirms the phone-supplied header arrived; its value stays out of the session metadata.
+#[tokio::test]
+async fn testy_uses_a_phone_supplied_http_mcp_server() {
+    let Some(testy) = testy() else { return };
+    let Some(server) = mcp_http_echo_server(&testy) else {
+        return;
+    };
+    let mut child = tokio::process::Command::new(&server)
+        .arg("0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("start the HTTP MCP server");
+    let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap());
+    let mut url = String::new();
+    timeout(
+        WAIT,
+        tokio::io::AsyncBufReadExt::read_line(&mut lines, &mut url),
+    )
+    .await
+    .expect("HTTP MCP server printed no URL")
+    .unwrap();
+    let url = url.trim().to_owned();
+    assert!(
+        url.starts_with("http://127.0.0.1:") && url.ends_with("/mcp"),
+        "{url}"
+    );
+    let fixture = Fixture::start(&testy, None).await;
+    let definitions = json!([{"type":"http","name":"web","url":url,"headers":[{"name":"X-Acpd-Marker","value":"synthetic-http-header"}]}]);
+    let session = fixture.create_with_mcp(definitions).await;
+    assert_eq!(session["status"], "ready", "{session}");
+    assert!(
+        !session.to_string().contains("synthetic-http-header"),
+        "{session}"
+    );
+    let mut socket = fixture.connect(session["id"].as_str().unwrap()).await;
+    let tools = run(
+        &mut socket,
+        prompt(
+            &session,
+            "tools",
+            r#"{"command":"list_tools","server":"web"}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(tools.stop_reason(), "end_turn", "{}", tools.response);
+    let listed = tools.agent_text();
+    assert!(
+        listed.starts_with("Available tools:") && listed.contains("echo"),
+        "{listed}"
+    );
+    let call = run(
+        &mut socket,
+        prompt(
+            &session,
+            "call",
+            r#"{"command":"call_tool","server":"web","tool":"echo","params":{"message":"over http"}}"#,
+        ),
+        Answer::Deny,
+    )
+    .await;
+    assert_eq!(call.stop_reason(), "end_turn", "{}", call.response);
+    let reply = call.agent_text();
+    assert!(
+        reply.starts_with("OK:") && reply.contains("HTTP echo: over http (marker header present)"),
+        "{reply}"
+    );
+    assert!(tools.consents.is_empty() && call.consents.is_empty());
+    fixture.stop().await;
+    child.kill().await.ok();
 }

@@ -81,9 +81,34 @@ fn log_frame(direction: &'static str, message: &Value, bytes: usize) {
 pub const CALLBACK_DENIED: i64 = -32602;
 /// JSON-RPC code for a callback the host cannot serve right now (not ready, capacity).
 pub const CALLBACK_UNAVAILABLE: i64 = -32603;
-/// Preserve only the protocol error code; agent text/data may contain credentials.
+/// Preserve only the protocol error code; agent text/data may contain credentials. The second
+/// field records whether that text mentioned authentication or an API key (the text itself is
+/// dropped), so diagnostics can name the likely cause without printing it.
 #[derive(Debug)]
-pub struct AgentRpcError(pub i64);
+pub struct AgentRpcError(pub i64, pub bool);
+
+/// Whether an agent error's message or data mentions authentication, credentials or an API key.
+/// Only these fixed words are matched (no status numbers, which also appear in request ids).
+pub fn mentions_credentials(error: &Value) -> bool {
+    let text = format!(
+        "{} {}",
+        error["message"].as_str().unwrap_or(""),
+        error.get("data").map(Value::to_string).unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    [
+        "authenticat",
+        "unauthori",
+        "api key",
+        "api_key",
+        "apikey",
+        "credential",
+        "invalid key",
+        "invalid_key",
+    ]
+    .iter()
+    .any(|word| text.contains(word))
+}
 impl std::fmt::Display for AgentRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "agent JSON-RPC error code {}", self.0)
@@ -97,6 +122,10 @@ pub struct WorkspaceAccess {
     pub read_files: bool,
     pub write_files: bool,
     pub terminal: bool,
+    /// The phone can render form elicitations. Older phones omit it, so the host keeps
+    /// `elicitation` out of the agent's client capabilities unless a phone asks for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub form_elicitation: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -104,12 +133,80 @@ impl Default for WorkspaceAccess {
             read_files: true,
             write_files: true,
             terminal: true,
+            form_elicitation: false,
         }
     }
 }
 impl WorkspaceAccess {
     pub fn capabilities(self) -> Value {
-        json!({"fs":{"readTextFile":self.read_files,"writeTextFile":self.write_files},"terminal":self.terminal})
+        let mut capabilities = json!({"fs":{"readTextFile":self.read_files,"writeTextFile":self.write_files},"terminal":self.terminal});
+        if self.form_elicitation {
+            // Only form mode: URL mode would ask the phone to open agent-supplied links.
+            capabilities["elicitation"] = json!({"form":{}});
+        }
+        capabilities
+    }
+}
+
+/// A forwarded elicitation must be a well-formed form request for this session (or scoped
+/// to a request). URL mode is never forwarded: it would ask the phone to open an
+/// agent-supplied link.
+fn elicitation_request_supported(params: &Value, session_id: Option<&str>) -> bool {
+    let Ok(request) = serde_json::from_value::<acp::CreateElicitationRequest>(params.clone())
+    else {
+        return false;
+    };
+    match request.mode {
+        acp::ElicitationMode::Form(form) => match form.scope {
+            acp::ElicitationScope::Session(scope) => Some(&*scope.session_id.0) == session_id,
+            acp::ElicitationScope::Request(_) => true,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Validates the phone's answer to a form elicitation and rebuilds it from known fields.
+/// Accepted content may only name properties of the requested schema, must include every
+/// required one and must match each property's JSON type. The agent validates further.
+fn elicitation_answer(request: &Value, result: &Value) -> Option<Value> {
+    let parsed: acp::CreateElicitationResponse = serde_json::from_value(result.clone()).ok()?;
+    match parsed.action {
+        acp::ElicitationAction::Accept(_) => {
+            let schema = &request["requestedSchema"];
+            let properties = schema["properties"].as_object()?;
+            let content = match &result["content"] {
+                Value::Null => serde_json::Map::new(),
+                Value::Object(content) => content.clone(),
+                _ => return None,
+            };
+            let required = schema["required"].as_array().cloned().unwrap_or_default();
+            if required
+                .iter()
+                .any(|name| name.as_str().is_none_or(|name| !content.contains_key(name)))
+            {
+                return None;
+            }
+            for (name, value) in &content {
+                let matches = match properties.get(name)?["type"].as_str()? {
+                    "string" => value.is_string(),
+                    "number" => value.is_number(),
+                    "integer" => value.is_i64() || value.is_u64(),
+                    "boolean" => value.is_boolean(),
+                    "array" => value
+                        .as_array()
+                        .is_some_and(|items| items.iter().all(Value::is_string)),
+                    _ => false,
+                };
+                if !matches {
+                    return None;
+                }
+            }
+            Some(json!({"action":"accept","content":content}))
+        }
+        acp::ElicitationAction::Decline => Some(json!({"action":"decline"})),
+        acp::ElicitationAction::Cancel => Some(json!({"action":"cancel"})),
+        _ => None,
     }
 }
 
@@ -220,7 +317,8 @@ enum Control {
     },
     Permission {
         id: Value,
-        outcome: Value,
+        /// The phone's whole JSON-RPC `result` (permission outcome or elicitation action).
+        result: Value,
         reply: oneshot::Sender<Result<()>>,
     },
     Shutdown(oneshot::Sender<()>),
@@ -475,6 +573,28 @@ fn apply_auto_decision(
         ),
     }
 }
+/// Shown on the phone when an agent asks to write text a file already contains.
+pub const UNCHANGED_WRITE_NOTICE: &str = "The file already contains exactly this text, so acpd did not ask and did not write. The agent probably changed it with its own tool; the host write consent cannot block that. Control such agents with their own permission prompts.";
+/// Shown on the phone when a refused or cancelled host write is found already applied.
+pub const OUTSIDE_WRITE_NOTICE: &str = "This write was not approved, but the file now contains exactly the proposed text: the agent changed it with its own tool, which the host write consent cannot block. Check the file. Control such agents with their own permission prompts.";
+/// The failed-write update for the phone, flagged when the agent applied the change itself.
+async fn refused_write_update(
+    files: &Option<Arc<crate::filesystem::WorkspaceFiles>>,
+    tool_id: &Value,
+    prepared: crate::filesystem::PreparedWrite,
+) -> Value {
+    let outside = match files {
+        Some(files) => {
+            crate::filesystem::written_outside_consent_async(files.clone(), prepared.clone()).await
+        }
+        None => false,
+    };
+    if outside {
+        json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed","content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content},{"type":"content","content":{"type":"text","text":OUTSIDE_WRITE_NOTICE}}],"_meta":{"acpdSource":"host-filesystem","acpdWrite":"changed-without-consent"}})
+    } else {
+        json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed"})
+    }
+}
 fn tool_update(mut tool: Value, kind: &str) -> Value {
     tool["sessionUpdate"] = json!(kind);
     tool
@@ -506,6 +626,7 @@ impl AcpConnection {
                 read_files: false,
                 write_files: false,
                 terminal: false,
+                form_elicitation: false,
             },
             None,
         )
@@ -713,31 +834,31 @@ impl AcpConnection {
         result.await.context("agent connection closed")?
     }
     pub async fn permission(&self, id: Value, outcome: Value) -> Result<()> {
-        #[derive(Serialize)]
-        struct Outcome<'a> {
-            outcome: &'a Value,
-        }
+        self.answer(id, json!({ "outcome": outcome })).await
+    }
+    /// Delivers the phone's answer to a pending permission or elicitation request.
+    pub async fn answer(&self, id: Value, result: Value) -> Result<()> {
         #[derive(Serialize)]
         struct Answer<'a> {
             jsonrpc: &'static str,
             id: &'a Value,
-            result: Outcome<'a>,
+            result: &'a Value,
         }
         let size = check_frame_size(
             &Answer {
                 jsonrpc: "2.0",
                 id: &id,
-                result: Outcome { outcome: &outcome },
+                result: &result,
             },
             self.frame_limit,
         )?;
         let admitted = self.admit(size)?;
-        let (reply, result) = oneshot::channel();
+        let (reply, receiver) = oneshot::channel();
         self.commands
-            .send((Control::Permission { id, outcome, reply }, Some(admitted)))
+            .send((Control::Permission { id, result, reply }, Some(admitted)))
             .await
             .context("agent connection closed")?;
-        result.await.context("agent connection closed")?
+        receiver.await.context("agent connection closed")?
     }
     pub fn subscribe(&self) -> EventReceiver {
         EventReceiver(self.events.subscribe())
@@ -891,7 +1012,7 @@ async fn actor(
                             if waiter.method == "session/prompt" { let _ = busy.send(false); }
                             let result = if message.get("error").is_some() {
                                 // Do not include agent-provided error text: it may contain secrets.
-                                Err(AgentRpcError(message["error"]["code"].as_i64().unwrap_or(-32603)).into())
+                                Err(AgentRpcError(message["error"]["code"].as_i64().unwrap_or(-32603),mentions_credentials(&message["error"])).into())
                             } else { Ok(message["result"].clone()) };
                             let _ = waiter.reply.send(result);
                         }
@@ -999,6 +1120,15 @@ async fn actor(
                         let prepared=match crate::filesystem::prepare_write_async(files.clone(),message["params"].clone(),session_id.clone()).await {
                             Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         };
+                        // The file already holds exactly this text (typically an agent that wrote it
+                        // with its own tool before calling back). Nothing would change, so there is no
+                        // write to consent to: answer success without writing and show the phone why.
+                        if prepared.old_text.as_deref()==Some(prepared.content.as_str()) {
+                            let tool=json!({"toolCallId":format!("acpd-write-{}",uuid::Uuid::new_v4()),"title":format!("Write {} (already up to date)",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"completed","rawInput":{"path":prepared.path},"content":[{"type":"content","content":{"type":"text","text":UNCHANGED_WRITE_NOTICE}}],"_meta":{"acpdSource":"host-filesystem","acpdWrite":"unchanged"}});
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
+                            if write(&mut stdin,&response(id.clone(),json!({})),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            continue;
+                        }
                         let consent_id=json!(format!("acpd-write-{}",uuid::Uuid::new_v4()));
                         let tool_id=consent_id.as_str().unwrap().to_owned();
                         let tool=json!({"toolCallId":tool_id,"title":format!("Write {}",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"pending","rawInput":{"path":prepared.path},"content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content}]});
@@ -1023,6 +1153,22 @@ async fn actor(
                             else { history.permissions.insert(key, message.clone()); true }
                         };
                         if !inserted { break "duplicate permission id or too many pending permissions".into() }
+                    } else if message["method"] == "elicitation/create" && access.form_elicitation {
+                        if !elicitation_request_supported(&message["params"],file_session_id.as_deref()) {
+                            if write(&mut stdin, &error(id.clone(), -32602, "Only form elicitation for this session is supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            continue;
+                        }
+                        let inserted = {
+                            let mut history = journal.lock().unwrap();
+                            let key = id.to_string();
+                            let permission_bytes: usize = history.permissions.values().map(|value| value.to_string().len()).sum();
+                            if history.permissions.contains_key(&key) || history.permissions.len() >= 128 || permission_bytes + message.to_string().len() > limits.history_bytes { false }
+                            else { history.permissions.insert(key, message.clone()); true }
+                        };
+                        if !inserted {
+                            if write(&mut stdin, &error(id.clone(), CALLBACK_UNAVAILABLE, "Host elicitation capacity exceeded or duplicate id"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            continue;
+                        }
                     } else {
                         if write(&mut stdin, &error(id.clone(), -32601, "Client capability not supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                         continue;
@@ -1066,8 +1212,10 @@ async fn actor(
                                     publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":"failed"}}}));
                                     error(host_terminal.callback_id,-32800,"Terminal creation cancelled")
                                 } else if let Some(host_write)=host_writes.remove(&permission["id"].to_string()) {
-                                    publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":"failed"}}}));
+                                    let update=refused_write_update(&files,&permission["params"]["toolCall"]["toolCallId"],host_write.prepared).await;
+                                    publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                                     error(host_write.callback_id,-32800,"Host file write cancelled")
+                                } else if permission["method"]=="elicitation/create" {response(permission["id"].clone(), json!({"action":"cancel"}))
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
                                 if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
@@ -1090,13 +1238,21 @@ async fn actor(
                         let _ = reply.send(result);
                         if failed { break "agent stdin failed".into() }
                     }
-                    Some(Control::Permission { id, outcome, reply }) => {
+                    Some(Control::Permission { id, result, reply }) => {
                         let permission = journal.lock().unwrap().permissions.get(&id.to_string()).cloned();
                         let Some(permission) = permission else { let _ = reply.send(Err(anyhow!("permission request is not pending"))); continue };
-                        let valid = outcome["outcome"] == "cancelled" || (outcome["outcome"] == "selected" && outcome["optionId"].is_string() &&
+                        let elicited = if permission["method"]=="elicitation/create" {
+                            match elicitation_answer(&permission["params"],&result) {
+                                Some(answer)=>Some(answer),
+                                None=>{let _ = reply.send(Err(anyhow!("invalid elicitation answer"))); continue}
+                            }
+                        } else {None};
+                        let outcome = &result["outcome"];
+                        let valid = elicited.is_some() || outcome["outcome"] == "cancelled" || (outcome["outcome"] == "selected" && outcome["optionId"].is_string() &&
                             permission["params"]["options"].as_array().is_some_and(|options| options.iter().any(|option| option["optionId"] == outcome["optionId"])));
                         if !valid { let _ = reply.send(Err(anyhow!("invalid permission outcome"))); continue }
-                        let answer=if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
+                        let answer=if let Some(answer)=elicited {response(id.clone(),answer)
+                        } else if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
                             let allow=if host_terminal.prepared.is_shell() {"acpd-shell-allow"} else {"acpd-command-allow"};
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]==allow;
                             let result=if accepted {terminals.as_mut().unwrap().create_approved(host_terminal.prepared)} else {Err(anyhow!("command denied"))};
@@ -1106,8 +1262,13 @@ async fn actor(
                             match result {Ok(value)=>response(host_terminal.callback_id,value),Err(_)=>error(host_terminal.callback_id,-32602,"Terminal creation denied or unavailable")}
                         } else if let Some(host_write)=host_writes.remove(&id.to_string()) {
                             let accepted=outcome["outcome"]=="selected" && outcome["optionId"]=="acpd-write-allow";
-                            let result=if accepted {crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await} else {Err(anyhow!("write denied"))};
-                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":if result.is_ok(){"completed"}else{"failed"}}}}));
+                            let tool_id=&permission["params"]["toolCall"]["toolCallId"];
+                            let (result,update)=if accepted {
+                                let result=crate::filesystem::commit_write_async(files.as_ref().unwrap().clone(),host_write.prepared).await;
+                                let update=json!({"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":if result.is_ok(){"completed"}else{"failed"}});
+                                (result,update)
+                            } else {(Err(anyhow!("write denied")),refused_write_update(&files,tool_id,host_write.prepared).await)};
+                            publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                             match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
                         let result = write(&mut stdin, &answer, limits.max_frame_bytes).await;
@@ -1187,6 +1348,120 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn elicitation_is_advertised_only_on_opt_in_and_answers_are_checked() {
+        let default = WorkspaceAccess::default();
+        assert!(default.capabilities().get("elicitation").is_none());
+        let opted = WorkspaceAccess {
+            form_elicitation: true,
+            ..default
+        };
+        assert_eq!(opted.capabilities()["elicitation"], json!({"form":{}}));
+        // Older phones send no flag; it defaults off.
+        let parsed: WorkspaceAccess =
+            serde_json::from_value(json!({"readFiles":true,"writeFiles":true,"terminal":true}))
+                .unwrap();
+        assert!(!parsed.form_elicitation);
+
+        let schema = json!({"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"ratio":{"type":"number"},"ok":{"type":"boolean"},"tags":{"type":"array","items":{"type":"string","enum":["a","b"]}}},"required":["name"]});
+        let form =
+            json!({"mode":"form","sessionId":"s1","requestedSchema":schema,"message":"Fill"});
+        assert!(elicitation_request_supported(&form, Some("s1")));
+        assert!(!elicitation_request_supported(&form, Some("other")));
+        assert!(!elicitation_request_supported(&form, None));
+        let request_scoped =
+            json!({"mode":"form","requestId":"r1","requestedSchema":schema,"message":"Fill"});
+        assert!(elicitation_request_supported(&request_scoped, Some("s1")));
+        let url = json!({"mode":"url","sessionId":"s1","elicitationId":"e1","url":"https://example.com","message":"Open"});
+        assert!(!elicitation_request_supported(&url, Some("s1")));
+
+        let accepted = elicitation_answer(
+            &form,
+            &json!({"action":"accept","content":{"name":"Ada","age":3,"ratio":0.5,"ok":true,"tags":["a"]},"_meta":{"x":1}}),
+        )
+        .unwrap();
+        assert_eq!(
+            accepted,
+            json!({"action":"accept","content":{"name":"Ada","age":3,"ratio":0.5,"ok":true,"tags":["a"]}})
+        );
+        for bad in [
+            json!({"action":"accept","content":{}}),
+            json!({"action":"accept","content":{"name":"Ada","extra":"x"}}),
+            json!({"action":"accept","content":{"name":7}}),
+            json!({"action":"accept","content":{"name":"Ada","age":1.5}}),
+            json!({"action":"accept","content":{"name":"Ada","tags":[1]}}),
+            json!({"action":"accept","content":"Ada"}),
+            json!({"action":"open"}),
+            json!({"outcome":{"outcome":"cancelled"}}),
+        ] {
+            assert!(elicitation_answer(&form, &bad).is_none(), "{bad}");
+        }
+        assert_eq!(
+            elicitation_answer(&form, &json!({"action":"decline","content":{"x":1}})),
+            Some(json!({"action":"decline"}))
+        );
+        assert_eq!(
+            elicitation_answer(&form, &json!({"action":"cancel"})),
+            Some(json!({"action":"cancel"}))
+        );
+    }
+    #[test]
+    fn elicitation_answer_edge_cases() {
+        let optional = json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":{"type":"object","properties":{"note":{"type":"string"}}}});
+        // Accept without content is an empty answer when nothing is required.
+        assert_eq!(
+            elicitation_answer(&optional, &json!({"action":"accept"})),
+            Some(json!({"action":"accept","content":{}}))
+        );
+        assert!(elicitation_answer(&optional, &json!({"action":"accept","content":[]})).is_none());
+        // A whole number written as a float is not an integer; a number field takes both.
+        let numbers = json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":{"type":"object","properties":{"n":{"type":"integer"},"x":{"type":"number"}}}});
+        assert!(
+            elicitation_answer(&numbers, &json!({"action":"accept","content":{"n":3.0}})).is_none()
+        );
+        assert!(
+            elicitation_answer(
+                &numbers,
+                &json!({"action":"accept","content":{"n":-3,"x":2}})
+            )
+            .is_some()
+        );
+        // Malformed schemas refuse every accept but still allow decline and cancel.
+        for schema in [
+            json!({"type":"object"}),
+            json!({"type":"object","properties":{"v":{}}}),
+            json!({"type":"object","properties":{"v":{"type":"object"}}}),
+            json!({"type":"object","properties":{"v":{"type":"string"}},"required":[7]}),
+        ] {
+            let request =
+                json!({"mode":"form","sessionId":"s1","message":"Fill","requestedSchema":schema});
+            assert!(
+                elicitation_answer(&request, &json!({"action":"accept","content":{"v":"x"}}))
+                    .is_none(),
+                "{schema}"
+            );
+            assert_eq!(
+                elicitation_answer(&request, &json!({"action":"decline"})),
+                Some(json!({"action":"decline"}))
+            );
+        }
+    }
+    #[test]
+    fn credential_words_in_agent_errors_are_detected_without_status_numbers() {
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"Internal error: Authentication Fails, Your api key: **** is invalid"})
+        ));
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"boom","data":{"reason":"Unauthorized"}})
+        ));
+        assert!(mentions_credentials(
+            &json!({"code":-32603,"message":"missing OPENAI_API_KEY"})
+        ));
+        assert!(!mentions_credentials(
+            &json!({"code":-32603,"message":"model not found (request 401f-403a)"})
+        ));
+        assert!(!mentions_credentials(&json!({"code":-32603})));
+    }
     #[test]
     fn admission_counts_json_escaping_and_envelope_without_retaining_encoded_bytes() {
         let params = json!({"text":"\n\"é".repeat(100)});

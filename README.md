@@ -1,5 +1,7 @@
 # ACP Portal
 
+PR #8 elicitation validation fixes preserve exact advertised choice values and allow required empty arrays when their item bounds permit them. Verification: 59 core/36 app JVM tests, both debug APK builds and lint pass. Native form/TalkBack acceptance remains open; see [the handoff](HANDOFF.md) and [verification history](TODO_DONE.md).
+
 An Android client and Rust host for coding agents that speak Agent Client Protocol. Agent commands live in a host registry. The Android client will never need a release to learn a new agent's executable or arguments.
 
 The repository includes the Rust host, authenticated WebSocket API, pairing service, and a compiling Android client. Secure WebSocket is the phone connection transport. The Android pages cover hosts, pairing, agent/workspace selection, sessions, settings, streamed conversation, permissions, tool output and basic diffs. See [milestones](docs/milestones.md) for verification status and remaining work.

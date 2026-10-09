@@ -89,7 +89,7 @@ object SessionReducer {
             }
             return bounded(next)
         }
-        if (method == "session/request_permission") return permission(next, message)
+        if ((method == PERMISSION_METHOD || method == ELICITATION_METHOD) && message["id"] != null) return permission(next, message)
         if (method.isEmpty()) {
             val requestedModel=next.modelRequests[message["id"].toString()]
             if(requestedModel!=null) {
@@ -131,7 +131,8 @@ object SessionReducer {
                     update["status"].text().ifBlank { previous?.status ?: "pending" },
                     (update["content"] as? JsonArray) ?: previous?.content ?: JsonArray(emptyList()),
                     (update["locations"] as? JsonArray) ?: previous?.locations ?: JsonArray(emptyList()),
-                    autoReview(envelope,update) ?: previous?.autoReview)
+                    autoReview(envelope,update) ?: previous?.autoReview,
+                    hostWrite(envelope,update) ?: previous?.hostWrite)
                 next = next.copy(items = if (previous == null) next.items + item else next.items.map { if (it.id == id) item else it })
             }
             "plan" -> next = next.copy(items = next.items.filterNot { it is TimelineItem.Plan } + TimelineItem.Plan("plan", update["entries"].arrayValue()))
@@ -154,12 +155,20 @@ object SessionReducer {
             if(line.isNotEmpty())put("shellLine",line.take(16000))
         }
     }
+    /** Only the host reports host file-write outcomes; unknown values are ignored. */
+    private fun hostWrite(envelope:JsonObject,update:JsonObject):String? {
+        if(envelope["direction"].text()!="host")return null
+        return update["_meta"].objectValue()["acpdWrite"].text().takeIf {hostWriteLabel(it)!=null}
+    }
     private fun permission(state: SessionState, message: JsonObject,snapshot:Boolean=false): SessionState {
         val id = message["id"] ?: return state
         val request = message["params"].objectValue()
-        if (request["options"] !is JsonArray) return state
-        if(snapshot && state.replayPermissions!=null)return state.copy(replayPermissions=state.replayPermissions+(id.toString() to Permission(id,request)))
-        return state.copy(permissions = state.permissions + (id.toString() to Permission(id, request)))
+        val method = if (message["method"].text() == ELICITATION_METHOD) ELICITATION_METHOD else PERMISSION_METHOD
+        if (method == ELICITATION_METHOD) { if (request["mode"].text() != "form" || request["requestedSchema"] !is JsonObject) return state }
+        else if (request["options"] !is JsonArray) return state
+        val permission = Permission(id, request, method)
+        if(snapshot && state.replayPermissions!=null)return state.copy(replayPermissions=state.replayPermissions+(id.toString() to permission))
+        return state.copy(permissions = state.permissions + (id.toString() to permission))
     }
     private fun bounded(state:SessionState):SessionState {
         var omitted=false

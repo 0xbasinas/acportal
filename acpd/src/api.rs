@@ -267,7 +267,9 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     Ok(Json(
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
-        "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,"activeSessions":host.sessions.active_count().await}),
+        "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
+        // Optional host behaviors a phone may opt into; older hosts omit this list.
+        "features":["formElicitation"],"activeSessions":host.sessions.active_count().await}),
     ))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
@@ -642,7 +644,7 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
         tokio::spawn(async move {
             let result = session
                 .connection
-                .permission(message["id"].clone(), message["result"]["outcome"].clone())
+                .answer(message["id"].clone(), message["result"].clone())
                 .await;
             if result.is_ok() {
                 session.connection.record(message, "client");

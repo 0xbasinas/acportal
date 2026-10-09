@@ -23,6 +23,11 @@ pub struct AgentDefinition {
     pub working_directory: Option<PathBuf>,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Set when this agent is known to edit files or run commands with its own built-in
+    /// tools instead of ACP client callbacks. Those actions bypass host review, so the
+    /// phone shows a warning. The host cannot detect this; the registry owner declares it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own_tools: bool,
 }
 fn stdio() -> String {
     "stdio".into()
@@ -55,6 +60,7 @@ pub struct Discovery {
     pub version: Option<String>,
     pub status: AgentStatus,
     pub reason: Option<String>,
+    pub own_tools: bool,
 }
 impl AgentDefinition {
     pub fn validate(&self) -> Result<()> {
@@ -110,6 +116,7 @@ impl AgentDefinition {
             version: None,
             status,
             reason: validation,
+            own_tools: self.own_tools,
         }
     }
 }
@@ -223,10 +230,38 @@ fn executable(path: &Path) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn shipped_example_registries_parse_and_templates_stay_disabled() {
+        let goose = Registry::parse(include_str!("../../examples/agents.json")).unwrap();
+        assert!(goose.get("goose").unwrap().enabled);
+        let custom = Registry::parse(include_str!("../../examples/agents.custom.json")).unwrap();
+        assert!(custom.agents.len() >= 4);
+        // Templates are placeholders; an operator enables only what they installed.
+        assert!(custom.agents.values().all(|agent| !agent.enabled));
+        let opencode = custom.get("opencode").unwrap();
+        assert_eq!(opencode.args, ["acp"]);
+        // OpenCode edits and runs commands with its own tools (verified with 1.18.35).
+        assert!(opencode.own_tools && opencode.discover().own_tools);
+        assert!(!custom.get("custom-native").unwrap().own_tools);
+        let gemini = custom.get("gemini-cli-node").unwrap();
+        assert_eq!(gemini.args.last().map(String::as_str), Some("--acp"));
+    }
+    #[test]
     fn arbitrary_custom_agents_and_literal_arguments() {
         let registry = Registry::parse(r#"[{"id":"future","name":"Future","command":"future-agent","args":["$(touch hacked)","; rm -rf /"],"env":{"KEY":"secret"},"icon":"future.svg"}]"#).unwrap();
         assert_eq!(registry.get("future").unwrap().args[0], "$(touch hacked)");
         assert_eq!(registry.discover()[0].status, AgentStatus::Missing);
+        // The flag defaults off, is reported as `ownTools` and is omitted when off.
+        let discovered = serde_json::to_value(&registry.discover()[0]).unwrap();
+        assert_eq!(discovered["ownTools"], false);
+        let saved = serde_json::to_value(registry.get("future").unwrap()).unwrap();
+        assert!(saved.get("ownTools").is_none());
+        let flagged =
+            Registry::parse(r#"[{"id":"own","name":"Own","command":"own","ownTools":true}]"#)
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(&flagged.discover()[0]).unwrap()["ownTools"],
+            true
+        );
     }
     #[test]
     fn rejects_duplicate_and_invalid_definitions() {

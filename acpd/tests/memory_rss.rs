@@ -1,12 +1,13 @@
-//! Whole-process memory check for the host's session buffers (Linux only).
+//! Whole-process memory check for the host's session buffers (Linux and Windows).
 //!
 //! This file holds a single test so the test binary's resident set size reflects only
 //! this scenario: several sessions stream far more agent output than their history
 //! limit while one subscriber per session stalls and another drains. The resident set
 //! growth and peak must stay near `sessions × history_bytes`, far below the streamed
-//! volume. It measures `/proc/self/status` (VmRSS/VmHWM), so it includes allocator
-//! slack; it is a regression bound, not a precise heap profile.
-#![cfg(target_os = "linux")]
+//! volume. Linux reads `/proc/self/status` (VmRSS/VmHWM); Windows reads the process
+//! working set and its peak (`GetProcessMemoryInfo`). Both include allocator slack; this
+//! is a regression bound, not a precise heap profile. macOS is not covered.
+#![cfg(any(target_os = "linux", windows))]
 use acpd::{
     config::{Config, RuntimeConfig},
     registry::{AgentDefinition, Registry},
@@ -19,13 +20,43 @@ const UPDATES_PER_SESSION: usize = 400;
 const UPDATE_BYTES: usize = 200 * 1024;
 const HISTORY_BYTES: usize = 8 * 1024 * 1024;
 
-fn status_kib(field: &str) -> usize {
-    std::fs::read_to_string("/proc/self/status")
-        .unwrap()
-        .lines()
-        .find_map(|line| line.strip_prefix(field))
-        .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
-        .unwrap_or_else(|| panic!("{field} missing"))
+/// (current, peak) resident memory of this process in KiB.
+#[cfg(target_os = "linux")]
+fn resident_kib() -> (usize, usize) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
+            .unwrap_or_else(|| panic!("{name} missing"))
+    };
+    (field("VmRSS:"), field("VmHWM:"))
+}
+
+/// (current, peak) working set of this process in KiB.
+#[cfg(windows)]
+fn resident_kib() -> (usize, usize) {
+    use windows_sys::Win32::System::{
+        ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        Threading::GetCurrentProcess,
+    };
+    // SAFETY: the counters struct is plain data, its size is passed, and the pseudo
+    // handle from GetCurrentProcess needs no closing.
+    let counters = unsafe {
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        assert_ne!(
+            GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb),
+            0,
+            "GetProcessMemoryInfo failed"
+        );
+        counters
+    };
+    (
+        counters.WorkingSetSize / 1024,
+        counters.PeakWorkingSetSize / 1024,
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -82,7 +113,7 @@ async fn streamed_output_far_beyond_history_keeps_resident_memory_bounded() {
     {
         task.await.unwrap();
     }
-    let baseline = status_kib("VmRSS:");
+    let (baseline, _) = resident_kib();
     // One stalled and one draining subscriber per session, like a stuck and a live phone.
     let stalled: Vec<_> = sessions
         .iter()
@@ -113,8 +144,7 @@ async fn streamed_output_far_beyond_history_keeps_resident_memory_bounded() {
         task.await.unwrap();
     }
     let elapsed = started.elapsed();
-    let after = status_kib("VmRSS:");
-    let peak = status_kib("VmHWM:");
+    let (after, peak) = resident_kib();
     let streamed_mib = SESSIONS * UPDATES_PER_SESSION * UPDATE_BYTES / (1024 * 1024);
     let retained: usize = sessions
         .iter()
@@ -128,7 +158,7 @@ async fn streamed_output_far_beyond_history_keeps_resident_memory_bounded() {
         })
         .sum();
     eprintln!(
-        "memory_rss: streamed {streamed_mib} MiB over {SESSIONS} sessions in {:.1}s; journal holds {} KiB; VmRSS baseline {baseline} KiB, after {after} KiB (+{} KiB); VmHWM {peak} KiB (+{} KiB over baseline)",
+        "memory_rss: streamed {streamed_mib} MiB over {SESSIONS} sessions in {:.1}s; journal holds {} KiB; resident baseline {baseline} KiB, after {after} KiB (+{} KiB); peak {peak} KiB (+{} KiB over baseline)",
         elapsed.as_secs_f64(),
         retained / 1024,
         after.saturating_sub(baseline),

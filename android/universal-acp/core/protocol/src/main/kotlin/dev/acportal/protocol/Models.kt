@@ -11,8 +11,15 @@ fun JsonElement?.flag(): Boolean = (this as? JsonPrimitive)?.booleanOrNull == tr
 fun JsonElement?.number(): Long = (this as? JsonPrimitive)?.longOrNull ?: 0
 
 @Serializable
-data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null)
+data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false)
 fun AgentInfo.canStartSession():Boolean = enabled && installed && status!="misconfigured"
+/** Short label for agents the host registry marks with `ownTools`. */
+const val OWN_TOOLS_LABEL = "Uses its own tools"
+/**
+ * Shown for agents the host registry marks with `ownTools`. The host cannot see those
+ * actions, so the wording only claims what the host enforces.
+ */
+const val OWN_TOOLS_WARNING = "This agent can edit files and run commands with its own built-in tools. Those actions do not go through this host's approval prompts or workspace access settings. Only the agent's own permission settings apply to them."
 @Serializable
 data class Workspace(val path: String, val name: String)
 @Serializable
@@ -23,9 +30,13 @@ data class SessionInfo(
     val workspace: String, val initialization: JsonObject = JsonObject(emptyMap()),
     val setup: JsonObject = JsonObject(emptyMap()), val status: String = "ready",
     val workspaceAccess:WorkspaceAccess=WorkspaceAccess(),
+    /** The host registry marks this agent with `ownTools` (see [OWN_TOOLS_WARNING]). */
+    val ownTools:Boolean=false,
 )
 @Serializable
-data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0)
+data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList())
+/** Host feature: forwards agent form elicitations when the phone opts in at session creation. */
+const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
 @Serializable
 data class PairingResult(val hostId: String, val deviceId: String, val token: String, val expiresAt: Long)
 
@@ -37,15 +48,18 @@ sealed interface TimelineItem {
     @Serializable
     data class Content(override val id:String,val role:String,val content:JsonObject) : TimelineItem
     @Serializable
-    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList()),val autoReview:JsonObject?=null) : TimelineItem
+    data class Tool(override val id: String, val title: String, val kind: String = "other", val status: String = "pending", val content: JsonArray = JsonArray(emptyList()), val locations: JsonArray = JsonArray(emptyList()),val autoReview:JsonObject?=null,val hostWrite:String?=null) : TimelineItem
     @Serializable
     data class Plan(override val id: String, val entries: JsonArray) : TimelineItem
     @Serializable
     data class Notice(override val id: String, val text: String, val error: Boolean = false) : TimelineItem
 }
 @Serializable
-data class Permission(val id: JsonElement, val request: JsonObject) {
-    val title: String get() = request["toolCall"].objectValue()["title"].text().ifBlank { "Agent operation" }
+data class Permission(val id: JsonElement, val request: JsonObject, val method: String = PERMISSION_METHOD) {
+    /** A form elicitation: the agent asks the user to fill in fields instead of choosing an option. */
+    val isElicitation: Boolean get() = method == ELICITATION_METHOD
+    val title: String get() = if (isElicitation) request["message"].text().ifBlank { "The agent needs more information" }
+        else request["toolCall"].objectValue()["title"].text().ifBlank { "Agent operation" }
     val options: JsonArray get() = request["options"].arrayValue()
 }
 @Serializable
@@ -98,6 +112,25 @@ fun permissionResponse(permission: Permission, optionId: String): JsonObject {
         put("jsonrpc", "2.0"); put("id", permission.id)
         putJsonObject("result") { putJsonObject("outcome") { put("outcome", "selected"); put("optionId", optionId) } }
     }
+}
+
+const val PERMISSION_METHOD = "session/request_permission"
+const val ELICITATION_METHOD = "elicitation/create"
+
+/** Host file-write outcomes reported in a tool's `_meta.acpdWrite`. */
+const val HOST_WRITE_CHANGED = "changed-without-consent"
+const val HOST_WRITE_UNCHANGED = "unchanged"
+/** Short badge for a host file-write outcome, or null when the value is unknown. */
+fun hostWriteLabel(value:String):String? = when(value) {
+    HOST_WRITE_CHANGED->"File changed without your approval"
+    HOST_WRITE_UNCHANGED->"Already up to date · nothing written"
+    else->null
+}
+/** Plain explanation shown with the badge. */
+fun hostWriteExplanation(value:String):String? = when(value) {
+    HOST_WRITE_CHANGED->"You did not approve this write, but the file already holds the new text. The agent probably wrote it with its own tools. Check the change and undo it on the host if needed."
+    HOST_WRITE_UNCHANGED->"The agent asked to write text the file already holds, so the host changed nothing and did not ask you."
+    else->null
 }
 
 /** Host shell-line auto-review shown on a tool card, e.g. "Auto-allowed by rules". */

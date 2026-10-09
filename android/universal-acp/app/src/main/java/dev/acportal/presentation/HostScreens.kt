@@ -98,7 +98,7 @@ import kotlinx.serialization.json.*
             item { SectionLabel("Workspaces") }
             items(details.workspaces) { workspace -> ListItem(headlineContent={Text(workspace.name.ifBlank { workspace.path })},supportingContent={Text(workspace.path,fontFamily=FontFamily.Monospace,maxLines=2)},leadingContent={Icon(Icons.Outlined.Folder,null)}) }
             item { SectionLabel("Agents") }
-            items(details.agents) { agent -> ListItem(modifier=if(onAgent!=null)Modifier.clickable {onAgent(agent.id)} else Modifier,headlineContent={Text(agent.name)},supportingContent={Text(if(!agent.enabled)"Disabled" else agent.status.replace('_',' '))},leadingContent={Icon(Icons.Outlined.Code,null)},trailingContent={if(onAgent!=null)Icon(Icons.Outlined.ChevronRight,"Inspect ${agent.name}")}) }
+            items(details.agents) { agent -> ListItem(modifier=if(onAgent!=null)Modifier.clickable {onAgent(agent.id)} else Modifier,headlineContent={Text(agent.name)},supportingContent={Text(registryStatus(agent,withTools=true))},leadingContent={Icon(Icons.Outlined.Code,null)},trailingContent={if(onAgent!=null)Icon(Icons.Outlined.ChevronRight,"Inspect ${agent.name}")}) }
             item { SectionLabel("Active sessions") }
             if(details.sessions.isEmpty()) item { Text("No sessions yet.",Modifier.padding(horizontal=24.dp,vertical=12.dp),color=MaterialTheme.colorScheme.onSurfaceVariant) }
             items(details.sessions,key={it.id}) { session -> ListItem(modifier=Modifier.clickable { onSession(session) },headlineContent={Text(session.workspace.substringAfterLast('/').substringAfterLast('\\'))},supportingContent={Text("${session.agentId} · ${session.statusLabel()}")},trailingContent={Icon(Icons.Outlined.ChevronRight,"Open session")}) }
@@ -189,11 +189,13 @@ import kotlinx.serialization.json.*
                         Row(Modifier.fillMaxWidth().testTag("agent-choice:${agent.id}").clickable(enabled=agent.canStartSession()) {agentId=agent.id}.padding(start=24.dp,end=12.dp,top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(agent.name,style=MaterialTheme.typography.titleMedium,color=if(agent.canStartSession())MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                                if(!agent.canStartSession())Text(registryStatus(agent),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                if(!agent.canStartSession())Text(registryStatus(agent,withTools=true),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                else if(agent.ownTools)Text(OWN_TOOLS_LABEL,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             RadioButton(agentId==agent.id,{agentId=agent.id},enabled=agent.canStartSession())
                         }
                     }
+                    details.agents.firstOrNull {it.id==agentId && it.ownTools}?.let {item(key="own-tools") {OwnToolsNotice(Modifier.padding(horizontal=24.dp,vertical=8.dp))}}
                     if(scrollActions) {
                         onAccess?.let {callback->item(key="workspace-access-action") {TextButton({callback(path)},Modifier.padding(start=12.dp),enabled=!loading && path.isNotBlank()) {Text("Workspace access")}}}
                         onMcp?.let {callback->item(key="mcp-action") {TextButton(callback,Modifier.padding(start=12.dp),enabled=!loading) {Text("MCP servers")}}}

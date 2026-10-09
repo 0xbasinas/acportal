@@ -120,6 +120,7 @@ mod tests {
             setup: json!({}),
             status: "ready".into(),
             workspace_access: Default::default(),
+            own_tools: false,
         }
     }
     #[test]

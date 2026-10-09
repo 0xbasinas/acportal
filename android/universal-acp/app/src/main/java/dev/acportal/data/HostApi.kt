@@ -44,10 +44,10 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     }
     suspend fun sessions(host:HostProfile): List<SessionInfo> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias)))
     suspend fun session(host:HostProfile,id:String): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias)))
-    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess()): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
+    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
         put("agentId",agentId);put("workspace",workspace);loadId?.let { put("loadSessionId",it) }
         put("mcpServers",mcpServers)
-        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal)})
+        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal);if(formElicitation)put("formElicitation",true)})
     },"POST"))
     suspend fun delete(host:HostProfile,id:String) { execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun revoke(host:HostProfile) { execute(host.address,"/v1/device",vault.read(host.credentialAlias),method="DELETE") }

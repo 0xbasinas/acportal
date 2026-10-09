@@ -16,5 +16,24 @@
     "transport": "stdio",
     "enabled": false,
     "env": {}
+  },
+  {
+    "id": "opencode",
+    "name": "OpenCode (native binary)",
+    "command": "/usr/local/bin/opencode",
+    "args": ["acp"],
+    "transport": "stdio",
+    "enabled": false,
+    "env": {},
+    "ownTools": true
+  },
+  {
+    "id": "gemini-cli-node",
+    "name": "Gemini CLI through Node",
+    "command": "/usr/bin/node",
+    "args": ["/opt/acp/gemini-cli/node_modules/@google/gemini-cli/bundle/gemini.js", "--acp"],
+    "transport": "stdio",
+    "enabled": false,
+    "env": {}
   }
 ]

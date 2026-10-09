@@ -108,6 +108,7 @@ pub async fn agent_check(
         read_files: false,
         write_files: false,
         terminal: false,
+        form_elicitation: false,
     };
     let opened = manager
         .open_configured(agent, workspace, None, Vec::new(), access)
@@ -231,6 +232,13 @@ async fn provider_prompt_check(
         Ok(Err(error)) => match error.downcast_ref::<crate::connection::AgentRpcError>() {
             Some(code) if code.0 == -32000 => (
                 "failed; the check prompt returned ACP auth_required (-32000): the agent's provider credentials are missing or were rejected. Fix them in the agent's own configuration (agent error text not printed)".into(),
+                false,
+            ),
+            Some(code) if code.1 => (
+                format!(
+                    "failed; the check prompt returned JSON-RPC error code {} and the agent's error text mentions authentication or an API key: the provider credentials are probably missing or were rejected. Fix them in the agent's own configuration (agent error text not printed)",
+                    code.0
+                ),
                 false,
             ),
             Some(code) => (
