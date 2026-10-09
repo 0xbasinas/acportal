@@ -28,11 +28,30 @@ fn wrong_token_oversized_requests_and_stale_pid_cannot_stop_an_unrelated_process
         .set_read_timeout(Some(std::time::Duration::from_secs(4)))
         .unwrap();
     stream.write_all(&vec![b'x'; 5000]).unwrap();
-    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    // The host may already have rejected the oversized input and closed the socket.
+    if let Err(error) = stream.shutdown(std::net::Shutdown::Write) {
+        assert!(
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::NotConnected | std::io::ErrorKind::ConnectionReset
+            ),
+            "unexpected write shutdown failure: {error}"
+        );
+    }
     let mut byte = [0u8; 1];
     let result = stream.read(&mut byte);
     assert!(
-        result.is_err() || result.unwrap() == 0,
+        matches!(result, Ok(0))
+            || matches!(
+                result,
+                Err(ref error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::NotConnected
+                    )
+            ),
         "oversized request was accepted"
     );
     assert!(fixture.run(&["daemon", "status"]).status.success());

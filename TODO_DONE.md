@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 9 October 2026 — PR #12 oversized-control test race
+
+Rust Actions run [37976078290](https://github.com/0xbasinas/acportal/actions/runs/37976078290) failed only in the Linux stable daemon fixture: after oversized input was rejected, write-half shutdown returned Linux ENOTCONN before the test could inspect EOF. The fixture now accepts only the expected disconnected/reset shutdown errors. Its subsequent read requires EOF or a connection-close error, rather than accepting any error such as a timeout. Daemon liveness, explicit stop and stale-PID safety remain asserted. Production behavior is unchanged.
+
+Affected local Windows verification passes all three daemon integration tests, targeted strict Clippy and formatting. Linux verification runs through Actions after push; Android is unchanged and not rerun for this test-only fix. Preserve this failed run as evidence rather than attributing it to the documentation merge.
+
 9 October 2026 PR #12 merge reconciliation: merged PR #11 from main at `7856be1`, preserving its historical acceptance corrections and the newer implementation evidence. Pre-merge PR #12 checks at `98ddb70` passed Android debug/JVM, Linux stable and Rust 1.88, Windows stable and security checks; macOS/container/reproducibility/testy extras were skipped. These results do not establish the final merge-head checks. Conflict resolution changes Markdown only; no implementation tests were rerun locally.
 
 ## 9 October 2026 — TODO reconciliation
