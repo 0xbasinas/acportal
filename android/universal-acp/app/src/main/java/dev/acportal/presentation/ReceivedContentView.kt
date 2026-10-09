@@ -4,7 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -77,7 +77,7 @@ import kotlinx.serialization.json.*
         error?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)}
     }
     if(preview)ImageContentPreview(block,{preview=false})
-    if(openLink)AlertDialog(onDismissRequest={openLink=false},title={Text("Open resource link?")},text={Text("This opens the agent-provided address in another app.\n\n${contentWebUrl(block).orEmpty()}")},confirmButton={TextButton({openLink=false;try {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(contentWebUrl(block))))} catch(_:Exception) {error="No app could open this link. You can copy its URI instead."}}) {Text("Open")}},dismissButton={TextButton({openLink=false}) {Text("Cancel")}})
+    if(openLink)AlertDialog(onDismissRequest={openLink=false},title={Text("Open resource link?")},text={Text("This opens the agent-provided address in another app.\n\n${contentWebUrl(block).orEmpty()}")},confirmButton={TextButton({openLink=false;try {context.startActivity(Intent(Intent.ACTION_VIEW,contentWebUrl(block)!!.toUri()))} catch(_:Exception) {error="No app could open this link. You can copy its URI instead."}}) {Text("Open")}},dismissButton={TextButton({openLink=false}) {Text("Cancel")}})
 }
 
 @Composable private fun ImageContentPreview(block:JsonObject,onClose:()->Unit) {

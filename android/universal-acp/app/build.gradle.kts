@@ -48,14 +48,14 @@ kotlin {
 
 dependencies {
   implementation(project(":core:protocol"))
-  implementation("androidx.room3:room3-runtime:3.0.3")
-  ksp("androidx.room3:room3-compiler:3.0.3")
-  implementation("androidx.sqlite:sqlite-framework:2.7.1")
-  implementation("androidx.datastore:datastore-preferences:1.2.1")
-  implementation("com.squareup.okhttp3:okhttp:4.12.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-  implementation("androidx.compose.material:material-icons-extended")
-  testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+  implementation(libs.androidx.room3.runtime)
+  ksp(libs.androidx.room3.compiler)
+  implementation(libs.androidx.sqlite.framework)
+  implementation(libs.androidx.datastore.preferences)
+  implementation(libs.okhttp)
+  implementation(libs.kotlinx.serialization.json)
+  implementation(libs.androidx.compose.material.icons.extended)
+  testImplementation(libs.okhttp.mockwebserver)
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   androidTestImplementation(composeBom)
@@ -87,8 +87,8 @@ dependencies {
   androidTestImplementation(libs.androidx.test.core)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.test.runner)
-  androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-  androidTestImplementation("androidx.room3:room3-testing:3.0.3")
+  androidTestImplementation(libs.okhttp.mockwebserver)
+  androidTestImplementation(libs.androidx.room3.testing)
   androidTestImplementation(libs.androidx.test.espresso.core)
 
   // Navigation

@@ -116,10 +116,10 @@ import kotlinx.coroutines.*
     var historyChoice by remember(info.id) {mutableStateOf<String?>(null)}
     var showOptions by remember(info.id) {mutableStateOf(false)}
     var showAgent by remember(info.id) {mutableStateOf(false)}
-    var connectionPage by remember(info.id) {mutableStateOf(0)}
+    var connectionPage by remember(info.id) {mutableIntStateOf(0)}
     var removeCopy by remember(info.id) {mutableStateOf(false)}
     var changedFile by rememberSaveable(info.id) {mutableStateOf<String?>(null)}
-    var handledReset by rememberSaveable(info.id) {mutableStateOf(draftResetVersion)}
+    var handledReset by rememberSaveable(info.id) {mutableLongStateOf(draftResetVersion)}
     LaunchedEffect(draftResetVersion) {if(draftResetVersion>handledReset) {draft="";sentDraft=null;showHistory=false;historyChoice=null;focus.clearFocus();keyboard?.hide();handledReset=draftResetVersion}}
     val pendingPermission=state.permissions.values.firstOrNull()
     LaunchedEffect(pendingPermission?.id) {showPermission=pendingPermission!=null}
