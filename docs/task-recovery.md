@@ -1,5 +1,7 @@
 # Previous-task recovery verification
 
+Current scope, 9 October 2026: controlled live/offline two-session MainActivity process-death, authoritative approvals, conversation scroll/disclosures and MCP task recovery have scoped passing results. Real-agent recovery and additional routes remain open in [TODO.md](../TODO.md). Historical checkpoints later in this document do not reopen completed controlled cases. Keep preparation/restoration separate and preserve all fixture cleanup rules below.
+
 ## Controlled live workflow (PR #9)
 
 Start `python scripts/recovery-host.py` in a separate terminal and use its printed loopback port with `verify-task-recovery.ps1 -AdbPath <adb-path> -MainActivity -Scenario LiveConversation -FixturePort <port> -Overflow count` (or `bytes`). Each scenario requires a fresh server with zero counters. The fixture uses only a disposable fixture credential and never launches an agent or writes a workspace. REST metadata and WebSocket replay are held independently. The runner owns/removes its adb reverse port, verifies distinct process/same task and checks cached state before releasing refresh. No instrumentation runs between termination and restoration. Only an explicit scoped denial may increment the mutation counter.

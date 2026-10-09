@@ -1,5 +1,17 @@
 # Completed work and verification history
 
+## Checklist reconciliation, 9 October 2026
+
+Completed scoped items are removed from the active TODO and retained here with their existing detailed evidence below:
+
+- PR #9 controlled live/offline two-session process death, cached-before-network restoration, authoritative replaced/removed approvals, exact conversation scroll/offscreen disclosures and count/byte overflow.
+- Scoped elicitation form validation, native keyboard, dismissal/recreation and explicit-answer checks; saved/error Agents, all review badges, own-tools warnings and write notices in separate 20-case native TalkBack runs at normal and actual 2.0 font.
+- PR #10 ordinary macOS process cleanup/RSS, Windows executable reproducibility across two independent runners, and container test-CA TLS/mounted state/mock-agent execution/restart/revocation. Dispatch evidence remains [37940712823](https://github.com/0xbasinas/acportal/actions/runs/37940712823) at `404bb7f`.
+- Host-side real Goose workflows including MCP form acceptance/decline, with provider and platform limits preserved in docs/real-agent-testing.md.
+- PR #10 review storage/cache fixes: 64 core/52 app JVM tests, both debug APK builds/lint, two isolated oversized-row/preservation Room checks and four dark/light Sessions layout/native-keyboard checks. Reviewed-head [Android 37949743658](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust 37949743959](https://github.com/0xbasinas/acportal/actions/runs/37949743959) pass at `d4ba9f2`.
+
+This reconciliation changes documentation only. No new implementation or test run is claimed. A full old-build upgrade, real-agent Android recovery/screens, exact heap/provider profiling and wider page/focus/content acceptance remain open; physical-phone/signed checks stay suspended and tablet/landscape excluded. Original failed attempts and narrower historical evidence remain intact below.
+
 ## PR #10 review fixes, 9 October 2026
 
 9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.

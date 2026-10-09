@@ -2,7 +2,7 @@
 
 9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.
 
-Active implementation branch: `codex/android-recovery-acceptance`, starting from merged PR #8 (`ada4798`). This checklist preserves the full work requested on 9 October 2026. Existing scoped evidence is in TODO_DONE.md and ui-accessibility.md; it does not prove these remaining gates.
+Current continuation: PR #10 is merged on main at `6ec49de`, after review at `d4ba9f2`; documentation continuation is `codex/docs-acceptance-reconciliation`. PR #9 recovery work started from merged PR #8 (`ada4798`) and is now historical evidence. This checklist preserves the full work requested on 9 October 2026. Existing scoped evidence is in TODO_DONE.md and ui-accessibility.md; it does not prove these remaining gates.
 
 ## Conversation recovery
 
@@ -16,10 +16,11 @@ Use the external procedures in task-recovery.md. Preparation/restoration methods
 
 ## New Android screens
 
-- [ ] Elicitation: field kinds, exact choice values, empty arrays, validation, explicit Submit/Decline/Cancel, sheet dismissal, replay gating and native keyboards.
+- [x] Scoped fixture elicitation: field kinds, exact choice values, empty arrays, validation, explicit Submit/Decline/Cancel, sheet dismissal, replay gating and native keyboards.
   Rendered dark/light form validation, exact padded choices, required empty arrays, disabled controls, explicit answers and native keyboard reachability pass separately at actual font 1.0/2.0. Modal dismissal/recreation and full field interaction now pass in isolated fixtures; real-agent elicitation/replay remains open.
-- [ ] Own-tools warning and host-write notices: complete explanations, disclosure state, contrast, touch bounds and navigation.
-- [ ] Dark/light, small windows and actual large system fonts; native TalkBack traversal/state/focus for these new controls.
+- [x] Scoped fixture own-tools warning and host-write notices: complete explanations, disclosure state, contrast, touch bounds and navigation.
+- [x] Scoped dark/light form/warning/notice controls at normal and actual large fonts with native TalkBack. These results do not prove every page or speech audibility.
+- [ ] Real-agent Android form replay, own-tools warnings and write notices, including recovery while requests are pending.
 
 ## Memory and stress
 
@@ -83,35 +84,30 @@ Final original MCP MainActivity workflow passes after the data-preserving reboot
 
 ## Older-data safety and Sessions memory (PR #10, 9 October 2026)
 
-What changed, all checked by JVM tests only:
+Current behavior, with JVM tests and two isolated API 36 Room regressions:
 
 - **Reading saved sessions.** The `sessions()` and `session()` queries check each column's size in SQLite (`length(CAST(col AS BLOB))`), so a row can never be larger than Android's 2 MiB CursorWindow:
   - metadata over 256 KiB is read as empty;
   - a saved conversation over 1 MiB is read as `{"historyGap":true}`;
   - a draft over 512 KiB is read as empty.
 
-  Saved agent catalogues over 1 MiB are read as empty. Reading deletes nothing. The next refresh of session details from the host writes the placeholders back, which shrinks the row. The oversized copy could not be loaded anyway, and the host replays the history. Before this, one row written by an older version could fail the whole Sessions query with `SQLiteBlobTooBigException`. The schema is unchanged, so no migration is needed.
+  Saved agent catalogues over 1 MiB are read as empty. Reading deletes nothing. Metadata refresh updates only metadata; it never writes guarded history/draft placeholders over original stored columns. The oversized copy is not displayed, and reconnect can replay available host history. Before this, one row written by an older version could fail the whole Sessions query with `SQLiteBlobTooBigException`. The schema is unchanged, so no migration is needed.
 - **Unreadable or replaced data.** Session details now show as "Details unavailable" until the host refreshes them, instead of crashing the Sessions list, navigation, resume or workspace-access checks. Resume and workspace access treat such a session as unknown. A saved conversation that cannot be read opens empty with a history gap, and the host replays it.
-- **Writing.** Drafts are cut at a character boundary to 512 KiB, which is the largest prompt the app can send. Session details first drop the agent's setup choices, which are read from the host again, and then keep only the capabilities the offline pages use. Saving fresh details from the host replaces the empty placeholders.
+- **Writing.** Drafts are cut at a character boundary to 512 KiB, which is the largest prompt the app can send. Session details first drop the agent's setup choices, which are read from the host again, and then keep only the capabilities the offline pages use. Saving fresh details replaces unavailable metadata only and preserves original history, draft, archive flag and timestamp.
 - **Sessions list.** Titles, times and search text are worked out off the main thread. Only rows that changed are decoded again (`SessionListSummaries`). Before this, every save, about twice a second while an agent works, decoded the full saved conversation of every row on the main thread. Search now looks at the workspace, the agent, the title and up to 16k characters of conversation text, not the raw stored JSON. Before, words like `role` or `sequence` matched every session.
 - **Timeline retention.** Retention no longer serialises every tool, content or plan item again on each update. Each item's JSON size is computed once and cached in memory, and is not stored (`TimelineRetentionCostTest`).
 
-JVM tests: `StoredLimitsTest` (8), `SessionListSummaryTest` (5) and `TimelineRetentionCostTest` (3).
+JVM tests: `StoredLimitsTest` (8), `SessionListSummaryTest` (6) and `TimelineRetentionCostTest` (3).
 
-### Still needs a device or emulator
+### Completed isolated storage checks and remaining upgrade
 
-1. `OversizedSessionRowsTest` (androidTest; it compiles with `assembleDebugAndroidTest`) writes a 3 MB row into an in-memory Room database. It checks that the guarded queries return the placeholders and that the list still loads. Run it with:
+Both `OversizedSessionRowsTest` cases pass on small_phone/API 36: oversized columns return bounded placeholders without failing the list, and metadata refresh preserves raw original history/draft lengths, timestamp and archive flag. The latter uses an owned disposable file database; no production store is read or changed. Four dark/light Sessions compact-layout/native-keyboard tests also pass. These six tests are scoped regressions, not an old-build upgrade.
 
-   ```bash
-   ./gradlew :app:connectedDebugAndroidTest \
-     -Pandroid.testInstrumentationRunnerArguments.class=dev.acportal.data.OversizedSessionRowsTest
-   ```
-
-2. Install over an older build that already holds a large session, without wiping data. Then check that Sessions opens and that the conversation shows a history gap and is replayed.
+Still open: install over an isolated older build holding large histories/drafts without clearing data. Check Sessions opens, metadata refresh preserves data, and history-gap/replay behavior through actual navigation.
 
 ### Heap profiling (Android Studio)
 
-This has not been run yet. It needs an emulator or device.
+This has not been run yet. It needs an emulator or device. Use only isolated synthetic conversations and attachments; allocation recordings and heap dumps must contain no production prompts, credentials or provider secrets.
 
 1. Build and install the debug app. Open **View > Tool Windows > Profiler**, choose the app process and pick **Track Memory Consumption (Java/Kotlin Allocations)**.
 2. Pair with a host and start a long session. The mock agent with a large output, or a real agent asked to print a large file, will do. Keep the Sessions page open in split screen or switch to it now and then.

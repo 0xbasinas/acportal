@@ -1,5 +1,9 @@
 # Screen acceptance checkpoint
 
+Current screen scope, 9 October 2026: PR #9 supplies scoped new-screen lifecycle, native-keyboard and TalkBack evidence at normal/actual 2.0 font. PR #10 review adds four dark/light Sessions layout/native-keyboard tests and two isolated storage tests on API 36. Remaining work is real-agent screens and broader page-state/focus/scroll/content acceptance; see [TODO.md](../TODO.md) and [Android acceptance](android-acceptance.md). No fresh comparison with original mockups is claimed. Older checkpoints below preserve their original narrower limits and are historical, including excluded tablet/landscape observations.
+
+## Historical checkpoints
+
 9 October 2026 PR #9 continuation: controlled live MainActivity recovery now verifies cached state before held metadata/replay, two independent sessions, authoritative replaced/removed approvals, exact scroll and offscreen disclosures, and count/byte overflow through actual screens. Cache size and prompt serialization fixes address observed SQLite overflow and main-thread allocations. Scoped JVM/build/device results and remaining limitations are in [Android acceptance](android-acceptance.md). Real-agent recovery, exact allocator profiling and the broader page-state/focus matrix remain open. Native TalkBack passes 20 cases at normal font and separately 20 at actual 2.0; earlier hardware-gesture stalls and the bounded focus-only retry are recorded in the acceptance document.
 
 
