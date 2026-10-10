@@ -86,6 +86,23 @@ class LegacyUpgradePreparationTest {
 }
 
 /** Run separately after installing the current acceptance APK over the older APK. */
+class LegacyUpgradeCleanupTest {
+    @Test fun removeOnlyVerifiedUpgradeRows() = runBlocking {
+        val context=upgradeContext()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("legacyUpgrade")=="cleanup")
+        check(!checkpoint().exists()) {"Verify the upgrade before cleaning it"}
+        val room=PortalDatabase.open(context)
+        try {
+            val hosts=room.portal().hosts().first()
+            assertEquals(listOf("upgrade"),hosts.map {it.id})
+            assertEquals("Upgrade fixture",hosts.single().label)
+            assertEquals(setOf("large","small"),room.portal().sessions().first().map {it.id}.toSet())
+            room.portal().deleteHost("upgrade")
+        } finally {room.close()}
+    }
+}
+
+/** Run separately after installing the current acceptance APK over the older APK. */
 class LegacyUpgradeVerificationTest {
     val compose = createAndroidComposeRule<MainActivity>()
     private val ownedPackage = TestRule { base, _ -> object : Statement() {

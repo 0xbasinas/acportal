@@ -1,5 +1,7 @@
 # ACP Portal
 
+The latest increment verifies real Goose pending form recovery across reload and Android process death, plus native TalkBack review/Cancel for standalone and individual inline Markdown links in both themes at normal/double font. [Acceptance continuation](docs/acceptance-continuation.md) records exact source/run evidence and remaining limits. PR #13 remains a draft.
+
 10 October acceptance continuation adds real Goose pending-approval reload, an actual older-APK offline upgrade, streaming/attachment allocator counters, rendered frame measurements and full session-creation TalkBack. Scope and measurements are in [the continuation report](docs/acceptance-continuation.md); [TODO](TODO.md) remains the acceptance checklist.
 
 Current status, 10 October 2026: draft [PR #13](https://github.com/0xbasinas/acportal/pull/13) continues on `codex/remaining-acceptance` and is not merged. Real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded profiling/full-form TalkBack have scoped passing evidence. [TODO.md](TODO.md) tracks remaining acceptance; [the continuation report](docs/acceptance-continuation.md) retains exact measurements, failures and limits. Earlier dated statements below are historical.

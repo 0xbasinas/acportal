@@ -53,7 +53,7 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
                 else if(page=="pairing")PairScreen(false,{fixtureActions.add("back")},{_,_,_->fixtureActions.add("pair")},scanner={_,failed,_->failed()})
                 else if(page=="markdown")Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) {
                     ScreenHeader("Markdown reply",onBack={fixtureActions.add("back")})
-                    MarkdownMessage("# Fixture answer\n\nA **clear** reply.\n\n- First fixture item\n- Second fixture item\n\n```text\nprintf fixture\n```\n\n[Read docs](https://example.invalid/docs)")
+                    MarkdownMessage("# Fixture answer\n\nA **clear** reply.\n\n- First fixture item\n- Second fixture item\n\n```text\nprintf fixture\n```\n\n[Read docs](https://example.invalid/docs)\n\nReferences: [First reference](https://example.invalid/first) and [Second reference](https://example.invalid/second).")
                 }
                 else if(page=="conversation" || page=="elicitation")ConversationFixture(page=="elicitation")
                 else if(page=="logs")ConnectionLogsScreen(listOf(

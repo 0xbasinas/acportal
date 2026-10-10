@@ -1,5 +1,7 @@
 # Screen acceptance checkpoint
 
+10 October latest increment: real Goose pending form elicitation survives reload and actual Android process death with authoritative replay and zero automatic submissions. Native TalkBack link review/Cancel passes standalone and individual inline Markdown links in both themes at normal/actual-2.0 font. Visible UI matches existing Penpot boards 30–31. See [continuation evidence](acceptance-continuation.md); this does not close form submission or every provider-backed screen.
+
 Current status, 10 October 2026: draft PR #13 has scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.
 
 10 October 2026: [acceptance continuation](acceptance-continuation.md) records Penpot boards 24–31, 16 scoped native TalkBack screen scenarios across four instrumentations, the picker header fix and current platform results. Broader acceptance remains open.

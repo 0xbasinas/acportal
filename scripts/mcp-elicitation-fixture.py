@@ -53,6 +53,7 @@ def main():
             send({"jsonrpc": "2.0", "id": message["id"], "result": {"tools": [{
                 "name": "ask_preference",
                 "description": "Ask the user which colour and how many items they want. Returns their answer.",
+                "annotations": {"readOnlyHint": True, "destructiveHint": False},
                 "inputSchema": {"type": "object", "properties": {}}}]}})
         elif method == "tools/call":
             if "elicitation" not in client_capabilities:

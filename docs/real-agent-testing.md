@@ -1,5 +1,7 @@
 # Real-agent testing through ACPortal
 
+10 October 2026: installed Goose 1.53.0 through the running router passes real pending permission and form elicitation reload/Android process-death recovery. The form requires one explicitly human-authorized matching fixture tool approval. `verify-real-reload.py --elicitation --authorize-elicitation-once PATH --adb ADB` is restricted to that authorization and consumes an exclusive marker before sending; the flag itself is not authorization. Exact fixture-qualified title and empty arguments are required. No restored prompt or decision is automatically sent. The pending form is explicitly cancelled after recovery, so Android form submission and remaining real-agent warning/badge screens stay open. See [the continuation report](acceptance-continuation.md).
+
 This note is how to drive a real ACP agent through `acpd` the way the phone does,
 and what has already been verified. It is not a claim of production readiness.
 

@@ -1,5 +1,7 @@
 # Easier pairing and Markdown replies
 
+10 October 2026 accessibility follow-up: paragraphs expose named review actions for each inline link; standalone links expose an ordinary button action. Native TalkBack reaches the existing confirmation and Cancel for standalone and independently selected inline links in both themes at normal and actual double font. No browser opens without confirmation. Visible formatting remains unchanged. Broader rich-content lifecycle/accessibility remains open in [TODO](../TODO.md).
+
 Implemented locally on `codex/session-model-picker`, 9 October 2026. Existing host authentication, certificate trust and explicit pairing remain in force.
 
 ## Pair a phone

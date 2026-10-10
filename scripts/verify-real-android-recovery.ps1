@@ -52,6 +52,8 @@ try {
     Write-Output 'CHECK Android fixture prepared'
     $bootstrap=Invoke-RestMethod -Uri "http://127.0.0.1:$BootstrapPort/bootstrap"
     $decisionLabels=@($bootstrap.permissionLabels)
+    $permissionHeadings=@('Permission needed','Host permission needed')
+    if($bootstrap.permissionHeading){$permissionHeadings=@([string]$bootstrap.permissionHeading)}
     $null=Adb @('shell','am','force-stop',$fixturePackage)
     $null=Adb @('shell','am','start','-W','-f','0x10008000','-n',"$fixturePackage/dev.acportal.MainActivity",'-a','android.intent.action.MAIN','-c','android.intent.category.LAUNCHER')
     Tap 'Real recovery 1'
@@ -60,7 +62,7 @@ try {
     $permission=$null
     for($attempt=0;$attempt -lt 8;$attempt++) {
         $document=ReadUi
-        $permission=@($document.SelectNodes('//node') | Where-Object {$_.GetAttribute('text') -in @('Permission needed','Host permission needed')}) | Select-Object -First 1
+        $permission=@($document.SelectNodes('//node') | Where-Object {$_.GetAttribute('text') -in $permissionHeadings}) | Select-Object -First 1
         if($permission){break};Start-Sleep -Milliseconds 250
     }
     if(!$permission){throw 'Real approval did not reach Android'}

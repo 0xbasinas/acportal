@@ -1,5 +1,7 @@
 # Original request audit
 
+10 October latest increment: real Goose pending form elicitation recovery and Markdown native link review/Cancel have scoped passing evidence. Platform Actions at `16e7cbc` pass all eight selected jobs; later Android changes require their own run. [Continuation evidence](acceptance-continuation.md) and [TODO](../TODO.md) distinguish completed pending-request recovery from remaining submission, warning/badge, route, profiling and motion gates.
+
 Current status, 10 October 2026: draft PR #13 has scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.
 
 9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.

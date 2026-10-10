@@ -8,13 +8,14 @@ import subprocess
 import tempfile
 import time
 import threading
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import requests
 import websockets
 
 
-async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554"):
+async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elicitation=False, authorization=None):
     with tempfile.TemporaryDirectory(prefix="acportal-real-reload-") as directory:
         root = Path(directory)
         registry = root / "agents.json"
@@ -60,7 +61,12 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554"):
             paired.raise_for_status()
             token = paired.json()["token"]
             http.headers["Authorization"] = "Bearer " + token
-            created = http.post(base + "/v1/sessions", json={"agentId": "goose", "workspace": str(root)}, timeout=120)
+            creation = {"agentId": "goose", "workspace": str(root)}
+            if elicitation:
+                creation.update(mcpServers=[{"name": "elicitation-fixture", "command": sys.executable,
+                    "args": [str(Path(__file__).with_name("mcp-elicitation-fixture.py").resolve())], "env": []}],
+                    workspaceAccess={"readFiles": True, "writeFiles": True, "terminal": True, "formElicitation": True})
+            created = http.post(base + "/v1/sessions", json=creation, timeout=120)
             created.raise_for_status()
             session = created.json()
             print("CHECK real session initialized", flush=True)
@@ -88,14 +94,39 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554"):
             print("CHECK initial replay complete", flush=True)
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": "owned-write", "method": "session/prompt",
                 "params": {"sessionId": session["acpSessionId"], "prompt": [{"type": "text",
-                    "text": "Answer only fixture ready, without tools." if idle else "Create reload-fixture.txt in this workspace with the text fixture. Use a file-write tool; wait for approval."}]}}))
-            permission = await receive_until(lambda e: e.get("message", {}).get("method") == "session/request_permission"
+                    "text": "Answer only fixture ready, without tools." if idle else
+                    "Call ask_preference exactly once, then report its result. Do not use any other tool." if elicitation else
+                    "Create reload-fixture.txt in this workspace with the text fixture. Use a file-write tool; wait for approval."}]}}))
+            permission = await receive_until(lambda e: e.get("message", {}).get("method") in ("session/request_permission", "elicitation/create")
                 or (e.get("message", {}).get("id") == "owned-write" and "method" not in e.get("message", {})))
+            if elicitation and authorization and permission["message"].get("method") == "session/request_permission":
+                params = permission["message"]["params"]
+                call = params.get("toolCall", {})
+                # Fail closed if Goose asks for any other tool. The marker consumes
+                # one explicit human authorization, even if delivery subsequently fails.
+                title = call.get("title", "")
+                # Goose 1.53.0 format_tool_name replaces underscores with spaces;
+                # permission updates use that deterministic title, not generated text.
+                # Require our exact MCP namespace and its empty input schema.
+                if title != "elicitation-fixture: ask preference" or call.get("rawInput") != {}:
+                    print("UNVERIFIED authorized fixture: pending tool title does not match ask_preference", flush=True)
+                    raise RuntimeError("unexpected tool approval")
+                option = next((o for o in params.get("options", []) if o.get("kind") == "allow_once"), None)
+                if option is None:
+                    raise RuntimeError("one-time fixture approval unavailable")
+                with authorization.open("x", encoding="utf-8") as marker:
+                    marker.write("Consumed one human-authorized ask_preference fixture call.\n")
+                await ws.send(json.dumps({"jsonrpc": "2.0", "id": permission["message"]["id"],
+                    "result": {"outcome": {"outcome": "selected", "optionId": option["optionId"]}}}))
+                print("CHECK one explicitly authorized ask_preference approval sent", flush=True)
+                permission = await receive_until(lambda e: e.get("message", {}).get("method") in ("elicitation/create", "session/request_permission")
+                    or (e.get("message", {}).get("id") == "owned-write" and "method" not in e.get("message", {})))
             if idle:
                 assert "result" in permission["message"]
-            elif permission["message"].get("method") != "session/request_permission":
-                print("UNVERIFIED pending approval: provider turn returned before any permission; error="
-                      + str("error" in permission["message"]), flush=True)
+            elif permission["message"].get("method") != ("elicitation/create" if elicitation else "session/request_permission"):
+                observed=permission["message"].get("method")
+                print("UNVERIFIED target request: observed=" + (observed if observed in ("session/request_permission", "elicitation/create") else "turn response")
+                      + "; error=" + str("error" in permission["message"]), flush=True)
                 raise RuntimeError("provider did not expose a pending approval")
             permission_id = None if idle else permission["message"]["id"]
             second = None
@@ -125,7 +156,9 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554"):
                 await ws.close()
                 ws = None
                 bootstrap = {"token": token, "address": base, "sessions": [session, second],
-                             "permissionLabels": [o["name"] for o in permission["message"]["params"]["options"]]}
+                             "permissionLabels": ["Submit", "Decline", "Cancel"] if elicitation else
+                                [o["name"] for o in permission["message"]["params"]["options"]],
+                             "permissionHeading": "The agent is asking you" if elicitation else ""}
                 class BootstrapHandler(BaseHTTPRequestHandler):
                     def log_message(self, *_):
                         pass
@@ -173,15 +206,15 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554"):
                 assert "result" in response["message"]
                 print("PASS real Goose idle reload: same session/credential, new discovery disabled, explicit follow-up turn completed; pending approvals unverified")
                 return
-            # This fixture makes one explicit cancellation decision, never an approval.
+            # Explicitly cancel the pending request; never approve or answer it here.
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": permission_id,
-                                      "result": {"outcome": {"outcome": "cancelled"}}}))
+                                      "result": {"action": "cancel"} if elicitation else {"outcome": {"outcome": "cancelled"}}}))
             await ws.send(json.dumps({"jsonrpc": "2.0", "method": "session/cancel",
                                       "params": {"sessionId": session["acpSessionId"]}}))
             await receive_until(lambda e: e.get("message", {}).get("id") == "owned-write"
                                 and "method" not in e.get("message", {}))
             assert not (root / "reload-fixture.txt").exists()
-            print("PASS real Goose: pending approval identity, credential/session continuity, future discovery reload, explicit cancellation, no fixture write")
+            print("PASS real Goose: pending " + ("form elicitation" if elicitation else "approval") + " identity, credential/session continuity, future discovery reload, explicit cancellation, no fixture write")
         finally:
             if ws is not None:
                 await ws.close()
@@ -201,11 +234,19 @@ if __name__ == "__main__":
     parser.add_argument("--acpd", type=Path, required=True)
     parser.add_argument("--goose", type=Path, required=True)
     parser.add_argument("--idle", action="store_true", help="Check two no-tool turns; does not verify pending approvals")
+    parser.add_argument("--elicitation", action="store_true", help="Check a read-only MCP form request; any tool approval needs explicit separate human authorization")
+    parser.add_argument("--authorize-elicitation-once", type=Path, help="Only with explicit human authorization: exclusive consumption-marker path for one matching fixture call")
     parser.add_argument("--adb", type=Path, help="Also run separately prepared real Android process-death recovery")
     parser.add_argument("--serial", default="emulator-5554")
     args = parser.parse_args()
     try:
-        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial))
+        if args.idle and args.elicitation:
+            parser.error("Choose idle or elicitation")
+        if args.authorize_elicitation_once and not args.elicitation:
+            parser.error("One-time authorization is restricted to elicitation")
+        if args.authorize_elicitation_once and args.authorize_elicitation_once.exists():
+            parser.error("This one-time fixture authorization has already been consumed")
+        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial, args.elicitation, args.authorize_elicitation_once))
     except Exception as error:
         # Exceptions may carry authenticated URLs or provider text. Report only the class.
         print("FAIL owned real reload fixture: " + type(error).__name__)

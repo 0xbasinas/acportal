@@ -15,6 +15,8 @@ import org.junit.Test
 
 /** Explicit opt-in via scripts/verify-talkback-ui.ps1. Restores secure settings in finally. */
 class TalkBackShellUiTest {
+    @Test fun darkTalkBackMarkdownLinkConfirmation()=check("dark","markdown")
+    @Test fun lightTalkBackMarkdownLinkConfirmation()=check("light","markdown")
     @Test fun darkTalkBackSessionCreationForm()=check("dark","creation-form")
     @Test fun lightTalkBackSessionCreationForm()=check("light","creation-form")
     @Test fun darkTalkBackNewScreens() {listOf("models","creation","pairing","markdown").forEach {check("dark",it)}}
@@ -73,13 +75,15 @@ class TalkBackShellUiTest {
             }
             val title=when(page) {"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
+            var dismissedKnownNotification=false
             waitFor("Fixture window") {
                 val root=automation.rootInActiveWindow
                 // First service startup may request notifications. Back cancels without granting
                 // or changing its permission flags; only this known TalkBack prompt is dismissed.
-                if(root?.packageName?.toString()?.endsWith(".permissioncontroller")==true &&
+                if(!dismissedKnownNotification && root?.packageName?.toString()?.endsWith(".permissioncontroller")==true &&
                     nodes(automation).any {it.text?.toString()=="Allow Android Accessibility Suite to send you notifications?"}) {
                     assertTrue(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                    dismissedKnownNotification=true
                 }
                 find(automation,title)!=null
             }
@@ -113,7 +117,7 @@ class TalkBackShellUiTest {
             scenario.onActivity {assertEquals("fixture-deny",it.fixtureDecision)}
         } finally {
             try {
-                try {scenario?.onActivity {it.finishAndRemoveTask()}}
+                try {if(scenario?.state!=androidx.lifecycle.Lifecycle.State.DESTROYED)scenario?.onActivity {it.finishAndRemoveTask()}}
                 finally {scenario?.close()}
             } finally {
                 settings(previous)
@@ -161,6 +165,21 @@ class TalkBackShellUiTest {
                 traverseTo(automation) {it=="Fixture answer"}.also {assertTrue(it.isHeading)}
                 traverseTo(automation) {it.contains("First fixture item")}
                 traverseTo(automation) {it.contains("printf fixture")}
+                val link=traverseTo(automation) {it=="Read docs"}
+                assertTrue("Link must offer explicit confirmation",link.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Link confirmation shown") {find(automation,"Open link?")!=null}
+                assertNotNull(find(automation,"https://example.invalid/docs"))
+                val cancel=traverseTo(automation) {it=="Cancel"}
+                assertTrue(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Link confirmation dismissed") {find(automation,"Open link?")==null}
+                val paragraph=traverseTo(automation) {it.startsWith("References:")}
+                val action=paragraph.actionList.firstOrNull {it.label?.toString()=="Review link: Second reference"}
+                assertNotNull("Inline links have individual native actions",action)
+                assertTrue(paragraph.performAction(action!!.id))
+                waitFor("Inline link confirmation shown") {find(automation,"Open link?")!=null}
+                assertNotNull(find(automation,"https://example.invalid/second"))
+                assertTrue(traverseTo(automation) {it=="Cancel"}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Inline link cancelled") {find(automation,"Open link?")==null}
                 scenario.onActivity {assertTrue("Reading Markdown causes no action",it.fixtureActions.isEmpty())}
             }
             "logs"->{
