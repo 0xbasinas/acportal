@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 10 October 2026 — merged PR #12 and containment acceptance continuation
+
+PR #12 is merged at `3cd1b9b`. Merged-main Rust [37977899375](https://github.com/0xbasinas/acportal/actions/runs/37977899375) and Android [37977899506](https://github.com/0xbasinas/acportal/actions/runs/37977899506) passed. The platform dispatch [38037739241](https://github.com/0xbasinas/acportal/actions/runs/38037739241) targets that exact merged source; final logs/artifacts still need inspection before archiving the remaining platform gate.
+
+New isolated daemon regression on Windows proves abrupt termination of its directly owned foreground host closes its kill-on-close job and stops both descendant generations. Restart preserves the test credential and reports the session interrupted without restarting it. The single new test, targeted strict Clippy and formatting pass locally. Initial fixture failure was a missing required registry name, corrected before the passing run. No production host/config/credentials were modified. A separate explicit SIGTERM readiness/cleanup/restart regression is added for Unix and requires Actions verification.
+
 ## 9 October 2026 — PR #12 oversized-control test race
 
 Rust Actions run [37976078290](https://github.com/0xbasinas/acportal/actions/runs/37976078290) failed only in the Linux stable daemon fixture: after oversized input was rejected, write-half shutdown returned Linux ENOTCONN before the test could inspect EOF. The fixture now accepts only the expected disconnected/reset shutdown errors. Its subsequent read requires EOF or a connection-close error, rather than accepting any error such as a timeout. Daemon liveness, explicit stop and stale-PID safety remain asserted. Production behavior is unchanged.

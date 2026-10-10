@@ -1,5 +1,7 @@
 # ACP Portal agent handoff
 
+10 October 2026 continuation: merged PR #12 baseline `3cd1b9b`, branch `codex/remaining-acceptance`. User requested platform, daemon hardening, Android profiling/recovery/accessibility/upgrade/motion acceptance and a new PR. Any UI changes must also appear in the user's connected Penpot file before acceptance. New Windows abrupt-host descendant cleanup test passes locally; explicit Unix SIGTERM test awaits Actions. Platform dispatch and full evidence are in TODO_DONE.
+
 9 October 2026 PR #12 CI follow-up: the Linux oversized-control fixture raced with the server closing the connection and unconditionally unwrapped write-half shutdown. The test handles expected disconnect/reset errors and more strictly checks the subsequent rejection; production sources are unchanged. Three affected Windows daemon tests, targeted strict Clippy and formatting pass. See TODO_DONE for the failed run and verify the new Actions head before merging.
 
 9 October 2026 PR #12 merge reconciliation: merged PR #11 from main at `7856be1`, preserving its historical acceptance corrections and the newer implementation evidence. Pre-merge PR #12 checks at `98ddb70` passed Android debug/JVM, Linux stable and Rust 1.88, Windows stable and security checks; macOS/container/reproducibility/testy extras were skipped. These results do not establish the final merge-head checks. Conflict resolution changes Markdown only; no implementation tests were rerun locally.

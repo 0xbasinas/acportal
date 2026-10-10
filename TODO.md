@@ -1,12 +1,12 @@
 # Remaining work
 
-Updated 9 October 2026 after auditing completed implementation and scoped verification. Current local work is on `codex/session-model-picker`, based on merged PR #10; local changes are not assumed published. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md).
+Updated 10 October 2026. PR #12 is merged on main at `3cd1b9b`; acceptance work continues on `codex/remaining-acceptance`. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md).
 
 Goose ACP is the local agent. Android connects through authenticated REST/WebSocket; the host uses ACP stdio. Follow [HANDOFF.md](HANDOFF.md), [requirements audit](docs/requirements-audit.md) and [UI reference](docs/ui-reference.md). Checkmarks are reserved for verified work, and completed items are archived rather than kept here.
 
 ## Current host verification
 
-- [ ] Run GitHub Actions against the current native setup, QR dependency and daemon/reload sources: Linux stable/minimum Rust, macOS detachment and SIGTERM, container TLS/mounted-state/agent execution, and independent Windows reproducibility. Earlier platform runs do not cover these local changes. [Daemon guide](docs/daemon-and-reload.md).
+- [ ] Complete and inspect current platform dispatch results, including independent Windows hashes, and run the new explicit Unix SIGTERM regression on Linux/macOS. PR #12 Linux stable/minimum Rust, Windows tests and Android checks already pass; merged-main platform dispatch is tracked in TODO_DONE. [Daemon guide](docs/daemon-and-reload.md).
 - [ ] Check daemon reload continuity with a real provider and harden/test cleanup after abrupt host termination or deliberate process-group/job escape. Windows isolated lifecycle and pending-approval replay fixtures already pass; graceful stop is implemented.
 
 ## Android verification still open
