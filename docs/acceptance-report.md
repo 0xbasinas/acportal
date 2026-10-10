@@ -1,5 +1,7 @@
 # Acceptance report
 
+Current status, 10 October 2026: draft PR #13 has scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.
+
 10 October 2026: [acceptance continuation](acceptance-continuation.md) records Penpot boards 24–31, 16 scoped native TalkBack screen scenarios across four instrumentations, the picker header fix and current platform results. Broader acceptance remains open.
 
 9 October 2026 current continuation: PR #10 is the merged baseline; later model-picker/header, session-creation, pairing/Markdown, native setup/motion and daemon/reload increments are local on `codex/session-model-picker`. Their scoped verification is recorded in [TODO_DONE.md](../TODO_DONE.md). The current host suite passes 116 Windows Rust tests plus strict Clippy/formatting; earlier platform Actions below do not cover these newer sources. [TODO.md](../TODO.md) has been reconciled to outstanding checks, suspended phone/release work and separate future decisions. The dated PR #10 report below remains historical evidence.

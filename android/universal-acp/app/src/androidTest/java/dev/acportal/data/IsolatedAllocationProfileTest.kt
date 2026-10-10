@@ -12,6 +12,30 @@ import org.junit.Test
 
 /** ART allocation counters are process-wide, including framework/test allocations. No payload dump. */
 class IsolatedAllocationProfileTest {
+    @Test fun streamingAndPromptPreparationReportAllocatorCounters() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assumeTrue("Only the isolated package is profiling evidence", instrumentation.targetContext.packageName == "dev.acportal.acceptance")
+        suspend fun measure(name: String, work: suspend () -> Unit) {
+            System.gc(); delay(200)
+            val allocatedBefore = Debug.getRuntimeStat("art.gc.bytes-allocated").toLong()
+            val freedBefore = Debug.getRuntimeStat("art.gc.bytes-freed").toLong()
+            work()
+            System.gc(); delay(200)
+            val allocated = Debug.getRuntimeStat("art.gc.bytes-allocated").toLong() - allocatedBefore
+            val freed = Debug.getRuntimeStat("art.gc.bytes-freed").toLong() - freedBefore
+            assertTrue(allocated > 0); assertTrue(freed >= 0)
+            instrumentation.sendStatus(2, Bundle().apply {
+                putString("acportalAllocationProfile", "$name; artAllocatedBytes=$allocated; artFreedBytes=$freed; includes framework/test overhead")
+            })
+        }
+        measure("four streaming histories") {
+            AndroidTimelineHeapStressTest().fourLongConversationsRetainBoundedHeapAndVisibleHistoryGaps()
+        }
+        measure("100 prompt serializations") {
+            PromptPreparationStressTest().repeatedLargeAttachmentPreparationAllowsMainQueueProgressAndReleasesCopies()
+        }
+    }
+
     @Test fun binaryAttachmentLoadingReportsAllocatorCountersInOwnedPackage() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

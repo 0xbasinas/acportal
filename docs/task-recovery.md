@@ -1,5 +1,7 @@
 # Previous-task recovery verification
 
+Real-Goose continuation uses `scripts/verify-real-reload.py --acpd <built-acpd> --goose <installed-goose> --adb <adb-path> --serial emulator-5554` and the separately built/installed acceptance package. It creates disposable host/session/vault fixtures, uses the configured provider without copying its credentials, and never approves requests. Setup and cleanup methods of `RealGooseRecoverySetupTest` require explicit flags and must run separately. The external helper performs no instrumentation between process termination and restoration, inspects cached state while its host reverse port is removed, then explicitly reconnects. Never run this fixture against normal app storage. Consult [the continuation report](acceptance-continuation.md) for actual pass/failure evidence before treating the workflow as acceptance.
+
 Current scope, 9 October 2026: controlled live/offline two-session MainActivity process-death, authoritative approvals, conversation scroll/disclosures and MCP task recovery have scoped passing results. Real-agent recovery and additional routes remain open in [TODO.md](../TODO.md). Historical checkpoints later in this document do not reopen completed controlled cases. Keep preparation/restoration separate and preserve all fixture cleanup rules below.
 
 ## Controlled live workflow (PR #9)

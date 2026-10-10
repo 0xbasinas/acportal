@@ -1,10 +1,14 @@
 # Development
 
+## Isolated Android acceptance builds
+
+Use `-PacportalAcceptance=true` only for selected fixture runs. Debug APKs use `dev.acportal.acceptance` with independent storage and provider authority; ordinary debug and release retain `dev.acportal`. See [allocation fixture procedure](acceptance-continuation.md). Builds share output paths, so rebuild without the property before distributing the usual debug APK. Never dump or clear the normal application data for profiling.
+
 ## Background host and reload checks
 
 Use the native [daemon commands](daemon-and-reload.md) for operator lifecycle control. `acpd/tests/daemon.rs` creates private temporary configs, profiles, state and ephemeral listeners, and stops only its owned workers. It checks startup readiness, duplicate exclusion, graceful stop/restart, rejected/accepted reload, pending-approval replay, credentials, malformed/unauthorized control traffic and stale-record safety. Do not point this fixture at production configuration or remove production control records to resolve a failed run.
 
-The current normal Windows suite passes 116 Rust tests, strict Clippy and formatting. Unix/macOS detachment, SIGTERM and supported-build checks for these sources still require GitHub Actions. Earlier platform runs do not cover the new implementation. [Verification history](../TODO_DONE.md) records separate Android evidence and the remaining acceptance limits.
+The historical PR #12 local Windows suite passed 116 Rust tests, strict Clippy and formatting. Current platform evidence is now available through Actions: merged-main extras/testy, new Unix SIGTERM on Linux/macOS and corrected Windows daemon fixtures have separate passing runs. See [acceptance continuation](acceptance-continuation.md) for exact revisions and limits. Real-provider continuity and deliberate process escape remain open. [Verification history](../TODO_DONE.md) records separate Android evidence and the remaining acceptance limits.
 
 ## Toolchain and commands
 

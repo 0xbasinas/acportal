@@ -352,6 +352,8 @@ For repeatable protocol coverage without a model or provider key, `acpd/tests/te
 
 ## See also
 
+10 October continuation: installed Goose 1.53.0 through the running user router passes exact pending-approval replay across host reload and real Android process death. The isolated workflow checks cached draft before networking, same task/distinct process, authoritative decisions, two-session navigation and host journal counts proving no automatic prompts/decisions. The fixture explicitly cancels after recovery and verifies no file write. This found and fixed historical replay clearing an unsent draft. It does not complete Android elicitation/own-tools/write-notice/shell-badge acceptance. See [exact continuation evidence](acceptance-continuation.md).
+
 - [Adding agents and Goose setup](agents.md)
 - [Installation and doctor](installation.md)
 - [Development log](development.md)

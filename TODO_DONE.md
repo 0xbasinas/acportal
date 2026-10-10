@@ -1,6 +1,18 @@
 # Completed work and verification history
 
-## 10 October 2026 — isolated attachment allocation counters and CI correction
+## 10 October 2026 - real Goose reload, upgrade, profiling and full-form traversal
+
+Real Goose Android external process death now passes after fixing a production bug: historical prompt replay cleared an unrelated unsent draft. Draft clearing requires correlation to this client's submission. A real socket regression passes historical preservation and explicit-current acknowledgement clearing. The real workflow proves process absence/distinct restored process/same task, cached draft before network, exact authoritative pending approval and second live-session navigation. Host journal counts remain one original prompt and zero Android decisions; the fixture explicitly cancels afterward, with no file write. Recorded fixture resources are cleaned separately. The 700-model profile passes 20 lazy search/cancel cycles with zero configuration mutations; sampled retained growth is 1,261,936 bytes and peak growth 9,408,832 bytes. Full measurements and prior fixture failures are preserved in the continuation report.
+
+Installed Goose through the running user router passes actual pending-approval reload: exact permission ID, same ACP session and credential, changed future discovery, explicit cancellation and no fixture write. The Windows job denies a deliberate breakaway attempt with OS error 5; all four daemon tests, strict workspace Clippy and formatting pass. An actual old APK from `cf8fa26` upgrades without clearing owned acceptance data; one device verification passes Sessions/history-gap navigation, small draft retention and exact original large-column hashes. Offline upgrade is complete to this scope; replay after upgrade remains open.
+
+Two isolated allocation methods pass with binary loading, four long streaming histories and 100 prompt serializations. Two rendered-window streaming profiles pass; measured emulator p95 is 36.70 ms light and 35.17 ms dark, not a physical-phone frame-budget claim. Full existing session-creation form native TalkBack passes four separate dark/light/normal/actual-double-font runs after correcting a fixture path-versus-spoken-label assertion. Settings restore and production data remain untouched. [Detailed measurements and limitations](docs/acceptance-continuation.md).
+
+## 10 October 2026 - remaining-work documentation reconciliation
+
+Root README, AGENTS, HANDOFF and TODO now identify open draft PR #13 and separate completed platform/new-screen/loader checks from remaining acceptance. Android, UI, screen, original-scope audit and development docs link the latest scoped evidence. QR camera checks remain user-owned, not a duplicate active emulator gate. Earlier failures and run URLs are retained below; newer evidence supersedes only its tested scope. Documentation-only reconciliation; no implementation tests rerun and no production-completion claim.
+
+## 10 October 2026 - isolated attachment allocation counters and CI correction
 
 The opt-in acceptance debug package has separate storage and a separate attachment-provider authority. One isolated API 36 test passes for 20 binary 256 KiB loads: ART allocated 47243264 bytes and freed 47230976 bytes, with sampled post-GC heap growth 12288 bytes. Counters include framework/test overhead; this does not establish allocation sites, retained-object profiling, streaming or full prompt serialization. Both isolated APKs were removed after the test. Normal APKs rebuilt, lint passed, release/default identities were inspected and three ordinary attachment-loader regressions pass. No normal-app data was cleared.
 

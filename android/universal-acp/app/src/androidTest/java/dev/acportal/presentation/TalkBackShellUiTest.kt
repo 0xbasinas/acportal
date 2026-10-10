@@ -15,6 +15,8 @@ import org.junit.Test
 
 /** Explicit opt-in via scripts/verify-talkback-ui.ps1. Restores secure settings in finally. */
 class TalkBackShellUiTest {
+    @Test fun darkTalkBackSessionCreationForm()=check("dark","creation-form")
+    @Test fun lightTalkBackSessionCreationForm()=check("light","creation-form")
     @Test fun darkTalkBackNewScreens() {listOf("models","creation","pairing","markdown").forEach {check("dark",it)}}
     @Test fun lightTalkBackNewScreens() {listOf("models","creation","pairing","markdown").forEach {check("light",it)}}
     @Test fun darkTalkBackTraversesCommandAndRequiresExplicitDecision()=check("dark")
@@ -69,7 +71,7 @@ class TalkBackShellUiTest {
             waitFor("TalkBack service connected") {
                 manager.getEnabledAccessibilityServiceList(-1).any {it.resolveInfo.serviceInfo.packageName=="com.google.android.marvin.talkback"} && manager.isTouchExplorationEnabled
             }
-            val title=when(page) {"models"->"Session options";"creation"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
+            val title=when(page) {"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
             waitFor("Fixture window") {
                 val root=automation.rootInActiveWindow
@@ -122,6 +124,14 @@ class TalkBackShellUiTest {
     }
     private fun checkPage(page:String,automation:UiAutomation,scenario:ActivityScenario<UiAccessibilityFixtureActivity>) {
         when(page) {
+            "creation-form"->{
+                traverseTo(automation) {it.contains("Fixture workspace") && it.contains("Selected workspace")}
+                val start=traverseTo(automation) {it=="Start session"}
+                assertTrue("Fresh fixture discovery enables explicit creation",start.isEnabled)
+                scenario.onActivity {assertTrue("Traversal must not start a session",it.fixtureActions.isEmpty())}
+                assertTrue(start.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scenario.onActivity {assertEquals(listOf("create:fixture-agent:/workspace"),it.fixtureActions)}
+            }
             "models"->{
                 val current=traverseTo(automation) {it.contains("Model 0")}
                 assertTrue(current.performAction(AccessibilityNodeInfo.ACTION_CLICK))

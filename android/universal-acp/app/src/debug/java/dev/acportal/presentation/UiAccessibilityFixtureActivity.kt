@@ -27,6 +27,8 @@ import kotlinx.serialization.json.*
 /** Debug-only, non-exported native accessibility surface. All decisions are memory-only. */
 @OptIn(ExperimentalLayoutApi::class)
 class UiAccessibilityFixtureActivity:ComponentActivity() {
+    var fixtureLive: LiveSession? = null
+        private set
     var fixtureKeyboardVisible=false
         private set
     val fixtureActions=mutableListOf<String>()
@@ -42,6 +44,12 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {
                 if(page=="models")ModelCatalogFixture()
                 else if(page=="creation")SessionConnectionScreen(listOf(HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true)),{fixtureActions.add("back")},{fixtureActions.add("pair")},{fixtureActions.add("choose:$it")})
+                else if(page=="creation-form")NewSessionScreen(HostDetails(
+                    HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true),
+                    listOf(AgentInfo("fixture-agent","Fixture agent",installed=true,status="available")),
+                    listOf(Workspace("/workspace","Fixture workspace")),emptyList(),emptyList()),
+                    null,false,{fixtureActions.add("back")},{_,_->fixtureActions.add("browse")},
+                    {agent,path->fixtureActions.add("create:$agent:$path")})
                 else if(page=="pairing")PairScreen(false,{fixtureActions.add("back")},{_,_,_->fixtureActions.add("pair")},scanner={_,failed,_->failed()})
                 else if(page=="markdown")Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) {
                     ScreenHeader("Markdown reply",onBack={fixtureActions.add("back")})
@@ -126,6 +134,7 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
         SessionScreen(live,StoredSession("fixture-host",info.id,WireJson.encodeToString(SessionInfo.serializer(),info),draft="Owned conversation draft"),
             onBack={},onPrompt={_,_->error("No fixture prompt")},onCancel={},onPermission={_,_->error("No fixture permission")},onConfigure={_,_->error("No fixture configuration")},onDraft={},
             onAddAttachment={_,_->error("No fixture attachments")},onRemoveAttachment={},onElicitation={_,action,_->fixtureActions.add("elicitation:$action")})
+        SideEffect { fixtureLive = live }
     }
     @Composable private fun ModelCatalogFixture() {
         val models=remember {buildJsonObject {

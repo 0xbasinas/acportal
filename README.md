@@ -1,5 +1,9 @@
 # ACP Portal
 
+10 October acceptance continuation adds real Goose pending-approval reload, an actual older-APK offline upgrade, streaming/attachment allocator counters, rendered frame measurements and full session-creation TalkBack. Scope and measurements are in [the continuation report](docs/acceptance-continuation.md); [TODO](TODO.md) remains the acceptance checklist.
+
+Current status, 10 October 2026: draft [PR #13](https://github.com/0xbasinas/acportal/pull/13) continues on `codex/remaining-acceptance` and is not merged. Real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded profiling/full-form TalkBack have scoped passing evidence. [TODO.md](TODO.md) tracks remaining acceptance; [the continuation report](docs/acceptance-continuation.md) retains exact measurements, failures and limits. Earlier dated statements below are historical.
+
 10 October 2026 PR #13 acceptance increment: Penpot boards 24–31 cover the new screens in both themes. Model-picker Cancel is in the header after a native traversal failure exposed its footer placement. Four TalkBack runs pass across four pages at normal/actual 2× font; six options regressions and 60 app JVM tests pass, with both debug APKs and lint. See [acceptance continuation](docs/acceptance-continuation.md) for exact platform results, fixture failures and remaining limits.
 
 9 October 2026 daemon/reload increment: native background mode and operator-only local status/stop/reload are implemented. SessionManager publishes coherent launch snapshots; discovery/browse/future sessions use new settings while current sessions and approvals remain unchanged. Listener/TLS/token/storage/frame/logging changes require restart. See [daemon commands and reload rules](docs/daemon-and-reload.md), the ADR and TODO_DONE.md for actual verification and limits.
@@ -131,7 +135,7 @@ Current scope, 8 October 2026: tablet/landscape acceptance is excluded for now. 
 
 Use JDK 21 for local Gradle commands. Supported minimum-Rust, Linux/container and Windows reproducibility checks belong in GitHub Actions. See [development](docs/development.md) for commands and [the acceptance report](docs/acceptance-report.md) for completed platform checks.
 
-The project is not production complete. Active follow-ups are real-agent Android workflows/recovery, heap/provider profiling, a full old-build upgrade, remaining page/focus/content acceptance, custom-adapter diagnostics and containment gaps. Physical-phone and signed-release checks are suspended; tablet/landscape is excluded. See [TODO](TODO.md) for exact scope.
+The project is not production complete. Active follow-ups include broader Android recovery routes, real-agent forms/warnings, allocation-site/provider profiling, upgrade replay, page/focus/content acceptance, Unix escape cleanup and motion checks. Physical-phone and signed-release checks are suspended; tablet/landscape is excluded. See [TODO](TODO.md) for exact scope.
 
 ## Documentation
 
