@@ -1,5 +1,7 @@
 # Screen acceptance checkpoint
 
+10 October 2026: [acceptance continuation](acceptance-continuation.md) records Penpot boards 24–31, 16 scoped native TalkBack screen scenarios across four instrumentations, the picker header fix and current platform results. Broader acceptance remains open.
+
 9 October 2026: [native CLI setup and motion](native-cli-and-motion.md) adds short host commands and 150/100 ms ordinary page fades with NavDisplay size interpolation disabled. Selected-tab taps retain the route. Predictive Back and sheet defaults are preserved; physical frame-time and broader motion acceptance remain open.
 
 9 October 2026 pairing/Markdown increment: QR imports require explicit pairing; existing TLS/token rules remain unchanged. Native Markdown is limited to agent replies, preserves original storage/export and confirms web links. See [behavior and limits](pairing-and-markdown.md) and [verification history](../TODO_DONE.md). Camera and native TalkBack acceptance remain open.

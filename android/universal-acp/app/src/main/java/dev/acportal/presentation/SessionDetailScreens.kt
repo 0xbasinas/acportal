@@ -127,7 +127,10 @@ private data class ConfigChoice(val value:String,val name:String,val group:Strin
     Dialog(onDismissRequest=onDismiss) {
         Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.fillMaxWidth().heightIn(max=560.dp).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text("Choose ${option["name"].text()}",Modifier.semantics {heading()},style=MaterialTheme.typography.titleLarge)
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Text("Choose ${option["name"].text()}",Modifier.weight(1f).semantics {heading()},style=MaterialTheme.typography.titleLarge)
+                    TextButton(onDismiss,Modifier.heightIn(min=48.dp)) {Text("Cancel")}
+                }
                 OutlinedTextField(query,{query=it.take(512)},label={Text("Search options")},singleLine=true,modifier=Modifier.fillMaxWidth())
                 Text("Options: ${filtered.size}",style=MaterialTheme.typography.bodySmall)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("config-choice-list")) {
@@ -139,7 +142,6 @@ private data class ConfigChoice(val value:String,val name:String,val group:Strin
                     }
                     if(filtered.isEmpty())item {Text("No matching options. Try another search.")}
                 }
-                TextButton(onDismiss,Modifier.align(Alignment.End)) {Text("Cancel")}
             }
         }
     }

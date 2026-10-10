@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 10 October 2026 — Penpot and new-screen native TalkBack
+
+10 October 2026 PR #13 acceptance increment: Penpot boards 24–31 cover the new screens in both themes. Model-picker Cancel is in the header after a native traversal failure exposed its footer placement. Four TalkBack runs pass across four pages at normal/actual 2× font; six options regressions and 60 app JVM tests pass, with both debug APKs and lint. See [acceptance continuation](docs/acceptance-continuation.md) for exact platform results, fixture failures and remaining limits.
+
+Merged-main platform run 38037739241 passes all nine jobs; independent Windows hashes match. New-test run 38038118368 passes Linux/minimum Rust/macOS/container/reproducibility, but Windows has a restart-fixture pooled-connection failure. The fresh-client correction passes all four daemon tests locally and needs Actions confirmation. Preserve both runs and their scoped limits in the acceptance continuation.
+
 ## 10 October 2026 — merged PR #12 and containment acceptance continuation
 
 PR #12 is merged at `3cd1b9b`. Merged-main Rust [37977899375](https://github.com/0xbasinas/acportal/actions/runs/37977899375) and Android [37977899506](https://github.com/0xbasinas/acportal/actions/runs/37977899506) passed. The platform dispatch [38037739241](https://github.com/0xbasinas/acportal/actions/runs/38037739241) targets that exact merged source; final logs/artifacts still need inspection before archiving the remaining platform gate.

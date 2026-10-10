@@ -15,6 +15,8 @@ import org.junit.Test
 
 /** Explicit opt-in via scripts/verify-talkback-ui.ps1. Restores secure settings in finally. */
 class TalkBackShellUiTest {
+    @Test fun darkTalkBackNewScreens() {listOf("models","creation","pairing","markdown").forEach {check("dark",it)}}
+    @Test fun lightTalkBackNewScreens() {listOf("models","creation","pairing","markdown").forEach {check("light",it)}}
     @Test fun darkTalkBackTraversesCommandAndRequiresExplicitDecision()=check("dark")
     @Test fun lightTalkBackTraversesCommandAndRequiresExplicitDecision()=check("light")
     @Test fun darkTalkBackLogsFiltersAndLiveSwitch()=check("dark","logs")
@@ -67,7 +69,7 @@ class TalkBackShellUiTest {
             waitFor("TalkBack service connected") {
                 manager.getEnabledAccessibilityServiceList(-1).any {it.resolveInfo.serviceInfo.packageName=="com.google.android.marvin.talkback"} && manager.isTouchExplorationEnabled
             }
-            val title=when(page) {"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
+            val title=when(page) {"models"->"Session options";"creation"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
             waitFor("Fixture window") {
                 val root=automation.rootInActiveWindow
@@ -120,6 +122,37 @@ class TalkBackShellUiTest {
     }
     private fun checkPage(page:String,automation:UiAutomation,scenario:ActivityScenario<UiAccessibilityFixtureActivity>) {
         when(page) {
+            "models"->{
+                val current=traverseTo(automation) {it.contains("Model 0")}
+                assertTrue(current.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Lazy catalog dialog") {find(automation,"Options: 700")!=null}
+                val cancel=traverseTo(automation) {it=="Cancel"}
+                scenario.onActivity {assertTrue("Opening and traversal send no model mutation",it.fixtureActions.isEmpty())}
+                assertTrue(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Catalog dismissed") {find(automation,"Options: 700")==null}
+                scenario.onActivity {assertTrue("Cancellation sends no model mutation",it.fixtureActions.isEmpty())}
+            }
+            "creation"->{
+                val host=traverseTo(automation) {it.contains("Fixture computer") && it.contains("Online")}
+                scenario.onActivity {assertTrue("Traversal must not launch",it.fixtureActions.isEmpty())}
+                assertTrue(host.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scenario.onActivity {assertEquals(listOf("choose:fixture-host"),it.fixtureActions)}
+            }
+            "pairing"->{
+                val scan=traverseTo(automation) {it=="Scan pairing QR code"}
+                assertTrue(scan.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                traverseTo(automation) {it.contains("QR scanning is unavailable")}
+                val pair=traverseTo(automation) {it=="Pair connection"}
+                assertFalse("Unavailable scanner cannot pair",pair.isEnabled)
+                scenario.onActivity {assertTrue("Scanner failure sends no pairing mutation",it.fixtureActions.isEmpty())}
+            }
+            "markdown"->{
+                waitFor("Parsed Markdown heading") {find(automation,"Fixture answer")?.isHeading==true}
+                traverseTo(automation) {it=="Fixture answer"}.also {assertTrue(it.isHeading)}
+                traverseTo(automation) {it.contains("First fixture item")}
+                traverseTo(automation) {it.contains("printf fixture")}
+                scenario.onActivity {assertTrue("Reading Markdown causes no action",it.fixtureActions.isEmpty())}
+            }
             "logs"->{
                 val warning=traverseTo(automation) {it=="Warnings"}
                 assertFalse(warning.isSelected)

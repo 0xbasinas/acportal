@@ -209,7 +209,8 @@ async fn abrupt_host_exit_stops_both_descendant_generations_and_preserves_creden
     .expect("kill-on-close job must stop both generations after abrupt host exit");
     drop(socket);
     fixture.start();
-    let restored = client
+    // The previous client's keep-alive pool belongs to the forcibly terminated host.
+    let restored = reqwest::Client::new()
         .get(format!("{base}/v1/sessions/{id}"))
         .bearer_auth(&paired.token)
         .send()
