@@ -8,6 +8,8 @@ Markdown standalone and individual inline links now expose native accessibility 
 
 After the Markdown change, 60 app JVM tests pass with zero failures/errors/skips; both ordinary debug APKs build and lint passes with 0 errors/18 warnings. Nine affected device regressions pass, covering three Markdown formatting/confirmation cases and six Session details cases. Separate real-Goose fixture cleanup passes. External settings readback is services `null`, accessibility/touch exploration `0`, font `1.0`. These are scoped separate runs, not a combined complete acceptance suite.
 
+Published source `ff68a3b` passes [full Android Actions 38044579739](https://github.com/0xbasinas/acportal/actions/runs/38044579739): JVM tests, debug APK, lint and instrumentation APK build. Rust is unchanged from the passing `16e7cbc` platform run. The consumed one-time marker rejects another fixture launch before any host/prompt starts. PR #13 remains a draft with broader gates retained in TODO.
+
 Actual platform Actions at `16e7cbc`: Rust run [38042883576](https://github.com/0xbasinas/acportal/actions/runs/38042883576) passes all eight selected jobs, including active mock-agent SIGTERM on Linux Rust 1.88/macOS, container checks and identical independent Windows hashes. Testy is intentionally skipped, with separate earlier evidence preserved. Full Android run [38042885545](https://github.com/0xbasinas/acportal/actions/runs/38042885545) passes. Later Markdown changes require a new Android run. Guarded, separately selected upgrade cleanup passes and removes only verified fixture rows; real-Goose cleanup also passes without touching normal storage.
 
 ## 10 October 2026 - real Goose reload, upgrade, profiling and full-form traversal
