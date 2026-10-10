@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 10 October 2026 � isolated attachment allocation counters and CI correction
+
+The opt-in acceptance debug package has separate storage and a separate attachment-provider authority. One isolated API 36 test passes for 20 binary 256 KiB loads: ART allocated 47243264 bytes and freed 47230976 bytes, with sampled post-GC heap growth 12288 bytes. Counters include framework/test overhead; this does not establish allocation sites, retained-object profiling, streaming or full prompt serialization. Both isolated APKs were removed after the test. Normal APKs rebuilt, lint passed, release/default identities were inspected and three ordinary attachment-loader regressions pass. No normal-app data was cleared.
+
+Actions rerun [38039091020](https://github.com/0xbasinas/acportal/actions/runs/38039091020) at `bab0bec` passes Linux stable, Rust 1.88 and Windows stable after the fresh-client fixture correction. Extras/testy were skipped and retain separate prior passing evidence. Platform verification is archived to its exact source scope; real-provider reload and escape cleanup remain open. See [acceptance continuation](docs/acceptance-continuation.md).
+
 ## 10 October 2026 — Penpot and new-screen native TalkBack
 
 10 October 2026 PR #13 acceptance increment: Penpot boards 24–31 cover the new screens in both themes. Model-picker Cancel is in the header after a native traversal failure exposed its footer placement. Four TalkBack runs pass across four pages at normal/actual 2× font; six options regressions and 60 app JVM tests pass, with both debug APKs and lint. See [acceptance continuation](docs/acceptance-continuation.md) for exact platform results, fixture failures and remaining limits.

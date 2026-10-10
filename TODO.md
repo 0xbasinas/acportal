@@ -6,7 +6,6 @@ Goose ACP is the local agent. Android connects through authenticated REST/WebSoc
 
 ## Current host verification
 
-- [ ] Confirm the PR #13 Windows restart-fixture correction through Actions. Merged-main platform gates including testy, container and independent Windows hashes passed; the new Unix SIGTERM regression passed Linux/macOS. Exact source/run limits are in [acceptance continuation](docs/acceptance-continuation.md). [Daemon guide](docs/daemon-and-reload.md).
 - [ ] Check daemon reload continuity with a real provider and harden/test cleanup after abrupt host termination or deliberate process-group/job escape. Windows isolated lifecycle and pending-approval replay fixtures already pass; graceful stop is implemented.
 
 ## Android verification still open

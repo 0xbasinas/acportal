@@ -5,6 +5,9 @@ plugins {
   alias(libs.plugins.kotlin.serialization)
 }
 
+// Opt-in acceptance APKs have independent storage and can coexist with the user's app.
+val isolatedAcceptance = providers.gradleProperty("acportalAcceptance").orNull == "true"
+
 android {
     namespace = "dev.acportal"
     compileSdk = 36
@@ -15,9 +18,14 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["attachmentAuthority"] = if (isolatedAcceptance)
+            "dev.acportal.acceptance.test.attachments" else "dev.acportal.test.attachments"
     }
 
     buildTypes {
+        debug {
+            if (isolatedAcceptance) applicationIdSuffix = ".acceptance"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

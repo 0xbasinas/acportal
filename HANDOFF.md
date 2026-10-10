@@ -1,5 +1,7 @@
 # ACP Portal agent handoff
 
+Current PR #13 checkpoint: Actions 38039091020 is green at `bab0bec`. Opt-in `-PacportalAcceptance=true` creates separate debug storage; its first attachment allocation counter run passes and the owned APKs are removed. Default APK outputs have been rebuilt. Continue the outstanding real-provider, recovery, streaming, upgrade and motion gates listed in TODO; no old-build upgrade has been run.
+
 10 October 2026 PR #13 acceptance increment: Penpot boards 24–31 cover the new screens in both themes. Model-picker Cancel is in the header after a native traversal failure exposed its footer placement. Four TalkBack runs pass across four pages at normal/actual 2× font; six options regressions and 60 app JVM tests pass, with both debug APKs and lint. See [acceptance continuation](docs/acceptance-continuation.md) for exact platform results, fixture failures and remaining limits.
 
 10 October 2026 continuation: merged PR #12 baseline `3cd1b9b`, branch `codex/remaining-acceptance`. User requested platform, daemon hardening, Android profiling/recovery/accessibility/upgrade/motion acceptance and a new PR. Any UI changes must also appear in the user's connected Penpot file before acceptance. New Windows abrupt-host descendant cleanup test passes locally; explicit Unix SIGTERM test awaits Actions. Platform dispatch and full evidence are in TODO_DONE.
