@@ -27,6 +27,8 @@ import kotlinx.serialization.json.*
 /** Debug-only, non-exported native accessibility surface. All decisions are memory-only. */
 @OptIn(ExperimentalLayoutApi::class)
 class UiAccessibilityFixtureActivity:ComponentActivity() {
+    var fixtureLive: LiveSession? = null
+        private set
     var fixtureKeyboardVisible=false
         private set
     val fixtureActions=mutableListOf<String>()
@@ -40,7 +42,20 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
             val keyboard=WindowInsets.isImeVisible
             SideEffect {fixtureKeyboardVisible=keyboard}
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {
-                if(page=="conversation" || page=="elicitation")ConversationFixture(page=="elicitation")
+                if(page=="models")ModelCatalogFixture()
+                else if(page=="creation")SessionConnectionScreen(listOf(HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true)),{fixtureActions.add("back")},{fixtureActions.add("pair")},{fixtureActions.add("choose:$it")})
+                else if(page=="creation-form")NewSessionScreen(HostDetails(
+                    HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true),
+                    listOf(AgentInfo("fixture-agent","Fixture agent",installed=true,status="available")),
+                    listOf(Workspace("/workspace","Fixture workspace")),emptyList(),emptyList()),
+                    null,false,{fixtureActions.add("back")},{_,_->fixtureActions.add("browse")},
+                    {agent,path->fixtureActions.add("create:$agent:$path")})
+                else if(page=="pairing")PairScreen(false,{fixtureActions.add("back")},{_,_,_->fixtureActions.add("pair")},scanner={_,failed,_->failed()})
+                else if(page=="markdown")Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) {
+                    ScreenHeader("Markdown reply",onBack={fixtureActions.add("back")})
+                    MarkdownMessage("# Fixture answer\n\nA **clear** reply.\n\n- First fixture item\n- Second fixture item\n\n```text\nprintf fixture\n```\n\n[Read docs](https://example.invalid/docs)\n\nReferences: [First reference](https://example.invalid/first) and [Second reference](https://example.invalid/second).")
+                }
+                else if(page=="conversation" || page=="elicitation")ConversationFixture(page=="elicitation")
                 else if(page=="logs")ConnectionLogsScreen(listOf(
                     ConnectionDiagnostic(1000,"Info","Fixture connection opened"),
                     ConnectionDiagnostic(2000,"Warning","Fixture reconnect waiting"),
@@ -119,6 +134,14 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
         SessionScreen(live,StoredSession("fixture-host",info.id,WireJson.encodeToString(SessionInfo.serializer(),info),draft="Owned conversation draft"),
             onBack={},onPrompt={_,_->error("No fixture prompt")},onCancel={},onPermission={_,_->error("No fixture permission")},onConfigure={_,_->error("No fixture configuration")},onDraft={},
             onAddAttachment={_,_->error("No fixture attachments")},onRemoveAttachment={},onElicitation={_,action,_->fixtureActions.add("elicitation:$action")})
+        SideEffect { fixtureLive = live }
+    }
+    @Composable private fun ModelCatalogFixture() {
+        val models=remember {buildJsonObject {
+            put("currentModelId"," model-0 ")
+            putJsonArray("availableModels") {repeat(700) {index->add(buildJsonObject {put("modelId"," model-$index ");put("name","Model $index")})}}
+        }}
+        SessionOptionsScreen(SessionInfo("fixture","fixture-agent","fixture-acp","/fixture"),SessionState(models=models),true,{fixtureActions.add("back")},{_,params->fixtureActions.add("model:${params["modelId"].text()}")})
     }
     private fun shellPermission()=Permission(JsonPrimitive("native-fixture"),buildJsonObject {
         putJsonObject("_meta") {put("acpdSource","host-shell-command")}

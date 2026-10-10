@@ -280,6 +280,29 @@ async fn main() -> anyhow::Result<()> {
                     }
                 });
             }
+            #[cfg(windows)]
+            "_mock/escape_job" => {
+                use std::os::windows::process::CommandExt;
+                let attempted = std::process::Command::new(std::env::current_exe()?)
+                    .arg("--leaf")
+                    .creation_flags(
+                        windows_sys::Win32::System::Threading::CREATE_BREAKAWAY_FROM_JOB,
+                    )
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+                let result = match attempted {
+                    Err(error) => json!({"blocked":true,"osCode":error.raw_os_error()}),
+                    Ok(mut child) => {
+                        // Never leave an escaped fixture process alive even if the assertion fails.
+                        child.kill()?;
+                        child.wait()?;
+                        json!({"blocked":false})
+                    }
+                };
+                out.send(response(id, result)).await?;
+            }
             "_mock/spawn_descendant" => {
                 use std::io::BufRead;
                 let mut child = std::process::Command::new(std::env::current_exe()?)

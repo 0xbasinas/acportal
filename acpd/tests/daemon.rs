@@ -11,6 +11,178 @@ struct Fixture {
     text: String,
 }
 
+struct OwnedHost(std::process::Child);
+impl Drop for OwnedHost {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+impl Fixture {
+    fn foreground(&self) -> OwnedHost {
+        use std::process::Stdio;
+        let mut host = OwnedHost(
+            Command::new(env!("CARGO_BIN_EXE_acpd"))
+                .arg("--profile")
+                .arg(&self.profile)
+                .arg("start")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            assert!(
+                host.0.try_wait().unwrap().is_none(),
+                "owned host exited before readiness"
+            );
+            if self.path().exists() && self.run(&["daemon", "status"]).status.success() {
+                return host;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "owned host readiness timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+}
+
+/// Signals only a directly spawned, still-live child, never a PID from a saved record.
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_stops_active_agent_descendants_and_restores_interrupted_metadata() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.directory.path().join("agents.json"),
+        serde_json::to_vec(&json!([{"id":"mock","name":"Owned mock","command":env!("CARGO_BIN_EXE_mock-acp-agent"),"args":[],"enabled":true}])).unwrap(),
+    ).unwrap();
+    let mut host = fixture.foreground();
+    // On an assertion failure, ask the still-owned host to clean its sessions before
+    // OwnedHost's direct-child fallback. Never signal recorded descendant PIDs.
+    struct GracefulCleanup<'a>(&'a Fixture);
+    impl Drop for GracefulCleanup<'_> {
+        fn drop(&mut self) {
+            if self.0.path().exists() {
+                let _ = self.0.run(&["daemon", "stop"]);
+            }
+        }
+    }
+    let _cleanup = GracefulCleanup(&fixture);
+    let config = Config::load(&fixture.config).unwrap();
+    let security = SecurityStore::open(&config.state_directory).unwrap();
+    let paired = security
+        .redeem(
+            &security.new_pairing_code().unwrap(),
+            "Owned SIGTERM fixture",
+            3600,
+        )
+        .unwrap();
+    let base = format!("http://{}", config.server.listen);
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{base}/v1/sessions"))
+        .bearer_auth(&paired.token)
+        .json(&json!({"agentId":"mock","workspace":fixture.directory.path()}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let session: serde_json::Value = response.json().await.unwrap();
+    let id = session["id"].as_str().unwrap();
+    let mut socket = connect(
+        &format!(
+            "{}/v1/sessions/{id}/connect?after=0",
+            base.replace("http:", "ws:")
+        ),
+        &paired.token,
+    )
+    .await;
+    receive(&mut socket, |v| v["type"] == "replay_complete").await;
+    socket.send(Message::Text(json!({"jsonrpc":"2.0","id":"owned-descendants","method":"_mock/spawn_descendant","params":{}}).to_string().into())).await.unwrap();
+    let descendants = receive(&mut socket, |v| {
+        v["message"]["id"] == "owned-descendants" && v["message"]["result"].is_object()
+    })
+    .await;
+    let pids: Vec<u32> = ["childPid", "grandchildPid"]
+        .into_iter()
+        .map(|key| descendants["message"]["result"][key].as_u64().unwrap() as u32)
+        .collect();
+    fn running(pid: u32) -> bool {
+        let output = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let status = String::from_utf8_lossy(&output.stdout);
+        !status.trim().is_empty() && !status.trim_start().starts_with('Z')
+    }
+    assert!(pids.iter().all(|pid| running(*pid)));
+    assert!(host.0.try_wait().unwrap().is_none());
+    assert_eq!(
+        unsafe { libc::kill(i32::try_from(host.0.id()).unwrap(), libc::SIGTERM) },
+        0
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if let Some(status) = host.0.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        while pids.iter().any(|pid| running(*pid)) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("SIGTERM must clean both active descendant generations");
+    assert!(!fixture.path().exists());
+    drop(socket);
+    fixture.start();
+    let metadata: serde_json::Value = reqwest::Client::new()
+        .get(format!("{base}/v1/sessions/{id}"))
+        .bearer_auth(&paired.token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(metadata["status"], "interrupted");
+    assert!(fixture.run(&["daemon", "stop"]).status.success());
+}
+
+#[cfg(unix)]
+#[test]
+fn foreground_sigterm_releases_control_record_and_listener() {
+    let fixture = Fixture::new();
+    let mut host = fixture.foreground();
+    let pid = i32::try_from(host.0.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if let Some(status) = host.0.try_wait().unwrap() {
+            assert!(status.success(), "SIGTERM bypassed graceful shutdown");
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "owned host did not stop"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        !fixture.path().exists(),
+        "graceful shutdown left a control record"
+    );
+    fixture.start();
+    assert!(fixture.run(&["daemon", "stop"]).status.success());
+}
+
 #[test]
 fn wrong_token_oversized_requests_and_stale_pid_cannot_stop_an_unrelated_process() {
     use std::io::{Read, Write};
@@ -62,6 +234,113 @@ fn wrong_token_oversized_requests_and_stale_pid_cannot_stop_an_unrelated_process
     assert!(!fixture.run(&["daemon", "stop"]).status.success());
     // This runner is still alive; stale PID records are never used to terminate it.
     fixture.start();
+    assert!(fixture.run(&["daemon", "stop"]).status.success());
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn abrupt_host_exit_stops_both_descendant_generations_and_preserves_credentials() {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::{
+        Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+    };
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.directory.path().join("agents.json"),
+        serde_json::to_vec(&json!([{"id":"mock","name":"Owned mock","command":env!("CARGO_BIN_EXE_mock-acp-agent"),"args":[],"enabled":true}])).unwrap(),
+    ).unwrap();
+    let mut host = fixture.foreground();
+    let config = Config::load(&fixture.config).unwrap();
+    let security = SecurityStore::open(&config.state_directory).unwrap();
+    let paired = security
+        .redeem(
+            &security.new_pairing_code().unwrap(),
+            "Owned abrupt fixture",
+            3600,
+        )
+        .unwrap();
+    let base = format!("http://{}", config.server.listen);
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{base}/v1/sessions"))
+        .bearer_auth(&paired.token)
+        .json(&json!({"agentId":"mock","workspace":fixture.directory.path()}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let session: serde_json::Value = response.json().await.unwrap();
+    let id = session["id"].as_str().unwrap();
+    let mut socket = connect(
+        &format!(
+            "{}/v1/sessions/{id}/connect?after=0",
+            base.replace("http:", "ws:")
+        ),
+        &paired.token,
+    )
+    .await;
+    receive(&mut socket, |v| v["type"] == "replay_complete").await;
+    socket
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":"owned-breakaway","method":"_mock/escape_job","params":{}})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let breakaway = receive(&mut socket, |v| {
+        v["message"]["id"] == "owned-breakaway" && v["message"]["result"].is_object()
+    })
+    .await;
+    assert_eq!(breakaway["message"]["result"]["blocked"], true);
+    assert_eq!(breakaway["message"]["result"]["osCode"], 5);
+    socket.send(Message::Text(json!({"jsonrpc":"2.0","id":"owned-descendants","method":"_mock/spawn_descendant","params":{}}).to_string().into())).await.unwrap();
+    let descendants = receive(&mut socket, |v| {
+        v["message"]["id"] == "owned-descendants" && v["message"]["result"].is_object()
+    })
+    .await;
+    let handles: Vec<OwnedHandle> = ["childPid", "grandchildPid"]
+        .into_iter()
+        .map(|key| {
+            let pid = descendants["message"]["result"][key].as_u64().unwrap() as u32;
+            let raw = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+            assert!(!raw.is_null(), "owned descendant must exist");
+            let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+            assert_eq!(
+                unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) },
+                WAIT_TIMEOUT
+            );
+            handle
+        })
+        .collect();
+    host.0.kill().unwrap();
+    host.0.wait().unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while handles
+            .iter()
+            .any(|h| unsafe { WaitForSingleObject(h.as_raw_handle(), 0) } != WAIT_OBJECT_0)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("kill-on-close job must stop both generations after abrupt host exit");
+    drop(socket);
+    fixture.start();
+    // The previous client's keep-alive pool belongs to the forcibly terminated host.
+    let restored = reqwest::Client::new()
+        .get(format!("{base}/v1/sessions/{id}"))
+        .bearer_auth(&paired.token)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        restored.status().is_success(),
+        "restart lost the credential or session record"
+    );
+    let metadata: serde_json::Value = restored.json().await.unwrap();
+    assert_eq!(metadata["status"], "interrupted");
     assert!(fixture.run(&["daemon", "stop"]).status.success());
 }
 impl Fixture {

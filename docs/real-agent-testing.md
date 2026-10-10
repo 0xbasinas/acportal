@@ -1,5 +1,7 @@
 # Real-agent testing through ACPortal
 
+10 October 2026: installed Goose 1.53.0 through the running router passes real pending permission and form elicitation reload/Android process-death recovery. The form requires one explicitly human-authorized matching fixture tool approval. `verify-real-reload.py --elicitation --authorize-elicitation-once PATH --adb ADB` is restricted to that authorization and consumes an exclusive marker before sending; the flag itself is not authorization. Exact fixture-qualified title and empty arguments are required. No restored prompt or decision is automatically sent. The pending form is explicitly cancelled after recovery, so Android form submission and remaining real-agent warning/badge screens stay open. See [the continuation report](acceptance-continuation.md).
+
 This note is how to drive a real ACP agent through `acpd` the way the phone does,
 and what has already been verified. It is not a claim of production readiness.
 
@@ -351,6 +353,8 @@ The agent permission options offered were `allow_once`, `allow_always` and `reje
 For repeatable protocol coverage without a model or provider key, `acpd/tests/testy.rs` drives the official ACP test agent (testy, rust-sdk v3.2.0) through the host. It covers echo, cancellation, every stable session update, tool calls, mode/config/auth pass-through, permission approve/deny, fs read/write, terminal create/output/wait/kill/release, form elicitation (forwarded only when the phone opts in, otherwise refused cleanly), phone-supplied stdio and HTTP MCP servers (`mcp-echo-server`, `tools/mcp-http-echo`) and doctor against testy as a custom registry entry. See [testy](testy.md).
 
 ## See also
+
+10 October continuation: installed Goose 1.53.0 through the running user router passes exact pending-approval replay across host reload and real Android process death. The isolated workflow checks cached draft before networking, same task/distinct process, authoritative decisions, two-session navigation and host journal counts proving no automatic prompts/decisions. The fixture explicitly cancels after recovery and verifies no file write. This found and fixed historical replay clearing an unsent draft. It does not complete Android elicitation/own-tools/write-notice/shell-badge acceptance. See [exact continuation evidence](acceptance-continuation.md).
 
 - [Adding agents and Goose setup](agents.md)
 - [Installation and doctor](installation.md)

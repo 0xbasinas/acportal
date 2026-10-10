@@ -158,8 +158,13 @@ class PortalRepository(
                     } else if(live.info.acpSessionId.isBlank() && (envelope["type"].text()=="replay_complete" || message["result"]!=null))refreshMetadata(live)
                     if(envelope["direction"].text()=="client" && message["method"].text()=="session/prompt") {
                         val sent=live.submittedAttachments
-                        if(sent?.first==message["id"].text()) {live.attachments.compareAndSet(sent.second,emptyList());live.submittedAttachments=null}
-                        dao.saveDraft(hostId,id,"")
+                        // A replayed prompt from an earlier controller/process is not
+                        // an acknowledgement of this device's current unsent draft.
+                        if(sent?.first==message["id"].text()) {
+                            live.attachments.compareAndSet(sent.second,emptyList())
+                            live.submittedAttachments=null
+                            dao.saveDraft(hostId,id,"")
+                        }
                     }
                     if (envelope["type"].text()=="reconnect_required") live.transportActions.withLock {
                         if(!live.manuallyDetached) {transport.disconnect();transport.connect()}

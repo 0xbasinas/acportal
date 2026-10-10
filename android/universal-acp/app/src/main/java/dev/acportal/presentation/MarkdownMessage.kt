@@ -3,6 +3,7 @@ package dev.acportal.presentation
 import android.content.Intent
 import androidx.core.net.toUri
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -11,6 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
@@ -97,7 +102,7 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
 @Composable private fun MarkdownBlocks(nodes:List<Node>,onLink:(String)->Unit) {
     nodes.forEach {node->when(node) {
         is Heading->Text(markdownInline(node,onLink),Modifier.semantics {heading()},style=when(node.level) {1->MaterialTheme.typography.headlineSmall;2->MaterialTheme.typography.titleLarge;else->MaterialTheme.typography.titleMedium})
-        is MarkdownParagraph->Text(markdownInline(node,onLink),style=MaterialTheme.typography.bodyLarge)
+        is MarkdownParagraph->MarkdownParagraphText(node,onLink)
         is FencedCodeBlock->MarkdownCode(node.literal,node.info)
         is IndentedCodeBlock->MarkdownCode(node.literal,"")
         is BlockQuote->Surface(color=MaterialTheme.colorScheme.surfaceContainer,shape=MaterialTheme.shapes.small) {Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {MarkdownBlocks(node.children(),onLink)}}
@@ -114,6 +119,26 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
         }
         else->MarkdownBlocks(node.children(),onLink)
     }}
+}
+
+@Composable private fun MarkdownParagraphText(node:MarkdownParagraph,onLink:(String)->Unit) {
+    val text=markdownInline(node,onLink)
+    val links=text.getLinkAnnotations(0,text.length)
+    val actions=links.mapNotNull {range->
+        val url=(range.item as? LinkAnnotation.Clickable)?.tag ?: return@mapNotNull null
+        CustomAccessibilityAction("Review link: ${text.subSequence(range.start,range.end)}") {onLink(url);true}
+    }
+    var modifier=if(links.isEmpty())Modifier else Modifier.semantics(mergeDescendants=true) {
+        contentDescription=text.text
+        customActions=actions
+    }
+    // Give a standalone link an ordinary focusable action. Inline links remain
+    // individually reviewable through the paragraph's native accessibility actions.
+    links.singleOrNull()?.takeIf {it.start==0 && it.end==text.length}?.let {range->
+        val url=(range.item as? LinkAnnotation.Clickable)?.tag
+        if(url!=null)modifier=modifier.clickable(onClickLabel="Review link",role=Role.Button) {onLink(url)}
+    }
+    Text(text,modifier,style=MaterialTheme.typography.bodyLarge)
 }
 
 @Composable private fun MarkdownCode(code:String,language:String) {

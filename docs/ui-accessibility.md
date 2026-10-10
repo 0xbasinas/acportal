@@ -1,5 +1,9 @@
 # UI and accessibility verification
 
+10 October latest: standalone and individual inline Markdown link review/Cancel pass native TalkBack in dark/light at font 1.0 and actual 2.0. Linked paragraphs expose full text plus named per-link actions; standalone links expose a button. Confirmation remains mandatory and the visible layout remains Penpot boards 30–31. Three ordinary Markdown cases and six Session details regressions pass separately. Initial link traversal failures and the fixture notification-dismissal correction are recorded in [acceptance continuation](acceptance-continuation.md). Broader rich-content and provider-backed TalkBack stay open.
+
+Current status, 10 October 2026: draft PR #13 has scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.
+
 Current status, 9 October 2026 after PR #10 review. [TODO.md](../TODO.md) contains active work; [Android acceptance](android-acceptance.md) records recovery/new-screen/memory evidence. PR #9 is merged; PR #10 is merged on main at `6ec49de`, after review at `d4ba9f2`. Historical increments below retain their original evidence and limitations; newer scoped results supersede earlier unverified statements only for the tested cases.
 
 ## Completed scoped acceptance
