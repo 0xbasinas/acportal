@@ -86,3 +86,7 @@ adb shell am instrument -w -r -e allocationSites true -e class dev.acportal.data
 ```
 
 Read `cache/allocation-profile/open.tsv`, `closed.tsv` and `summary-count.txt` through `run-as`. They contain symbols, classes and counts only. The test owns an in-memory database, private fixture vault/settings and local mock sockets, deletes its two sessions, and removes its private storage. A fresh instrumentation process is required for each attachment; never attach a second profiler to a running test process. Remove only this owned profile directory after retaining the class-only reports. Rebuild ordinary APK outputs without the acceptance property before distributing the debug APK.
+
+## CI at 4d5d888
+
+Manual [Android Actions 38137773010](https://github.com/0xbasinas/acportal/actions/runs/38137773010) on `codex/final-acceptance` (4d5d888, the large-font empty-history fix) passes JVM tests, debug builds and lint. The draft-PR runs were skipped by policy. No device or real-agent evidence is added by this run.
