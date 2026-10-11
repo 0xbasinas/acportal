@@ -35,7 +35,7 @@ class CredentialVault(context: Context) {
         return alias
     }
     @Synchronized fun read(alias: String): String {
-        require(runCatching { UUID.fromString(alias) }.isSuccess)
+        require(runCatching { UUID.fromString(alias) }.isSuccess) { "Stored credential is invalid" }
         val bytes = AtomicFile(File(directory,alias)).readFully()
         require(bytes.isNotEmpty() && bytes[0].toInt() == 12 && bytes.size > 29) { "Stored credential is invalid" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
@@ -43,5 +43,5 @@ class CredentialVault(context: Context) {
         }
         return cipher.doFinal(bytes.copyOfRange(13,bytes.size)).toString(Charsets.UTF_8)
     }
-    fun remove(alias: String) { require(runCatching { UUID.fromString(alias) }.isSuccess); AtomicFile(File(directory,alias)).delete() }
+    fun remove(alias: String) { require(runCatching { UUID.fromString(alias) }.isSuccess) { "Stored credential is invalid" }; AtomicFile(File(directory,alias)).delete() }
 }

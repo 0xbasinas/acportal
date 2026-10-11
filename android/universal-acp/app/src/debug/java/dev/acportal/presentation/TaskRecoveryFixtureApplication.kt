@@ -22,6 +22,12 @@ class TaskRecoveryFixtureApplication:PortalApplication() {
         productionRepository=repository
         val root=File(cacheDir,"task-recovery-fixture")
         if(!File(root,"main-enabled").exists())return
+        activateOwnedMainFixture()
+    }
+    /** Instrumentation-only activation before launching MainActivity; never changes normal storage. */
+    fun activateOwnedMainFixture() {
+        val root=File(cacheDir,"task-recovery-fixture")
+        check(fixtureStore==null && File(root,"enabled").exists() && File(root,"main-enabled").exists())
         val store=TaskRecoveryFixtureStore(this)
         fixtureStore=store;repository=store.repository
         val callbacks=object:Application.ActivityLifecycleCallbacks {

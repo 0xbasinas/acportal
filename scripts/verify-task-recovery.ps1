@@ -3,7 +3,7 @@ param(
     [string]$Serial='emulator-5554',
     [switch]$Prepared,
     [switch]$MainActivity,
-    [ValidateSet('Mcp','OfflineConversation','LiveConversation')][string]$Scenario='Mcp',
+    [ValidateSet('Mcp','OfflineConversation','LiveConversation','SettingsCache','PromptHistory','FolderBrowser')][string]$Scenario='Mcp',
     [int]$FixturePort=0,
     [ValidateSet('None','count','bytes')][string]$Overflow='None'
 )
@@ -65,8 +65,17 @@ function Scroll-TaskControl([string]$Text='',[string]$Description='', [switch]$E
     if($taskDimensions -notmatch 'Physical size: (\d+)x(\d+)') {throw 'Verify emulator dimensions'}
     $taskMiddle=[int]([int]$matches[1]/2);$taskTop=[int]([int]$matches[2]*0.40);$taskBottom=[int]([int]$matches[2]*0.65)
     for($taskScroll=0;$taskScroll -lt 16;$taskScroll++) {
-        $taskNode=Find-TaskNode (Read-TaskUi) $Text $Description
+        $taskScrollUi=Read-TaskUi
+        $taskNode=Find-TaskNode $taskScrollUi $Text $Description
         if($taskNode) {return $taskNode}
+        # Saved history has a recovery banner above its list. Keep gestures
+        # inside the actual scrollable viewport, not on that fixed banner.
+        $taskViewport=@($taskScrollUi.SelectNodes('//node') | Where-Object {$_.GetAttribute('scrollable') -eq 'true'}) | Select-Object -First 1
+        if($taskViewport -and $taskViewport.GetAttribute('bounds') -match '^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$') {
+            $taskMiddle=[int](([int]$matches[1]+[int]$matches[3])/2)
+            $taskHeight=[int]$matches[4]-[int]$matches[2]
+            $taskTop=[int]([int]$matches[2]+$taskHeight*0.25);$taskBottom=[int]([int]$matches[2]+$taskHeight*0.75)
+        }
         $taskFrom=if($Earlier){$taskTop}else{$taskBottom};$taskTo=if($Earlier){$taskBottom}else{$taskTop}
         $null=Invoke-TaskAdb @('shell','input','swipe',"$taskMiddle","$taskFrom","$taskMiddle","$taskTo",'400')
     }
@@ -83,7 +92,7 @@ function Assert-NoRecoveryMutations {if((Read-RecoveryHost).mutations -ne 0) {th
 
 # Install the current app/test APKs before invoking this workflow. No instrumentation
 # runs between launching the owned fixture and checking restored task navigation.
-if($Scenario -eq 'LiveConversation') {
+if($Scenario -in @('LiveConversation','PromptHistory','FolderBrowser')) {
     if($FixturePort -lt 1024 -or $FixturePort -gt 65535) {throw 'Supply owned recovery-host.py port'}
     $taskHost=Read-RecoveryHost
     if($taskHost.mutations -ne 0 -or $taskHost.connections.'live-1' -ne 0 -or $taskHost.connections.'live-2' -ne 0) {throw 'Use a fresh owned recovery host'}
@@ -115,12 +124,40 @@ try {
         $taskAnchorBounds=$taskAnchor.GetAttribute('bounds')
         Assert-NoRecoveryMutations
         Set-RecoveryGate 'hold'
+    } elseif($Scenario -eq 'PromptHistory') {
+        Tap-TaskNode -Text 'Live 2 prompt'
+        $null=Wait-TaskNode -Text 'Original live-2 approval'
+        $null=Invoke-TaskAdb @('shell','input','keyevent','4')
+        Tap-TaskNode -Description 'Add context'
+        Tap-TaskNode -Text 'Prompt history'
+        $null=Wait-TaskNode -Text 'Live 2 prompt'
+        Assert-NoRecoveryMutations
+        Set-RecoveryGate 'hold'
+    } elseif($Scenario -eq 'FolderBrowser') {
+        Tap-TaskNode -Text 'Task workstation'
+        Tap-TaskNode -Text 'New session'
+        Tap-TaskNode -Text 'Browse folders'
+        Tap-TaskNode -Description 'Browse Fixture root'
+        $null=Wait-TaskNode -Text 'Could not open this folder'
+        $taskBrowseBefore=(Read-RecoveryHost).browseReads
+        Assert-NoRecoveryMutations
     } elseif($Scenario -eq 'OfflineConversation') {
         Tap-TaskNode -Text 'Offline 1 prompt'
         Tap-TaskNode -Text 'View saved conversation'
         $null=Wait-TaskNode -Text 'Offline 1 retained answer'
         $taskUi=Read-TaskUi
         if($taskUi.OuterXml -match 'Do not approve stale request|Stale offline approval') {throw 'Offline copy exposes stale permission controls'}
+        Tap-TaskNode -Description 'Expand tool: Offline retained tool 1'
+        $null=Wait-TaskNode -Text 'Offline tool output 1'
+        $null=Scroll-TaskControl -Description 'Show agent thoughts'
+        Tap-TaskNode -Description 'Show agent thoughts'
+        $null=Scroll-TaskControl -Text 'Offline retained thought 1'
+        $taskAnchorText=('Offline 1 history 18. '+('Retained fixture history. '*8)).TrimEnd()
+        $taskAnchor=Scroll-TaskControl -Text $taskAnchorText -Earlier
+        $taskAnchorBounds=$taskAnchor.GetAttribute('bounds')
+    } elseif($Scenario -eq 'SettingsCache') {
+        Tap-TaskNode -Text 'History on this device'
+        $null=Wait-TaskNode -Text 'Save messages'
     } else {
     Tap-TaskNode -Description 'Settings tab'
     Tap-TaskNode -Text 'MCP servers'
@@ -174,7 +211,20 @@ try {
         Assert-NoRecoveryMutations
         Set-RecoveryGate 'release'
         $null=Wait-TaskNode -Text 'Fresh authoritative request'
-    } elseif($Scenario -eq 'OfflineConversation') {$null=Wait-TaskNode -Text 'Offline 1 retained answer'}
+    } elseif($Scenario -eq 'PromptHistory') {
+        $null=Wait-TaskNode -Text 'Prompt history'
+        $null=Wait-TaskNode -Text 'Live 2 prompt'
+        Assert-NoRecoveryMutations
+        Set-RecoveryGate 'metadata'
+        Set-RecoveryGate 'release'
+        $null=Wait-TaskNode -Text 'Prompt history'
+    } elseif($Scenario -eq 'FolderBrowser') {
+        $null=Wait-TaskNode -Text 'Could not open this folder'
+        $null=Wait-TaskNode -Text '/fixture/root'
+        if((Read-RecoveryHost).browseReads -le $taskBrowseBefore) {throw 'Restored folder was not freshly validated'}
+        Assert-NoRecoveryMutations
+    } elseif($Scenario -eq 'OfflineConversation') {$null=Wait-TaskNode -Text $taskAnchorText}
+    elseif($Scenario -eq 'SettingsCache') {$null=Wait-TaskNode -Text 'Save messages'}
     else {$null=Wait-TaskNode -Text 'Task saved server'}
     $taskRestored=Read-TaskProperties 'created.properties'
     if ($taskRestored.pid -eq $taskPrevious.pid -or $taskRestored.task -ne $taskPrevious.task -or $taskRestored.savedState -ne 'true') {throw 'Previous task/framework state was not restored in a distinct process'}
@@ -210,8 +260,31 @@ try {
         }
         Start-Sleep -Milliseconds 750
         Write-Output "Verified task $($taskRestored.task), distinct process, held active-turn replay, replaced/removed approvals, explicit scoped decision, two live sessions, exact scroll anchor and offscreen tool/thought expansions; overflow=$Overflow."
+    } elseif($Scenario -eq 'PromptHistory') {
+        $null=Invoke-TaskAdb @('shell','input','keyevent','4')
+        $null=Wait-TaskNode -Text 'Live 2 retained draft'
+        if((Read-TaskUi).OuterXml -match 'Original live-2 approval') {$null=Invoke-TaskAdb @('shell','input','keyevent','4')}
+        Assert-NoRecoveryMutations
+        Tap-TaskNode -Description 'Back'
+        $null=Wait-TaskNode -Description 'Sessions tab'
+        Write-Output "Verified task $($taskRestored.task), distinct process, restored prompt-history sheet before network replay, retained draft, zero mutations and Back to Sessions."
+    } elseif($Scenario -eq 'FolderBrowser') {
+        $taskReads=(Read-RecoveryHost).browseReads
+        Tap-TaskNode -Text 'Retry'
+        $null=Wait-TaskNode -Text 'Could not open this folder'
+        if((Read-RecoveryHost).browseReads -ne $taskReads+1) {throw 'Folder Retry did not issue exactly one read'}
+        Tap-TaskNode -Text 'Close'
+        $null=Wait-TaskNode -Text 'Start session'
+        Tap-TaskNode -Description 'Back'
+        $null=Wait-TaskNode -Text 'New session'
+        Assert-NoRecoveryMutations
+        Write-Output "Verified task $($taskRestored.task), distinct process, restored folder/path/error, fresh capability read, explicit Retry and Back to connection; zero mutations."
     } elseif($Scenario -eq 'OfflineConversation') {
         if($taskRestoredUi.OuterXml -match 'Do not approve stale request|Stale offline approval') {throw 'Restored offline copy exposes stale approvals'}
+        $taskRestoredAnchor=Wait-TaskNode -Text $taskAnchorText
+        if($taskRestoredAnchor.GetAttribute('bounds') -ne $taskAnchorBounds) {throw 'Offline scroll anchor moved during process restoration'}
+        $null=Scroll-TaskControl -Text 'Offline tool output 1'
+        $null=Scroll-TaskControl -Text 'Offline retained thought 1'
         Tap-TaskNode -Description 'Back'
         $null=Wait-TaskNode -Text 'View saved conversation'
         Tap-TaskNode -Description 'Back'
@@ -223,7 +296,12 @@ try {
         Tap-TaskNode -Description 'Back'
         $null=Wait-TaskNode -Text 'Offline 1 prompt'
         $null=Wait-TaskNode -Text 'Offline 2 prompt'
-        Write-Output "Verified task $($taskRestored.task), distinct PID, restored offline history, guarded stale approvals and two-session Back navigation."
+        Write-Output "Verified task $($taskRestored.task), distinct PID, restored offline history, exact scroll bounds, retained offscreen tool/thought expansions, guarded stale approvals and two-session Back navigation."
+    } elseif($Scenario -eq 'SettingsCache') {
+        Tap-TaskNode -Text 'Done'
+        $null=Wait-TaskNode -Text 'History on this device'
+        $null=Wait-TaskNode -Text 'Appearance'
+        Write-Output "Verified task $($taskRestored.task), distinct process, restored message-cache dialog and Back to Settings; no preference mutation."
     } else {
     if ($taskRestoredUi.OuterXml -match 'unsaved-task-value|Server name') {throw 'Unsaved editor draft was restored'}
     Tap-TaskNode -Description 'Back'
@@ -239,5 +317,5 @@ try {
     Run-TaskTest 'verifyRecordedTaskRestorationAndCleanOwnedStorage'
 } finally {
     $null=Invoke-TaskAdb @('shell','rm','-f',$taskXmlPath)
-    if($Scenario -eq 'LiveConversation') {$null=Invoke-TaskAdb @('reverse','--remove',"tcp:$FixturePort")}
+    if($Scenario -in @('LiveConversation','PromptHistory','FolderBrowser')) {$null=Invoke-TaskAdb @('reverse','--remove',"tcp:$FixturePort")}
 }

@@ -27,11 +27,12 @@ class Fixture:
         self.mutations = 0
         self.decisions = []
         self.handlers = {}
+        self.browse_reads = 0
 
     def snapshot(self):
         with self.lock:
             return dict(connections=dict(self.connections), mutations=self.mutations,
-                        decisions=list(self.decisions), held=not self.release.is_set())
+                        decisions=list(self.decisions), held=not self.release.is_set(),browseReads=self.browse_reads)
 
 
 def info(session):
@@ -122,8 +123,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({}, 503)
                 return
             self.reply(info(path.split("/")[-1]))
-        elif path in ("/v1/agents", "/v1/workspaces"):
-            self.reply([])
+        elif path == "/v1/agents":
+            self.reply([dict(id="fixture-agent",name="Fixture agent",installed=True,status="available")])
+        elif path == "/v1/workspaces":
+            self.reply([dict(path="/fixture/root",name="Fixture root")])
+        elif path == "/v1/workspaces/browse":
+            with self.server.fixture.lock:
+                self.server.fixture.browse_reads += 1
+            self.reply(dict(error="Fixture folder unavailable"),503)
         else:
             self.reply({}, 404)
 

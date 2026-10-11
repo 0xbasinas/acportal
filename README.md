@@ -1,5 +1,14 @@
 # ACP Portal
 
+11 October saved empty-history accessibility fix: the recovery message and explanation share a scrolling body, with the header and draft composer preserved. Native actual MainActivity checks pass both themes at normal and 2× font. Penpot boards 32–35 record the design. See [current evidence](docs/final-acceptance.md#native-page-state-traversal); broader acceptance remains in [TODO](TODO.md).
+
+11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](docs/final-acceptance.md) for consumed authorizations and precise limits.
+
+11 October 2026 continuation on `codex/final-acceptance`, from merged PR #15 main `8f4741b`: actual folder-error, message-cache settings and prompt-history process-death checks pass. Populated older-APK approval replay and installed-Goose Android form Submit also pass to their isolated scopes. See [current evidence](docs/final-acceptance.md) and [TODO](TODO.md) for the finite remaining gates. Older dated checkpoints below are historical.
+
+Offline-history process death and allocation-site/retained-object profiling also pass their recorded scopes. The remaining acceptance areas are real-agent write/shell outcomes, native accessibility/page states, predictive motion and macOS real-agent abrupt cleanup. Physical-phone and signed-release checks remain user-owned/suspended.
+
+
 11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
 
 The latest increment verifies real Goose pending form recovery across reload and Android process death, plus native TalkBack review/Cancel for standalone and individual inline Markdown links in both themes at normal/double font. [Acceptance continuation](docs/acceptance-continuation.md) records exact source/run evidence and remaining limits. PR #13 is merged on main at `e6a3460`.

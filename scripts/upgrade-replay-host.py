@@ -7,9 +7,11 @@ host id, session id and a one-use phone pairing code. Keeps running until Ctrl-C
 stops the host it started and removes its scratch directory.
 
 The pairing code is printed to this terminal only; do not redirect output to a log.
-Uses only the Python standard library.
+The base runner uses the Python standard library. The opt-in --populated check
+also requires websockets and sends one isolated mock prompt, never a decision.
 """
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -20,6 +22,37 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+
+async def populated_session(base, token, session, observe=False):
+    """Use the actual host journal; never answer a permission or retry a prompt."""
+    import websockets
+    async with websockets.connect(base.replace("http", "ws", 1) + "/v1/sessions/" + session["id"] + "/connect",
+                                  subprotocols=["acpd.v1"], additional_headers={"Authorization": "Bearer " + token}) as ws:
+        events = []
+        pending = None
+        while True:
+            envelope = json.loads(await asyncio.wait_for(ws.recv(), 30))
+            if envelope.get("type") == "event":
+                events.append(envelope)
+            if envelope.get("type") == "pending_permission":
+                pending = envelope["message"]["id"]
+            if envelope.get("type") == "replay_complete":
+                break
+        if observe:
+            prompts = [e for e in events if e.get("direction") == "client" and e["message"].get("method") == "session/prompt"]
+            decisions = [e for e in events if e.get("direction") == "client" and
+                         e["message"].get("method") is None and ("result" in e["message"] or "error" in e["message"])]
+            if len(prompts) != 1 or decisions or pending is None:
+                raise RuntimeError("Populated upgrade replay sent a prompt/decision or lost its approval")
+            return pending
+        await ws.send(json.dumps({"jsonrpc": "2.0", "id": "upgrade-fixture-original", "method": "session/prompt", "params": {
+            "sessionId": session["acpSessionId"], "prompt": [{"type": "text", "text": "Upgrade fixture original prompt"}]}}))
+        while True:
+            envelope = json.loads(await asyncio.wait_for(ws.recv(), 30))
+            message = envelope.get("message", {})
+            if message.get("method") == "session/request_permission":
+                return message["id"]
 
 
 def http(base, method, path, body=None, token=None):
@@ -51,6 +84,7 @@ def main():
     parser.add_argument("--current-apk")
     parser.add_argument("--test-apk")
     parser.add_argument("--serial", default="emulator-5554")
+    parser.add_argument("--populated", action="store_true", help="Replay a mock conversation with a pending approval; requires websockets")
     args = parser.parse_args()
     if args.adb and not all((args.old_apk,args.current_apk,args.test_apk)):
         parser.error("Android mode requires old, current and test APKs")
@@ -87,6 +121,7 @@ def main():
         token = http(base, "POST", "/v1/pair", {"code": pairing_code(acpd, config), "deviceName": "upgrade-replay-script"})["token"]
         status = http(base, "GET", "/v1/status", token=token)
         session = http(base, "POST", "/v1/sessions", {"agentId": "mock", "workspace": workspace}, token=token)
+        permission = asyncio.run(populated_session(base, token, session)) if args.populated else None
         values = {"replayHostId": status["hostId"], "replaySessionId": session["id"], "replayAddress": base}
         if args.adb:
             def adb(*arguments):
@@ -109,13 +144,18 @@ def main():
             try:
                 adb("install","-r","-d",str(os.path.abspath(args.old_apk)))
                 adb("install","-r",str(os.path.abspath(args.test_apk)))
+                populated_arguments = ["-e", "replayPermissionId", str(permission)] if permission is not None else []
                 instrument("UpgradeReplayPreparationTest","prepare","-e","replayHostId",values["replayHostId"],
-                    "-e","replaySessionId",values["replaySessionId"],"-e","replayAddress",base)
+                    "-e","replaySessionId",values["replaySessionId"],"-e","replayAddress",base,*populated_arguments)
                 prepared=True
                 adb("install","-r",str(os.path.abspath(args.current_apk)))
                 # Generate only after both installations; it expires after 60 seconds.
                 code=pairing_code(acpd,config)
                 instrument("UpgradeReplayVerificationTest","verify","-e","replayCode",code)
+                if permission is not None:
+                    if asyncio.run(populated_session(base, token, session, observe=True)) != permission:
+                        raise RuntimeError("Authoritative upgrade approval identity changed")
+                    print("PASS populated journal: one original prompt, unchanged approval, zero decisions", flush=True)
             finally:
                 try:
                     if prepared:

@@ -1,6 +1,6 @@
 # Remaining work
 
-Reconciled 11 October 2026 for PR #15 against merged PR #14 main `5283b55`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [PR #15 review](docs/pr15-review.md) records actual emulator results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
+Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `codex/final-acceptance`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [the current continuation](docs/final-acceptance.md) and [PR #15 review](docs/pr15-review.md) record actual results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
 
 Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
 
@@ -10,12 +10,9 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 
 ## Android acceptance still open
 
-- [ ] Allocation-site and retained-object profiling during Sessions refresh/streaming and after closing sessions. JVM load regressions and isolated ART/heap/700-model counters pass; counters do not identify retained object paths. See [runbook §2](docs/emulator-runbook.md).
-- [ ] External same-task process-death recovery for folder browsing/error routes, message-cache settings, offline history and prompt history; broader scroll/expanded-state restoration. Four composable restoration checks pass, but do not prove external process death. See [runbook §3](docs/emulator-runbook.md).
-- [ ] Native TalkBack and actual large-font traversal of remaining loading/empty/offline/error pages, Connection logs return focus, broader scroll/focus restoration, rich-content/thought lifecycle, codecs and document providers. The 24 synthetic page-state cases and four native Markdown TalkBack runs pass to their stated scopes. See [runbook §4](docs/emulator-runbook.md).
-- [ ] Real-agent Android own-tools/write warnings, shell approval/review badge outcomes, and form submission/lifecycle. Host-side batch 7 and earlier pending-form recovery evidence remain valid; the new opt-in Android fixture was not run in this review. Each new paid call or decision needs its own human authorization. See [runbook §6](docs/emulator-runbook.md).
-- [ ] Old-build upgrade with a populated live conversation/authoritative approval replay. The actual `cf8fa26` in-place offline upgrade and authenticated empty mock-session replay pass, preserving the draft and cleaning only owned rows. Populated replay remains a broader check, not a failure of those passing phases. See [runbook §7](docs/emulator-runbook.md).
-- [ ] Predictive Back gesture progress/cancellation, sheet/dialog/keyboard animation and physical-phone streaming frame behavior. Three Back/input fixtures pass; debug-emulator streaming p95 remains about 36 ms. See [runbook §8](docs/emulator-runbook.md).
+- [ ] Still open: Back-focus on a connected live conversation and at font 2.0 (pairing, connection chooser, new-session form, Settings children and saved-conversation sub-pages now measured); focus returning to the opener (no supported Compose API found; bespoke handoff untried); third-party document providers and native system-picker automation; audio/video codecs beyond the WAV fixture; physical-device media (user-owned). Done: deterministic Back focus, MediaStore provider and PNG/JPEG/WebP decode, Markdown link dialog lifecycle. See [evidence](docs/final-acceptance.md) and [sub-page Back focus](docs/final-acceptance.md#back-focus-on-conversation-sub-pages-11-october-2026).
+- [ ] Real-agent Android write notices and shell approval/review badge outcomes; any broader form lifecycle beyond the verified fixture. Installed Goose/router form Submit, exact fresh-file write with separate agent/host consent, own-tools warning and retained drafts now pass. All recorded form/write approvals are consumed and must not be reused; read-only shell scope remains authorized and unused. The optional preexisting-file notice mode is unrun and requires a fresh approval. See [current continuation](docs/final-acceptance.md) and [runbook §6](docs/emulator-runbook.md).
+- [ ] (needs hand gestures or a physical phone) Predictive Back gesture progress/cancellation, sheet/dialog/keyboard animation and physical-phone streaming frame behavior. Three Back/input fixtures pass; debug-emulator streaming p95 remains about 36 ms. See [runbook §8](docs/emulator-runbook.md).
 
 ## Ongoing contributor requirements
 

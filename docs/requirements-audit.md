@@ -1,5 +1,12 @@
 # Original request audit
 
+11 October saved empty-history acceptance: Penpot boards 32–35 and the production shared scrolling body resolve the actual MainActivity 2× TalkBack failure. Four native cases, six saved-history/restoration regressions, 65 app JVM tests, debug builds and lint pass. Other acceptance gates remain in [TODO](../TODO.md); this does not establish complete accessibility or physical-phone acceptance. See [current evidence](final-acceptance.md#native-page-state-traversal).
+
+11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](final-acceptance.md) for consumed authorizations and precise limits.
+
+11 October 2026: [final acceptance continuation](final-acceptance.md) adds actual folder/settings/prompt-history process-death, populated older-APK approval replay and real Goose Android form submission evidence. Remaining scopes are in [TODO](../TODO.md). Earlier entries retain their original limits.
+
+
 11 October 2026 PR #15 review: [executed emulator evidence](pr15-review.md) records 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling checks and three actual older-APK upgrade phases. Recovery-state restoration is scoped separately from process death; empty-session replay is scoped separately from populated real-agent replay. [TODO](../TODO.md) lists the current remaining gates. Prior dated evidence below is historical.
 
 10 October latest increment: real Goose pending form elicitation recovery and Markdown native link review/Cancel have scoped passing evidence. Platform Actions at `16e7cbc` pass all eight selected jobs; later Android changes require their own run. [Continuation evidence](acceptance-continuation.md) and [TODO](../TODO.md) distinguish completed pending-request recovery from remaining submission, warning/badge, route, profiling and motion gates.

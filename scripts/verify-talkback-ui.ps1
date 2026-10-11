@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference='Stop'
 if($Serial -notmatch '^emulator-(\d+)$') {throw 'This fixture runner requires an Android emulator.'}
 $consolePort=[int]$Matches[1]
-if($TestClass -notmatch '^dev\.acportal\.presentation\.TalkBackShellUiTest(?:#[A-Za-z]+)?$') {throw 'Only the owned TalkBack fixture is supported.'}
+if($TestClass -notmatch '^dev\.acportal\.presentation\.TalkBack(?:Shell|MainActivity)UiTest(?:#[A-Za-z]+)?$') {throw 'Only the owned TalkBack fixtures are supported.'}
 if((& $Adb -s $Serial get-state).Trim() -ne 'device') {throw 'Emulator must be online.'}
 $size=(& $Adb -s $Serial shell wm size) -join "`n"
 if($size -notmatch 'Physical size: (\d+)x(\d+)' -or $size -match 'Override size:') {throw 'Verify native emulator dimensions before this fixture.'}
@@ -54,7 +54,12 @@ try {
         Write-Output $line
         if($line -eq 'INSTRUMENTATION_STATUS: acportalGesture=swipeRight') {
             $top=(& $Adb -s $Serial shell dumpsys activity activities | Select-String 'topResumedActivity') -join ' '
-            if($top -notmatch 'dev\.acportal/\.presentation\.UiAccessibilityFixtureActivity') {throw 'Hardware input requires the owned fixture in the foreground.'}
+            if($TestClass -like '*TalkBackMainActivityUiTest*') {
+                & $Adb -s $Serial shell run-as dev.acportal test -f cache/task-recovery-fixture/main-enabled
+                $ownedMainMarker=$LASTEXITCODE -eq 0
+                if($top -notmatch 'dev\.acportal/\.MainActivity' -or
+                   -not $ownedMainMarker) {throw 'Hardware input requires owned MainActivity storage in the foreground.'}
+            } elseif($top -notmatch 'dev\.acportal/\.presentation\.UiAccessibilityFixtureActivity') {throw 'Hardware input requires the owned fixture in the foreground.'}
             $y=[int]($screenHeight*0.5)
             try {
                 for($step=0;$step -le 8;$step++) {

@@ -1,5 +1,12 @@
 # Screen acceptance checkpoint
 
+11 October saved empty-history follow-up: actual MainActivity reproduces the original 2× clipping failure. The shared scrolling recovery/empty-state body now passes four native TalkBack cases across dark/light and normal/actual 2× font. Penpot boards 32–35 contain the design; drafts and production records are preserved. Broader page-state acceptance remains open. See [current evidence](final-acceptance.md#native-page-state-traversal).
+
+11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](final-acceptance.md) for consumed authorizations and precise limits.
+
+11 October 2026: [final acceptance continuation](final-acceptance.md) adds actual folder/settings/prompt-history process-death, populated older-APK approval replay and real Goose Android form submission evidence. Remaining scopes are in [TODO](../TODO.md). Earlier entries retain their original limits.
+
+
 11 October 2026 PR #15 review: [executed emulator evidence](pr15-review.md) records 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling checks and three actual older-APK upgrade phases. Recovery-state restoration is scoped separately from process death; empty-session replay is scoped separately from populated real-agent replay. [TODO](../TODO.md) lists the current remaining gates. Prior dated evidence below is historical.
 
 10 October latest increment: real Goose pending form elicitation survives reload and actual Android process death with authoritative replay and zero automatic submissions. Native TalkBack link review/Cancel passes standalone and individual inline Markdown links in both themes at normal/actual-2.0 font. Visible UI matches existing Penpot boards 30–31. See [continuation evidence](acceptance-continuation.md); this does not close form submission or every provider-backed screen.

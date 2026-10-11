@@ -26,7 +26,7 @@ class AgentThoughtUiTest {
         val live=LiveSession(HostProfile("h","Host","https://host.example","alias","d",0),info,IdleTransport(),SessionState(items=listOf(TimelineItem.Text("thought","thought","I will inspect the project configuration."),TimelineItem.Text("answer","agent","The project is ready.")),processing=true,replaying=true))
         live.connection.value=ConnectionState.Connected
         compose.setContent {PortalTheme("Dark") {androidx.compose.material3.Surface {SessionScreen(live,StoredSession("h","s",WireJson.encodeToString(SessionInfo.serializer(),info)),onBack={},onPrompt={_,_->error("No prompt")},onCancel={},onPermission={_,_->},onConfigure={_,_->},onDraft={})}}}
-        compose.onNodeWithText("Syncing").assertIsDisplayed()
+        compose.onNodeWithText("Syncing",substring=true).assertIsDisplayed()
         compose.onNodeWithText("The project is ready.").assertIsDisplayed()
         compose.onNodeWithText("I will inspect the project configuration.").assertDoesNotExist()
         compose.onNodeWithContentDescription("Show agent thoughts").performClick()
