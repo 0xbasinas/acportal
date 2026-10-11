@@ -38,8 +38,23 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "file=acportal-debug-${GITHUB_RUN_NUMBER}-${short}.apk" >> "$GITHUB_OUTPUT"
+      # One shared debug key (repo secrets DEBUG_KEYSTORE_BASE64 / DEBUG_KEYSTORE_PASSWORD) lets a new
+      # build install over the previous one. Without the secrets the runner's throwaway key is used.
+      - name: Restore shared debug key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+            echo "args=-PacportalDebugKeystore=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::DEBUG_KEYSTORE_BASE64 is not set; this APK uses a throwaway debug key and cannot update an installed build."
+          fi
       - name: Build debug APK
-        run: ./gradlew --stacktrace -PapkVersionCode=${{ steps.version.outputs.code }} "-PapkVersionName=${{ steps.version.outputs.name }}" :app:assembleDebug
+        env:
+          ACPORTAL_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+        run: ./gradlew --stacktrace ${{ steps.key.outputs.args }} -PapkVersionCode=${{ steps.version.outputs.code }} "-PapkVersionName=${{ steps.version.outputs.name }}" :app:assembleDebug
       - name: Name the APK
         run: cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.file }}"
       - name: Publish the `debug` pre-release
