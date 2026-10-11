@@ -179,7 +179,8 @@ import kotlinx.coroutines.*
             if(offlineCopy) {savedRecovery();EmptyState("No messages saved","Connect to view this conversation. Message caching can be changed in Settings.")}
             else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.")
         }
-        else LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        else Box(Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(state=list,modifier=Modifier.fillMaxSize().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             items(state.items,key={it.id},contentType={it::class}) { item -> when(item) {
                 is TimelineItem.Text->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,style=MaterialTheme.typography.bodyMedium)}}} else MessageCard(item,info.agentId)
                 is TimelineItem.Content->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {ReceivedContentView(item.content)}} else Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text(if(item.role=="user")"You" else info.agentId,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);ReceivedContentView(item.content)}
@@ -187,6 +188,9 @@ import kotlinx.coroutines.*
                 is TimelineItem.Plan->OutlinedCard { Column(Modifier.padding(16.dp)) { Text("Plan",style=MaterialTheme.typography.titleSmall);item.entries.forEach { entry->val value=entry.objectValue();Text("${if(value["status"].text()=="completed") "✓" else "•"} ${value["content"].text()}",Modifier.padding(top=8.dp)) } } }
                 is TimelineItem.Notice->Text(item.text,color=if(item.error)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             } }
+        }
+        // Reading earlier text stops follow-latest; this brings the reader back to the newest text.
+        if(!followLatest && list.canScrollForward)SmallFloatingActionButton({followLatest=true},Modifier.align(Alignment.BottomEnd).padding(16.dp).testTag("jump-to-latest"),containerColor=MaterialTheme.colorScheme.surfaceContainerHigh,contentColor=MaterialTheme.colorScheme.onSurface) {Icon(Icons.Outlined.ArrowDownward,"Jump to latest message")}
         }
         if(pendingPermission!=null && !showPermission)TextButton({showPermission=true},Modifier.align(Alignment.CenterHorizontally)) {Text(if(pendingPermission.isElicitation)"Answer the agent's question" else "Review permission")}
         Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceContainer,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {Column(Modifier.padding(4.dp)) {
