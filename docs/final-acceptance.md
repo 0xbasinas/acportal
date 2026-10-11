@@ -4,6 +4,8 @@
 
 Published as draft [PR #16](https://github.com/0xbasinas/acportal/pull/16). The draft PR event skips the Android job by design. The full [manual Android Actions run](https://github.com/0xbasinas/acportal/actions/runs/38133735509) completed successfully at implementation head `afd99d6`. That result predates the write/page-state fixture increment below. Rust production sources are unchanged and were not locally rerun.
 
+The later full [Android Actions run 38135646596](https://github.com/0xbasinas/acportal/actions/runs/38135646596) also passes at `b135c9f`, including JVM tests, ordinary debug APK, instrumented-test APK and lint. This compiles the new native fixtures; Actions does not execute their emulator tests. Subsequent documentation changes do not alter the tested sources.
+
 ## Recovery and upgrade
 
 Actual external MainActivity process-death checks pass for:
@@ -43,7 +45,7 @@ This closes the exact fresh-file write path and own-tools warning for this fixtu
 
 Two normal-font native TalkBack instrumentations pass dark and light themes, four production page scenarios each: host loading then unavailable with explicit Refresh, empty Sessions, empty Connections, and offline history without cached messages with explicit Connect. Hardware swipes traverse native accessibility focus; callbacks remain absent until the requested explicit click. The fixtures use memory-only state and non-exported debug UI, without production storage writes or new visible designs.
 
-Actual font 2.0 exposes a failure in the offline scenario: the saved-conversation banner, Connect action and composer are traversable, but `No messages saved` is missing from TalkBack traversal. Loading/unavailable and the two empty-list scenarios precede that failure successfully in dark mode. The light 2.0 run was not started after this known failure. Do not claim the four-run matrix passed. Font restores to 1.0, accessibility services to null, accessibility/touch exploration to 0, verified externally. The broader accessibility gate remains open, now including this concrete defect.
+Actual font 2.0 exposes a failure in the offline scenario: the saved-conversation banner, Connect action and composer are traversable, but `No messages saved` is missing from TalkBack traversal. Loading/unavailable and the two empty-list scenarios precede that failure successfully in dark mode. The light 2.0 run was not started after this known failure. Do not claim the four-run matrix passed. Font restores to 1.0, accessibility services to null, accessibility/touch exploration to 0, verified externally. This is a production composable in the debug accessibility Activity, not yet an actual MainActivity reproduction. MainActivity uses edge-to-edge setup; inspect its owned-fixture viewport and native scroll actions before attributing the failure to production layout or changing it. The broader accessibility gate remains open.
 
 The user enabled Penpot, but tool discovery still exposes no Penpot tools, Document Control reports no connected sessions, and the browser inventory has no open design tab. A visible layout fix must be represented in Penpot before acceptance, as requested. No production layout change was made in this increment.
 
