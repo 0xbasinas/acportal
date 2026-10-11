@@ -237,6 +237,105 @@ fn wrong_token_oversized_requests_and_stale_pid_cannot_stop_an_unrelated_process
     assert!(fixture.run(&["daemon", "stop"]).status.success());
 }
 
+/// Unix has no kill-on-close job: after SIGKILL the agent tree outlives the host (the agent
+/// itself exits when its pipes close; its descendants keep running). The next
+/// host start with the same state directory stops it from its process-group records,
+/// including a descendant that left the agent's process group. Only the directly spawned
+/// host is signalled by the test.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_abrupt_host_kill_is_cleaned_up_by_the_next_start() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.directory.path().join("agents.json"),
+        serde_json::to_vec(&json!([{"id":"mock","name":"Owned mock","command":env!("CARGO_BIN_EXE_mock-acp-agent"),"args":[],"enabled":true}])).unwrap(),
+    ).unwrap();
+    let mut host = fixture.foreground();
+    let config = Config::load(&fixture.config).unwrap();
+    let security = SecurityStore::open(&config.state_directory).unwrap();
+    let paired = security
+        .redeem(
+            &security.new_pairing_code().unwrap(),
+            "Owned abrupt Unix fixture",
+            3600,
+        )
+        .unwrap();
+    let base = format!("http://{}", config.server.listen);
+    let response = reqwest::Client::new()
+        .post(format!("{base}/v1/sessions"))
+        .bearer_auth(&paired.token)
+        .json(&json!({"agentId":"mock","workspace":fixture.directory.path()}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let session: serde_json::Value = response.json().await.unwrap();
+    let id = session["id"].as_str().unwrap();
+    let mut socket = connect(
+        &format!(
+            "{}/v1/sessions/{id}/connect?after=0",
+            base.replace("http:", "ws:")
+        ),
+        &paired.token,
+    )
+    .await;
+    receive(&mut socket, |v| v["type"] == "replay_complete").await;
+    socket.send(Message::Text(json!({"jsonrpc":"2.0","id":"owned-descendants","method":"_mock/spawn_descendant","params":{}}).to_string().into())).await.unwrap();
+    let descendants = receive(&mut socket, |v| {
+        v["message"]["id"] == "owned-descendants" && v["message"]["result"].is_object()
+    })
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":"owned-escape","method":"_mock/escape_group","params":{}})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let escaped = receive(&mut socket, |v| {
+        v["message"]["id"] == "owned-escape" && v["message"]["result"].is_object()
+    })
+    .await;
+    let mut pids: Vec<u32> = ["childPid", "grandchildPid"]
+        .into_iter()
+        .map(|key| descendants["message"]["result"][key].as_u64().unwrap() as u32)
+        .collect();
+    pids.push(escaped["message"]["result"]["pid"].as_u64().unwrap() as u32);
+    fn running(pid: u32) -> bool {
+        let output = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let status = String::from_utf8_lossy(&output.stdout);
+        !status.trim().is_empty() && !status.trim_start().starts_with('Z')
+    }
+    assert!(pids.iter().all(|pid| running(*pid)));
+    let records =
+        std::fs::read_to_string(config.state_directory.join("process-groups.json")).unwrap();
+    assert!(
+        records.contains("ownerStart"),
+        "the launched agent group must be recorded"
+    );
+    host.0.kill().unwrap();
+    host.0.wait().unwrap();
+    drop(socket);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        pids.iter().all(|pid| running(*pid)),
+        "without a job object the descendants outlive an abrupt host kill"
+    );
+    fixture.start();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while pids.iter().any(|pid| running(*pid)) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the next start must stop the recorded agent tree, including the escaped group");
+    assert!(fixture.run(&["daemon", "stop"]).status.success());
+}
+
 #[cfg(windows)]
 #[tokio::test]
 async fn abrupt_host_exit_stops_both_descendant_generations_and_preserves_credentials() {

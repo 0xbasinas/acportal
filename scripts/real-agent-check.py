@@ -617,4 +617,9 @@ if __name__ == "__main__":
         sys.exit(0)
     if not options.config or not options.workspace:
         parser.error("--config and --workspace are required")
+    # Every step sends real prompts to the agent's model provider. Each run needs the
+    # user's explicit go-ahead, given by setting this variable for that one command.
+    if os.environ.get("ACPD_REAL_AGENT_OK") != "1":
+        raise SystemExit("Refusing to run: real-agent checks make paid model calls. "
+                         "Re-run with ACPD_REAL_AGENT_OK=1 only after the user approves this run.")
     asyncio.run(main(options))

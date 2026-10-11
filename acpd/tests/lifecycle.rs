@@ -413,6 +413,34 @@ async fn unix_descendants_stop_on_session_removal_agent_crash_and_request_timeou
     manager.shutdown().await;
 }
 
+#[tokio::test]
+#[cfg(unix)]
+async fn unix_descendant_that_leaves_the_agent_group_stops_with_the_session() {
+    let workspace = tempfile::tempdir().unwrap();
+    let manager = manager(workspace.path(), &[], 8);
+    let session = manager
+        .create("test-agent", workspace.path())
+        .await
+        .unwrap();
+    let escaped = session
+        .connection
+        .request("_mock/escape_group", json!({}))
+        .await
+        .unwrap();
+    let pid = escaped["pid"].as_u64().unwrap() as u32;
+    let agent_group = running_process_group(pid).expect("escaped child must run");
+    assert_eq!(agent_group as u32, pid, "the child must lead its own group");
+    manager.remove(session.metadata().id).await.unwrap();
+    timeout(Duration::from_secs(5), async {
+        while running_process_group(pid).is_some() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("a descendant in another process group must still stop");
+    manager.shutdown().await;
+}
+
 /// Other Unix systems (macOS): the same view through `ps`, which reports a zombie as `Z`.
 #[cfg(all(unix, not(target_os = "linux")))]
 fn running_process_group(pid: u32) -> Option<i32> {
