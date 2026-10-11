@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img">
+  <title>ACP Portal logo, green</title>
+  <rect width="512" height="512" rx="112" fill="#72D5B0"/>
+  <circle cx="256" cy="256" r="152" fill="none" stroke="#0A0A0A" stroke-width="36"/>
+  <path d="M222 188L296 256L222 324" fill="none" stroke="#0A0A0A" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
