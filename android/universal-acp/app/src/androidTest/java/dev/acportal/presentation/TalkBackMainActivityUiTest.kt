@@ -115,6 +115,21 @@ class TalkBackMainActivityUiTest {
                 reported("InterruptedBack")
                 assertEquals("Back must not start a session or change the draft","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
                 assertTrue(store.repository.liveActivities.value.isEmpty())
+                // Settings routes on the production stack: open each row, press Back, report where focus lands.
+                waitFor("Settings tab") {nodes(automation).any {it.isClickable && label(it).contains("Settings")}}
+                assertTrue(nodes(automation).first {it.isClickable && label(it).contains("Settings")}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Settings page") {nodes(automation).any {it.isHeading && label(it)=="Settings"}}
+                for(row in listOf("Connections","MCP servers","Workspace access","Agents")) {
+                    waitFor("$row row") {nodes(automation).any {it.isClickable && label(it).startsWith(row)}}
+                    // The bottom-navigation tab shares the "Connections" label; the Settings row is the match highest on screen.
+                    assertTrue(nodes(automation).filter {it.isClickable && label(it).startsWith(row)}.minBy {Rect().also(it::getBoundsInScreen).top}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("$row opened") {nodes(automation).none {it.isHeading && label(it)=="Settings"}}
+                    assertTrue(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                    waitFor("Settings restored after $row") {nodes(automation).any {it.isHeading && label(it)=="Settings"}}
+                    reported("Settings${row.filter {it.isLetter()}}Back")
+                }
+                assertEquals("Settings routes start no session or draft change","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
+                assertTrue(store.repository.liveActivities.value.isEmpty())
             }
         } finally {
             try {

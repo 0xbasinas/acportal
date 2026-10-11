@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
@@ -39,7 +40,7 @@ import dev.acportal.storage.*
 import kotlinx.serialization.json.*
 
 @Composable fun ScreenHeader(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,action:(@Composable ()->Unit)?=null,status:String?=null) {
-    Row(Modifier.fillMaxWidth().padding(start=if(onBack==null)24.dp else 12.dp,end=16.dp,top=20.dp,bottom=24.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.semantics {paneTitle=title}.fillMaxWidth().padding(start=if(onBack==null)24.dp else 12.dp,end=16.dp,top=20.dp,bottom=24.dp),verticalAlignment=Alignment.CenterVertically) {
         onBack?.let { IconButton(onClick=it) { Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back",Modifier.size(22.dp)) };Spacer(Modifier.width(4.dp)) }
         Column(Modifier.weight(1f)) {
             Text(title,Modifier.semantics {heading()},style=MaterialTheme.typography.headlineSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
