@@ -741,6 +741,7 @@ async fn shell_review_rules_auto_allow_deny_and_ask() {
         ShellReviewConfig {
             rules: true,
             model: None,
+            inert_env: None,
         },
     );
     let session = reviewed
@@ -902,6 +903,7 @@ async fn shell_review_model_layer_allow_deny_malformed_and_timeout() {
             max_requests_per_minute: 30,
             max_command_bytes: 2048,
         }),
+        inert_env: None,
     };
     let manager = manager_with_review(workspace.path(), &[], review);
     let session = manager

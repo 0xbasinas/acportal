@@ -137,6 +137,18 @@ impl PreparedTerminal {
         &self.cwd
     }
     /// Agent-supplied values can change executable resolution and loader behavior.
+    /// Agent-supplied environment overrides as (name, value). For review decisions
+    /// only; values can contain credentials and are never logged or shown.
+    pub fn environment(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.request
+            .env
+            .iter()
+            .map(|variable| (variable.name.as_str(), variable.value.as_str()))
+    }
+    /// The ACP session id of the request, already checked against this session.
+    pub fn session_id(&self) -> &str {
+        &self.request.session_id
+    }
     pub fn has_environment_overrides(&self) -> bool {
         !self.request.env.is_empty()
     }
