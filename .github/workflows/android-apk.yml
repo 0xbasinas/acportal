@@ -1,0 +1,29 @@
+name: Build APK
+# Manual only: builds the debug APK and uploads it as a downloadable artifact.
+# Debug build, no signing secrets. Actions tab -> "Build APK" -> Run workflow.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: android/universal-acp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build debug APK
+        run: ./gradlew --stacktrace :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acportal-debug-apk
+          path: android/universal-acp/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+          if-no-files-found: error
