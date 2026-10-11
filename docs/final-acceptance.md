@@ -103,3 +103,5 @@ New `TalkBackShellUiTest` cases on emulator-5554 (API 36, 720×1280, font 1.0), 
 - `*TalkBackScrollFocusSurvivesRecreation`: TalkBack scrolls a 40-row page to row 24, the Activity is recreated, and the same row is still visible with the earlier rows scrolled away. After recreation no accessibility focus is held (reported as empty); swipe navigation still works and causes no action. Scroll offset survives, focus does not, and that is recorded rather than asserted as restored.
 
 Limits: font 1.0 only; fixture pages (`logs-return`, `scroll`) rather than the production navigation stack; no speech audibility. Settings and the TalkBack notification state were restored by the runner. Debug fixture only; absent from release.
+
+Repeated at actual system font 2.0 (set externally, restored to 1.0 and verified): all four cases pass in dark and light with the same results. Return focus lands on "View connection logs"; after recreation the scroll position survives and no accessibility focus is held. Same fixture-page limits as above.
