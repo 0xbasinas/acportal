@@ -1,5 +1,11 @@
 package dev.acportal.presentation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
@@ -64,7 +70,7 @@ import kotlinx.serialization.Serializable
                 Spacer(Modifier.height(24.dp))
                 navItems.forEach { (key,icon)->NavigationRailItem(selected=selected==key,onClick={if(stack.lastOrNull()!=key) {stack.clear();stack.add(key)}},icon={Icon(icon,contentDescription=null)},label={Text(label(key))}) }
             }
-            Scaffold(modifier=Modifier.weight(1f),bottomBar={ if(!wide && showNavigation) Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=32.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
+            Scaffold(modifier=Modifier.weight(1f),bottomBar={ AnimatedVisibility(!wide && showNavigation,enter=expandVertically(tween(PORTAL_PAGE_FADE_MS))+fadeIn(tween(PORTAL_PAGE_FADE_MS)),exit=shrinkVertically(tween(PORTAL_PAGE_FADE_MS))+fadeOut(tween(PORTAL_PAGE_FADE_MS))) { Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=32.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
                 Surface(shape=RoundedCornerShape(32.dp),color=MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.widthIn(max=360.dp)) {
                     Row(Modifier.padding(7.dp),horizontalArrangement=Arrangement.spacedBy(2.dp)) {
                         navItems.forEach { (key,_)->Surface(shape=RoundedCornerShape(24.dp),color=if(selected==key)MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).semantics {contentDescription="${label(key)} tab"}.selectable(selected==key,role=Role.Tab) {if(stack.lastOrNull()!=key) {stack.clear();stack.add(key)}}) {
@@ -72,11 +78,12 @@ import kotlinx.serialization.Serializable
                         } }
                     }
                 }
-            } }) { padding ->
+            } } }) { padding ->
                 Column(Modifier.padding(padding).fillMaxSize()) {
-                    if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     ui.error?.let { error -> ConnectionError(error,onDismiss=vm::clearError,onRetry=ui.errorRetry) }
-                    NavDisplay(backStack=stack,onBack=back,modifier=Modifier.weight(1f),
+                    // The progress bar overlays the page: inserting it above would push the page down mid-transition.
+                    Box(Modifier.weight(1f)) {
+                    NavDisplay(backStack=stack,onBack=back,modifier=Modifier.fillMaxSize(),
                         sizeTransform=null,
                         transitionSpec={portalPageTransition()},
                         popTransitionSpec={portalPageTransition()},
@@ -184,6 +191,8 @@ import kotlinx.serialization.Serializable
                         }
                         entry<SettingsRoute> { SettingsScreen(settings,onTheme=vm::theme,onCache=vm::cache,onConnections={stack.add(HostsRoute)},onMcp={stack.add(McpRoute())},onAccess={stack.add(WorkspaceAccessRoute())},onAgents={stack.add(AgentRoute())}) }
                     })
+                    if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                    }
                 }
             }
         }
