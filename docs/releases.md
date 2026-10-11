@@ -33,7 +33,7 @@ or Actions > **Release** > Run workflow with a tag such as `v0.1.0`. Tags must s
 
 ## Using it
 
-1. Download the file for your system and put it somewhere on your PATH (rename it to `acpd` / `acpd.exe` if you like). On Linux run `chmod +x acpd-linux-x86_64` first.
+1. Easiest: download only `acpd-tray-windows-x86_64.exe` (or the Linux one), run it, and choose **Download host (acpd)…** in its menu. It installs the host in your user folder for you. Or download the host yourself (and keep it next to the tray under its release name, no renaming needed) or put it on your PATH as `acpd`. On Linux run `chmod +x` on downloaded files first.
 2. `acpd setup --address https://YOUR-HOST` creates the settings in your user folders (see [native setup](native-cli-and-motion.md)).
 3. `acpd start --bg`, then `acpd pair`.
 
