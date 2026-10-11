@@ -320,6 +320,17 @@ mod review_boundary_tests {
             {"name":"CI","value":"true"}]);
         for reviewer in &reviewers {
             for env in [&goose, &common] {
+                // Inert overrides are reviewed exactly like no overrides, on every OS.
+                for line in ["ls -la", "echo x > NOTE.txt"] {
+                    assert_eq!(
+                        decision(reviewer, line, env),
+                        decision(reviewer, line, &json!([]))
+                    );
+                }
+            }
+            // Windows rules never auto-allow (cmd.exe lines are not parsed).
+            #[cfg(unix)]
+            for env in [&goose, &common] {
                 assert_eq!(
                     decision(reviewer, "ls -la", env).0,
                     Decision::Allow,
