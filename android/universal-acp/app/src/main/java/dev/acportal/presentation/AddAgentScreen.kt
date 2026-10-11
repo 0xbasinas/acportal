@@ -1,6 +1,8 @@
 package dev.acportal.presentation
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -54,6 +56,11 @@ internal fun parseEnvironment(text:String):Pair<Map<String,String>,String?> {
     val id=agentIdFromName(name)
     val ready=name.isNotBlank() && id.isNotEmpty() && command.isNotBlank() && badEnvironment==null
     fun changed() {check=null;error=null}
+    fun use(suggestion:AgentSuggestion) {
+        name=suggestion.name;command=suggestion.command;args=suggestion.args.joinToString("\n")
+        environment=suggestion.env.entries.joinToString("\n") {"${it.key}=${it.value}"};ownTools=suggestion.ownTools
+        changed()
+    }
     fun run(block:suspend ()->Unit,busy:(Boolean)->Unit) {
         busy(true);error=null
         scope.launch {
@@ -67,6 +74,11 @@ internal fun parseEnvironment(text:String):Pair<Map<String,String>,String?> {
         ScreenHeader("Add agent",hostLabel,onBack)
         Column(Modifier.weight(1f).testTag("add-agent-body").verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Text("Register the command-line agent you want to use on $hostLabel. It runs on that computer, with that computer's files.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Popular agents",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyRow(Modifier.testTag("agent-suggestions"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                items(agentSuggestions,key={it.name}) {suggestion->AssistChip({use(suggestion)},{Text(suggestion.name)},Modifier.testTag("suggest:${suggestion.name}"))}
+            }
+            Text("Choosing one only fills in the form below, following the ACP agent registry. Nothing is installed or saved: install the program on that computer, then check it.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(name,{name=it.take(64);changed()},Modifier.fillMaxWidth().testTag("agent-name"),label={Text("Name")},placeholder={Text("Goose")},singleLine=true,keyboardOptions=KeyboardOptions(imeAction=ImeAction.Next),supportingText={if(id.isNotEmpty())Text("ID: $id")})
             OutlinedTextField(command,{command=it.take(1024);changed()},Modifier.fillMaxWidth().testTag("agent-command"),label={Text("Command")},placeholder={Text("goose")},singleLine=true,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false,imeAction=ImeAction.Next),supportingText={Text("A program name on that computer's PATH, or its full path.")})
             OutlinedTextField(args,{args=it.take(4096);error=null},Modifier.fillMaxWidth().testTag("agent-args"),label={Text("Arguments")},placeholder={Text("acp")},minLines=2,maxLines=6,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false),supportingText={Text("One argument per line. Most agents need one that starts ACP mode.")})
