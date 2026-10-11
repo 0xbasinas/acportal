@@ -105,3 +105,12 @@ New `TalkBackShellUiTest` cases on emulator-5554 (API 36, 720×1280, font 1.0), 
 Limits: font 1.0 only; fixture pages (`logs-return`, `scroll`) rather than the production navigation stack; no speech audibility. Settings and the TalkBack notification state were restored by the runner. Debug fixture only; absent from release.
 
 Repeated at actual system font 2.0 (set externally, restored to 1.0 and verified): all four cases pass in dark and light with the same results. Return focus lands on "View connection logs"; after recreation the scroll position survives and no accessibility focus is held. Same fixture-page limits as above.
+
+## Native TalkBack on the production back stack, 11 October 2026
+
+`TalkBackMainActivityUiTest#darkProductionBackStackFocus` and `#lightProductionBackStackFocus` (actual `MainActivity`, owned Room/settings/vault, emulator-5554 API 36, font 1.0, run through `scripts/verify-talkback-ui.ps1`) both pass. Path: Sessions → interrupted session → View saved conversation → global Back → interrupted route → global Back → Sessions. Native focus is reported after each Back, not assumed:
+
+- Back from the saved conversation: focus lands on the interrupted route's "Back" control.
+- Back from the interrupted route: focus lands on the "Sessions" heading, not the session row that opened it. TalkBack always has a focus target after Back, but returning to the opener is not implemented here (unlike Agents and Connection logs in the fixtures); this is recorded as behavior, not a defect fix.
+
+Draft stayed `Owned untouched draft`, no live session started, production data hash unchanged, accessibility settings restored. Font 1.0 only; actual 2× font, other routes and speech audibility remain open.

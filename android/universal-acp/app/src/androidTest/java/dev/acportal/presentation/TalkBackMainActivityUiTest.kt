@@ -28,6 +28,8 @@ import java.security.MessageDigest
 class TalkBackMainActivityUiTest {
     @Test fun darkOfflineEmptyState()=check("dark")
     @Test fun lightOfflineEmptyState()=check("light")
+    @Test fun darkProductionBackStackFocus()=check("dark",true)
+    @Test fun lightProductionBackStackFocus()=check("light",true)
 
     private fun snapshot(repository:PortalRepository)=runBlocking {
         val digest=MessageDigest.getInstance("SHA-256")
@@ -37,7 +39,7 @@ class TalkBackMainActivityUiTest {
         digest.digest().toList()
     }
 
-    private fun check(mode:String) {
+    private fun check(mode:String,focusReport:Boolean=false) {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val args=InstrumentationRegistry.getArguments()
         assumeTrue("Use the owned native TalkBack runner",args.getString("talkback")=="true" && args.getString("hardwareGestures")=="true")
@@ -101,6 +103,19 @@ class TalkBackMainActivityUiTest {
             // Back is explicit, requires no host mutation and returns to the interrupted route.
             assertTrue(nodes(automation).first {it.isClickable && label(it)=="Back"}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Interrupted route restored") {find(automation,"Session interrupted")!=null}
+            if(focusReport) {
+                // Production back stack: report where native focus lands after each Back; never assume a target.
+                fun reported(step:String) {
+                    waitFor("Focus after $step") {nodes(automation).any {it.isAccessibilityFocused}}
+                    instrumentation.sendStatus(2,android.os.Bundle().apply {putString("acportalFocusAfter$step",label(nodes(automation).first {it.isAccessibilityFocused}))})
+                }
+                reported("SavedBack")
+                assertTrue(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                waitFor("Sessions list restored") {nodes(automation).any {it.isClickable && label(it).contains("fixture-agent")}}
+                reported("InterruptedBack")
+                assertEquals("Back must not start a session or change the draft","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
+                assertTrue(store.repository.liveActivities.value.isEmpty())
+            }
         } finally {
             try {
                 try {scenario?.onActivity {it.finishAndRemoveTask()}}
