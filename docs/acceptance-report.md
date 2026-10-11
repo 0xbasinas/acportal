@@ -61,7 +61,7 @@ on the same commit passed its 3 PR jobs.
 | testy pinned agent | **Verified** (box) | `scripts/run-testy-isolated.sh`: 9 passed. In CI the testy job passed in the dispatch run and on main. |
 | Goose 1.53.0 + DeepSeek `deepseek-flash`, host side | **Verified** (box, Linux) | One run on 9 October 2026, 17:06–17:07 Athens, covering inspect, approve, deny, shell-line terminal, kill, reconnect, load, cancel mid-write, outside-workspace read and **form elicitation (accept and decline)**. Details are in [real-agent-testing.md](real-agent-testing.md#batch-6-run-9-october-2026-linux-1707-athens). |
 | Goose elicitation | **Verified** (host side) | Goose forwards an MCP server's `elicitation/create` to the ACP client as a form elicitation, but only when the client advertised `elicitation.form`. The answers (accept with content, and decline) reach the MCP server unchanged. |
-| Android screens with a real agent | **Not verified** | The checks above drive the host API only. |
+| Android screens with a real agent | **Partial** | Real Goose pending approval, form elicitation reload and Android process-death recovery pass (PR #13; [acceptance continuation](acceptance-continuation.md)). Own-tools warnings, write notices, badges and form submission remain open in [TODO.md](../TODO.md). |
 
 ## Android
 
