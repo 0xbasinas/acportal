@@ -1,5 +1,15 @@
 # Completed work and verification history
 
+## 11 October 2026 saved empty-history accessibility fix
+
+- Owned actual MainActivity reproduces the original 2× TalkBack failure with no native scrollable body. Corrected session-row/action locators precede that reproduction; initial locator failures are not acceptance evidence.
+- Penpot connection succeeds through the supplied MCP endpoint. Editable boards 32–35 show dark/light normal and large-text scrolled empty history. Existing boards remain unchanged; containment checks and corrected visual exports pass.
+- Production saved empty history shares its recovery card and explanation in one scrolling body. Header, composer, draft editing and explicit recovery remain available; populated-history layout is retained.
+- Four native MainActivity cases pass across two instrumentations, both themes at normal and actual font 2.0. Session actions, empty title and full explanation are traversed by hardware TalkBack gestures. Back returns to the interrupted route. Production data/preferences/MCP aliases and the unsent draft remain unchanged; no live session starts.
+- Six affected saved-session/route-restoration regressions pass. All 65 app JVM tests pass with zero failures/errors/skips; both ordinary debug APK builds and lint pass with 0 errors/18 existing warnings. Core and Rust are unchanged and were not rerun for this UI increment. Font/accessibility restoration is checked separately.
+- The refactored debug fixture also passes an external SettingsCache MainActivity process-death regression: task 2810, distinct restored process, restored message-cache dialog and Back to Settings, zero preference mutation. Both standalone preparation and storage/preservation cleanup pass.
+- The user requested pausing the broader goal after this increment. Remaining page states, shell/write-notice outcomes, motion and macOS real-agent cleanup stay in TODO. Physical-phone and signed-release checks retain their prior scope.
+
 ## 11 October 2026 write and native page-state increment
 
 - Installed Goose/router passes production Android exact-file write: one agent allow-once and one matching host-filesystem consent, exact `fixture` file bytes, displayed own-tools warning and preserved unsent draft. Guarded cleanup passes. Exclusive write-3 agent/host markers are consumed. Two preceding approvals failed completion and remain consumed; the canonical Windows path mismatch was corrected without reusing them.

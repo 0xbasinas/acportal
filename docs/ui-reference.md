@@ -1,5 +1,7 @@
 # UI reference
 
+11 October 2026: editable Penpot boards 32–35 in file `7eed092c-bad6-802e-8008-bea06e03019c`, Page 1, cover saved empty conversations in both themes and the large-text scrolled body. The header and composer stay fixed while the recovery card and empty-state explanation share the scrolling viewport. Existing boards 01–31 remain unchanged. Native actual MainActivity checks pass normal/2× font to this scope; see [evidence](final-acceptance.md#native-page-state-traversal).
+
 9 October 2026: [native CLI setup and motion](native-cli-and-motion.md) adds short host commands and 150/100 ms ordinary page fades with NavDisplay size interpolation disabled. Selected-tab taps retain the route. Predictive Back and sheet defaults are preserved; physical frame-time and broader motion acceptance remain open.
 
 The user's 16 PNG mockups in `C:/Users/<you>/Downloads/Page 1` are the visual reference for the Android app. They supersede the earlier teal Material styling. All 16 were inspected directly.

@@ -158,12 +158,16 @@ import kotlinx.coroutines.*
             }
         }},status=if(state.replaying)"$status · Restoring conversation" else status)
         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-        if(offlineCopy && !keyboardVisible)Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
+        val savedRecovery:@Composable ()->Unit={if(offlineCopy && !keyboardVisible)Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(if(info.status=="interrupted")"This conversation was saved before the host restarted. Open Session actions to resume or start again." else "Showing messages saved on this device. Connect to check the latest activity.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onReconnect,enabled=!checkingConnection) {Text(if(checkingConnection)"Checking connection…" else savedActionLabel)}
             }
-        } else if(!offlineCopy)SessionRecovery(state,connection,onDismissError,onReconnect,onSessions,onPairHost)
+        }}
+        // Empty saved history and its recovery card share the available viewport. At
+        // large font the card must scroll instead of consuming the entire body.
+        if(offlineCopy && state.items.isNotEmpty())savedRecovery()
+        else if(!offlineCopy)SessionRecovery(state,connection,onDismissError,onReconnect,onSessions,onPairHost)
         if(info.acpSessionId.isBlank() && !offlineCopy) {
             AuthenticationPanel(info,connected && !state.replaying,authenticating) { method->onConfigure("authenticate",buildJsonObject { put("methodId",method) }) }
         }
@@ -171,7 +175,10 @@ import kotlinx.coroutines.*
         if(info.ownTools && !offlineCopy)OwnToolsNotice(Modifier.padding(horizontal=16.dp,vertical=4.dp),compact=state.items.isNotEmpty())
         if(state.localHistoryCleared)Text("Earlier messages were removed from this device.",Modifier.padding(horizontal=20.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.historyGap)Text("Some earlier messages are unavailable in this conversation.",Modifier.padding(16.dp),style=MaterialTheme.typography.bodySmall)
-        if(state.items.isEmpty())Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { if(offlineCopy)EmptyState("No messages saved","Connect to view this conversation. Message caching can be changed in Settings.") else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.") }
+        if(state.items.isEmpty())Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+            if(offlineCopy) {savedRecovery();EmptyState("No messages saved","Connect to view this conversation. Message caching can be changed in Settings.")}
+            else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.")
+        }
         else LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             items(state.items,key={it.id}) { item -> when(item) {
                 is TimelineItem.Text->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,style=MaterialTheme.typography.bodyMedium)}}} else MessageCard(item,info.agentId)

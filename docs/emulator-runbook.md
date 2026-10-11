@@ -60,6 +60,8 @@ Expected: 4 tests pass — folder-browse error keeps Retry and choices; the "His
 
 Expected: 24 cases (6 pages × dark/light × font 1.0/2.0) pass; every actionable node has a spoken label. Then native TalkBack: enable TalkBack, set system font to 200%, and walk Sessions (empty/archived/search-empty), Connections (none), host loading → unavailable, the error banner, a saved conversation without messages and Connection logs with a failure. Expected: each heading and button is announced, Back returns focus to the row that opened the page. The existing `scripts/verify-talkback-ui.ps1` automates the TalkBack switch on Windows.
 
+Saved empty history can now be checked in actual MainActivity with `./scripts/verify-talkback-ui.ps1 -TestClass dev.acportal.presentation.TalkBackMainActivityUiTest`. Install both ordinary debug APKs first. The test requires no existing task-recovery fixture, creates owned Room/settings/vault storage, checks production preservation and cleans up before returning. The runner permits hardware input only while MainActivity and its owned marker are present. Repeat at actual system font 2.0 with the previous font restored in `finally`; the runner restores accessibility settings. Do not run this beside a task-recovery workflow. Four dark/light normal/2.0 cases pass as recorded in [the continuation](final-acceptance.md#native-page-state-traversal).
+
 ## §5 Session-creation races
 
 ```sh
