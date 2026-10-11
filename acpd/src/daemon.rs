@@ -255,10 +255,12 @@ pub async fn serve(
                         }
                         "reload" => {
                             let candidate = tokio::task::spawn_blocking(move || -> Result<_> {
-                                let config = Config::load(&config)?;
-                                let registry = Registry::load(
+                                let mut config = Config::load(&config)?;
+                                let mut registry = Registry::load(
                                     registry.as_deref().unwrap_or(&config.registry),
                                 )?;
+                                crate::userdata::UserData::load(&config.state_directory)?
+                                    .apply(&mut config, &mut registry);
                                 Ok((config, registry))
                             })
                             .await;

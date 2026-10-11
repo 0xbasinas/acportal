@@ -55,6 +55,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         }
     }
     fun pair(address:String,code:String,label:String,onDone:()->Unit) = work { repository.pair(address,code,label);repository.refreshHosts();onDone() }
+    fun folderClient(host:HostProfile)=repository.folderClient(host)
     fun cancelBrowse() {
         browseVersion++
         browseJob?.cancel();browseJob=null

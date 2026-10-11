@@ -40,6 +40,150 @@ async fn api_workspace_access_negotiates_and_returns_the_immutable_session_polic
 }
 
 #[tokio::test]
+async fn phone_adds_lists_and_removes_folders_and_they_survive_restart() {
+    let fixture = Fixture::start().await;
+    let extra = tempfile::tempdir().unwrap();
+    let project = extra.path().join("project");
+    std::fs::create_dir_all(project.join("inner")).unwrap();
+    std::fs::write(extra.path().join("not-a-folder.txt"), "x").unwrap();
+    let auth = |request: reqwest::RequestBuilder| request.bearer_auth(&fixture.token);
+    let create = |path: &std::path::Path| {
+        auth(fixture.client.post(format!("{}/v1/sessions", fixture.base)))
+            .json(&json!({"agentId":"mock","workspace":path}))
+    };
+    // Before adding, the folder is outside every root.
+    assert_eq!(
+        create(&project).send().await.unwrap().status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+    // Directory listing shows folders only, with a parent.
+    let listing: Value = auth(
+        fixture
+            .client
+            .get(format!("{}/v1/filesystem/directories", fixture.base)),
+    )
+    .query(&[("path", extra.path().to_str().unwrap())])
+    .send()
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let names: Vec<_> = listing["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["project"]);
+    assert!(listing["parent"].is_string());
+    // A file is not a folder; a missing path is rejected.
+    for bad in [
+        extra.path().join("not-a-folder.txt"),
+        extra.path().join("missing"),
+    ] {
+        let reply = auth(
+            fixture
+                .client
+                .post(format!("{}/v1/workspaces", fixture.base)),
+        )
+        .json(&json!({"path":bad}))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(reply.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+    let added = auth(
+        fixture
+            .client
+            .post(format!("{}/v1/workspaces", fixture.base)),
+    )
+    .json(&json!({"path":project}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(added.status(), reqwest::StatusCode::CREATED);
+    let added: Value = added.json().await.unwrap();
+    assert_eq!(added["name"], "project");
+    assert_eq!(added["removable"], true);
+    // It is listed (removable) next to the config's own root (not removable) and usable at once.
+    let list: Value = auth(
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces", fixture.base)),
+    )
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    assert!(
+        list.iter()
+            .any(|e| e["name"] == "project" && e["removable"] == true)
+    );
+    assert!(
+        list.iter()
+            .any(|e| e["name"] == "workspace" && e["removable"] == false)
+    );
+    assert_eq!(
+        create(&project.join("inner"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::CREATED
+    );
+    // The host's own root cannot be removed from the phone.
+    let own = fixture.host.config.workspace_roots[0].clone();
+    let refused = auth(
+        fixture
+            .client
+            .delete(format!("{}/v1/workspaces", fixture.base)),
+    )
+    .json(&json!({"path":own}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::NOT_FOUND);
+    // Restart: the saved folder is still authorized.
+    let fixture = fixture.restart().await;
+    let again = fixture
+        .client
+        .post(format!("{}/v1/sessions", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"agentId":"mock","workspace":project}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), reqwest::StatusCode::CREATED);
+    // Removal makes it unusable again.
+    let removed = fixture
+        .client
+        .delete(format!("{}/v1/workspaces", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"path":project}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), reqwest::StatusCode::NO_CONTENT);
+    let denied = fixture
+        .client
+        .post(format!("{}/v1/sessions", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"agentId":"mock","workspace":project}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), reqwest::StatusCode::BAD_REQUEST);
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn api_mcp_configuration_is_validated_forwarded_and_not_catalogued() {
     let fixture = Fixture::start_with_args(&["--mcp-http"]).await;
     let definitions = json!([{"type":"http","name":"docs","url":"https://example.com/mcp","headers":[{"name":"Authorization","value":"synthetic-network-secret"}]}]);

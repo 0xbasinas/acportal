@@ -3,6 +3,7 @@ use crate::{
     registry::Registry,
     security::{Device, SecurityStore},
     session::{AcpSession, SessionManager, SessionMetadata},
+    userdata::{UserData, plain_path},
 };
 use acportal_protocol::{error, response, validate_message};
 use anyhow::{Context, Result, bail};
@@ -39,6 +40,8 @@ pub struct Host {
     pub sessions: Arc<SessionManager>,
     pub security: SecurityStore,
     gateways: Arc<AsyncMutex<HashMap<Uuid, Arc<Gateway>>>>,
+    /// Serializes phone-initiated changes to folders (read, change, save, reload).
+    user_changes: Arc<AsyncMutex<()>>,
 }
 struct Gateway {
     controller: AtomicBool,
@@ -140,7 +143,8 @@ fn input_error(_: impl std::fmt::Display) -> ApiError {
 }
 
 impl Host {
-    pub fn new(config: Config, registry: Registry) -> Result<Self> {
+    pub fn new(mut config: Config, mut registry: Registry) -> Result<Self> {
+        UserData::load(&config.state_directory)?.apply(&mut config, &mut registry);
         config.validate()?;
         let security = SecurityStore::open(&config.state_directory)?;
         let sessions = Arc::new(SessionManager::persistent(
@@ -154,13 +158,18 @@ impl Host {
             sessions,
             security,
             gateways: Arc::new(AsyncMutex::new(HashMap::new())),
+            user_changes: Arc::new(AsyncMutex::new(())),
         })
     }
     pub fn router(&self) -> Router {
         let protected = Router::new()
             .route("/v1/status", get(status))
             .route("/v1/agents", get(agents))
-            .route("/v1/workspaces", get(workspaces))
+            .route(
+                "/v1/workspaces",
+                get(workspaces).post(add_workspace).delete(remove_workspace),
+            )
+            .route("/v1/filesystem/directories", get(directories))
             .route("/v1/workspaces/browse", get(browse))
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
@@ -407,12 +416,128 @@ mod discovery_tests {
 }
 async fn workspaces(State(host): State<Host>) -> ApiResult<Json<Value>> {
     let settings = host.sessions.launch_settings();
+    let added = UserData::load(&settings.config.state_directory)
+        .map_err(internal)?
+        .workspace_roots;
     let mut entries = vec![];
     for root in &settings.config.workspace_roots {
-        let path = settings.config.workspace(root).map_err(internal)?;
-        entries.push(json!({"path":path,"name":path.file_name().map(|name|name.to_string_lossy()).unwrap_or_default()}));
+        let path = plain_path(&settings.config.workspace(root).map_err(internal)?);
+        let removable = added.iter().any(|saved| plain_path(saved) == path);
+        entries.push(json!({"path":path,"name":path.file_name().map(|name|name.to_string_lossy()).unwrap_or_default(),"removable":removable}));
     }
     Ok(Json(json!(entries)))
+}
+#[derive(Deserialize)]
+struct PathInput {
+    path: PathBuf,
+}
+fn user_change_error(error: impl std::fmt::Display) -> ApiError {
+    tracing::warn!(%error, "phone-initiated change failed");
+    ApiError(StatusCode::INTERNAL_SERVER_ERROR, "host_error")
+}
+/// Adds a folder the paired phone chose. Only an existing directory can be added; the device
+/// token already authorizes this phone to start agents on the host.
+async fn add_workspace(
+    State(host): State<Host>,
+    Json(input): Json<PathInput>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let _guard = host.user_changes.lock().await;
+    let directory = input.path.canonicalize().map_err(input_error)?;
+    if !directory.is_dir() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "not_a_directory"));
+    }
+    let directory = plain_path(&directory);
+    let settings = host.sessions.launch_settings();
+    let state = &settings.config.state_directory;
+    let mut data = UserData::load(state).map_err(user_change_error)?;
+    if !data.workspace_roots.contains(&directory) {
+        data.workspace_roots.push(directory.clone());
+    }
+    let mut config = settings.config.clone();
+    if !config.workspace_roots.contains(&directory) {
+        config.workspace_roots.push(directory.clone());
+    }
+    config.validate().map_err(input_error)?;
+    data.save(state).map_err(user_change_error)?;
+    host.sessions
+        .reload(config, settings.registry.clone())
+        .map_err(user_change_error)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            json!({"path":directory,"name":directory.file_name().map(|name|name.to_string_lossy()).unwrap_or_default(),"removable":true}),
+        ),
+    ))
+}
+/// Removes only a folder the phone added; folders from the host's own config stay.
+async fn remove_workspace(
+    State(host): State<Host>,
+    Json(input): Json<PathInput>,
+) -> ApiResult<StatusCode> {
+    let _guard = host.user_changes.lock().await;
+    let settings = host.sessions.launch_settings();
+    let state = &settings.config.state_directory;
+    let mut data = UserData::load(state).map_err(user_change_error)?;
+    // The path may be spelled differently from the stored one (case, short names): match both forms.
+    let mut wanted = vec![plain_path(&input.path)];
+    if let Ok(canonical) = input.path.canonicalize() {
+        wanted.push(plain_path(&canonical));
+    }
+    let before = data.workspace_roots.len();
+    data.workspace_roots
+        .retain(|saved| !wanted.contains(&plain_path(saved)));
+    if data.workspace_roots.len() == before {
+        return Err(ApiError(StatusCode::NOT_FOUND, "not_removable"));
+    }
+    let mut config = settings.config.clone();
+    config
+        .workspace_roots
+        .retain(|root| !wanted.contains(&plain_path(root)));
+    data.save(state).map_err(user_change_error)?;
+    host.sessions
+        .reload(config, settings.registry.clone())
+        .map_err(user_change_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+struct DirectoryInput {
+    #[serde(default)]
+    path: Option<PathBuf>,
+}
+/// Lists directories anywhere on the host so the phone can pick a folder to add. Directory names
+/// only (no file names or contents); an empty path lists the drives, or `/` on Unix.
+async fn directories(Query(input): Query<DirectoryInput>) -> ApiResult<Json<Value>> {
+    let requested = input.path.filter(|path| !path.as_os_str().is_empty());
+    let Some(requested) = requested else {
+        let mut roots = vec![];
+        if cfg!(windows) {
+            for letter in b'A'..=b'Z' {
+                let drive = PathBuf::from(format!("{}:\\", letter as char));
+                if drive.exists() {
+                    roots.push(json!({"name":format!("{}:", letter as char),"path":drive}));
+                }
+            }
+        } else {
+            roots.push(json!({"name":"/","path":"/"}));
+        }
+        return Ok(Json(json!({"path":null,"parent":null,"entries":roots})));
+    };
+    let directory = requested.canonicalize().map_err(input_error)?;
+    if !directory.is_dir() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "not_a_directory"));
+    }
+    let mut entries = vec![];
+    for entry in std::fs::read_dir(&directory).map_err(internal)?.take(4096) {
+        let Ok(entry) = entry else { continue };
+        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            entries.push(json!({"name":entry.file_name().to_string_lossy(),"path":plain_path(&entry.path())}));
+        }
+    }
+    entries.sort_by_key(|entry| entry["name"].as_str().unwrap_or_default().to_lowercase());
+    let parent = directory.parent().map(plain_path);
+    Ok(Json(
+        json!({"path":plain_path(&directory),"parent":parent,"entries":entries}),
+    ))
 }
 #[derive(Deserialize)]
 struct BrowseInput {
@@ -431,7 +556,8 @@ async fn browse(
     for entry in std::fs::read_dir(directory).map_err(internal)?.take(1024) {
         let entry = entry.map_err(internal)?;
         if let Ok(path) = settings.config.workspace(&entry.path()) {
-            entries.push(json!({"path":path,"name":entry.file_name().to_string_lossy()}));
+            entries
+                .push(json!({"path":plain_path(&path),"name":entry.file_name().to_string_lossy()}));
         }
     }
     entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
