@@ -1,0 +1,89 @@
+name: Release
+# Publishes the host binaries as a GitHub release: acpd for Windows (x86_64 .exe) and Linux (x86_64),
+# plus SHA256SUMS.txt. Run it by pushing a version tag (for example v0.1.0) or by hand from the
+# Actions tab with a tag name. The binaries are unsigned. See docs/releases.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create, for example v0.1.0"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Windows x86_64
+            os: windows-2022
+            asset-suffix: windows-x86_64.exe
+            exe: .exe
+          - name: Linux x86_64
+            os: ubuntu-22.04 # older glibc than 24.04, so the binary runs on more distributions
+            asset-suffix: linux-x86_64
+            exe: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        shell: bash
+        run: cargo build --locked --release -p acpd --bin acpd
+      - name: Name the binary
+        shell: bash
+        env:
+          SUFFIX: ${{ matrix.asset-suffix }}
+          EXE: ${{ matrix.exe }}
+        run: |
+          mkdir -p dist
+          cp "target/release/acpd${EXE}" "dist/acpd-${SUFFIX}"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.asset-suffix }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          chmod +x acpd-linux-x86_64
+          sha256sum acpd-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create the release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          case "$TAG" in v[0-9]*) ;; *) echo "Release tags must look like v0.1.0, got: $TAG"; exit 1;; esac
+          gh release create "$TAG" acpd-* SHA256SUMS.txt -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "ACP Portal host $TAG" --generate-notes \
+            --notes "Unsigned host binaries. Windows: acpd-windows-x86_64.exe. Linux: acpd-linux-x86_64 (run chmod +x after downloading). Verify downloads against SHA256SUMS.txt. Setup: acpd setup --address https://YOUR-HOST, then acpd start --bg and acpd pair."
