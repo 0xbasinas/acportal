@@ -90,3 +90,7 @@ Read `cache/allocation-profile/open.tsv`, `closed.tsv` and `summary-count.txt` t
 ## CI at 4d5d888
 
 Manual [Android Actions 38137773010](https://github.com/0xbasinas/acportal/actions/runs/38137773010) on `codex/final-acceptance` (4d5d888, the large-font empty-history fix) passes JVM tests, debug builds and lint. The draft-PR runs were skipped by policy. No device or real-agent evidence is added by this run.
+
+## Emulator regression rerun, 11 October 2026
+
+On the small_phone API 36 emulator with the acceptance package at `4d5d888`: `PageStateMatrixUiTest` 24/24, `MotionInputFixtureTest` 3/3, `RouteRecoveryUiTest` 4/4 and `RenderedFrameProfileTest` 2/2 pass. Rendered streaming frames (debug emulator, 120 updates): light p50 22.8 / p95 35.6 / p99 36.3 ms; dark p50 22.8 / p95 34.1 / p99 35.4 ms. This is unchanged from the earlier ~36 ms p95. No new gate is closed: predictive-Back gesture drags, physical-phone frames, codecs/document providers and broader focus restoration remain open and need hand gestures or a real device.
