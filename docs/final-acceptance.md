@@ -116,3 +116,9 @@ Repeated at actual system font 2.0 (set externally, restored to 1.0 and verified
 Draft stayed `Owned untouched draft`, no live session started, production data hash unchanged, accessibility settings restored. Font 1.0 only; actual 2× font, other routes and speech audibility remain open.
 
 Repeated at actual font 2.0 (restored to 1.0, verified): light passes; dark failed once ("Focus after InterruptedBack": TalkBack held no focus for 15 s after the second Back) and then passed on two immediate reruns with focus on "Sessions". Treat the second-Back focus as intermittent at 2× font: TalkBack can briefly hold no focus. Not root-caused.
+
+## Real provider and codecs, 11 October 2026
+
+`RealProviderAndCodecTest` (2 tests, emulator-5554 API 36) passes: attachments loaded from the platform MediaStore Downloads provider (not the fixture provider) embed text and PNG bytes without leaking `content://` URIs and reject a text file as an image; device preview decodes PNG, JPEG and lossy WebP. Existing `AttachmentLoaderTest` 3, `ReceivedMediaTest` 2, `AttachmentPickerNavigationTest` 1, `ReceivedContentUiTest` 6 and `AttachmentControlsUiTest` 2 also pass. Not covered: third-party document providers (Drive and similar), the system picker UI driven natively, audio/video codecs beyond the existing WAV fixture, and physical-device media.
+
+Dark 2× production back-stack flake rate: 5 reruns pass 4, fail 1 (plus the earlier single failure), about 2 failures in 8 runs. Same symptom (no TalkBack focus for 15 s after the second Back); not root-caused.
