@@ -734,9 +734,10 @@ impl AcpConnection {
         let journal_task = journal.clone();
         let events_task = events.clone();
         tokio::spawn(async move {
+            let mut stdin = stdin;
             let reason = actor(
                 &mut child,
-                stdin,
+                &mut stdin,
                 frames,
                 receiver,
                 ActorContext {
@@ -753,6 +754,7 @@ impl AcpConnection {
             if process_tree.terminate().is_err() {
                 tracing::warn!("agent descendant cleanup failed");
             }
+            drop(stdin);
             let _ = child.kill().await;
             let _ = child.wait().await;
             stderr_task.abort();
@@ -964,7 +966,9 @@ async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()
 
 async fn actor(
     child: &mut Child,
-    mut stdin: ChildStdin,
+    // Borrowed so the pipe stays open until descendant cleanup has looked at the tree:
+    // an agent that exits on EOF would otherwise orphan its descendants first.
+    stdin: &mut ChildStdin,
     mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
     mut commands: mpsc::Receiver<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
     context: ActorContext<'_>,
@@ -1031,20 +1035,20 @@ async fn actor(
                         _=>false,
                     };
                     if denied {
-                        if write(&mut stdin,&error(id.clone(),-32601,"Client access is disabled for this session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                        if write(stdin,&error(id.clone(),-32601,"Client access is disabled for this session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                         continue;
                     }
                     if message["method"].as_str().is_some_and(|method|method.starts_with("terminal/")) {
                         if host_terminals.values().any(|entry|entry.callback_id==*id) || reviewing.values().any(|(callback,_)|callback==id) || host_writes.values().any(|entry|entry.callback_id==*id) || wait_ids.contains(&id.to_string()) {break "duplicate client callback id".into()}
                         let params=&message["params"];
                         if !matches!(message["method"].as_str(),Some("terminal/create"|"terminal/output"|"terminal/wait_for_exit"|"terminal/kill"|"terminal/release")) {
-                            if write(&mut stdin,&error(id.clone(),-32601,"Terminal method unsupported"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
+                            if write(stdin,&error(id.clone(),-32601,"Terminal method unsupported"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
                         }
                         if !files_ready || params["sessionId"]!=json!(file_session_id) {
-                            if write(&mut stdin,&error(id.clone(),-32602,"Terminal session unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
+                            if write(stdin,&error(id.clone(),-32602,"Terminal session unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
                         }
                         let Some(service)=terminals.as_mut() else {
-                            if write(&mut stdin,&error(id.clone(),-32602,"Terminal runtime unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
+                            if write(stdin,&error(id.clone(),-32602,"Terminal runtime unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;
                         };
                         let result=if message["method"]=="terminal/create" {
                             match service.prepare(params.clone()) {
@@ -1054,7 +1058,7 @@ async fn actor(
                                     let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
                                     if let Some(auto)=decided {
                                         let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
-                                        if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                                        if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                                         continue;
                                     }
                                     if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
@@ -1099,7 +1103,7 @@ async fn actor(
                             }
                         };
                         let answer=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),-32602,"Terminal request denied or unavailable")};
-                        if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                        if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                         continue;
                     }
                     if message["method"] == "fs/read_text_file" && let Some(files)=&files {
@@ -1108,17 +1112,17 @@ async fn actor(
                             crate::filesystem::read_async(files,message["params"].clone(),session_id).await
                         } else {Err(anyhow!("filesystem session is not ready"))};
                         let reply=match result {Ok(value)=>response(id.clone(),value),Err(_)=>error(id.clone(),CALLBACK_DENIED,"Workspace text read denied or unavailable")};
-                        if write(&mut stdin,&reply,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                        if write(stdin,&reply,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                         continue;
                     } else if message["method"] == "fs/write_text_file" && let Some(files)=&files {
-                        if !files_ready {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
+                        if !files_ready {if write(stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem writes require a ready session"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}continue;}
                         let Some(session_id)=file_session_id.clone() else {
-                            if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            if write(stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Filesystem session not ready"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                             continue;
                         };
                         if host_writes.values().any(|entry|entry.callback_id==*id) {break "duplicate filesystem callback id".into()}
                         let prepared=match crate::filesystem::prepare_write_async(files.clone(),message["params"].clone(),session_id.clone()).await {
-                            Ok(value)=>value,Err(_)=> {if write(&mut stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                            Ok(value)=>value,Err(_)=> {if write(stdin,&error(id.clone(),CALLBACK_DENIED,"Workspace text write denied or unavailable"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         };
                         // The file already holds exactly this text (typically an agent that wrote it
                         // with its own tool before calling back). Nothing would change, so there is no
@@ -1126,7 +1130,7 @@ async fn actor(
                         if prepared.old_text.as_deref()==Some(prepared.content.as_str()) {
                             let tool=json!({"toolCallId":format!("acpd-write-{}",uuid::Uuid::new_v4()),"title":format!("Write {} (already up to date)",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"completed","rawInput":{"path":prepared.path},"content":[{"type":"content","content":{"type":"text","text":UNCHANGED_WRITE_NOTICE}}],"_meta":{"acpdSource":"host-filesystem","acpdWrite":"unchanged"}});
                             publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
-                            if write(&mut stdin,&response(id.clone(),json!({})),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                            if write(stdin,&response(id.clone(),json!({})),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                             continue;
                         }
                         let consent_id=json!(format!("acpd-write-{}",uuid::Uuid::new_v4()));
@@ -1135,14 +1139,14 @@ async fn actor(
                         let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":{"acpdSource":"host-filesystem"},"options":[{"optionId":"acpd-write-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-write-allow","name":"Allow write once","kind":"allow_once"}]}});
                         let consent_size=consent.to_string().len();
                         let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
-                        if !inserted {if write(&mut stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
+                        if !inserted {if write(stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         host_writes.insert(consent_id.to_string(),HostWrite {callback_id:id.clone(),prepared});
                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
                         publish_host(events,journal,consent);
                         continue;
                     } else if message["method"] == "session/request_permission" {
                         if serde_json::from_value::<acp::RequestPermissionRequest>(message["params"].clone()).is_err() {
-                            if write(&mut stdin, &error(id.clone(), -32602, "Invalid permission request"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            if write(stdin, &error(id.clone(), -32602, "Invalid permission request"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                             continue;
                         }
                         let inserted = {
@@ -1155,7 +1159,7 @@ async fn actor(
                         if !inserted { break "duplicate permission id or too many pending permissions".into() }
                     } else if message["method"] == "elicitation/create" && access.form_elicitation {
                         if !elicitation_request_supported(&message["params"],file_session_id.as_deref()) {
-                            if write(&mut stdin, &error(id.clone(), -32602, "Only form elicitation for this session is supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            if write(stdin, &error(id.clone(), -32602, "Only form elicitation for this session is supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                             continue;
                         }
                         let inserted = {
@@ -1166,11 +1170,11 @@ async fn actor(
                             else { history.permissions.insert(key, message.clone()); true }
                         };
                         if !inserted {
-                            if write(&mut stdin, &error(id.clone(), CALLBACK_UNAVAILABLE, "Host elicitation capacity exceeded or duplicate id"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                            if write(stdin, &error(id.clone(), CALLBACK_UNAVAILABLE, "Host elicitation capacity exceeded or duplicate id"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                             continue;
                         }
                     } else {
-                        if write(&mut stdin, &error(id.clone(), -32601, "Client capability not supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
+                        if write(stdin, &error(id.clone(), -32601, "Client capability not supported"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                         continue;
                     }
                 }
@@ -1195,7 +1199,7 @@ async fn actor(
                         if message.to_string().len() + 1 > limits.max_frame_bytes || validate_message(&message).is_err() {
                             let _ = reply.send(Err(anyhow!("invalid or oversized request"))); continue;
                         }
-                        if write(&mut stdin, &message, limits.max_frame_bytes).await.is_err() {
+                        if write(stdin, &message, limits.max_frame_bytes).await.is_err() {
                             let _ = reply.send(Err(anyhow!("agent stdin failed"))); break "agent stdin failed".into();
                         }
                         if method == "session/prompt" { let _ = busy.send(true); }
@@ -1217,7 +1221,7 @@ async fn actor(
                                     error(host_write.callback_id,-32800,"Host file write cancelled")
                                 } else if permission["method"]=="elicitation/create" {response(permission["id"].clone(), json!({"action":"cancel"}))
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
-                                if write(&mut stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
+                                if write(stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
                             journal.lock().unwrap().permissions.clear();
                             model_reviews.abort_all();
@@ -1225,7 +1229,7 @@ async fn actor(
                                 if failed {break}
                                 let tool_id:Value=serde_json::from_str(&key).unwrap_or_default();
                                 publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":tool_id,"status":"failed"}}}));
-                                if write(&mut stdin,&error(callback_id,-32800,"Terminal creation cancelled"),limits.max_frame_bytes).await.is_err() {failed=true}
+                                if write(stdin,&error(callback_id,-32800,"Terminal creation cancelled"),limits.max_frame_bytes).await.is_err() {failed=true}
                             }
                             if let Some(service)=&terminals {service.stop_all();}
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
@@ -1233,7 +1237,7 @@ async fn actor(
                             }
                             if failed { let _ = reply.send(Err(anyhow!("agent stdin failed"))); break "agent stdin failed".into() }
                         }
-                        let result = write(&mut stdin, &json!({"jsonrpc":"2.0","method":method,"params":params}), limits.max_frame_bytes).await;
+                        let result = write(stdin, &json!({"jsonrpc":"2.0","method":method,"params":params}), limits.max_frame_bytes).await;
                         let failed = result.is_err();
                         let _ = reply.send(result);
                         if failed { break "agent stdin failed".into() }
@@ -1271,7 +1275,7 @@ async fn actor(
                             publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                             match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
-                        let result = write(&mut stdin, &answer, limits.max_frame_bytes).await;
+                        let result = write(stdin, &answer, limits.max_frame_bytes).await;
                         let failed = result.is_err();
                         if !failed {
                             journal.lock().unwrap().permissions.remove(&id.to_string());
@@ -1323,12 +1327,12 @@ async fn actor(
                     Some(apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,callback_id,prepared,&auto,false))
                 } else {Some(error(callback_id,CALLBACK_UNAVAILABLE,"Terminal runtime unavailable"))};
                 if let Some(answer)=answer {
-                    if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                    if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                     for waiter in pending.values_mut().filter(|waiter|waiter.method=="session/prompt") {waiter.deadline=Instant::now()+Duration::from_secs(limits.request_timeout_seconds);}
                 }
             }
             completed=terminal_waits.join_next(),if !terminal_waits.is_empty()=> {
-                if let Some(Ok((id,result)))=completed {wait_ids.remove(&id.to_string());let answer=match result {Ok(value)=>response(id,value),Err(_)=>error(id,-32602,"Terminal wait failed")};if write(&mut stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
+                if let Some(Ok((id,result)))=completed {wait_ids.remove(&id.to_string());let answer=match result {Ok(value)=>response(id,value),Err(_)=>error(id,-32602,"Terminal wait failed")};if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                     for waiter in pending.values_mut().filter(|waiter|waiter.method=="session/prompt") {waiter.deadline=Instant::now()+Duration::from_secs(limits.request_timeout_seconds);}
                 }
             }
