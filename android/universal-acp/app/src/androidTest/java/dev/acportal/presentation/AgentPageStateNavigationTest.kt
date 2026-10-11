@@ -76,8 +76,8 @@ class AgentPageStateNavigationTest {
             compose.runOnIdle {assertEquals(before,requests.get())}
             success.set(true)
             compose.onNodeWithText("Reload agents").performTouchInput {click()}
-            compose.waitUntil(10_000) {compose.onAllNodesWithText("No agents configured").fetchSemanticsNodes().isNotEmpty() && !vm.ui.value.loading}
-            compose.onNodeWithText("No agents configured").assertIsDisplayed()
+            compose.waitUntil(10_000) {compose.onAllNodesWithText("No agents yet").fetchSemanticsNodes().isNotEmpty() && !vm.ui.value.loading}
+            compose.onNodeWithText("No agents yet").assertIsDisplayed()
             catalog.set(true)
             compose.onNodeWithContentDescription("Refresh agents").performClick()
             compose.waitUntil(10_000) {vm.ui.value.details?.agents?.size==30 && !vm.ui.value.loading}

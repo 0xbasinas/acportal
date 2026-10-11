@@ -93,7 +93,7 @@ On Unix, use `make setup`, `make acpd`, `make test`, `make probe`, and `make cha
 
 ## What exists
 
-- Extensible JSON registry, built-in Goose and Gemini definitions, custom overrides, and executable discovery.
+- Extensible JSON registry, no built-in agents (register your own, from a registry file or the phone), and executable discovery.
 - Official stable ACP v1 schema types, JSON-RPC validation, and lossless unknown payload preservation.
 - Subprocess actor with bounded frames, request correlation, deadlines, stderr draining, crash detection, Windows cleanup jobs and Unix process groups.
 - Capability negotiation, session creation, advertised `session/load`, prompts, streaming updates, and cancellation.

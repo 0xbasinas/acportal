@@ -79,7 +79,7 @@ Upstream ACP v1 types define initialization, session responses, capabilities, pe
 
 ## Rust module responsibilities
 
-`registry` merges built-ins with a custom file by ID. Duplicate IDs within a file fail validation; custom definitions override built-ins. Discovery resolves explicit paths and absolute PATH entries without executing the target. It does not guess ACP support for every executable on the machine.
+`registry` loads the custom file (there are no built-in agents). Duplicate IDs within a file fail validation; agents the phone registered are added from `user-settings.json`. Discovery resolves explicit paths and absolute PATH entries without executing the target. It does not guess ACP support for every executable on the machine.
 
 `connection` launches an executable with literal arguments. One actor owns stdin and process lifecycle. A separate bounded stdout reader preserves partial frames across actor select branches. The actor correlates internal request IDs, detects exit, enforces a deadline, drains stderr without logging its contents, and fails outstanding requests when the process closes. There is one outstanding prompt per process.
 

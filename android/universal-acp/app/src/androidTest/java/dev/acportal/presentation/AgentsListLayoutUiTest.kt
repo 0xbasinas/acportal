@@ -52,9 +52,9 @@ class AgentsListLayoutUiTest {
         assertTrue("Agent name exceeds two summary lines",layouts.single().lineCount<=2)
         compose.onNodeWithText("Last reported: Available").assertExists()
         compose.runOnIdle {assertEquals(listOf("saved-notice"),opened);assertEquals(0,refreshes);agents=emptyList()}
-        list.performScrollToNode(hasText("No agents configured"))
-        compose.onNodeWithText("No agents configured").assertIsDisplayed()
-        val help="Add an ACP agent to this computer's registry, then refresh."
+        list.performScrollToNode(hasText("No agents yet"))
+        compose.onNodeWithText("No agents yet").assertIsDisplayed()
+        val help="Register the command-line agent you want to use on this computer."
         list.performScrollToNode(hasText(help));compose.onNodeWithText(help).assertIsDisplayed()
         compose.onNodeWithContentDescription("Refresh agents").assertIsDisplayed().performClick()
         compose.runOnIdle {assertEquals(1,refreshes);assertEquals(1,opened.size);savedAt=null;agents=listOf(AgentInfo("fresh","Fresh agent",installed=true,status="available"))}
