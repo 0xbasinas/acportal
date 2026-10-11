@@ -34,6 +34,7 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
     val fixtureActions=mutableListOf<String>()
     var fixtureDecision:String?=null
         private set
+    var fixtureHostLoading by mutableStateOf(true)
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
         val mode=intent.getStringExtra("mode") ?: "dark"
@@ -42,7 +43,14 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
             val keyboard=WindowInsets.isImeVisible
             SideEffect {fixtureKeyboardVisible=keyboard}
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {
-                if(page=="models")ModelCatalogFixture()
+                if(page=="state-host")HostDetailsScreen(null,{fixtureActions.add("back")},{fixtureActions.add("new")},{fixtureActions.add("session")},{fixtureActions.add("refresh")},{fixtureActions.add("forget")},loading=fixtureHostLoading)
+                else if(page=="state-sessions")SessionsScreen(emptyList(),emptyList(),{fixtureActions.add("open")},{fixtureActions.add("archive")},{fixtureActions.add("delete")},{fixtureActions.add("reconnect")},{fixtureActions.add("new")})
+                else if(page=="state-connections")HostsScreen(emptyList(),{fixtureActions.add("pair")},{fixtureActions.add("open")},{fixtureActions.add("refresh")})
+                else if(page=="state-offline") {
+                    val info=remember {SessionInfo("owned-offline","fixture-agent","owned-acp","/fixture")}
+                    SavedSessionScreen(info,StoredSession("fixture-host",info.id,WireJson.encodeToString(SessionInfo.serializer(),info)),null,false,{fixtureActions.add("back")},{fixtureActions.add("draft")},{fixtureActions.add("connect")})
+                }
+                else if(page=="models")ModelCatalogFixture()
                 else if(page=="creation")SessionConnectionScreen(listOf(HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true)),{fixtureActions.add("back")},{fixtureActions.add("pair")},{fixtureActions.add("choose:$it")})
                 else if(page=="creation-form")NewSessionScreen(HostDetails(
                     HostProfile("fixture-host","Fixture computer","https://example.invalid","unused","fixture-device",0,online=true),

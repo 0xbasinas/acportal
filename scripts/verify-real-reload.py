@@ -15,12 +15,17 @@ import requests
 import websockets
 
 
-async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elicitation=False, authorization=None, submit_android=False):
+async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elicitation=False, authorization=None, submit_android=False, write_authorization=None, preexisting_write=False):
     with tempfile.TemporaryDirectory(prefix="acportal-real-reload-") as directory:
         root = Path(directory)
+        if preexisting_write:
+            (root / "reload-fixture.txt").write_text("fixture", encoding="utf-8")
+            print("CHECK owned file prepopulated to exercise the actual unchanged-write notice", flush=True)
         registry = root / "agents.json"
         definitions = [{"id": "goose", "name": "Before", "command": str(goose),
                         "args": ["acp"], "env": {"GOOSE_MODE": "approve"}, "enabled": True}]
+        if write_authorization:
+            definitions[0]["ownTools"] = True
         registry.write_text(json.dumps(definitions), encoding="utf-8")
         with socket.socket() as reserved:
             reserved.bind(("127.0.0.1", 0))
@@ -97,7 +102,8 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elic
                 "params": {"sessionId": session["acpSessionId"], "prompt": [{"type": "text",
                     "text": "Answer only fixture ready, without tools." if idle else
                     "Call ask_preference exactly once, then report its result. Do not use any other tool." if elicitation else
-                    "Create reload-fixture.txt in this workspace with the text fixture. Use a file-write tool; wait for approval."}]}}))
+                    "Use the file-write tool exactly once with path " + json.dumps(str(root / "reload-fixture.txt")) +
+                    " and content \"fixture\", no trailing newline. Do not inspect files, create other files or run commands. Wait for approval."}]}}))
             permission = await receive_until(lambda e: e.get("message", {}).get("method") in ("session/request_permission", "elicitation/create")
                 or (e.get("message", {}).get("id") == "owned-write" and "method" not in e.get("message", {})))
             if elicitation and authorization and permission["message"].get("method") == "session/request_permission":
@@ -130,6 +136,89 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elic
                       + "; error=" + str("error" in permission["message"]), flush=True)
                 raise RuntimeError("provider did not expose a pending approval")
             permission_id = None if idle else permission["message"]["id"]
+            if write_authorization:
+                params = permission["message"]["params"]
+                call = params.get("toolCall", {})
+                raw = call.get("rawInput", {})
+                target = root / "reload-fixture.txt"
+                candidate = Path(raw.get("path", ""))
+                actual_path = candidate if candidate.is_absolute() else root / candidate
+                print("CHECK authorized write validation: exact input keys=" + str(set(raw) == {"path", "content"}) +
+                    "; exact path=" + str(actual_path.resolve() == target.resolve()) +
+                    "; exact content=" + str(raw.get("content") == "fixture") +
+                    "; file exists=" + str(target.exists()), flush=True)
+                if (set(raw) != {"path", "content"} or actual_path.resolve() != target.resolve()
+                    or raw.get("content") != "fixture" or (target.exists() != preexisting_write)
+                    or (preexisting_write and target.read_text() != raw["content"])
+                    or not any(o.get("kind") == "allow_once" for o in params.get("options", []))):
+                    raise RuntimeError("write approval does not match the authorized disposable file")
+                await ws.close(); ws = None
+                bootstrap = {"token": token, "address": base, "sessions": [session],
+                    "writePermission": permission["message"], "expectedWritePath": str(target),
+                    "expectedWriteContent": raw["content"], "expectHostWriteNotice": preexisting_write}
+                class WriteHandler(BaseHTTPRequestHandler):
+                    def log_message(self, *_): pass
+                    def do_GET(self):
+                        if self.path != "/bootstrap": self.send_error(404); return
+                        body = json.dumps(bootstrap).encode()
+                        self.send_response(200); self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+                    def do_POST(self):
+                        if self.path not in ("/consume-write", "/consume-host-write") or self.headers.get("Content-Length") != "0": self.send_error(400); return
+                        marker_path = write_authorization
+                        if self.path == "/consume-host-write":
+                            if not write_authorization.exists(): self.send_error(409); return
+                            marker_path = write_authorization.with_name(write_authorization.name + "-host-consent")
+                        try:
+                            with marker_path.open("x", encoding="utf-8") as marker:
+                                marker.write("Consumed the specifically authorized disposable Goose write through Android.\n")
+                        except FileExistsError:
+                            self.send_error(409); return
+                        self.send_response(204); self.end_headers()
+                server = ThreadingHTTPServer(("127.0.0.1", 0), WriteHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+                reverse_ports = [port, server.server_port]
+                prepared = False
+                def instrumentation(class_name, *extra):
+                    result = subprocess.run([str(adb), "-s", serial, "shell", "am", "instrument", "-w", "-r", *extra,
+                        "-e", "class", class_name, "dev.acportal.acceptance.test/androidx.test.runner.AndroidJUnitRunner"],
+                        capture_output=True, text=True, timeout=120)
+                    if result.returncode or "OK (1 test)" not in result.stdout or "FAILURES" in result.stdout:
+                        # Assertion messages may include live request values. Keep only
+                        # exception class and our source locations, never their messages.
+                        classes = re.findall(r"INSTRUMENTATION_STATUS: stack=(java\.lang\.[A-Za-z]+)", result.stdout)
+                        print("CHECK owned write test failed: " + (classes[0] if classes else "no passing terminal result"), flush=True)
+                        symbols = re.findall(r"RealAgentAndroidCheckTest\.kt:\d+", result.stdout)
+                        print("CHECK test source locations=" + ",".join(sorted(set(symbols))), flush=True)
+                        print("CHECK owned write outcome: exists=" + str(target.exists()) +
+                            "; exact content=" + str(target.exists() and target.read_text() == raw["content"]), flush=True)
+                        raise RuntimeError("owned Android write instrumentation failed")
+                try:
+                    for value in reverse_ports:
+                        subprocess.run([str(adb), "-s", serial, "reverse", f"tcp:{value}", f"tcp:{value}"], check=True, capture_output=True)
+                    instrumentation("dev.acportal.data.RealGooseRecoverySetupTest#prepareTwoOwnedRealSessions", "-e", "realBootstrapPort", str(server.server_port))
+                    prepared = True
+                    instrumentation("dev.acportal.presentation.RealAgentAndroidCheckTest#approveTheAuthorizedOwnedGooseWrite",
+                        "-e", "authorizeOwnedWrite", "true", "-e", "realBootstrapPort", str(server.server_port))
+                    assert target.read_text() == raw["content"]
+                    print("PASS installed Goose Android: exact disposable file/content, bounded approvals, own-tools warning and " +
+                        ("actual unchanged-write notice rendered" if preexisting_write else "reviewed host write completed"), flush=True)
+                finally:
+                    try:
+                        if prepared:
+                            instrumentation("dev.acportal.data.RealGooseRecoverySetupTest#cleanRecordedOwnedSessions", "-e", "realCleanup", "true")
+                    finally:
+                        for value in reverse_ports:
+                            subprocess.run([str(adb), "-s", serial, "reverse", "--remove", f"tcp:{value}"], capture_output=True)
+                        server.shutdown(); server.server_close(); thread.join(5)
+                return
+            if not (idle or elicitation):
+                pending_call = permission["message"]["params"].get("toolCall", {})
+                raw = pending_call.get("rawInput", {})
+                # Schema-only diagnostics for selecting the strict owned-write
+                # validator. Never print provider-generated text or values.
+                print("CHECK write request: object input=" + str(isinstance(raw, dict)) +
+                      "; exact input keys=" + str(isinstance(raw, dict) and set(raw) == {"path", "content"}), flush=True)
             second = None
             if adb:
                 created_second = http.post(base + "/v1/sessions", json={"agentId": "goose", "workspace": str(root)}, timeout=120)
@@ -264,6 +353,8 @@ if __name__ == "__main__":
     parser.add_argument("--adb", type=Path, help="Also run separately prepared real Android process-death recovery")
     parser.add_argument("--serial", default="emulator-5554")
     parser.add_argument("--submit-android-form", action="store_true", help="Explicitly authorized isolated batch only: submit green/count 2 once through Android")
+    parser.add_argument("--authorize-android-write-once", type=Path, help="Explicit human authorization only: consume one exact disposable-file write through Android")
+    parser.add_argument("--preexisting-owned-write", action="store_true", help="Prepopulate only the disposable file to exercise real unchanged-write warning metadata")
     args = parser.parse_args()
     try:
         if args.idle and args.elicitation:
@@ -274,7 +365,11 @@ if __name__ == "__main__":
             parser.error("This one-time fixture authorization has already been consumed")
         if args.submit_android_form and not (args.elicitation and args.adb and args.authorize_elicitation_once):
             parser.error("Android submission requires elicitation, adb and a fresh explicitly authorized tool marker")
-        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial, args.elicitation, args.authorize_elicitation_once, args.submit_android_form))
+        if args.authorize_android_write_once and (not args.adb or args.idle or args.elicitation or args.authorize_android_write_once.exists()):
+            parser.error("Owned write needs adb, a fresh marker and no other test mode")
+        if args.preexisting_owned_write and not args.authorize_android_write_once:
+            parser.error("Preexisting write mode requires its own explicit authorization")
+        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial, args.elicitation, args.authorize_elicitation_once, args.submit_android_form, args.authorize_android_write_once, args.preexisting_owned_write))
     except Exception as error:
         # Exceptions may carry authenticated URLs or provider text. Report only the class.
         print("FAIL owned real reload fixture: " + type(error).__name__)

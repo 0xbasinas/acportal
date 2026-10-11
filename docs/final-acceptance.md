@@ -2,7 +2,7 @@
 
 11 October 2026, branch `codex/final-acceptance`, starting from merged PR #15 main `8f4741b`. This report records new scoped results. It does not replace the earlier acceptance reports or establish production completion.
 
-Published as draft [PR #16](https://github.com/0xbasinas/acportal/pull/16), implementation head `afd99d6`. The draft PR event skips the Android job by design. A separate full [manual Android Actions run](https://github.com/0xbasinas/acportal/actions/runs/38133735509) was dispatched at that exact implementation head and is currently in progress; no passing CI result is claimed yet. Rust production sources are unchanged and were not locally rerun.
+Published as draft [PR #16](https://github.com/0xbasinas/acportal/pull/16). The draft PR event skips the Android job by design. The full [manual Android Actions run](https://github.com/0xbasinas/acportal/actions/runs/38133735509) completed successfully at implementation head `afd99d6`. That result predates the write/page-state fixture increment below. Rust production sources are unchanged and were not locally rerun.
 
 ## Recovery and upgrade
 
@@ -29,7 +29,23 @@ The actual form remains pending across host reload and Android process death. Th
 
 The separate opt-in `submitTheAuthorizedOwnedGooseForm` test validates the exact colour/count schema, renders the production SessionScreen, chooses green and count 2, then invokes the production repository callback exactly once. A second exclusive marker in acceptance-package cache prevents repeating that submission. The MCP fixture receives exactly one accepted answer with string `green` and integer `2`; the unsent draft remains unchanged. The form turn completes. The fixture host shuts down and guarded cleanup removes its recorded Android rows/token. No production hosts, sessions or credentials are removed.
 
-This closes real Android form submission/recovery for this fixture. It does not cover write notices, shell/review outcomes, every form lifecycle or every provider. The remaining write/shell authorization in this batch is still unused. Earlier authorizations remain consumed.
+This closes real Android form submission/recovery for this fixture. It does not cover write notices, shell/review outcomes, every form lifecycle or every provider. Read-only shell authorization remains unused. The write authorizations and their separate outcomes are recorded below; none may be reused.
+
+## Real Goose Android write and consent diagnostics
+
+The specifically authorized corrected attempt passes against installed Goose 1.53.0 and the configured router. The helper validates the exact disposable absolute path and content `fixture`, without a trailing newline, before exposing the request to the independent acceptance APK. The production SessionScreen sends one advertised agent allow-once choice, then one separately validated host-filesystem consent for that same file. Its diff has no prior contents and exact new contents. The actual file is checked after the turn completes. The registry-derived own-tools warning is displayed and the unsent draft stays unchanged. Guarded Android cleanup and host shutdown pass.
+
+Both `.local/final-acceptance-write-3-consumed` and its `-host-consent` marker exist. This authorization is consumed. Two earlier write approvals were also consumed and failed completion: the first lacked second-consent diagnostics; the second stopped before host consent because Windows canonical paths carry a `\\?\` prefix. Its file remained absent. The corrected validator strips only that canonical prefix and checks exact owned path, new content, absent previous content, source and advertised option. A separate no-agent regression passes acceptance of the canonical path and refusal of another file, traversal path, changed content and existing contents. No earlier approval was retried.
+
+This closes the exact fresh-file write path and own-tools warning for this fixture. Normal approved host writes do not emit an unchanged/outside-write notice, so it does not close actual write-notice rendering or shell/review badge outcomes. The optional preexisting-file notice mode is implemented but has not been run. A new live approval requires fresh human authorization. Diagnostics retain exception classes, source locations and boolean outcomes only; provider request values and assertion messages are not copied to reports.
+
+## Native page-state traversal
+
+Two normal-font native TalkBack instrumentations pass dark and light themes, four production page scenarios each: host loading then unavailable with explicit Refresh, empty Sessions, empty Connections, and offline history without cached messages with explicit Connect. Hardware swipes traverse native accessibility focus; callbacks remain absent until the requested explicit click. The fixtures use memory-only state and non-exported debug UI, without production storage writes or new visible designs.
+
+Actual font 2.0 exposes a failure in the offline scenario: the saved-conversation banner, Connect action and composer are traversable, but `No messages saved` is missing from TalkBack traversal. Loading/unavailable and the two empty-list scenarios precede that failure successfully in dark mode. The light 2.0 run was not started after this known failure. Do not claim the four-run matrix passed. Font restores to 1.0, accessibility services to null, accessibility/touch exploration to 0, verified externally. The broader accessibility gate remains open, now including this concrete defect.
+
+The user enabled Penpot, but tool discovery still exposes no Penpot tools, Document Control reports no connected sessions, and the browser inventory has no open design tab. A visible layout fix must be represented in Penpot before acceptance, as requested. No production layout change was made in this increment.
 
 ## Profiling investigation
 

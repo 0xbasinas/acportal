@@ -1,5 +1,7 @@
 # ACP Portal
 
+11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](docs/final-acceptance.md) for consumed authorizations and precise limits.
+
 11 October 2026 continuation on `codex/final-acceptance`, from merged PR #15 main `8f4741b`: actual folder-error, message-cache settings and prompt-history process-death checks pass. Populated older-APK approval replay and installed-Goose Android form Submit also pass to their isolated scopes. See [current evidence](docs/final-acceptance.md) and [TODO](TODO.md) for the finite remaining gates. Older dated checkpoints below are historical.
 
 Offline-history process death and allocation-site/retained-object profiling also pass their recorded scopes. The remaining acceptance areas are real-agent write/shell outcomes, native accessibility/page states, predictive motion and macOS real-agent abrupt cleanup. Physical-phone and signed-release checks remain user-owned/suspended.

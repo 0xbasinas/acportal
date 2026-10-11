@@ -1,5 +1,7 @@
 # Original request audit
 
+11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](final-acceptance.md) for consumed authorizations and precise limits.
+
 11 October 2026: [final acceptance continuation](final-acceptance.md) adds actual folder/settings/prompt-history process-death, populated older-APK approval replay and real Goose Android form submission evidence. Remaining scopes are in [TODO](../TODO.md). Earlier entries retain their original limits.
 
 

@@ -15,6 +15,8 @@ import org.junit.Test
 
 /** Explicit opt-in via scripts/verify-talkback-ui.ps1. Restores secure settings in finally. */
 class TalkBackShellUiTest {
+    @Test fun darkTalkBackRemainingPageStates() {listOf("state-host","state-sessions","state-connections","state-offline").forEach {check("dark",it)}}
+    @Test fun lightTalkBackRemainingPageStates() {listOf("state-host","state-sessions","state-connections","state-offline").forEach {check("light",it)}}
     @Test fun darkTalkBackMarkdownLinkConfirmation()=check("dark","markdown")
     @Test fun lightTalkBackMarkdownLinkConfirmation()=check("light","markdown")
     @Test fun darkTalkBackSessionCreationForm()=check("dark","creation-form")
@@ -73,7 +75,7 @@ class TalkBackShellUiTest {
             waitFor("TalkBack service connected") {
                 manager.getEnabledAccessibilityServiceList(-1).any {it.resolveInfo.serviceInfo.packageName=="com.google.android.marvin.talkback"} && manager.isTouchExplorationEnabled
             }
-            val title=when(page) {"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
+            val title=when(page) {"state-host"->"Host";"state-sessions"->"Sessions";"state-connections"->"Connections";"state-offline"->"New conversation";"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
             var dismissedKnownNotification=false
             waitFor("Fixture window") {
@@ -128,6 +130,30 @@ class TalkBackShellUiTest {
     }
     private fun checkPage(page:String,automation:UiAutomation,scenario:ActivityScenario<UiAccessibilityFixtureActivity>) {
         when(page) {
+            "state-host"->{
+                traverseTo(automation) {it=="Connecting to host"}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty());it.fixtureHostLoading=false}
+                waitFor("Host failure replaces loading") {find(automation,"Host unavailable")!=null}
+                val refresh=traverseTo(automation) {it=="Refresh host"}
+                assertTrue(refresh.isEnabled)
+                assertTrue(refresh.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scenario.onActivity {assertEquals(listOf("refresh"),it.fixtureActions)}
+            }
+            "state-sessions"->{
+                traverseTo(automation) {it=="No sessions yet"}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+            }
+            "state-connections"->{
+                traverseTo(automation) {it=="Pair your computer to start a coding session."}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+            }
+            "state-offline"->{
+                traverseTo(automation) {it=="No messages saved"}
+                val connect=traverseTo(automation) {it=="Connect to host"}
+                scenario.onActivity {assertTrue("Traversal must not resume or connect",it.fixtureActions.isEmpty())}
+                assertTrue(connect.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scenario.onActivity {assertEquals(listOf("connect"),it.fixtureActions)}
+            }
             "creation-form"->{
                 traverseTo(automation) {it.contains("Fixture workspace") && it.contains("Selected workspace")}
                 val start=traverseTo(automation) {it=="Start session"}

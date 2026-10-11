@@ -1,5 +1,12 @@
 # Completed work and verification history
 
+## 11 October 2026 write and native page-state increment
+
+- Installed Goose/router passes production Android exact-file write: one agent allow-once and one matching host-filesystem consent, exact `fixture` file bytes, displayed own-tools warning and preserved unsent draft. Guarded cleanup passes. Exclusive write-3 agent/host markers are consumed. Two preceding approvals failed completion and remain consumed; the canonical Windows path mismatch was corrected without reusing them.
+- One no-agent consent-validator regression passes canonical path acceptance and rejection of another path, traversal, changed content and existing contents. Python syntax and ordinary debug/test APK builds/lint pass, with 0 lint errors and 18 warnings. JVM/core/Rust checks were unchanged and not freshly rerun.
+- Native TalkBack passes four production page scenarios in dark and light at font 1.0, eight scenarios across two instrumentations. Actual dark font 2.0 fails offline empty-state traversal after its three preceding page scenarios. Light font 2.0 was not run; this is an open defect, not passing acceptance. Font/accessibility settings restore and are verified externally.
+- Full Android Actions [38133735509](https://github.com/0xbasinas/acportal/actions/runs/38133735509) passes at earlier implementation head `afd99d6`. New fixture changes require their own CI evidence. [Continuation](docs/final-acceptance.md) retains exact outcomes, failures, authorization consumption and Penpot availability limits.
+
 ## 11 October 2026 final acceptance increment
 
 - Actual same-task MainActivity process death passes message-cache settings, folder/path/error with fresh read and explicit Retry, and prompt-history restoration before networking. Drafts and production preservation are verified.
