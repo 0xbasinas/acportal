@@ -302,11 +302,17 @@ mod tests {
     #[test]
     #[ignore]
     fn real_download_installs_a_working_host() {
-        assert!(std::env::var_os("XDG_DATA_HOME").is_some(), "set XDG_DATA_HOME to a scratch folder first");
+        assert!(
+            std::env::var_os("XDG_DATA_HOME").is_some(),
+            "set XDG_DATA_HOME to a scratch folder first"
+        );
         let (path, tag) = download_latest().unwrap();
         assert!(tag.starts_with('v'));
         assert!(path.starts_with(install_dir()));
-        let output = std::process::Command::new(&path).arg("--version").output().unwrap();
+        let output = std::process::Command::new(&path)
+            .arg("--version")
+            .output()
+            .unwrap();
         assert!(String::from_utf8_lossy(&output.stdout).starts_with("acpd "));
     }
     #[test]
