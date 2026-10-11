@@ -45,7 +45,7 @@ Historical PR #10 checkpoint, 9 October 2026: PR #10 is merged on main at `6ec49
 
 ## Next implementation priorities
 
-Follow the active checklist in [TODO.md](TODO.md): broader recovery routes, real-agent forms/warnings, allocation-site/provider profiling, upgrade replay, page/focus/scroll/content acceptance, Unix escape cleanup and motion. Real Goose approval/process-death recovery, offline old-build upgrade, fixture TalkBack and platform checks are completed to their recorded scope. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded. Read docs/task-recovery.md before any process-death testing.
+Follow [TODO.md](TODO.md). Each open item is split into (a) agent work that needs no device and (b) emulator, device or user checks. Agent-first work: Unix escape-cleanup tests, allocation regressions, route recovery and page-state fixtures, session-creation race fixtures, an upgrade fixture with network replay, and investigating the streaming frame cost. Real-agent Android submissions need explicit human authorization. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded. Read docs/task-recovery.md before any process-death testing.
 
 ## Initial Android acceptance checkpoint — 9 October 2026 (historical scope)
 

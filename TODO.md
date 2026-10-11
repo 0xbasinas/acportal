@@ -1,22 +1,38 @@
 # Remaining work
 
-Reconciled 11 October 2026 against merged main `e6a3460` and the recorded acceptance evidence. [PR #13](https://github.com/0xbasinas/acportal/pull/13) is merged. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
+Reconciled 11 October 2026 against main `7685fca` (PRs #10–#13 merged). Each open item is split into (a) work an agent can do without a device and (b) checks that need an emulator, a device or the user. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
 
 Goose ACP is the local agent. Android connects through authenticated REST/WebSocket; the host uses ACP stdio. Follow [HANDOFF.md](HANDOFF.md), [requirements audit](docs/requirements-audit.md) and [UI reference](docs/ui-reference.md). Checkmarks are reserved for verified work, and completed items are archived rather than kept here.
 
 ## Current host verification
 
-- [ ] Harden/test Unix cleanup after abrupt host termination or deliberate process-group escape, including active real-agent descendants. Real Goose pending-approval/credential/session continuity across reload passes. Windows Job Object breakaway is rejected and abrupt-host cleanup of two descendant generations passes. Unix foreground SIGTERM/control-record/listener restart passes on Linux/macOS. See the exact source and run limits in the acceptance continuation.
+- [ ] Unix cleanup after abrupt host termination or deliberate process-group escape, including active real-agent descendants.
+  - (a) Agent: harden and add Linux/macOS tests (CI) for abrupt-kill and process-group escape cleanup.
+  - (b) User: confirm with a real agent whose descendants are running when the host is killed.
 
 ## Android verification still open
 
-- [ ] Profile allocation sites/retained objects during Sessions updates and after leaving sessions; repeat with broader provider pressure. Isolated ART counter/sampled heap checks cover binary loading, 100 prompt serializations, four long streaming histories and 20 search/cancel cycles over 700 models. Bounds and actual-screen permission overflow checks pass. Process-wide counters include framework/test overhead. [Profiling procedure](docs/android-acceptance.md).
-- [ ] Broaden route-specific recovery to folder browsing, error pages, message-cache settings, offline history and prompt-history restoration. Real Goose process-death with a pending approval, same-task restoration, cached draft before network, exact authoritative approval, two live sessions and zero automatic prompts/decisions now passes. Controlled replaced/removed approvals and exact conversation scroll/disclosure recovery also pass. Never automatically resend prompts or decisions.
-- [ ] Finish the page-state and accessibility matrix: remaining loading/empty/offline/error pages, Connection logs failure states and automatic return focus, wider page scroll/focus restoration, rich-content/thought accessibility and lifecycle, and device codecs/document providers. Scope details are in [UI/accessibility](docs/ui-accessibility.md) and [Android acceptance](docs/android-acceptance.md).
-- [ ] Broaden multiple-connection and delayed-live-host race checks for session creation. Full session-creation form traversal and Start pass in both themes at normal and actual double font. Markdown standalone links and individual inline-link accessibility actions now reach confirmation and Cancel through native TalkBack in both themes at normal and actual double font. Broader rich-content accessibility remains in the page-state matrix.
-- [ ] Complete real-agent own-tools warnings, write notices, shell approval/review badge outcomes and form submission/lifecycle on Android. Installed Goose/router now passes actual pending form elicitation, reload and Android process-death recovery after one specifically human-authorized read-only fixture call. No form answer or prompt is submitted automatically. Isolated keyboard/large-font/TalkBack fixtures and earlier host-side Goose form accept/decline retain their separate scope. [Real-agent evidence](docs/real-agent-testing.md).
-- [ ] Verify network replay after an old-build upgrade. An actual APK from `cf8fa26` upgraded in place to the current acceptance APK; Sessions, explicit saved-history gap handling, small draft retention and exact original large-column fingerprints pass without clearing data.
-- [ ] Broaden predictive-Back, dialogs/sheets and keyboard animation checks; investigate measured streaming frame costs and repeat on the user-owned phone. Actual rendered streaming-window durations are recorded for both themes, with emulator p95 around 35–37 ms. Short page fades and selected-tab behavior have scoped enabled/disabled-animation evidence. [Motion evidence](docs/native-cli-and-motion.md).
+- [ ] Allocation-site and retained-object profiling.
+  - (a) Agent: extend isolated JVM/instrumented allocation regressions for broader provider pressure.
+  - (b) Device: Android Studio profiler during Sessions updates and after leaving sessions ([procedure](docs/android-acceptance.md)).
+- [ ] Route-specific recovery for folder browsing, error pages, message-cache settings, offline history and prompt-history restoration.
+  - (a) Agent: add controlled fixtures for each route. Never automatically resend prompts or decisions.
+  - (b) Emulator: run them through same-task process-death recovery ([task recovery](docs/task-recovery.md)).
+- [ ] Page-state and accessibility matrix: remaining loading/empty/offline/error pages, Connection logs failure states and return focus, page scroll/focus restoration, rich-content/thought accessibility and lifecycle, device codecs and document providers.
+  - (a) Agent: write fixtures and tests ([UI/accessibility](docs/ui-accessibility.md)).
+  - (b) Emulator: TalkBack and large-font runs.
+- [ ] Session creation with multiple connections and a delayed live host (races).
+  - (a) Agent: controlled race fixtures and repository tests.
+  - (b) Emulator: run them.
+- [ ] Real-agent own-tools warnings, write notices, shell approval/review badge outcomes, and form submission and lifecycle on Android.
+  - (a) Agent: prepare fixtures and host-side checks ([real-agent evidence](docs/real-agent-testing.md)).
+  - (b) Emulator plus user: each real-agent call or submission needs explicit human authorization.
+- [ ] Network replay after an old-build upgrade (the offline upgrade passes; see TODO_DONE).
+  - (a) Agent: extend the upgrade fixture with a live controlled host.
+  - (b) Emulator: run the in-place upgrade from `cf8fa26` with the network connected.
+- [ ] Motion: predictive Back, dialogs/sheets and keyboard animation, plus the cost of streaming frames.
+  - (a) Agent: investigate the measured streaming frame cost (emulator p95 around 35–37 ms) and add checks ([motion evidence](docs/native-cli-and-motion.md)).
+  - (b) Emulator, then the user's phone: repeat the measurements.
 
 ## Ongoing contributor requirements
 

@@ -1,5 +1,17 @@
 # Completed work and verification history
 
+## 11 October 2026 - TODO tidy: verified sub-parts moved from TODO.md
+
+These are the evidence parts of the open items, moved here as written. The open remainders stay in TODO.md.
+
+- Unix/Windows cleanup: "Real Goose pending-approval/credential/session continuity across reload passes. Windows Job Object breakaway is rejected and abrupt-host cleanup of two descendant generations passes. Unix foreground SIGTERM/control-record/listener restart passes on Linux/macOS. See the exact source and run limits in the acceptance continuation." ([docs/acceptance-continuation.md](docs/acceptance-continuation.md))
+- Allocation checks: "Isolated ART counter/sampled heap checks cover binary loading, 100 prompt serializations, four long streaming histories and 20 search/cancel cycles over 700 models. Bounds and actual-screen permission overflow checks pass. Process-wide counters include framework/test overhead."
+- Recovery: "Real Goose process-death with a pending approval, same-task restoration, cached draft before network, exact authoritative approval, two live sessions and zero automatic prompts/decisions now passes. Controlled replaced/removed approvals and exact conversation scroll/disclosure recovery also pass."
+- Session creation and Markdown: "Full session-creation form traversal and Start pass in both themes at normal and actual double font. Markdown standalone links and individual inline-link accessibility actions now reach confirmation and Cancel through native TalkBack in both themes at normal and actual double font."
+- Real-agent forms: "Installed Goose/router now passes actual pending form elicitation, reload and Android process-death recovery after one specifically human-authorized read-only fixture call. No form answer or prompt is submitted automatically. Isolated keyboard/large-font/TalkBack fixtures and earlier host-side Goose form accept/decline retain their separate scope." ([docs/real-agent-testing.md](docs/real-agent-testing.md))
+- Old-build upgrade (offline): "An actual APK from `cf8fa26` upgraded in place to the current acceptance APK; Sessions, explicit saved-history gap handling, small draft retention and exact original large-column fingerprints pass without clearing data."
+- Motion: "Actual rendered streaming-window durations are recorded for both themes, with emulator p95 around 35–37 ms. Short page fades and selected-tab behavior have scoped enabled/disabled-animation evidence." ([docs/native-cli-and-motion.md](docs/native-cli-and-motion.md))
+
 ## 11 October 2026 - merged status and remaining-scope reconciliation
 
 Local main is clean at merge commit `e6a3460` before documentation edits and matches the fetched `origin/main`. PR #13 is merged. README, AGENTS, HANDOFF and current acceptance summaries now reflect that merge. Historical source/run evidence remains dated and is not rewritten as a merged-head test run. TODO's remaining checks were compared against the acceptance continuation, Android and accessibility records. Completed pending-request recovery, offline upgrade, initial profiling and scoped TalkBack are evidence for parts of those areas; they do not close the narrower follow-ups. The completed Penpot boards are moved out of the unchecked list into an ongoing contributor requirement. No implementation tests rerun for this documentation-only reconciliation.
