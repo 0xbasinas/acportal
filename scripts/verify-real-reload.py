@@ -15,7 +15,7 @@ import requests
 import websockets
 
 
-async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elicitation=False, authorization=None):
+async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elicitation=False, authorization=None, submit_android=False):
     with tempfile.TemporaryDirectory(prefix="acportal-real-reload-") as directory:
         root = Path(directory)
         registry = root / "agents.json"
@@ -64,7 +64,8 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elic
             creation = {"agentId": "goose", "workspace": str(root)}
             if elicitation:
                 creation.update(mcpServers=[{"name": "elicitation-fixture", "command": sys.executable,
-                    "args": [str(Path(__file__).with_name("mcp-elicitation-fixture.py").resolve())], "env": []}],
+                    "args": [str(Path(__file__).with_name("mcp-elicitation-fixture.py").resolve())],
+                    "env": [{"name": "MCP_ELICITATION_LOG", "value": str(root / "form-answer.jsonl")}] }],
                     workspaceAccess={"readFiles": True, "writeFiles": True, "terminal": True, "formElicitation": True})
             created = http.post(base + "/v1/sessions", json=creation, timeout=120)
             created.raise_for_status()
@@ -199,6 +200,30 @@ async def verify(acpd, goose, idle=False, adb=None, serial="emulator-5554", elic
                 await receive_until(lambda e: e.get("type") == "replay_complete")
                 assert replay_counts == {"prompts": 1, "decisions": 0}
                 print("CHECK real approval still pending after Android process recovery", flush=True)
+                if submit_android:
+                    await ws.close()
+                    ws = None
+                    # The test validates the exact two-field fixture schema and consumes
+                    # its own exclusive marker before the single production callback.
+                    reversed_port = f"tcp:{port}"
+                    try:
+                        subprocess.run([str(adb), "-s", serial, "reverse", reversed_port, reversed_port], check=True, capture_output=True)
+                        result = subprocess.run([str(adb), "-s", serial, "shell", "am", "instrument", "-w", "-r",
+                            "-e", "authorizeOwnedForm", "true", "-e", "class",
+                            "dev.acportal.presentation.RealAgentAndroidCheckTest#submitTheAuthorizedOwnedGooseForm",
+                            "dev.acportal.acceptance.test/androidx.test.runner.AndroidJUnitRunner"], capture_output=True, text=True, timeout=120)
+                        if result.returncode or "OK (1 test)" not in result.stdout or "FAILURES" in result.stdout:
+                            # No live provider errors or authenticated payloads are copied.
+                            raise RuntimeError("authorized Android form test failed")
+                        rows = [json.loads(line) for line in (root / "form-answer.jsonl").read_text().splitlines()]
+                        answers = [row for row in rows if row.get("event") == "answer"]
+                        assert len(answers) == 1
+                        assert answers[0]["result"] == {"action": "accept", "content": {"colour": "green", "count": 2}}
+                        assert answers[0].get("error") is None
+                        print("PASS real Goose Android form: one verified fixture approval, process-death recovery, production Submit, exact typed MCP answer and retained unsent draft", flush=True)
+                        return
+                    finally:
+                        subprocess.run([str(adb), "-s", serial, "reverse", "--remove", reversed_port], capture_output=True)
             if idle:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "id": "after-reload", "method": "session/prompt",
                     "params": {"sessionId": session["acpSessionId"], "prompt": [{"type": "text", "text": "Answer only fixture continued, without tools."}]}}))
@@ -238,6 +263,7 @@ if __name__ == "__main__":
     parser.add_argument("--authorize-elicitation-once", type=Path, help="Only with explicit human authorization: exclusive consumption-marker path for one matching fixture call")
     parser.add_argument("--adb", type=Path, help="Also run separately prepared real Android process-death recovery")
     parser.add_argument("--serial", default="emulator-5554")
+    parser.add_argument("--submit-android-form", action="store_true", help="Explicitly authorized isolated batch only: submit green/count 2 once through Android")
     args = parser.parse_args()
     try:
         if args.idle and args.elicitation:
@@ -246,7 +272,9 @@ if __name__ == "__main__":
             parser.error("One-time authorization is restricted to elicitation")
         if args.authorize_elicitation_once and args.authorize_elicitation_once.exists():
             parser.error("This one-time fixture authorization has already been consumed")
-        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial, args.elicitation, args.authorize_elicitation_once))
+        if args.submit_android_form and not (args.elicitation and args.adb and args.authorize_elicitation_once):
+            parser.error("Android submission requires elicitation, adb and a fresh explicitly authorized tool marker")
+        asyncio.run(verify(args.acpd.resolve(), args.goose.resolve(), args.idle, args.adb, args.serial, args.elicitation, args.authorize_elicitation_once, args.submit_android_form))
     except Exception as error:
         # Exceptions may carry authenticated URLs or provider text. Report only the class.
         print("FAIL owned real reload fixture: " + type(error).__name__)

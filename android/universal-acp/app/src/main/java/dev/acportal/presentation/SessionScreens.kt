@@ -116,7 +116,7 @@ import kotlinx.coroutines.*
     var dragging by remember(info.id) {mutableStateOf(false)}
     var showPermission by remember(info.id) {mutableStateOf(false)}
     var showMenu by remember(info.id) {mutableStateOf(false)}
-    var showHistory by remember(info.id) {mutableStateOf(false)}
+    var showHistory by conversationState.historyVisible
     var historyChoice by remember(info.id) {mutableStateOf<String?>(null)}
     var showOptions by remember(info.id) {mutableStateOf(false)}
     var showAgent by remember(info.id) {mutableStateOf(false)}

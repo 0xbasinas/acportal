@@ -1,5 +1,8 @@
 # Acceptance report
 
+11 October 2026: [final acceptance continuation](final-acceptance.md) adds actual folder/settings/prompt-history process-death, populated older-APK approval replay and real Goose Android form submission evidence. Remaining scopes are in [TODO](../TODO.md). Earlier entries retain their original limits.
+
+
 11 October 2026 PR #15 review: [executed emulator evidence](pr15-review.md) records 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling checks and three actual older-APK upgrade phases. Recovery-state restoration is scoped separately from process death; empty-session replay is scoped separately from populated real-agent replay. [TODO](../TODO.md) lists the current remaining gates. Prior dated evidence below is historical.
 
 Current status, 11 October 2026: PR #13 is merged on main at `e6a3460`, with scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.

@@ -1,5 +1,10 @@
 # ACP Portal agent handoff
 
+11 October 2026 continuation on `codex/final-acceptance`, from merged PR #15 main `8f4741b`: actual folder-error, message-cache settings and prompt-history process-death checks pass. Populated older-APK approval replay and installed-Goose Android form Submit also pass to their isolated scopes. See [current evidence](docs/final-acceptance.md) and [TODO](TODO.md) for the finite remaining gates. Older dated checkpoints below are historical.
+
+Offline-history process death additionally passes exact scroll bounds and retained disclosures. Native allocation/owner-class profiling passes real repository streaming/refresh and explicit session deletion. The four remaining acceptance areas are real-agent write/shell outcomes, native accessibility/page states, predictive motion and macOS real-agent abrupt cleanup. Preserve both consumed authorization markers. The batch's disposable write/read-only shell scope remains authorized and unused. Current ordinary APK outputs and the affected eight device regressions pass; see the continuation for failures and limits.
+
+
 11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
 
 Published Android source `ff68a3b` now has successful full [Actions 38044579739](https://github.com/0xbasinas/acportal/actions/runs/38044579739). Rust is unchanged from passing platform source `16e7cbc`. Subsequent evidence-only documentation commits do not require repeating these source checks.

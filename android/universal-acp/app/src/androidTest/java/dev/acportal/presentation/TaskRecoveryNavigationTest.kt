@@ -26,6 +26,9 @@ class TaskRecoveryNavigationTest {
         val info=SessionInfo("offline-$index","fixture-agent","offline-acp-$index","/fixture/$index",status="interrupted")
         val state=SessionState(sequence=12,processing=true,items=listOf(
             TimelineItem.Text("user-$index","user","Offline $index prompt"),
+        )+(0..19).map {line->TimelineItem.Text("offline-history-$index-$line","agent","Offline $index history $line. "+"Retained fixture history. ".repeat(8))}+listOf(
+            TimelineItem.Tool("offline-tool-$index","Offline retained tool $index","execute","completed",content=buildJsonArray {add(buildJsonObject {put("type","content");putJsonObject("content") {put("type","text");put("text","Offline tool output $index")}})}),
+            TimelineItem.Text("offline-thought-$index","thought","Offline retained thought $index"),
             TimelineItem.Text("agent-$index","agent","Offline $index retained answer")
         ),permissions=mapOf("stale-$index" to Permission(JsonPrimitive("stale-$index"),buildJsonObject {
             putJsonObject("toolCall") {put("title","Stale offline approval")}
@@ -36,7 +39,7 @@ class TaskRecoveryNavigationTest {
     private fun liveSession(index:Int):StoredSession {
         val info=SessionInfo("live-$index","fixture-agent","acp-live-$index","/fixture/live-$index",status="running")
         val state=SessionState(sequence=12,processing=index==1,promptRequestId=if(index==1)JsonPrimitive("fixture-turn").toString() else null,items=(0..19).map {line->TimelineItem.Text("live-history-$index-$line","agent","Live $index history $line. "+"Retained fixture history. ".repeat(8))}+listOf(
-            TimelineItem.Text("live-user-$index","user","Live $index prompt"),
+            TimelineItem.Text("live-user-$index","user","Live $index prompt",promptText="Live $index prompt"),
             TimelineItem.Tool("live-tool-$index","Retained tool $index","execute","completed",content=buildJsonArray {add(buildJsonObject {put("type","content");putJsonObject("content") {put("type","text");put("text","Retained tool output $index")}})}),
             TimelineItem.Text("live-thought-$index","thought","Retained thought $index"),
             TimelineItem.Text("live-agent-$index","agent","Live $index retained answer")
@@ -91,20 +94,24 @@ class TaskRecoveryNavigationTest {
         var prepared=false
         try {
             runBlocking {
-                val address=if(scenario=="LiveConversation") {
+                val address=if(scenario in setOf("LiveConversation","PromptHistory","FolderBrowser")) {
                     val port=InstrumentationRegistry.getArguments().getString("fixturePort")?.toIntOrNull()
                     require(port!=null && port in 1024..65535) {"Supply the owned reversed fixture port"}
                     "http://127.0.0.1:$port"
                 } else "http://127.0.0.1:1"
-                val credential=if(scenario=="LiveConversation")store.vault.save("recovery-fixture-only") else "unused"
+                val credential=if(scenario in setOf("LiveConversation","PromptHistory","FolderBrowser"))store.vault.save("recovery-fixture-only") else "unused"
                 store.db.portal().saveHost(HostProfile("task-host","Task workstation",address,credential,"fixture",Long.MAX_VALUE))
                 store.repository.saveMcpServers("task-host",listOf(definition))
                 if(scenario=="OfflineConversation") {
                     (1..2).forEach {store.db.portal().saveSession(offlineSession(it))}
                     store.db.portal().saveMainPage("sessions")
-                } else if(scenario=="LiveConversation") {
+                } else if(scenario in setOf("LiveConversation","PromptHistory")) {
                     (1..2).forEach {store.db.portal().saveSession(liveSession(it))}
                     store.db.portal().saveMainPage("sessions")
+                } else if(scenario=="SettingsCache") {
+                    store.db.portal().saveMainPage("settings")
+                } else if(scenario=="FolderBrowser") {
+                    store.db.portal().saveMainPage("connections")
                 } else require(scenario=="Mcp") {"Unknown task scenario"}
             }
             Properties().apply {
@@ -134,7 +141,7 @@ class TaskRecoveryNavigationTest {
             if(properties("storage.properties").getProperty("scenario")=="OfflineConversation") {
                 runBlocking {(1..2).forEach {index->assertEquals("Offline history/draft changed",offlineSession(index),store.db.portal().session("task-host","offline-$index"))}}
             }
-            if(properties("storage.properties").getProperty("scenario")=="LiveConversation") {
+            if(properties("storage.properties").getProperty("scenario") in setOf("LiveConversation","PromptHistory")) {
                 runBlocking {(1..2).forEach {index->
                     val saved=store.db.portal().session("task-host","live-$index")!!
                     assertEquals(liveSession(index).draft,saved.draft)

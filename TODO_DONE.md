@@ -1,5 +1,16 @@
 # Completed work and verification history
 
+## 11 October 2026 final acceptance increment
+
+- Actual same-task MainActivity process death passes message-cache settings, folder/path/error with fresh read and explicit Retry, and prompt-history restoration before networking. Drafts and production preservation are verified.
+- External offline-history process death passes task 2716, exact scroll-anchor bounds, retained offscreen tool/thought expansion, guarded stale permissions, two-session Back navigation and full stored history/draft preservation. Initial gesture and whitespace locator failures were corrected in the external runner, without app data wiping. This completes the requested scoped folder/settings/offline/prompt-history recovery gate.
+- Actual older `cf8fa26` APK in-place upgrade passes populated conversation, obsolete-cache replacement with authoritative approval, oversized archived row/drafts and journal proof of one original prompt and zero decisions. Three preparation/verification/cleanup phases pass.
+- Installed Goose 1.53.0/router passes pending form across reload and Android process death, then exactly one production Android Submit reaches MCP as green/count 2 with unchanged unsent draft. The specifically authorized fixture call and submission are consumed. Guarded cleanup passes.
+- Opt-in native JVMTI profiling passes actual repository streaming and Sessions refresh. Class-only direct-owner inventories show two live sessions/states before deletion and zero afterward; both weak references clear. Final sampled allocation sites/counts and the initial GC polling timeout are recorded in the continuation report. This completes the scoped allocation-site/retained-object gate.
+- Eight affected workspace network/navigation and route cases pass after fixing the observed deferred-read regression. Ordinary app/test APKs and lint pass with zero errors and 18 warnings.
+- Ordinary debug APKs, test APK and lint pass after these changes. The 68 core/65 app JVM tasks pass using Gradle up-to-date verification for unchanged JVM boundaries; this is not a fresh test execution. Lint retains its existing report warnings.
+- Exact task IDs, initial fixture failures, ownership, limits and profiler investigation are retained in [the continuation report](docs/final-acceptance.md). No broader acceptance is inferred.
+
 ## 11 October 2026 — PR #15 review and executed emulator checks
 
 Review at `c59a73e`, fixes at `3ab4cd2`, documentation reconciliation with PR #14 main `5283b55`. [Review report](docs/pr15-review.md) retains exact measurements, first-run failures, corrections and limitations. Completed checks: 35 UI tests; four native Markdown link confirmation/Cancel runs at normal/actual 2× font in both themes; four live loopback session-creation races plus six heap/attachment/catalog/frame checks; actual older `cf8fa26` APK preparation, in-place authenticated empty mock-session replay with draft preservation, and owned cleanup. No normal app data wipe or new real-agent approval was performed.

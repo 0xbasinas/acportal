@@ -2,7 +2,14 @@ package dev.acportal.data
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
 import dev.acportal.PortalApplication
+import dev.acportal.presentation.PortalTheme
+import dev.acportal.presentation.SessionScreen
 import dev.acportal.protocol.*
 import dev.acportal.storage.*
 import dev.acportal.transport.ConnectionState
@@ -14,6 +21,7 @@ import kotlinx.serialization.encodeToString
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import org.junit.Rule
 import java.io.File
 
 /*
@@ -40,6 +48,7 @@ class UpgradeReplayPreparationTest {
         val context = replayContext(); phase("prepare")
         val hostId = argument("replayHostId"); val sessionId = argument("replaySessionId")
         val address = InstrumentationRegistry.getArguments().getString("replayAddress") ?: "http://127.0.0.1:8767"
+        val permissionId = InstrumentationRegistry.getArguments().getString("replayPermissionId")
         check(!replayCheckpoint().exists()) { "An earlier replay fixture is unfinished; run cleanup first" }
         val room = PortalDatabase.open(context)
         try {
@@ -49,22 +58,40 @@ class UpgradeReplayPreparationTest {
         } finally { room.close() }
         SQLiteDatabase.openDatabase(context.getDatabasePath("portal.db").path, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
             val metadata = WireJson.encodeToString(SessionInfo(sessionId, "mock", "pending", "/replay", status = "running"))
-            val state = WireJson.encodeToString(SessionState(items = listOf(TimelineItem.Text("legacy", "user", "Legacy replay conversation " + "r".repeat(3 * 1024 * 1024)))))
+            val state = if(permissionId == null) WireJson.encodeToString(SessionState(items = listOf(TimelineItem.Text("legacy", "user", "Legacy replay conversation " + "r".repeat(3 * 1024 * 1024)))))
+                else WireJson.encodeToString(SessionState(items=listOf(
+                    TimelineItem.Text("legacy-user","user","Upgrade fixture original prompt"),
+                    TimelineItem.Text("legacy-agent","agent","I'll inspect the workspace.\n")
+                ),permissions=mapOf("obsolete-cache" to Permission(kotlinx.serialization.json.JsonPrimitive("obsolete-cache"),WireJson.parseToJsonElement("""{"toolCall":{"title":"Obsolete cached approval"},"options":[{"optionId":"obsolete","name":"Never submit cached approval","kind":"allow_once"}]}""").objectValue()))))
             database.execSQL("INSERT INTO sessions(hostId,id,metadata,state,draft,updatedAt,archived) VALUES(?,?,?,?,?,?,?)",
                 arrayOf<Any>(hostId, sessionId, metadata, state, LEGACY_DRAFT, 1300, 0))
+            if(permissionId != null) {
+                val oversized = WireJson.encodeToString(SessionState(items=listOf(TimelineItem.Text("oversized","user","r".repeat(3*1024*1024)))))
+                database.execSQL("INSERT INTO sessions(hostId,id,metadata,state,draft,updatedAt,archived) VALUES(?,?,?,?,?,?,?)",
+                    arrayOf<Any>(hostId,"upgrade-oversized",metadata,oversized,"oversized retained draft",1400,1))
+            }
         }
-        replayCheckpoint().writeText("$hostId\n$sessionId")
+        replayCheckpoint().writeText("$hostId\n$sessionId\n${permissionId.orEmpty()}")
     }
 }
 
 class UpgradeReplayVerificationTest {
+    @get:Rule val compose=createComposeRule()
     @Test fun upgradedRowsReconnectAndReplayFromTheLiveHost() = runBlocking {
         replayContext(); phase("verify")
         check(replayCheckpoint().exists()) { "Run the prepare phase on the older APK first" }
         val (hostId, sessionId) = replayCheckpoint().readLines().let { it[0] to it[1] }
+        val expectedPermission = replayCheckpoint().readLines().getOrNull(2)?.takeIf {it.isNotEmpty()}
         val repository = (replayContext().applicationContext as PortalApplication).repository
         val before = repository.sessions.first().single { it.hostId == hostId && it.id == sessionId }
-        assertEquals("the upgrade must replace the oversized legacy state", OVERSIZED_STATE_PLACEHOLDER, before.state)
+        if(expectedPermission == null) assertEquals("the upgrade must replace the oversized legacy state", OVERSIZED_STATE_PLACEHOLDER, before.state)
+        else {
+            assertTrue(storedSessionState(before).items.any {it is TimelineItem.Text && it.text=="Upgrade fixture original prompt"})
+            val oversized = repository.sessions.first().single {it.hostId==hostId && it.id=="upgrade-oversized"}
+            assertEquals(OVERSIZED_STATE_PLACEHOLDER,oversized.state)
+            assertEquals("oversized retained draft",oversized.draft)
+            assertTrue(oversized.archived)
+        }
         assertEquals(LEGACY_DRAFT, before.draft)
         val saved = repository.hosts.first().single { it.id == hostId }
         val paired = repository.pair(saved.address, argument("replayCode"), "Replay fixture")
@@ -75,6 +102,20 @@ class UpgradeReplayVerificationTest {
             assertTrue(live.metadata.value.status in setOf("running", "ready"))
             assertFalse(live.state.value.sessionClosed)
             assertNull(live.state.value.error)
+            if(expectedPermission != null) {
+                assertEquals(setOf(kotlinx.serialization.json.JsonPrimitive(expectedPermission).toString()),live.state.value.permissions.keys)
+                assertFalse(live.state.value.permissions.containsKey("obsolete-cache"))
+                assertTrue(live.state.value.items.any {it is TimelineItem.Text && it.role=="user" && it.text=="Upgrade fixture original prompt"})
+                assertTrue(live.state.value.items.any {it is TimelineItem.Text && it.role=="agent" && it.text.contains("I'll inspect")})
+                compose.setContent {PortalTheme {Surface(Modifier.fillMaxSize()) {
+                    SessionScreen(live,before,onBack={},onPrompt={_,_->fail("Upgrade cannot send a prompt")},onCancel={},
+                        onPermission={_,_->fail("Upgrade cannot answer an approval")},onConfigure={_,_->},onDraft={},
+                        onElicitation={_,_,_->fail("Upgrade cannot submit a form")})
+                }}}
+                compose.onNodeWithText("Propose a mock file change").assertIsDisplayed()
+                compose.onNodeWithText("Allow once").assertIsDisplayed().assertIsEnabled()
+                compose.onNodeWithText("Never submit cached approval").assertDoesNotExist()
+            }
         } finally { live.close() }
         val after = repository.sessions.first().single { it.hostId == hostId && it.id == sessionId }
         assertEquals("replay must not discard the user's draft", LEGACY_DRAFT, after.draft)
