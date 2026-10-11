@@ -9,7 +9,7 @@ Implemented locally on `codex/session-model-picker`, 9 October 2026. Existing ho
 Run the updated host executable on your computer with the same configuration file as the running daemon. Supply its phone-reachable HTTPS address:
 
 ```powershell
-.\target\debug\acpd.exe --config "$env:LOCALAPPDATA\ACPPortal-PhoneTest\config.toml" pair --address https://YOUR-TAILSCALE-HOST --qr --name "Workstation"
+acpd pair --address https://YOUR-TAILSCALE-HOST --qr --name "Laptop"
 ```
 
 Replace the address and configuration path with your deployment values. Tailscale Serve can supply the trusted HTTPS address; this command does not configure Serve or TLS. Without native setup, bare `acpd pair` produces the manual code. After [native setup](native-cli-and-motion.md), it uses the saved HTTPS address and displays a QR; `acpd pair --manual` suppresses the QR. Invalid presentation arguments are rejected before replacing a current code.

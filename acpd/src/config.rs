@@ -95,12 +95,15 @@ impl Default for Config {
             workspace_roots: vec![],
             runtime: RuntimeConfig::default(),
             server: ServerConfig::default(),
-            state_directory: default_directory().join("state"),
+            state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
         }
     }
 }
+/// Where the host keeps its settings (`config.toml`, `agents.json`, `launcher.json`), in the
+/// standard per-user place: `%APPDATA%\acpd` on Windows, `~/Library/Application Support/acpd` on
+/// macOS and `~/.config/acpd` on Linux. `XDG_CONFIG_HOME` overrides this on every system.
 pub fn default_directory() -> PathBuf {
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
         return PathBuf::from(path).join("acpd");
@@ -108,6 +111,57 @@ pub fn default_directory() -> PathBuf {
     directories::BaseDirs::new()
         .map(|dirs| dirs.config_dir().join("acpd"))
         .unwrap_or_else(|| PathBuf::from(".config/acpd"))
+}
+/// Where the host keeps machine-local data (paired devices, session metadata): `%LOCALAPPDATA%\acpd\state`
+/// on Windows (not the roaming profile), `~/Library/Application Support/acpd/state` on macOS and
+/// `~/.local/share/acpd/state` on Linux. `XDG_DATA_HOME` overrides this on every system.
+pub fn default_data_directory() -> PathBuf {
+    if let Some(path) = std::env::var_os("XDG_DATA_HOME") {
+        return PathBuf::from(path).join("acpd");
+    }
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.data_local_dir().join("acpd"))
+        .unwrap_or_else(|| PathBuf::from(".local/share/acpd"))
+}
+/// The state directory used when a config does not name one. An existing `state` folder next to the
+/// config (where earlier versions kept it) is still used, so paired devices are not lost.
+pub fn default_state_directory() -> PathBuf {
+    state_directory_for(&default_directory(), &default_data_directory())
+}
+fn state_directory_for(config_directory: &Path, data_directory: &Path) -> PathBuf {
+    let legacy = config_directory.join("state");
+    if legacy.is_dir() {
+        legacy
+    } else {
+        data_directory.join("state")
+    }
+}
+/// Starter `config.toml`: every setting is its default, so it holds only comments to edit.
+const STARTER_CONFIG: &str = concat!(
+    "# ACP Portal host settings. Everything here is optional; the values shown are the defaults.\n",
+    "# Folders and agents can be added from the phone app, so nothing is required here.\n",
+    "#\n",
+    "# [server]\n",
+    "# listen = \"127.0.0.1:8765\"   # publish it to your phone with: tailscale serve --bg 8765\n",
+    "#\n",
+    "# workspace_roots = []         # folders agents may use; the phone can add more\n",
+    "\n",
+    "# Agent definitions, next to this file. The phone can add agents too.\n",
+    "registry = \"agents.json\"\n",
+);
+/// Creates the standard config folder with a starter `config.toml` and an empty `agents.json`
+/// when they are missing. Existing files are never changed. Returns the config file path.
+pub fn bootstrap_default_config(directory: &Path) -> Result<PathBuf> {
+    std::fs::create_dir_all(directory).context("create the acpd settings folder")?;
+    let config = directory.join("config.toml");
+    if !config.exists() {
+        std::fs::write(&config, STARTER_CONFIG).context("write the starter config")?;
+    }
+    let registry = directory.join("agents.json");
+    if !registry.exists() {
+        std::fs::write(&registry, "[]\n").context("write the empty agent list")?;
+    }
+    Ok(config)
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -218,6 +272,44 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn state_goes_to_the_data_folder_unless_an_older_one_exists() {
+        let config = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        assert_eq!(
+            state_directory_for(config.path(), data.path()),
+            data.path().join("state")
+        );
+        std::fs::create_dir(config.path().join("state")).unwrap();
+        assert_eq!(
+            state_directory_for(config.path(), data.path()),
+            config.path().join("state")
+        );
+    }
+    #[test]
+    fn bootstrap_creates_a_loadable_default_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("nested").join("acpd");
+        let file = bootstrap_default_config(&settings).unwrap();
+        assert_eq!(file, settings.join("config.toml"));
+        let config = Config::load(&file).unwrap();
+        assert_eq!(config.registry, settings.join("agents.json"));
+        assert!(config.workspace_roots.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(settings.join("agents.json"))
+                .unwrap()
+                .trim(),
+            "[]"
+        );
+        std::fs::write(&file, "workspace_roots = []\n# mine\n").unwrap();
+        std::fs::write(settings.join("agents.json"), "[ ]").unwrap();
+        bootstrap_default_config(&settings).unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("# mine"));
+        assert_eq!(
+            std::fs::read_to_string(settings.join("agents.json")).unwrap(),
+            "[ ]"
+        );
+    }
     #[test]
     fn denies_unconfigured_and_outside_workspaces() {
         let allowed = tempfile::tempdir().unwrap();
