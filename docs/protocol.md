@@ -53,7 +53,11 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | --- | --- | --- |
 | GET | `/v1/status` | Version, host identity, health and optional `features` (currently `formElicitation`) |
 | GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools` |
-| GET | `/v1/workspaces` | Allowed folders and recent workspaces |
+| GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
+| POST / DELETE | `/v1/workspaces` | Add (`{"path"}`) or remove a folder the phone added; saved in `user-settings.json`, applies to new sessions at once |
+| GET | `/v1/filesystem/directories` | Folder names (no files) under `?path=`; empty path lists drives or `/` |
+| POST | `/v1/agents/check` | Run `<command> --version` once (`{"command","env"}`) and report `found`, `executable`, `versionOk`, `version` |
+| POST / DELETE | `/v1/agents`, `/v1/agents/{id}` | Register or remove an agent the phone added; same validation as a registry file, host-defined ids cannot be replaced |
 | GET | `/v1/workspaces/browse` | Canonical child folders inside allowed roots |
 | GET | `/v1/sessions` | Host-owned session metadata |
 | POST | `/v1/sessions` | Create or advertised load with agent ID and workspace |

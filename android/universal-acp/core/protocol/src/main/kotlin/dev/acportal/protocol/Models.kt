@@ -11,7 +11,11 @@ fun JsonElement?.flag(): Boolean = (this as? JsonPrimitive)?.booleanOrNull == tr
 fun JsonElement?.number(): Long = (this as? JsonPrimitive)?.longOrNull ?: 0
 
 @Serializable
-data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false)
+data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false,val removable:Boolean=false)
+
+/** Result of running `<command> --version` once on the host before an agent is registered. */
+@Serializable
+data class AgentCheck(val found:Boolean=false,val executable:String?=null,val versionOk:Boolean=false,val version:String?=null)
 fun AgentInfo.canStartSession():Boolean = enabled && installed && status!="misconfigured"
 /** Short label for agents the host registry marks with `ownTools`. */
 const val OWN_TOOLS_LABEL = "Uses its own tools"

@@ -49,6 +49,14 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     }
     suspend fun addWorkspace(host:HostProfile,path:String): Workspace = WireJson.decodeFromJsonElement(execute(host.address,"/v1/workspaces",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"POST"))
     suspend fun removeWorkspace(host:HostProfile,path:String) { execute(host.address,"/v1/workspaces",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"DELETE") }
+    suspend fun checkAgent(host:HostProfile,command:String,env:Map<String,String>): AgentCheck = WireJson.decodeFromJsonElement(execute(host.address,"/v1/agents/check",vault.read(host.credentialAlias),buildJsonObject {put("command",command);if(env.isNotEmpty())put("env",buildJsonObject {env.forEach {(key,value)->put(key,value)}})},"POST"))
+    suspend fun addAgent(host:HostProfile,registration:AgentRegistration) { execute(host.address,"/v1/agents",vault.read(host.credentialAlias),buildJsonObject {
+        put("id",registration.id);put("name",registration.name);put("command",registration.command)
+        put("args",JsonArray(registration.args.map {JsonPrimitive(it)}))
+        put("env",buildJsonObject {registration.env.forEach {(key,value)->put(key,value)}})
+        if(registration.ownTools)put("ownTools",true)
+    },"POST") }
+    suspend fun removeAgent(host:HostProfile,id:String) { execute(host.address,"/v1/agents/${java.net.URLEncoder.encode(id,"UTF-8")}",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun sessions(host:HostProfile): List<SessionInfo> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias)))
     suspend fun session(host:HostProfile,id:String): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias)))
     suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {

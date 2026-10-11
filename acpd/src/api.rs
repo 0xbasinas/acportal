@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    registry::Registry,
+    registry::{AgentDefinition, Registry, resolve_executable},
     security::{Device, SecurityStore},
     session::{AcpSession, SessionManager, SessionMetadata},
     userdata::{UserData, plain_path},
@@ -164,7 +164,9 @@ impl Host {
     pub fn router(&self) -> Router {
         let protected = Router::new()
             .route("/v1/status", get(status))
-            .route("/v1/agents", get(agents))
+            .route("/v1/agents", get(agents).post(add_agent))
+            .route("/v1/agents/check", post(check_agent))
+            .route("/v1/agents/{id}", delete(remove_agent))
             .route(
                 "/v1/workspaces",
                 get(workspaces).post(add_workspace).delete(remove_workspace),
@@ -318,10 +320,18 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;
-    Json(discovered_agents(
-        &host.sessions.launch_settings().registry,
-        &active,
-    ))
+    let settings = host.sessions.launch_settings();
+    let mut discovered = discovered_agents(&settings.registry, &active);
+    // Agents the phone registered can be removed from the phone; the host's own cannot.
+    let ours: Vec<String> = UserData::load(&settings.config.state_directory)
+        .map(|data| data.agents.into_iter().map(|agent| agent.id).collect())
+        .unwrap_or_default();
+    if let Some(list) = discovered.as_array_mut() {
+        for agent in list {
+            agent["removable"] = json!(ours.iter().any(|id| agent["id"] == json!(id)));
+        }
+    }
+    Json(discovered)
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();
@@ -413,6 +423,118 @@ mod discovery_tests {
         assert_eq!(status("missing"), "missing");
         assert_eq!(status("invalid"), "misconfigured");
     }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CheckAgentInput {
+    command: String,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
+}
+/// Runs `<command> --version` once (literal arguments, no shell, no stdin, 5 s limit, at most
+/// 4 KiB read) so the phone can see whether the CLI exists before registering it. The command is
+/// resolved the same way a registered agent is: an absolute path, or a bare name found on PATH.
+async fn check_agent(Json(input): Json<CheckAgentInput>) -> ApiResult<Json<Value>> {
+    use tokio::io::AsyncReadExt;
+    if input.command.trim().is_empty() || input.command.len() > 1024 || input.command.contains(' ')
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    let Some(executable) =
+        resolve_executable(&input.command, input.env.get("PATH").map(String::as_str))
+    else {
+        return Ok(Json(json!({"found":false})));
+    };
+    let mut command = tokio::process::Command::new(&executable);
+    command
+        .arg("--version")
+        .envs(&input.env)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let mut child = command.spawn().map_err(internal)?;
+    let mut output = Vec::new();
+    let mut stdout = child.stdout.take().expect("piped stdout").take(4096);
+    let finished = tokio::time::timeout(Duration::from_secs(5), async {
+        stdout.read_to_end(&mut output).await?;
+        child.wait().await
+    })
+    .await;
+    let (version_ok, version) = match finished {
+        Ok(Ok(status)) => {
+            let line = String::from_utf8_lossy(&output)
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .map(|line| {
+                    line.chars()
+                        .filter(|c| !c.is_control())
+                        .take(200)
+                        .collect::<String>()
+                });
+            (status.success(), line)
+        }
+        _ => {
+            let _ = child.kill().await;
+            (false, None)
+        }
+    };
+    Ok(Json(
+        json!({"found":true,"executable":plain_path(&executable),"versionOk":version_ok,"version":version}),
+    ))
+}
+/// Registers an agent CLI the user entered on the phone. It gets the same validation as a
+/// registry file. An agent defined by the host's own registry cannot be replaced from the phone.
+async fn add_agent(
+    State(host): State<Host>,
+    Json(definition): Json<AgentDefinition>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let _guard = host.user_changes.lock().await;
+    definition.validate().map_err(input_error)?;
+    if resolve_executable(
+        &definition.command,
+        definition.env.get("PATH").map(String::as_str),
+    )
+    .is_none()
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "agent_not_found"));
+    }
+    let settings = host.sessions.launch_settings();
+    let state = &settings.config.state_directory;
+    let mut data = UserData::load(state).map_err(user_change_error)?;
+    let ours = data.agents.iter().any(|agent| agent.id == definition.id);
+    if settings.registry.contains(&definition.id) && !ours {
+        return Err(ApiError(StatusCode::CONFLICT, "agent_exists"));
+    }
+    data.agents.retain(|agent| agent.id != definition.id);
+    data.agents.push(definition.clone());
+    let mut registry = settings.registry.clone();
+    registry.upsert(definition.clone()).map_err(input_error)?;
+    data.save(state).map_err(user_change_error)?;
+    host.sessions
+        .reload(settings.config.clone(), registry)
+        .map_err(user_change_error)?;
+    Ok((StatusCode::CREATED, Json(json!({"id":definition.id}))))
+}
+async fn remove_agent(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<StatusCode> {
+    let _guard = host.user_changes.lock().await;
+    let settings = host.sessions.launch_settings();
+    let state = &settings.config.state_directory;
+    let mut data = UserData::load(state).map_err(user_change_error)?;
+    let before = data.agents.len();
+    data.agents.retain(|agent| agent.id != id);
+    if data.agents.len() == before {
+        return Err(ApiError(StatusCode::NOT_FOUND, "not_removable"));
+    }
+    let mut registry = settings.registry.clone();
+    registry.remove(&id);
+    data.save(state).map_err(user_change_error)?;
+    host.sessions
+        .reload(settings.config.clone(), registry)
+        .map_err(user_change_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn workspaces(State(host): State<Host>) -> ApiResult<Json<Value>> {
     let settings = host.sessions.launch_settings();

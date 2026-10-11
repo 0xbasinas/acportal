@@ -165,7 +165,7 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by rememberSaveable {mutableStateOf(false)}
@@ -240,6 +240,10 @@ import kotlinx.serialization.json.*
                     if(folderClient!=null)item(key="add-folder-action") {TextButton({addFolder=true},Modifier.padding(start=12.dp).testTag("add-folder-action")) {Text("Add folder from this computer",style=MaterialTheme.typography.bodySmall)}}
                     if(path.isNotBlank() && details.workspaces.none {it.path==path})item {FolderPathText(path,Modifier.padding(horizontal=24.dp))}
                     item {SectionLabel("Agent")}
+                    if(details.agents.isEmpty())item(key="no-agents") {Column(Modifier.padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Text("No agents are registered on this computer yet.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        onAddAgent?.let {OutlinedButton(it,Modifier.testTag("add-agent-action")) {Text("Add an agent")}}
+                    }}
                     if(onChangeConnection!=null)item {SelectionCard(details.agents.firstOrNull {it.id==agentId}?.name ?: "Choose agent","") {agentPicker=true}}
                     else items(details.agents,key={it.id}) {agent->
                         Row(Modifier.fillMaxWidth().testTag("agent-choice:${agent.id}").clickable(enabled=agent.canStartSession()) {agentId=agent.id}.padding(start=24.dp,end=12.dp,top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {

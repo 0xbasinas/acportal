@@ -145,6 +145,18 @@ impl Registry {
         registry.agents.extend(custom.agents);
         Ok(registry)
     }
+    /// Adds or replaces one agent after the same validation a registry file gets.
+    pub fn upsert(&mut self, definition: AgentDefinition) -> Result<()> {
+        definition.validate()?;
+        self.agents.insert(definition.id.clone(), definition);
+        Ok(())
+    }
+    pub fn contains(&self, id: &str) -> bool {
+        self.agents.contains_key(id)
+    }
+    pub fn remove(&mut self, id: &str) -> bool {
+        self.agents.remove(id).is_some()
+    }
     pub fn get(&self, id: &str) -> Result<&AgentDefinition> {
         self.agents
             .get(id)

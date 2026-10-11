@@ -40,6 +40,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class PairHostRoute(val hostId:String):NavKey
 @Serializable data class McpRoute(val hostId:String?=null):NavKey
 @Serializable data class WorkspaceAccessRoute(val hostId:String?=null,val path:String?=null,val sessionId:String?=null):NavKey
+@Serializable data class AddAgentRoute(val hostId:String):NavKey
 @Serializable data class AgentRoute(val hostId:String?=null,val agentId:String?=null):NavKey
 
 @Composable fun PortalNavigation(vm:PortalViewModel) {
@@ -102,7 +103,7 @@ import kotlinx.serialization.Serializable
                         }
                         entry<NewSessionRoute> { key ->
                             LaunchedEffect(key.hostId) { if(key.fromSessions || ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
-                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null,folderClient=ui.details?.takeIf {it.host.id==key.hostId}?.let {vm.folderClient(it.host)})
+                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null,folderClient=ui.details?.takeIf {it.host.id==key.hostId}?.let {vm.folderClient(it.host)},onAddAgent={stack.add(AddAgentRoute(key.hostId))})
                         }
                         entry<SessionConnectionRoute> { SessionConnectionScreen(hosts,onBack=back,onPair={stack.add(PairRoute)},onChoose={vm.clearError();stack.add(NewSessionRoute(it,fromSessions=true))}) }
                         entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={vm.clearError();stack.add(SessionConnectionRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries) }
@@ -160,6 +161,11 @@ import kotlinx.serialization.Serializable
                                 }
                             }
                         }
+                        entry<AddAgentRoute> {key->
+                            val host=hosts.firstOrNull {it.id==key.hostId}
+                            if(host==null)EmptyState("Connection unavailable","Return to Connections to add this host again.")
+                            else AddAgentScreen(vm.agentClient(host),host.label,onBack=back,onSaved={vm.details(key.hostId);back()})
+                        }
                         entry<AgentRoute> {key->
                             val id=key.hostId
                             if(id==null)ConnectionsPickerScreen(hosts,back,{stack.add(AgentRoute(it))},"Agents")
@@ -181,11 +187,11 @@ import kotlinx.serialization.Serializable
                                         TextButton({vm.details(id)},Modifier.fillMaxWidth().padding(24.dp)) {Text("Reload agents")}
                                     }
                                 }
-                                else if(key.agentId==null)RegistryAgentsScreen(details,back,{vm.details(id)},{stack.add(AgentRoute(id,it))},savedAt=savedAt)
+                                else if(key.agentId==null)RegistryAgentsScreen(details,back,{vm.details(id)},{stack.add(AgentRoute(id,it))},savedAt=savedAt,onAddAgent=if(fresh!=null){{stack.add(AddAgentRoute(id))}} else null)
                                 else {
                                     val agent=details.agents.firstOrNull {it.id==key.agentId}
                                     if(agent==null)Column(Modifier.fillMaxSize()) {ScreenHeader("Agent details",onBack=back);EmptyState("Agent unavailable","This agent is no longer in the host registry.")}
-                                    else RegistryAgentDetailsScreen(agent,details.host.label,ui.loading,back,{vm.details(id)},{stack.add(NewSessionRoute(id,agent.id))},savedAt=savedAt)
+                                    else RegistryAgentDetailsScreen(agent,details.host.label,ui.loading,back,{vm.details(id)},{stack.add(NewSessionRoute(id,agent.id))},savedAt=savedAt,onRemove=if(fresh!=null){{vm.removeAgent(details.host,agent.id) {vm.details(id);back()}}} else null)
                                 }
                             }
                         }

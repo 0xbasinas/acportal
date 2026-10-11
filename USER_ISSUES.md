@@ -51,3 +51,12 @@ In a conversation, the chat composer and the message bubbles (user and agent) ar
 - Reduce the size of the composer (input field, buttons, padding) and of the user and agent bubbles (padding, text size, spacing) by a small amount, not a redesign.
 - Keep touch targets accessible (48 dp minimum for tappable controls), text readable at large font sizes, and the composer reachable with the keyboard open.
 - Check dark and light themes at normal and 2× font. Any visible change to the layout must first be reflected in the Penpot designs (see TODO.md "Ongoing contributor requirements").
+
+## Status, 11 October 2026
+
+- **1. No built-in agents:** done in code: the built-in list is empty and the phone registers agents on an **Add agent** screen that checks `<command> --version` first (docs/agents.md). Penpot boards 37-40. Not tried on a phone; existing setups that used the old Goose/Gemini built-ins must register them again.
+- **2. Scrolling:** follow-latest now reaches the end of a tall reply (PR #18); a **Jump to latest** button appears when you have scrolled up (Penpot board 41). Streaming jank on a real phone is still unmeasured.
+- **3. Transitions:** fade-through, animated bottom bar and overlaid progress bar (PR #23). Still needs a feel check on a phone.
+- **4. Folder display:** done (PR #21); the Windows verbatim prefix is also removed by the host.
+- **5. Adding folders from the app:** done (PR #22), Penpot board 36.
+- **6. Smaller session UI:** done (PR #21), Penpot board 41 shows the compact composer and bubbles. The older conversation boards were not edited.
