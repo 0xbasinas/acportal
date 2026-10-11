@@ -93,15 +93,18 @@ class PortalRepository(
             val agents=api.agents(host)
             val workspaces=api.workspaces(host)
             val sessions=api.sessions(host)
-            val updated=host.copy(online=true,lastSeen=System.currentTimeMillis(),agentCount=agents.count { it.canStartSession() })
-            dao.saveHost(updated)
+            // Update status columns only. Saving the whole snapshot read before these slow
+            // requests would restore a credential alias that a concurrent re-pair replaced.
+            val seen=System.currentTimeMillis();val count=agents.count { it.canStartSession() }
+            dao.markHostOnline(host.id,seen,count)
+            val updated=dao.host(host.id) ?: host.copy(online=true,lastSeen=seen,agentCount=count)
             val catalog=WireJson.encodeToString(agents)
             require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
             HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId))
         } catch (cancelled:CancellationException) { throw cancelled }
-        catch (failure:Exception) { dao.saveHost(host.copy(online=false));throw failure }
+        catch (failure:Exception) { dao.markHostOffline(host.id);throw failure }
     }
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)

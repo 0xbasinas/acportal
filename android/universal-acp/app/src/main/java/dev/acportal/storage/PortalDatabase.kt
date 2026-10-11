@@ -66,6 +66,9 @@ interface PortalDao {
     @Query("SELECT * FROM hosts ORDER BY label COLLATE NOCASE") fun hosts(): Flow<List<HostProfile>>
     @Query("SELECT * FROM hosts WHERE id = :id") suspend fun host(id: String): HostProfile?
     @Upsert suspend fun saveHost(host: HostProfile)
+    /** Status-only writes: a re-pair that replaced the credential during a slow read must survive. */
+    @Query("UPDATE hosts SET online = 1, lastSeen = :lastSeen, agentCount = :agentCount WHERE id = :id") suspend fun markHostOnline(id: String, lastSeen: Long, agentCount: Int)
+    @Query("UPDATE hosts SET online = 0 WHERE id = :id") suspend fun markHostOffline(id: String)
     @Query("DELETE FROM hosts WHERE id = :id") suspend fun deleteHost(id: String)
     @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions ORDER BY updatedAt DESC") fun sessions(): Flow<List<StoredSession>>
     @Query("SELECT $GUARDED_SESSION_COLUMNS FROM sessions WHERE hostId = :hostId AND id = :id") suspend fun session(hostId: String,id: String): StoredSession?

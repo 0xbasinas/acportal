@@ -128,14 +128,15 @@ import kotlinx.coroutines.*
     val pendingPermission=state.permissions.values.firstOrNull()
     LaunchedEffect(pendingPermission?.id) {showPermission=pendingPermission!=null}
     val connected=connection is ConnectionState.Connected && !state.sessionClosed && info.status!="exited"
-    LaunchedEffect(state.items) { val sent=sentDraft;val accepted=state.items.filterIsInstance<TimelineItem.Text>().lastOrNull {it.role=="user"};if(sent!=null && state.sequence>sent.first && accepted?.text==sent.second) {draft="";onDraft("");sentDraft=null} }
+    // Keyed by the sequence, not the item list: comparing lists walks every streamed message.
+    LaunchedEffect(state.sequence,sentDraft) { val sent=sentDraft ?: return@LaunchedEffect;if(state.sequence>sent.first && lastUserText(state.items)==sent.second) {draft="";onDraft("");sentDraft=null} }
     val status=if(offlineCopy)"Saved conversation" else if(info.status=="exited")"Stopped" else dev.acportal.data.liveSessionActivity(state,connection).label
     LaunchedEffect(list) { list.interactionSource.interactions.collect { interaction->when(interaction) {
         is DragInteraction.Start->{dragging=true;followLatest=false}
         is DragInteraction.Stop,is DragInteraction.Cancel->{dragging=false;followLatest=!list.canScrollForward}
     } } }
     LaunchedEffect(list) {snapshotFlow {list.layoutInfo.visibleItemsInfo.isNotEmpty() && !list.canScrollForward && !dragging}.collect {atEnd->if(atEnd)followLatest=true}}
-    LaunchedEffect(state.items.size,state.items.lastOrNull(),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToItem(state.items.lastIndex)}
+    LaunchedEffect(timelineTailKey(state.items),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToItem(state.items.lastIndex)}
     androidx.activity.compose.BackHandler(changedFile!=null || showOptions || showAgent || connectionPage>0) {if(changedFile!=null)changedFile=null else if(connectionPage>0)connectionPage-- else {showOptions=false;showAgent=false}}
     changedFile?.let {id->ChangesScreen(sessionFileChanges(state),id,{changedFile=null});return}
     if(connectionPage==2) {ConnectionLogsScreen(diagnostics,{connectionPage=1},hostLabel ?: "Host",connection);return}
@@ -144,7 +145,7 @@ import kotlinx.coroutines.*
     if(showAgent) {AgentDetailsScreen(info,{showAgent=false},hostLabel,state.usage,state.sessionInfo);return}
     conversationUi.SaveableStateProvider(info.id) {
     Column(Modifier.fillMaxSize().imePadding()) {
-        ScreenHeader(state.sessionInfo["title"].text().takeIf {it.isNotBlank()}?.lineSequence()?.firstOrNull()?.take(64) ?: state.items.filterIsInstance<TimelineItem.Text>().firstOrNull {it.role=="user"}?.text?.lineSequence()?.firstOrNull()?.take(36) ?: "New conversation","${info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')} · ${info.agentId}",onBack,action={Box {
+        ScreenHeader(state.sessionInfo["title"].text().takeIf {it.isNotBlank()}?.lineSequence()?.firstOrNull()?.take(64) ?: firstUserLine(state.items) ?: "New conversation","${info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')} · ${info.agentId}",onBack,action={Box {
             IconButton({showMenu=true}) {Icon(Icons.Outlined.MoreVert,"Session menu",Modifier.size(20.dp))}
             DropdownMenu(showMenu,{showMenu=false},modifier=Modifier.widthIn(min=224.dp,max=280.dp),shape=RoundedCornerShape(16.dp),containerColor=MaterialTheme.colorScheme.surfaceContainer) {
                 DropdownMenuItem(text={Text("Session options")},leadingIcon={Icon(Icons.Outlined.Tune,null,Modifier.size(18.dp))},onClick={showMenu=false;showOptions=true})

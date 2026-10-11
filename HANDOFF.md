@@ -45,7 +45,7 @@ Historical PR #10 checkpoint, 9 October 2026: PR #10 is merged on main at `6ec49
 
 ## Next implementation priorities
 
-Follow [TODO.md](TODO.md). Each open item is split into (a) agent work that needs no device and (b) emulator, device or user checks. Agent-first work: Unix escape-cleanup tests, allocation regressions, route recovery and page-state fixtures, session-creation race fixtures, an upgrade fixture with network replay, and investigating the streaming frame cost. Real-agent Android submissions need explicit human authorization. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded. Read docs/task-recovery.md before any process-death testing.
+Follow [TODO.md](TODO.md). Each open item is split into (a) agent work that needs no device and (b) emulator, device or user checks. The agent parts are delivered (PR `agent-side-checks`); the device parts are ready with exact commands in the [emulator runbook](docs/emulator-runbook.md), and its instrumented tests have not been run yet. Next: run runbook §1–§8, record results in TODO_DONE and the acceptance report. Real-agent runs (§1 step 3, §6) need explicit human authorization each time. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded.
 
 ## Initial Android acceptance checkpoint — 9 October 2026 (historical scope)
 

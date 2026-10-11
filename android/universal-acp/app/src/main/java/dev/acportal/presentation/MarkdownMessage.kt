@@ -78,12 +78,14 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
 }
 
 @Composable fun MarkdownMessage(source:String,modifier:Modifier=Modifier) {
-    // A changed source cannot display the previous message while parsing catches up.
-    val parsed by produceState<Pair<String,Node?>?>(null,source) {
+    // A changed source never displays a different message while parsing catches up; an
+    // appended (streaming) source keeps its previous rendering, see markdownToShow.
+    var parsed by remember {mutableStateOf<Pair<String,Node?>?>(null)}
+    LaunchedEffect(source) {
         delay(80)
-        value=withContext(Dispatchers.Default) {source to parseMessageMarkdown(source)}
+        parsed=withContext(Dispatchers.Default) {source to parseMessageMarkdown(source)}
     }
-    val document=parsed?.takeIf {it.first==source}?.second
+    val document=markdownToShow(parsed,source)
     val context=LocalContext.current
     var link by remember(source) {mutableStateOf<String?>(null)}
     var linkError by remember(source) {mutableStateOf(false)}

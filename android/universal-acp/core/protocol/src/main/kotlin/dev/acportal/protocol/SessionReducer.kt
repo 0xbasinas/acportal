@@ -118,7 +118,7 @@ object SessionReducer {
                 val text = content["text"].text()
                 val previous = next.items.lastOrNull() as? TimelineItem.Text
                 val messageId=update["messageId"].text().takeIf {it.isNotBlank()}
-                val items = if (previous?.role == role && previous.messageId==messageId) next.items.dropLast(1) + previous.copy(text = previous.text + text)
+                val items = if (previous?.role == role && previous.messageId==messageId) next.items.replacingLast(previous.copy(text = previous.text + text))
                     else next.items + TimelineItem.Text("text-$sequence", role, text,messageId)
                 next = next.copy(items = items)
             }
@@ -191,3 +191,6 @@ object SessionReducer {
         return state.copy(items=retained.asReversed(),historyGap=state.historyGap || omitted)
     }
 }
+
+/** One list copy per streamed chunk instead of two (dropLast followed by plus). */
+internal fun <T> List<T>.replacingLast(item: T): List<T> = ArrayList<T>(this).also { it[it.lastIndex] = item }

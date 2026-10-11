@@ -1,38 +1,38 @@
 # Remaining work
 
-Reconciled 11 October 2026 against main `7685fca` (PRs #10–#13 merged). Each open item is split into (a) work an agent can do without a device and (b) checks that need an emulator, a device or the user. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
+Reconciled 11 October 2026 against main `7685fca` (PRs #10–#13 merged). Each open item is split into (a) work an agent can do without a device and (b) checks that need an emulator, a device or the user. The agent parts below were delivered in PR `agent-side-checks` (marked done, details in TODO_DONE); the device parts are ready to run with exact commands in the [emulator runbook](docs/emulator-runbook.md). Instrumented tests from that PR compile but have not been run. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
 
 Goose ACP is the local agent. Android connects through authenticated REST/WebSocket; the host uses ACP stdio. Follow [HANDOFF.md](HANDOFF.md), [requirements audit](docs/requirements-audit.md) and [UI reference](docs/ui-reference.md). Checkmarks are reserved for verified work, and completed items are archived rather than kept here.
 
 ## Current host verification
 
 - [ ] Unix cleanup after abrupt host termination or deliberate process-group escape, including active real-agent descendants.
-  - (a) Agent: harden and add Linux/macOS tests (CI) for abrupt-kill and process-group escape cleanup.
-  - (b) User: confirm with a real agent whose descendants are running when the host is killed.
+  - [x] (a) Agent: `setsid` agent sessions, recorded-group sweep on the next start, Linux session-member cleanup for escaped groups; Linux tests. macOS sweeps only groups whose leader is alive.
+  - (b) User: real agent with running descendants killed with the host — ready, runbook §1. Optional macOS dispatch.
 
 ## Android verification still open
 
 - [ ] Allocation-site and retained-object profiling.
-  - (a) Agent: extend isolated JVM/instrumented allocation regressions for broader provider pressure.
-  - (b) Device: Android Studio profiler during Sessions updates and after leaving sessions ([procedure](docs/android-acceptance.md)).
+  - [x] (a) Agent: JVM load tests for long streams, 3,000 tools, 5,000/40,000-model lists, 300 saved sessions and per-chunk allocation.
+  - (b) Device: profiler allocation sites and retained objects — ready, runbook §2.
 - [ ] Route-specific recovery for folder browsing, error pages, message-cache settings, offline history and prompt-history restoration.
-  - (a) Agent: add controlled fixtures for each route. Never automatically resend prompts or decisions.
-  - (b) Emulator: run them through same-task process-death recovery ([task recovery](docs/task-recovery.md)).
+  - [x] (a) Agent: `RouteRecoveryUiTest` (state-restoration fixtures for each route; nothing is resent); Settings dialogs now survive recreation.
+  - (b) Emulator: run it, then same-task process death by hand — ready, runbook §3.
 - [ ] Page-state and accessibility matrix: remaining loading/empty/offline/error pages, Connection logs failure states and return focus, page scroll/focus restoration, rich-content/thought accessibility and lifecycle, device codecs and document providers.
-  - (a) Agent: write fixtures and tests ([UI/accessibility](docs/ui-accessibility.md)).
-  - (b) Emulator: TalkBack and large-font runs.
+  - [x] (a) Agent: `PageStateMatrixUiTest` (loading/empty/offline/error and Connection logs failure/focus, dark/light × font 1.0/2.0, labelled-action check). Rich-content/codec/document-provider cases are not covered.
+  - (b) Emulator: run it plus native TalkBack and 200% font — ready, runbook §4.
 - [ ] Session creation with multiple connections and a delayed live host (races).
-  - (a) Agent: controlled race fixtures and repository tests.
-  - (b) Emulator: run them.
+  - [x] (a) Agent: two race bugs fixed (stale credential restore on slow host reads; loading cleared early / duplicate Start session); `SessionCreationRaceTest` with loopback fixture hosts.
+  - (b) Emulator: run it — ready, runbook §5.
 - [ ] Real-agent own-tools warnings, write notices, shell approval/review badge outcomes, and form submission and lifecycle on Android.
-  - (a) Agent: prepare fixtures and host-side checks ([real-agent evidence](docs/real-agent-testing.md)).
-  - (b) Emulator plus user: each real-agent call or submission needs explicit human authorization.
+  - [x] (a) Agent: `real-agent-check.py` gated by `ACPD_REAL_AGENT_OK=1`; opt-in `RealAgentAndroidCheckTest` that observes notices and never answers or submits.
+  - (b) Emulator plus user: each real-agent call or submission needs explicit human authorization — ready, runbook §6.
 - [ ] Network replay after an old-build upgrade (the offline upgrade passes; see TODO_DONE).
-  - (a) Agent: extend the upgrade fixture with a live controlled host.
-  - (b) Emulator: run the in-place upgrade from `cf8fa26` with the network connected.
+  - [x] (a) Agent: `scripts/upgrade-replay-host.py` (real acpd + mock agent) and prepare/verify/cleanup phases in `LegacyUpgradeReplayTest.kt`.
+  - (b) Emulator: run the in-place upgrade from `cf8fa26` with the network connected — ready, runbook §7.
 - [ ] Motion: predictive Back, dialogs/sheets and keyboard animation, plus the cost of streaming frames.
-  - (a) Agent: investigate the measured streaming frame cost (emulator p95 around 35–37 ms) and add checks ([motion evidence](docs/native-cli-and-motion.md)).
-  - (b) Emulator, then the user's phone: repeat the measurements.
+  - [x] (a) Agent: per-update streaming work cut (no full-list/last-item comparisons, no timeline copy for the title, Markdown no longer flips to plain text per chunk, one list copy per chunk); `ConversationRenderTest`; `MotionInputFixtureTest` for Back/dialog/keyboard. Frame-time effect unmeasured.
+  - (b) Emulator, then the user's phone: repeat the frame measurement and the predictive-Back gesture — ready, runbook §8.
 
 ## Ongoing contributor requirements
 
