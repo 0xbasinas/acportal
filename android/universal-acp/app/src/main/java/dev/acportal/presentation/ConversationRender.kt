@@ -44,3 +44,12 @@ internal fun <T> markdownToShow(parsed:Pair<String,T?>?,source:String):T? {
     if(parsed.first==source)return parsed.second
     return parsed.second?.takeIf {source.length>parsed.first.length && source.startsWith(parsed.first)}
 }
+
+/**
+ * Follow-latest target: the end of the last item. `scrollToItem(lastIndex)` alone aligns the
+ * item's top with the viewport, so a last message taller than the viewport (a long streamed reply)
+ * was thrown back to its top on every chunk, and the reader could never reach its bottom.
+ */
+internal suspend fun androidx.compose.foundation.lazy.LazyListState.scrollToTimelineEnd(lastIndex:Int) {
+    scrollToItem(lastIndex,Int.MAX_VALUE)
+}

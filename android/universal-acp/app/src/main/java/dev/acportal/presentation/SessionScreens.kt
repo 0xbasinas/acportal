@@ -136,7 +136,7 @@ import kotlinx.coroutines.*
         is DragInteraction.Stop,is DragInteraction.Cancel->{dragging=false;followLatest=!list.canScrollForward}
     } } }
     LaunchedEffect(list) {snapshotFlow {list.layoutInfo.visibleItemsInfo.isNotEmpty() && !list.canScrollForward && !dragging}.collect {atEnd->if(atEnd)followLatest=true}}
-    LaunchedEffect(timelineTailKey(state.items),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToItem(state.items.lastIndex)}
+    LaunchedEffect(timelineTailKey(state.items),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToTimelineEnd(state.items.lastIndex)}
     androidx.activity.compose.BackHandler(changedFile!=null || showOptions || showAgent || connectionPage>0) {if(changedFile!=null)changedFile=null else if(connectionPage>0)connectionPage-- else {showOptions=false;showAgent=false}}
     changedFile?.let {id->ChangesScreen(sessionFileChanges(state),id,{changedFile=null});return}
     if(connectionPage==2) {ConnectionLogsScreen(diagnostics,{connectionPage=1},hostLabel ?: "Host",connection);return}
