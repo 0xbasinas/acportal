@@ -180,7 +180,7 @@ import kotlinx.coroutines.*
             else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.")
         }
         else LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            items(state.items,key={it.id}) { item -> when(item) {
+            items(state.items,key={it.id},contentType={it::class}) { item -> when(item) {
                 is TimelineItem.Text->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,style=MaterialTheme.typography.bodyMedium)}}} else MessageCard(item,info.agentId)
                 is TimelineItem.Content->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {ReceivedContentView(item.content)}} else Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text(if(item.role=="user")"You" else info.agentId,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);ReceivedContentView(item.content)}
                 is TimelineItem.Tool->{val key=remember(item.id) {disclosureKey("tool:",item.id)};ToolCard(item,state.terminals,onChange={changedFile=it},expandedOverride=key in expandedActivity,onExpandedChange={disclose(key,it)})}
