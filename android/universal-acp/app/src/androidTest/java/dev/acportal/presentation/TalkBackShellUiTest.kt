@@ -43,6 +43,10 @@ class TalkBackShellUiTest {
     @Test fun lightTalkBackOwnToolsAndWriteNotices()=check("light","notices")
     @Test fun darkTalkBackElicitationExplicitCancel()=check("dark","elicitation")
     @Test fun lightTalkBackElicitationExplicitCancel()=check("light","elicitation")
+    @Test fun darkTalkBackLogsReturnFocus()=check("dark","logs-return")
+    @Test fun lightTalkBackLogsReturnFocus()=check("light","logs-return")
+    @Test fun darkTalkBackScrollFocusSurvivesRecreation()=check("dark","scroll")
+    @Test fun lightTalkBackScrollFocusSurvivesRecreation()=check("light","scroll")
     private fun check(mode:String,page:String="shell") {
         assumeTrue("Run this settings-changing fixture through scripts/verify-talkback-ui.ps1",
             InstrumentationRegistry.getArguments().getString("talkback")=="true" &&
@@ -75,7 +79,7 @@ class TalkBackShellUiTest {
             waitFor("TalkBack service connected") {
                 manager.getEnabledAccessibilityServiceList(-1).any {it.resolveInfo.serviceInfo.packageName=="com.google.android.marvin.talkback"} && manager.isTouchExplorationEnabled
             }
-            val title=when(page) {"state-host"->"Host";"state-sessions"->"Sessions";"state-connections"->"Connections";"state-offline"->"New conversation";"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
+            val title=when(page) {"state-host"->"Host";"state-sessions"->"Sessions";"state-connections"->"Connections";"state-offline"->"New conversation";"models"->"Session options";"creation","creation-form"->"New session";"pairing"->"Add connection";"markdown"->"Markdown reply";"logs"->"Connection logs";"logs-return"->"Connection details";"scroll"->"Scroll fixture";"agents","agents-saved","agents-error"->"Agents";"recovery"->"Recovery fixture";"tools","badges"->"Activity review";"notices"->"Agent safety notices";"elicitation"->"The agent is asking you";else->"Host permission needed"}
             scenario=ActivityScenario.launch(Intent(context,UiAccessibilityFixtureActivity::class.java).putExtra("mode",mode).putExtra("page",page))
             var dismissedKnownNotification=false
             waitFor("Fixture window") {
@@ -219,6 +223,33 @@ class TalkBackShellUiTest {
                 assertTrue("Live switch exposes checked state",live.isCheckable && live.isChecked)
                 assertTrue(live.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 waitFor("Live updates paused") {nodes(automation).any {label(it)=="Live updates" && it.isCheckable && !it.isChecked}}
+                scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
+            }
+            "logs-return"->{
+                val open=traverseTo(automation) {it=="View connection logs"}
+                scenario.onActivity {assertTrue("Traversal must not act",it.fixtureActions.isEmpty())}
+                assertTrue(open.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Connection logs shown") {find(automation,"Connection logs")?.isHeading==true}
+                val back=nodes(automation).first {it.isClickable && label(it)=="Back"}
+                assertTrue(back.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Details returned") {find(automation,"Connection details")!=null}
+                waitFor("Automatic focus on returned details page") {
+                    label(nodes(automation).firstOrNull {it.isAccessibilityFocused}) in setOf(
+                        "Connection details","Back","Fixture computer","View connection logs")
+                }
+                reportRecoveredFocus(automation)
+                traverseTo(automation) {it=="View connection logs"}
+                scenario.onActivity {assertEquals(listOf("logs","logs-back"),it.fixtureActions)}
+            }
+            "scroll"->{
+                val row=traverseTo(automation) {it=="Scroll row 24"}
+                assertTrue(row.isVisibleToUser);assertNull("Row 24 required scrolling",find(automation,"Scroll row 1"))
+                scenario.recreate()
+                waitFor("Scroll position restored after recreation") {find(automation,"Scroll row 24")?.isVisibleToUser==true}
+                assertNull("Restored offset keeps the heading scrolled away",find(automation,"Scroll row 1"))
+                reportRecoveredFocus(automation)
+                // Focus after recreation is reported, not assumed; traversal must still work and cause no action.
+                advanceFocus(automation,nodes(automation).firstOrNull {it.isAccessibilityFocused})
                 scenario.onActivity {assertTrue(it.fixtureActions.isEmpty())}
             }
             "agents","agents-saved","agents-error"->{

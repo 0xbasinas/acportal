@@ -94,3 +94,12 @@ Manual [Android Actions 38137773010](https://github.com/0xbasinas/acportal/actio
 ## Emulator regression rerun, 11 October 2026
 
 On the small_phone API 36 emulator with the acceptance package at `4d5d888`: `PageStateMatrixUiTest` 24/24, `MotionInputFixtureTest` 3/3, `RouteRecoveryUiTest` 4/4 and `RenderedFrameProfileTest` 2/2 pass. Rendered streaming frames (debug emulator, 120 updates): light p50 22.8 / p95 35.6 / p99 36.3 ms; dark p50 22.8 / p95 34.1 / p99 35.4 ms. This is unchanged from the earlier ~36 ms p95. No new gate is closed: predictive-Back gesture drags, physical-phone frames, codecs/document providers and broader focus restoration remain open and need hand gestures or a real device.
+
+## Native TalkBack: Connection logs return and scroll restoration, 11 October 2026
+
+New `TalkBackShellUiTest` cases on emulator-5554 (API 36, 720×1280, font 1.0), run through `scripts/verify-talkback-ui.ps1` (needs PowerShell 7, `pwsh`; Windows PowerShell 5.1 lacks `ProcessStartInfo.ArgumentList`), dark and light, all four pass:
+
+- `*TalkBackLogsReturnFocus`: traverse Connection details to "View connection logs", activate it, then Back from Connection logs. The details heading is announced and automatic focus returns to "View connection logs", the control that opened the page. Traversal and return cause no action beyond the two expected callbacks.
+- `*TalkBackScrollFocusSurvivesRecreation`: TalkBack scrolls a 40-row page to row 24, the Activity is recreated, and the same row is still visible with the earlier rows scrolled away. After recreation no accessibility focus is held (reported as empty); swipe navigation still works and causes no action. Scroll offset survives, focus does not, and that is recorded rather than asserted as restored.
+
+Limits: font 1.0 only; fixture pages (`logs-return`, `scroll`) rather than the production navigation stack; no speech audibility. Settings and the TalkBack notification state were restored by the runner. Debug fixture only; absent from release.

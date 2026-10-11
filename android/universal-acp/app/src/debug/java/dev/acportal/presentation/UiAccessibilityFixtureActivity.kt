@@ -69,6 +69,14 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
                     ConnectionDiagnostic(2000,"Warning","Fixture reconnect waiting"),
                     ConnectionDiagnostic(3000,"Error","Fixture connection unavailable")
                 ),{fixtureActions.add("back")},"Fixture computer",ConnectionState.Disconnected)
+                else if(page=="logs-return")LogsReturnFixture()
+                else if(page=="scroll") {
+                    val scroll=rememberScrollState()
+                    Column(Modifier.verticalScroll(scroll).padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                        ScreenHeader("Scroll fixture")
+                        repeat(40) {Text("Scroll row ${it+1}")}
+                    }
+                }
                 else if(page.startsWith("agents"))AgentsFixture(page)
                 else if(page=="recovery") {
                     var state by remember {mutableStateOf(SessionState(error="Fixture connection failed"))}
@@ -101,6 +109,13 @@ class UiAccessibilityFixtureActivity:ComponentActivity() {
                 }
             }}
         }
+    }
+    @Composable private fun LogsReturnFixture() {
+        var logs by rememberSaveable {mutableStateOf(false)}
+        if(logs)ConnectionLogsScreen(listOf(ConnectionDiagnostic(1000,"Info","Fixture connection opened")),
+            {logs=false;fixtureActions.add("logs-back")},"Fixture computer",ConnectionState.Disconnected)
+        else ConnectionDetailsScreen("Fixture computer","https://example.invalid",ConnectionState.Disconnected,
+            {fixtureActions.add("back")},{logs=true;fixtureActions.add("logs")},{fixtureActions.add("reconnect")},{fixtureActions.add("disconnect")},"Fixture agent")
     }
     @Composable private fun AgentsFixture(page:String) {
         val saved=if(page=="agents-saved")1000L else null
