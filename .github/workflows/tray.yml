@@ -1,0 +1,57 @@
+name: Tray
+# The tray app is its own Cargo workspace (it needs GTK on Linux, which the host builds do not).
+# Runs only when the tray or the host library it uses changes. See docs/tray.md.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "tray/**"
+      - "acpd/**"
+      - "protocol/**"
+      - ".github/workflows/tray.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tray/**"
+      - "acpd/**"
+      - "protocol/**"
+      - ".github/workflows/tray.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tray-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  tray:
+    name: ${{ matrix.name }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows (fmt, clippy, tests)
+            os: windows-2022
+          - name: Linux (fmt, clippy, tests)
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tray
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux GUI libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tray
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked

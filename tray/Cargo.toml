@@ -1,0 +1,22 @@
+[package]
+name = "acpd-tray"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "System tray controller for the ACP Portal host (acpd)"
+
+# A separate workspace: the tray needs GTK on Linux, which the host's CI and builds should not.
+[workspace]
+
+[dependencies]
+acpd = { path = "../acpd" }
+anyhow = "1"
+open = "5"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+serde_json = "1"
+tao = "0.34"
+tray-icon = "0.21"
+
+[dev-dependencies]
+tempfile = "3"
