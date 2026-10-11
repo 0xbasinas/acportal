@@ -108,6 +108,11 @@ class PortalRepository(
     }
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
+    fun agentClient(host:HostProfile)=object:AgentClient {
+        override suspend fun check(command:String,env:Map<String,String>)=api.checkAgent(host,command,env)
+        override suspend fun add(registration:AgentRegistration) {api.addAgent(host,registration)}
+        override suspend fun remove(id:String) {api.removeAgent(host,id)}
+    }
     /** Folder choosing and adding for one host; the phone is paired, so the host accepts these. */
     fun folderClient(host:HostProfile)=object:FolderClient {
         override suspend fun directories(path:String?)=api.directories(host,path)

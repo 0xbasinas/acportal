@@ -18,6 +18,10 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -34,18 +38,22 @@ import dev.acportal.protocol.OWN_TOOLS_LABEL
 import dev.acportal.protocol.OWN_TOOLS_WARNING
 import androidx.compose.foundation.text.selection.SelectionContainer
 
-@Composable fun RegistryAgentsScreen(details:HostDetails,onBack:()->Unit,onRefresh:()->Unit,onAgent:(String)->Unit,savedAt:Long?=null) {
+@Composable fun RegistryAgentsScreen(details:HostDetails,onBack:()->Unit,onRefresh:()->Unit,onAgent:(String)->Unit,savedAt:Long?=null,onAddAgent:(()->Unit)?=null) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val scrollControls=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Agents",details.host.label,onBack,action={IconButton(onRefresh) {Icon(Icons.Outlined.Refresh,"Refresh agents")}})
         if(!scrollControls)savedAt?.let {SavedAgentNotice(it)}
-        if(details.agents.isEmpty() && !scrollControls)EmptyState("No agents configured","Add an ACP agent to this computer's registry, then refresh.")
+        if(details.agents.isEmpty() && !scrollControls) {
+            Box(Modifier.weight(1f)) {EmptyState("No agents yet","Register the command-line agent you want to use on this computer.")}
+            onAddAgent?.let {Button(it,Modifier.fillMaxWidth().padding(24.dp).heightIn(min=52.dp).testTag("add-agent-action")) {Text("Add agent")}}
+        }
         else LazyColumn(Modifier.weight(1f).testTag("agent-list"),contentPadding=PaddingValues(bottom=24.dp)) {
             if(scrollControls)savedAt?.let {timestamp->item(key="saved-notice") {SavedAgentNotice(timestamp)}}
+            if(onAddAgent!=null && (details.agents.isNotEmpty() || scrollControls))item(key="add-agent") {TextButton(onAddAgent,Modifier.padding(horizontal=12.dp).testTag("add-agent-action")) {Text("Add agent")}}
             if(details.agents.isEmpty()) {
-                item(key="empty-title") {Text("No agents configured",Modifier.padding(horizontal=24.dp,vertical=16.dp),style=MaterialTheme.typography.titleLarge)}
-                item(key="empty-help") {Text("Add an ACP agent to this computer's registry, then refresh.",Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                item(key="empty-title") {Text("No agents yet",Modifier.padding(horizontal=24.dp,vertical=16.dp),style=MaterialTheme.typography.titleLarge)}
+                item(key="empty-help") {Text("Register the command-line agent you want to use on this computer.",Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             }
             items(details.agents,key={"agent:${it.id}"}) {agent->
                 Row(Modifier.fillMaxWidth().clickable(role=Role.Button,onClickLabel="Inspect agent") {onAgent(agent.id)}.padding(horizontal=24.dp,vertical=20.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -61,7 +69,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
     }
 }
 
-@Composable fun RegistryAgentDetailsScreen(agent:AgentInfo,hostLabel:String,loading:Boolean,onBack:()->Unit,onRefresh:()->Unit,onNew:()->Unit,savedAt:Long?=null) {
+@Composable fun RegistryAgentDetailsScreen(agent:AgentInfo,hostLabel:String,loading:Boolean,onBack:()->Unit,onRefresh:()->Unit,onNew:()->Unit,savedAt:Long?=null,onRemove:(()->Unit)?=null) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val scrollControls=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
     val launch:@Composable ()->Unit={
@@ -94,6 +102,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
             if(!agent.enabled)Text("Enable this agent in the computer's registry to start a session.",style=MaterialTheme.typography.bodyMedium)
             else if(agent.status=="misconfigured")Text("Correct this agent's configuration on the computer, then refresh.",style=MaterialTheme.typography.bodyMedium)
             else if(!agent.installed)Text("Install this CLI on the computer, or update its executable path in the registry, then refresh.",style=MaterialTheme.typography.bodyMedium)
+            var confirmRemove by remember {mutableStateOf(false)}
+            if(onRemove!=null && agent.removable)TextButton({confirmRemove=true},enabled=!loading,modifier=Modifier.testTag("remove-agent-action")) {Text("Remove agent",color=MaterialTheme.colorScheme.error)}
+            if(confirmRemove)AlertDialog(onDismissRequest={confirmRemove=false},title={Text("Remove agent?")},text={Text("${agent.name} will be removed from this computer's list. The program itself is not uninstalled. Running sessions keep working.")},confirmButton={TextButton({confirmRemove=false;onRemove?.invoke()},Modifier.testTag("remove-agent-confirm")) {Text("Remove")}},dismissButton={TextButton({confirmRemove=false}) {Text("Cancel")}})
             if(scrollControls)launch()
         }
         if(!scrollControls)launch()
