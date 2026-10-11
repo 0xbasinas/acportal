@@ -21,7 +21,11 @@ const val OWN_TOOLS_LABEL = "Uses its own tools"
  */
 const val OWN_TOOLS_WARNING = "This agent can edit files and run commands with its own built-in tools. Those actions do not go through this host's approval prompts or workspace access settings. Only the agent's own permission settings apply to them."
 @Serializable
-data class Workspace(val path: String, val name: String)
+data class Workspace(val path: String, val name: String, val removable: Boolean = false)
+
+/** One level of host directories for choosing a folder to add; null path lists drives or `/`. */
+@Serializable
+data class DirectoryListing(val path: String? = null, val parent: String? = null, val entries: List<Workspace> = emptyList())
 @Serializable
 data class WorkspaceAccess(val readFiles:Boolean=true,val writeFiles:Boolean=true,val terminal:Boolean=true)
 @Serializable

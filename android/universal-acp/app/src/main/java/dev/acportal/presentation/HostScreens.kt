@@ -165,10 +165,11 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by rememberSaveable {mutableStateOf(false)}
+    var addFolder by rememberSaveable {mutableStateOf(false)}
     var agentPicker by remember {mutableStateOf(false)}
     var browsePath by rememberSaveable {mutableStateOf<String?>(null)}
     var requestedBrowsePath by remember {mutableStateOf<String?>(null)}
@@ -236,6 +237,7 @@ import kotlinx.serialization.json.*
                         }
                     }
                     item {TextButton({workspacePicker=true;browsePath=null},Modifier.padding(start=12.dp)) {Text("Browse folders",style=MaterialTheme.typography.bodySmall)}}
+                    if(folderClient!=null)item(key="add-folder-action") {TextButton({addFolder=true},Modifier.padding(start=12.dp).testTag("add-folder-action")) {Text("Add folder from this computer",style=MaterialTheme.typography.bodySmall)}}
                     if(path.isNotBlank() && details.workspaces.none {it.path==path})item {FolderPathText(path,Modifier.padding(horizontal=24.dp))}
                     item {SectionLabel("Agent")}
                     if(onChangeConnection!=null)item {SelectionCard(details.agents.firstOrNull {it.id==agentId}?.name ?: "Choose agent","") {agentPicker=true}}
@@ -257,6 +259,7 @@ import kotlinx.serialization.json.*
                     }
                 }
                 if(!scrollActions)actions()
+                if(addFolder && folderClient!=null)AddFolderDialog(folderClient,details.workspaces.filter {it.removable},{added->path=added.path;addFolder=false;onReload()},{onReload()},{addFolder=false})
                 if(agentPicker)AlertDialog(onDismissRequest={agentPicker=false},confirmButton={},dismissButton={TextButton({agentPicker=false}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {AgentPicker(details.agents) {agentId=it.id;agentPicker=false}}})
                 if(workspacePicker)AlertDialog(onDismissRequest={workspacePicker=false;onDismissBrowse()},confirmButton={},dismissButton={TextButton({workspacePicker=false;onDismissBrowse()}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {WorkspacePicker(if(browsePath==null)details.workspaces else browsed.orEmpty(),browsePath,onSelect={path=it;workspacePicker=false;onDismissBrowse()},onBrowse={requestedBrowsePath=it;browsePath=it;onBrowse(details.host,it)},loading=browsePath!=null && browseLoading,error=browseError.takeIf {browsePath!=null},onRetry={browsePath?.let {onBrowse(details.host,it)}})}})
             }

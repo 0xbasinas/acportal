@@ -19,4 +19,8 @@ class FolderDisplayTest {
         assertEquals("work",folderTitle("","D:\\work"))
         assertEquals("/",folderTitle("","/"))
     }
+    @Test fun verbatimPrefixIsHidden() {
+        assertEquals("C:\\Users\\me",displayPath("\\\\?\\C:\\Users\\me"))
+        assertEquals("\\\\srv\\share",displayPath("\\\\?\\UNC\\srv\\share"))
+    }
 }

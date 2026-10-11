@@ -19,7 +19,13 @@ internal fun folderTitle(name:String,path:String):String {
  * Presentation form of a host path. A Windows path (drive letter) is shown with backslashes and an
  * upper-case drive; anything else is unchanged. Only for display: the original string is what the host receives.
  */
-internal fun displayPath(path:String):String {
+internal fun displayPath(raw:String):String {
+    // Older hosts report the Windows verbatim form; show it without the prefix.
+    val path=when {
+        raw.startsWith("\\\\?\\UNC\\") -> "\\\\"+raw.removePrefix("\\\\?\\UNC\\")
+        raw.startsWith("\\\\?\\") && raw.length>5 && raw[5]==':' -> raw.removePrefix("\\\\?\\")
+        else -> raw
+    }
     if(!windowsDrive.matches(path))return path
     return (path.substring(0,1).uppercase()+path.substring(1)).replace('/','\\')
 }

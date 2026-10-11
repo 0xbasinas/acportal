@@ -108,6 +108,12 @@ class PortalRepository(
     }
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
+    /** Folder choosing and adding for one host; the phone is paired, so the host accepts these. */
+    fun folderClient(host:HostProfile)=object:FolderClient {
+        override suspend fun directories(path:String?)=api.directories(host,path)
+        override suspend fun add(path:String)=api.addWorkspace(host,path)
+        override suspend fun remove(path:String)=api.removeWorkspace(host,path)
+    }
     suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null): StoredSession = withContext(Dispatchers.IO) {
         val host=dao.host(hostId) ?: error("Host is no longer saved")
         // Opt into form elicitation only on hosts that list the feature; older hosts reject unknown fields.
