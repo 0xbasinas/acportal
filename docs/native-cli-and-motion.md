@@ -4,13 +4,22 @@
 
 ## One-time host setup
 
-The workflow is built into `acpd`, without a wrapper script. Use the updated binary, under the account that runs Goose and owns the existing host config. From the directory containing `acpd.exe`:
+The workflow is built into `acpd`, without a wrapper script. Run it from any folder; nothing is written to the folder you run it in.
 
 ```powershell
-.\acpd.exe setup --config "$env:LOCALAPPDATA\ACPPortal-PhoneTest\config.toml" --address https://YOUR-TAILSCALE-HOST --name "Workstation"
+acpd setup --address https://YOUR-TAILSCALE-HOST --name "Laptop"
 ```
 
-Replace the path/address with your existing deployment. `acpd setup` without these flags asks for them interactively. It validates the existing config and registry, then remembers an absolute config path, HTTPS address and optional connection name in protected `launcher.json` in the normal acpd config directory. It does not rewrite config, widen workspace roots, start agents, create pairing codes, change credentials, or configure Tailscale/TLS/firewalls. It can also be rerun to change the remembered host.
+With no `--config`, `acpd` keeps its files in the standard per-user places and creates them on first use:
+
+| What | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Settings: `config.toml`, `agents.json`, `launcher.json` | `%APPDATA%\acpd` | `~/Library/Application Support/acpd` | `~/.config/acpd` |
+| Host data: paired devices, session metadata (`state`) | `%LOCALAPPDATA%\acpd\state` | `~/Library/Application Support/acpd/state` | `~/.local/share/acpd/state` |
+
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` override these on every system. A `state` folder that already exists next to the settings (where earlier versions kept it) is still used, so paired devices are not lost. Setup writes a starter `config.toml` (every setting is its default; nothing is required) and an empty `agents.json` only when they are missing, and never changes existing files. Add agents and folders from the phone; you do not have to edit these files.
+
+`acpd setup` without `--address` asks for it. It remembers the config path, HTTPS address and connection name in protected `launcher.json` in the settings folder. To use a config somewhere else, pass `--config PATH` (it must already exist). Setup does not widen workspace roots, start agents, create pairing codes, change credentials, or configure Tailscale/TLS/firewalls. It can be rerun to change the remembered address. The default listener is `127.0.0.1:8765`; publish it with `tailscale serve --bg 8765`.
 
 Everyday use:
 

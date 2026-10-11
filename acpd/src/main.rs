@@ -34,6 +34,7 @@ struct Cli {
 enum Commands {
     /// Remember an existing config and HTTPS address for short start/pair commands.
     Setup {
+        /// HTTPS address the phone uses to reach this computer (for example a Tailscale Serve address).
         #[arg(long)]
         address: Option<String>,
         #[arg(long, default_value = "Workstation")]
@@ -137,9 +138,21 @@ async fn main() -> Result<()> {
         .clone()
         .unwrap_or_else(|| default_directory().join("launcher.json"));
     if let Commands::Setup { address, name } = &cli.command {
+        // Without --config the settings live in the standard per-user folder, created on first use.
         let config = match &cli.config {
             Some(path) => path.clone(),
-            None => PathBuf::from(operator_input("Existing host config path")?),
+            None => {
+                let existed = default_directory().join("config.toml").exists();
+                let file = acpd::config::bootstrap_default_config(&default_directory())?;
+                if !existed {
+                    println!("Created your settings in {}", default_directory().display());
+                    println!(
+                        "Host data (paired devices) will be kept in {}",
+                        acpd::config::default_state_directory().display()
+                    );
+                }
+                file
+            }
         };
         let address = match address {
             Some(value) => value.clone(),

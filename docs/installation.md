@@ -2,7 +2,7 @@
 
 9 October 2026: [native daemon control and soft reload](daemon-and-reload.md) adds operator-only lifecycle control and immutable launch settings. Existing sessions retain their authorization; immediate root revocation requires stop/restart. See [the ADR](adr-background-control.md) and [verification history](../TODO_DONE.md). Platform Actions acceptance remains open.
 
-For short native start/pair commands using your existing configuration, follow [native setup](native-cli-and-motion.md).
+For the simplest setup, run `acpd setup --address https://YOUR-HOST` and follow [native setup](native-cli-and-motion.md): settings go to the standard per-user folder for your system (and host data to the local data folder) automatically, and nothing is written to the folder you run it from. The manual configuration below is for operators who want explicit paths.
 
 After setup, `acpd start --background` runs under your operator account and returns after readiness. Use `acpd daemon status`, `acpd daemon reload` after supported config edits, and `acpd daemon stop` for graceful shutdown. Rerunning setup changes the saved launcher selection; it does not reload an existing host. Stop the old instance before switching configs, or select its original config/profile explicitly. Boot startup and automatic crash restart are not installed.
 

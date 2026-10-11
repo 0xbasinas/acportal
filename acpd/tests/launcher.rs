@@ -135,3 +135,77 @@ fn short_start_uses_saved_listener_and_still_requires_authentication() {
     assert!(String::from_utf8_lossy(&reply[..count]).starts_with("HTTP/1.1 401"));
     assert_eq!(std::fs::read_to_string(&config).unwrap(), contents);
 }
+
+#[test]
+fn bare_setup_creates_the_standard_per_user_files_and_keeps_state_in_the_data_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = home.path().join("config-home");
+    let data_home = home.path().join("data-home");
+    let work = home.path().join("run-here");
+    std::fs::create_dir(&work).unwrap();
+    let invoke = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_acpd"))
+            .current_dir(&work)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let setup = invoke(&[
+        "setup",
+        "--address",
+        "https://host.example",
+        "--name",
+        "Laptop",
+    ]);
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    let settings = config_home.join("acpd");
+    assert!(settings.join("config.toml").is_file());
+    assert_eq!(
+        std::fs::read_to_string(settings.join("agents.json"))
+            .unwrap()
+            .trim(),
+        "[]"
+    );
+    assert!(settings.join("launcher.json").is_file());
+    // Nothing is written next to where the command was run.
+    assert_eq!(std::fs::read_dir(&work).unwrap().count(), 0);
+    // The effective state folder is in the data folder, and pairing creates it there.
+    let config = invoke(&["config"]);
+    assert!(config.status.success());
+    let shown = String::from_utf8_lossy(&config.stdout).replace('\\', "/");
+    assert!(
+        shown.contains(
+            &data_home
+                .join("acpd")
+                .join("state")
+                .to_string_lossy()
+                .replace('\\', "/")
+        ),
+        "{shown}"
+    );
+    let pair = invoke(&["pair", "--manual"]);
+    assert!(
+        pair.status.success(),
+        "{}",
+        String::from_utf8_lossy(&pair.stderr)
+    );
+    assert!(data_home.join("acpd").join("state").is_dir());
+    assert!(!settings.join("state").exists());
+    // Running setup again keeps edits.
+    std::fs::write(settings.join("config.toml"), "# edited by the user\n").unwrap();
+    assert!(
+        invoke(&["setup", "--address", "https://other.example"])
+            .status
+            .success()
+    );
+    assert_eq!(
+        std::fs::read_to_string(settings.join("config.toml")).unwrap(),
+        "# edited by the user\n"
+    );
+}
