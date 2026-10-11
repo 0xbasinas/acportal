@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 10 October 2026. PR #12 is merged on main at `3cd1b9b`; acceptance work continues in draft [PR #13](https://github.com/0xbasinas/acportal/pull/13) on `codex/remaining-acceptance`. PR #13 is not merged. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md).
+Reconciled 11 October 2026 against merged main `e6a3460` and the recorded acceptance evidence. [PR #13](https://github.com/0xbasinas/acportal/pull/13) is merged. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
 
 Goose ACP is the local agent. Android connects through authenticated REST/WebSocket; the host uses ACP stdio. Follow [HANDOFF.md](HANDOFF.md), [requirements audit](docs/requirements-audit.md) and [UI reference](docs/ui-reference.md). Checkmarks are reserved for verified work, and completed items are archived rather than kept here.
 
@@ -17,7 +17,10 @@ Goose ACP is the local agent. Android connects through authenticated REST/WebSoc
 - [ ] Complete real-agent own-tools warnings, write notices, shell approval/review badge outcomes and form submission/lifecycle on Android. Installed Goose/router now passes actual pending form elicitation, reload and Android process-death recovery after one specifically human-authorized read-only fixture call. No form answer or prompt is submitted automatically. Isolated keyboard/large-font/TalkBack fixtures and earlier host-side Goose form accept/decline retain their separate scope. [Real-agent evidence](docs/real-agent-testing.md).
 - [ ] Verify network replay after an old-build upgrade. An actual APK from `cf8fa26` upgraded in place to the current acceptance APK; Sessions, explicit saved-history gap handling, small draft retention and exact original large-column fingerprints pass without clearing data.
 - [ ] Broaden predictive-Back, dialogs/sheets and keyboard animation checks; investigate measured streaming frame costs and repeat on the user-owned phone. Actual rendered streaming-window durations are recorded for both themes, with emulator p95 around 35–37 ms. Short page fades and selected-tab behavior have scoped enabled/disabled-animation evidence. [Motion evidence](docs/native-cli-and-motion.md).
-- [ ] Keep new UI changes represented in Penpot before acceptance. Existing boards 24–31 cover the four new-screen designs in both themes. Compare original supplied mockups only if their missing source folder becomes available; no fresh original-image comparison is claimed.
+
+## Ongoing contributor requirements
+
+Keep future UI changes represented in Penpot before acceptance. Existing boards 24–31 are completed to their recorded scope; this is not a separate unfinished implementation. Compare original supplied mockups only if their missing source folder becomes available; no fresh original-image comparison is claimed.
 
 ## Suspended and user-owned checks
 

@@ -1,5 +1,9 @@
 # Completed work and verification history
 
+## 11 October 2026 - merged status and remaining-scope reconciliation
+
+Local main is clean at merge commit `e6a3460` before documentation edits and matches the fetched `origin/main`. PR #13 is merged. README, AGENTS, HANDOFF and current acceptance summaries now reflect that merge. Historical source/run evidence remains dated and is not rewritten as a merged-head test run. TODO's remaining checks were compared against the acceptance continuation, Android and accessibility records. Completed pending-request recovery, offline upgrade, initial profiling and scoped TalkBack are evidence for parts of those areas; they do not close the narrower follow-ups. The completed Penpot boards are moved out of the unchecked list into an ongoing contributor requirement. No implementation tests rerun for this documentation-only reconciliation.
+
 ## 10 October 2026 - real elicitation recovery and Markdown link accessibility
 
 One specifically human-authorized read-only `ask_preference` call passed exact fixture-qualified title and empty-input validation before an advertised one-time approval was sent. An exclusive marker prevents reuse. Installed Goose/router then exposed actual form elicitation; reload retained the pending ID/session/credential. Actual Android process death and same-task restoration preserved the cached draft before network, authoritative form replay and second-session navigation. Host observation retained one original prompt and zero Android decisions. The fixture explicitly cancelled afterward. Earlier title-matching failures sent no approval. This verifies pending form recovery, not Android form submission or provider-backed TalkBack/warning/badge acceptance.

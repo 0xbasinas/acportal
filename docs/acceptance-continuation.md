@@ -1,6 +1,6 @@
 # October acceptance continuation
 
-Work continues in draft [PR #13](https://github.com/0xbasinas/acportal/pull/13), based on merged PR #12 at `3cd1b9b`. The eight requested areas remain a collection of separate acceptance gates; this increment does not establish production completion.
+PR #13 is merged on main at `e6a3460`, confirmed locally on 11 October 2026. Its original baseline was merged PR #12 at `3cd1b9b`. The eight requested areas remain a collection of separate acceptance gates; this increment does not establish production completion.
 
 ## Penpot and native accessibility
 
