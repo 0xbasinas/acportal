@@ -6,6 +6,10 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-11
+
+The host and tray programs are unchanged from 0.1.1; this release adds the installers and documentation.
+
 ### Added
 - One-line installers: `scripts/install.ps1` (Windows) and `scripts/install.sh` (Linux). They download the host and tray from the latest release, verify them against `SHA256SUMS.txt`, install into the user folder (Start menu or applications-menu entry, PATH or `~/.local/bin` links) and support update and uninstall. Downloads made this way carry no "from the internet" mark.
 - Uninstall scripts: `scripts/uninstall.ps1` and `scripts/uninstall.sh` stop the host and tray and remove the programs, links, shortcut and PATH entry; your settings and paired devices are kept unless `-Purge` / `--purge` is given (it asks you to type `DELETE`, or needs `-Yes` / `--yes`).
@@ -55,7 +59,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.2
 [0.1.1]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.1
 [0.1.0]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.0
 
