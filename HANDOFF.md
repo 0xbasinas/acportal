@@ -4,6 +4,8 @@
 
 Offline-history process death additionally passes exact scroll bounds and retained disclosures. Native allocation/owner-class profiling passes real repository streaming/refresh and explicit session deletion. The four remaining acceptance areas are real-agent write/shell outcomes, native accessibility/page states, predictive motion and macOS real-agent abrupt cleanup. Preserve both consumed authorization markers. The batch's disposable write/read-only shell scope remains authorized and unused. Current ordinary APK outputs and the affected eight device regressions pass; see the continuation for failures and limits.
 
+Draft [PR #16](https://github.com/0xbasinas/acportal/pull/16) contains the verified increment at `afd99d6`. Full manual Android Actions [38133735509](https://github.com/0xbasinas/acportal/actions/runs/38133735509) is in progress at that implementation head; inspect its terminal result before claiming CI acceptance. The draft-triggered job is intentionally skipped. Branch remains `codex/final-acceptance`; do not mark the broader goal complete while the four gates remain open.
+
 
 11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
 

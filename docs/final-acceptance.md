@@ -2,6 +2,8 @@
 
 11 October 2026, branch `codex/final-acceptance`, starting from merged PR #15 main `8f4741b`. This report records new scoped results. It does not replace the earlier acceptance reports or establish production completion.
 
+Published as draft [PR #16](https://github.com/0xbasinas/acportal/pull/16), implementation head `afd99d6`. The draft PR event skips the Android job by design. A separate full [manual Android Actions run](https://github.com/0xbasinas/acportal/actions/runs/38133735509) was dispatched at that exact implementation head and is currently in progress; no passing CI result is claimed yet. Rust production sources are unchanged and were not locally rerun.
+
 ## Recovery and upgrade
 
 Actual external MainActivity process-death checks pass for:
