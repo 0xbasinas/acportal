@@ -1,6 +1,9 @@
-//! Folders the paired phone adds. Kept apart from the hand-written config and agent
+//! Folders and agent CLIs the paired phone adds. Kept apart from the hand-written config and agent
 //! registry (which stay untouched and keep their comments) in a protected file in the state directory.
-use crate::{config::Config, registry::Registry};
+use crate::{
+    config::Config,
+    registry::{AgentDefinition, Registry},
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,10 +13,11 @@ use std::{
 
 const FILE: &str = "user-settings.json";
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserData {
     pub workspace_roots: Vec<PathBuf>,
+    pub agents: Vec<AgentDefinition>,
 }
 
 /// A path without the Windows verbatim prefix (`\?\C:\x` becomes `C:\x`), for display and storage.
@@ -61,12 +65,17 @@ impl UserData {
         }
         result
     }
-    /// Adds the phone-added folders to a configuration. The registry is passed through unchanged:
-    /// the phone cannot add agents.
-    pub fn apply(&self, config: &mut Config, _registry: &mut Registry) {
+    /// Adds the phone-added folders and agents. A saved agent that no longer validates is skipped
+    /// with a warning so one bad entry cannot stop the host starting.
+    pub fn apply(&self, config: &mut Config, registry: &mut Registry) {
         for root in &self.workspace_roots {
             if !config.workspace_roots.contains(root) {
                 config.workspace_roots.push(root.clone());
+            }
+        }
+        for agent in &self.agents {
+            if let Err(error) = registry.upsert(agent.clone()) {
+                tracing::warn!(agent = %agent.id, %error, "skipping invalid phone-added agent");
             }
         }
     }
@@ -99,6 +108,7 @@ mod tests {
         );
         let data = UserData {
             workspace_roots: vec![dir.path().to_path_buf()],
+            agents: vec![],
         };
         data.save(dir.path()).unwrap();
         data.save(dir.path()).unwrap();

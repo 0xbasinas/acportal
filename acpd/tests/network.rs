@@ -184,6 +184,140 @@ async fn phone_adds_lists_and_removes_folders_and_they_survive_restart() {
 }
 
 #[tokio::test]
+async fn phone_checks_registers_and_removes_agents_and_they_survive_restart() {
+    let fixture = Fixture::start().await;
+    let mock = env!("CARGO_BIN_EXE_mock-acp-agent");
+    let auth = |request: reqwest::RequestBuilder| request.bearer_auth(&fixture.token);
+    // Check: a real executable is found; a missing one is reported, not an error.
+    let found: Value = auth(
+        fixture
+            .client
+            .post(format!("{}/v1/agents/check", fixture.base)),
+    )
+    .json(&json!({"command":mock}))
+    .send()
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(found["found"], true);
+    assert!(found["executable"].is_string());
+    let missing: Value = auth(
+        fixture
+            .client
+            .post(format!("{}/v1/agents/check", fixture.base)),
+    )
+    .json(&json!({"command":"definitely-not-installed-acp-cli"}))
+    .send()
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(missing["found"], false);
+    // Register: invalid id, missing executable and a host-defined id are refused.
+    let register =
+        |body: Value| auth(fixture.client.post(format!("{}/v1/agents", fixture.base))).json(&body);
+    for body in [
+        json!({"id":"bad id!","name":"X","command":mock}),
+        json!({"id":"ghost","name":"Ghost","command":"definitely-not-installed-acp-cli"}),
+    ] {
+        assert_eq!(
+            register(body).send().await.unwrap().status(),
+            reqwest::StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        register(json!({"id":"mock","name":"Replace","command":mock}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::CONFLICT
+    );
+    let created = register(
+        json!({"id":"extra","name":"Extra agent","command":mock,"args":["--delay-ms","1"]}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+    let list: Value = auth(fixture.client.get(format!("{}/v1/agents", fixture.base)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let find = |list: &Value, id: &str| {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == id)
+            .cloned()
+    };
+    assert_eq!(find(&list, "extra").unwrap()["removable"], true);
+    assert_eq!(find(&list, "mock").unwrap()["removable"], false);
+    let workspace = fixture.host.config.workspace_roots[0].clone();
+    let start = |id: &str| {
+        auth(fixture.client.post(format!("{}/v1/sessions", fixture.base)))
+            .json(&json!({"agentId":id,"workspace":workspace}))
+    };
+    assert_eq!(
+        start("extra").send().await.unwrap().status(),
+        reqwest::StatusCode::CREATED
+    );
+    // The host's own agent cannot be removed from the phone.
+    assert_eq!(
+        auth(
+            fixture
+                .client
+                .delete(format!("{}/v1/agents/mock", fixture.base))
+        )
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    // Restart keeps it; removal makes it unknown again.
+    let fixture = fixture.restart().await;
+    let workspace = fixture.host.config.workspace_roots[0].clone();
+    let again = fixture
+        .client
+        .post(format!("{}/v1/sessions", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"agentId":"extra","workspace":workspace}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), reqwest::StatusCode::CREATED);
+    let removed = fixture
+        .client
+        .delete(format!("{}/v1/agents/extra", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), reqwest::StatusCode::NO_CONTENT);
+    let gone = fixture
+        .client
+        .post(format!("{}/v1/sessions", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"agentId":"extra","workspace":workspace}))
+        .send()
+        .await
+        .unwrap();
+    assert!(gone.status().is_client_error());
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn api_mcp_configuration_is_validated_forwarded_and_not_catalogued() {
     let fixture = Fixture::start_with_args(&["--mcp-http"]).await;
     let definitions = json!([{"type":"http","name":"docs","url":"https://example.com/mcp","headers":[{"name":"Authorization","value":"synthetic-network-secret"}]}]);
