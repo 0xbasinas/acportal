@@ -8,9 +8,10 @@ The **Release** workflow publishes the host (`acpd`) as a GitHub release so you 
 | --- | --- |
 | `acpd-windows-x86_64.exe` | Windows 10/11, 64-bit |
 | `acpd-linux-x86_64` | Linux, 64-bit (built on Ubuntu 22.04, so glibc 2.35 or newer) |
+| `acpd-tray-windows-x86_64.exe`, `acpd-tray-linux-x86_64` | The [tray app](tray.md); keep it next to `acpd`. On Linux it needs the GTK 3 and AppIndicator libraries |
 | `SHA256SUMS.txt` | Checksums of the files above |
 
-The binaries are **not code-signed**. Windows SmartScreen may warn about the `.exe` on first run, and downloads should be checked against `SHA256SUMS.txt`:
+The Windows `.exe` files carry the ACP Portal icon. The binaries are **not code-signed**. Windows SmartScreen may warn about the `.exe` on first run, and downloads should be checked against `SHA256SUMS.txt`:
 
 ```powershell
 (Get-FileHash .\acpd-windows-x86_64.exe -Algorithm SHA256).Hash
@@ -28,7 +29,7 @@ Push a version tag, or run the workflow by hand:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-or Actions > **Release** > Run workflow with a tag such as `v0.1.0`. Tags must start with `v` and a digit. The workflow builds each platform with `cargo build --locked --release`, adds the checksums and creates the release with generated notes. A tag that already has a release fails instead of replacing it.
+or Actions > **Release** > Run workflow with a tag such as `v0.1.0`. Tags must start with `v` and a digit. The workflow builds each platform with `cargo build --locked --release`, adds the checksums and creates the release with generated notes. A tag that already has a release fails instead of replacing it. For a test run, start the workflow by hand and untick **Publish**: it builds and checks everything, keeps the files as a workflow artifact for three days, and creates no tag or release.
 
 ## Using it
 

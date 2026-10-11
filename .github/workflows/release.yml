@@ -1,7 +1,9 @@
 name: Release
-# Publishes the host binaries as a GitHub release: acpd for Windows (x86_64 .exe) and Linux (x86_64),
-# plus SHA256SUMS.txt. Run it by pushing a version tag (for example v0.1.0) or by hand from the
-# Actions tab with a tag name. The binaries are unsigned. See docs/releases.md.
+# Publishes the host as a GitHub release: acpd and the tray app (acpd-tray) for Windows (x86_64 .exe) and
+# Linux (x86_64), plus SHA256SUMS.txt. Run it by pushing a version tag (for example v0.1.0) or by hand
+# from the Actions tab with a tag name. Untick "Publish" for a build-only test run that uploads the
+# files as a workflow artifact and creates no tag or release. The binaries are unsigned.
+# See docs/releases.md.
 on:
   push:
     tags: ["v*"]
@@ -11,6 +13,11 @@ on:
         description: "Release tag to create, for example v0.1.0"
         required: true
         type: string
+      publish:
+        description: "Publish the release (untick for a build-only test run)"
+        required: true
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -30,19 +37,31 @@ jobs:
             asset-suffix: windows-x86_64.exe
             exe: .exe
           - name: Linux x86_64
-            os: ubuntu-22.04 # older glibc than 24.04, so the binary runs on more distributions
+            os: ubuntu-22.04 # older glibc than 24.04, so the binaries run on more distributions
             asset-suffix: linux-x86_64
             exe: ""
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Linux GUI libraries for the tray
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build
+        with:
+          workspaces: |
+            .
+            tray
+      - name: Build acpd
         shell: bash
+        env:
+          ACPD_EMBED_ICON: "1" # Windows only: puts the ACP Portal icon in acpd.exe
         run: cargo build --locked --release -p acpd --bin acpd
-      - name: Name the binary
+      - name: Build the tray app
+        shell: bash
+        run: cargo build --locked --release --manifest-path tray/Cargo.toml
+      - name: Name the binaries
         shell: bash
         env:
           SUFFIX: ${{ matrix.asset-suffix }}
@@ -50,6 +69,7 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/release/acpd${EXE}" "dist/acpd-${SUFFIX}"
+          cp "tray/target/release/acpd-tray${EXE}" "dist/acpd-tray-${SUFFIX}"
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
@@ -73,10 +93,18 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: |
-          chmod +x acpd-linux-x86_64
+          chmod +x acpd-linux-x86_64 acpd-tray-linux-x86_64
           sha256sum acpd-* > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - name: Keep the files for a test run
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files-test
+          path: dist/*
+          retention-days: 3
       - name: Create the release
+        if: github.event_name == 'push' || inputs.publish
         working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,4 +114,4 @@ jobs:
           case "$TAG" in v[0-9]*) ;; *) echo "Release tags must look like v0.1.0, got: $TAG"; exit 1;; esac
           gh release create "$TAG" acpd-* SHA256SUMS.txt -R "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "ACP Portal host $TAG" --generate-notes \
-            --notes "Unsigned host binaries. Windows: acpd-windows-x86_64.exe. Linux: acpd-linux-x86_64 (run chmod +x after downloading). Verify downloads against SHA256SUMS.txt. Setup: acpd setup --address https://YOUR-HOST, then acpd start --bg and acpd pair."
+            --notes "Unsigned binaries. acpd is the host (Windows: acpd-windows-x86_64.exe, Linux: acpd-linux-x86_64). acpd-tray is the tray app that sets up, starts and pairs it; keep it next to acpd. On Linux run chmod +x after downloading; the tray needs the GTK 3 and AppIndicator libraries. Verify downloads against SHA256SUMS.txt. Setup: acpd setup --address https://YOUR-HOST, then acpd start --bg and acpd pair (or use the tray menu)."
