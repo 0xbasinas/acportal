@@ -15,8 +15,8 @@ android {
         applicationId = "dev.acportal"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("apkVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("apkVersionName") as String?) ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["attachmentAuthority"] = if (isolatedAcceptance)
             "dev.acportal.acceptance.test.attachments" else "dev.acportal.test.attachments"
