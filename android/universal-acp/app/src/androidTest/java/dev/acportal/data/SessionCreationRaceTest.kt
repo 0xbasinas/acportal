@@ -32,6 +32,7 @@ class SessionCreationRaceTest {
     private val vault=CredentialVault(context)
     private val aliases=mutableListOf<String>()
     private val hosts=mutableListOf<FixtureHost>()
+    private val viewModels=androidx.lifecycle.ViewModelStore()
     private lateinit var database:PortalDatabase
     private lateinit var scope:CoroutineScope
     private lateinit var repository:PortalRepository
@@ -42,6 +43,7 @@ class SessionCreationRaceTest {
         repository=PortalRepository(database.portal(),app.repository.api,vault,app.repository.settings,scope)
     }
     @After fun tearDown() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {viewModels.clear()}
         hosts.forEach {it.close()}
         aliases.forEach {runCatching {vault.remove(it)}}
         scope.cancel();database.close()
@@ -121,6 +123,7 @@ class SessionCreationRaceTest {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             vm=PortalViewModel(repository)
+            viewModels.put("fixture",vm)
             vm.create(slow.id,"mock","/workspace/vm") {done.countDown()}
             vm.create(slow.id,"mock","/workspace/vm") {fail("a repeated request must not start a second session")}
         }

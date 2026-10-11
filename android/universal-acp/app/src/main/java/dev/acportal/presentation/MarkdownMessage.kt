@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.conflate
 import org.commonmark.node.*
 import org.commonmark.node.Text as MarkdownText
 import org.commonmark.node.Paragraph as MarkdownParagraph
@@ -81,9 +82,15 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
     // A changed source never displays a different message while parsing catches up; an
     // appended (streaming) source keeps its previous rendering, see markdownToShow.
     var parsed by remember {mutableStateOf<Pair<String,Node?>?>(null)}
-    LaunchedEffect(source) {
-        delay(80)
-        parsed=withContext(Dispatchers.Default) {source to parseMessageMarkdown(source)}
+    val latestSource by rememberUpdatedState(source)
+    LaunchedEffect(Unit) {
+        // Throttle, rather than debounce: continuous chunks must not cancel every
+        // parse and leave the previous document frozen until the stream stops.
+        snapshotFlow {latestSource}.conflate().collect {
+            delay(80)
+            val candidate=latestSource
+            parsed=withContext(Dispatchers.Default) {candidate to parseMessageMarkdown(candidate)}
+        }
     }
     val document=markdownToShow(parsed,source)
     val context=LocalContext.current

@@ -71,7 +71,9 @@ pub fn inert_variable(name: &str, value: &str, session_id: &str) -> bool {
         "TERM" => simple(value, 32, b"-"),
         "NO_COLOR" | "CLICOLOR" | "CLICOLOR_FORCE" => boolean(),
         "FORCE_COLOR" => matches!(value, "" | "0" | "1" | "2" | "3" | "true" | "false"),
-        "COLUMNS" | "LINES" => value.len() <= 4 && simple(value, 4, b""),
+        "COLUMNS" | "LINES" => {
+            (1..=4).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
+        }
         "LANG" | "LC_ALL" | "LC_CTYPE" | "LC_MESSAGES" | "LC_NUMERIC" | "LC_TIME"
         | "LC_COLLATE" | "LC_MONETARY" => {
             matches!(value, "C" | "POSIX" | "C.UTF-8") || locale(value)
@@ -354,6 +356,8 @@ mod review_boundary_tests {
                 json!([{"name":"GIT_PAGER","value":"sh -c id"}]),
                 json!([{"name":"TERM","value":"../../tmp/x"}]),
                 json!([{"name":"COLUMNS","value":"80; id"}]),
+                json!([{"name":"COLUMNS","value":"abcd"}]),
+                json!([{"name":"LINES","value":"1e3"}]),
                 json!([{"name":"LANG","value":"/tmp/locale"}]),
                 json!([{"name":"NO_COLOR","value":"yes please"}]),
                 json!([{"name":"PATH","value":"/tmp"}]),

@@ -5,6 +5,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -35,9 +38,11 @@ class PageStateMatrixUiTest(private val mode:String,private val fontScale:Float)
     }
     @get:Rule val compose=createComposeRule()
     @get:Rule val deadline=org.junit.rules.Timeout.seconds(60)
+    private lateinit var inputMode:InputModeManager
 
     private fun show(content:@Composable ()->Unit) = compose.setContent {
         val density=LocalDensity.current
+        inputMode=LocalInputModeManager.current
         CompositionLocalProvider(LocalDensity provides Density(density.density,fontScale)) {
             PortalTheme(mode) {Surface(Modifier.fillMaxSize().systemBarsPadding()) {content()}}
         }
@@ -96,7 +101,7 @@ class PageStateMatrixUiTest(private val mode:String,private val fontScale:Float)
         val info=SessionInfo("offline","goose","acp-offline","/workspace/offline",status="ready")
         val stored=StoredSession("h","offline",WireJson.encodeToString(info),"")
         show {SavedSessionScreen(info,stored,null,false,{},{},{})}
-        compose.onNodeWithText("No messages saved").assertIsDisplayed()
+        compose.onNodeWithText("No messages saved").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Connect to host").assertHasClickAction()
         assertActionsAreLabelled()
     }
@@ -111,6 +116,7 @@ class PageStateMatrixUiTest(private val mode:String,private val fontScale:Float)
         val copy=compose.onNode(hasText("Copy") and hasClickAction())
         copy.assertIsEnabled()
         if(copy.fetchSemanticsNode().config.contains(SemanticsActions.RequestFocus)) {
+            compose.runOnIdle {assertTrue(inputMode.requestInputMode(InputMode.Keyboard))}
             copy.performSemanticsAction(SemanticsActions.RequestFocus)
             copy.assertIsFocused()
         }

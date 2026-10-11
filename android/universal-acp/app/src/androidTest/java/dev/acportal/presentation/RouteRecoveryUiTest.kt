@@ -32,7 +32,7 @@ class RouteRecoveryUiTest {
         compose.setContent {PortalTheme {Surface(Modifier.fillMaxSize()) {
             WorkspacePicker(listOf(Workspace("/workspace/app","App")),null,{},{browsed=it},error=error,onRetry={retries++})
         }}}
-        compose.onNodeWithText("Could not open this folder").assertExists()
+        compose.onAllNodesWithText("Could not open this folder").assertCountEquals(2)
         compose.onNodeWithText("Retry").performScrollTo().performClick()
         compose.runOnIdle {assertEquals(1,retries);error=null}
         compose.onNodeWithText("Could not open this folder").assertDoesNotExist()
@@ -66,9 +66,9 @@ class RouteRecoveryUiTest {
         var retries=0
         tester.setContent {PortalTheme {Surface(Modifier.fillMaxSize()) {SavedSessionScreen(info,stored,null,false,{},{},{retries++})}}}
         compose.onNodeWithText("Showing messages saved on this device. Connect to check the latest activity.").assertIsDisplayed()
-        compose.onNodeWithText("Summarise the logs").assertExists()
+        compose.onAllNodesWithText("Summarise the logs").assertCountEquals(2)
         tester.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("Summarise the logs").assertExists()
+        compose.onAllNodesWithText("Summarise the logs").assertCountEquals(2)
         compose.onNodeWithText("unsent follow-up").assertExists()
         compose.onNodeWithText("Connect to host").performClick()
         compose.runOnIdle {assertEquals(1,retries)}
