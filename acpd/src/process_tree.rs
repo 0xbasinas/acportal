@@ -219,13 +219,15 @@ pub(crate) mod unix_snapshot {
         let mut index = 0;
         while index < owned.len() {
             let parent = owned[index];
-            for row in table
+            let children: Vec<(i32, i32)> = table
                 .iter()
                 .filter(|row| row.1 == parent && !owned.contains(&row.0))
-            {
-                owned.push(row.0);
-                if row.2 != group {
-                    escaped.push(row.0);
+                .map(|row| (row.0, row.2))
+                .collect();
+            for (pid, pgid) in children {
+                owned.push(pid);
+                if pgid != group {
+                    escaped.push(pid);
                 }
             }
             index += 1;

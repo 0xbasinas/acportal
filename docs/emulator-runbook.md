@@ -30,7 +30,7 @@ What changed: agents start in their own session (`setsid`), the host records eac
 
 1. Automated (Linux, already in CI): `cargo test -p acpd --test daemon unix_abrupt_host_kill_is_cleaned_up_by_the_next_start` and `cargo test -p acpd --test lifecycle unix_descendant_that_leaves_the_agent_group`.
 2. macOS: Actions → *Rust* → *Run workflow* with `extras` on runs the macOS job (all acpd tests, including lifecycle). Expected: escaped-group test passes. macOS limitation: after an abrupt kill, only groups whose leader is still alive are swept (no session ids without `/proc`).
-3. User, real agent (paid): start the host, open a Goose session from the phone, ask for a long-running command (for example `sleep 600` through the shell tool), then `kill -9 <acpd pid>`. Expected: `ps -o pid,pgid,sid,args -s <agent sid>` still lists the command; `acpd start` again → within a second the list is empty and the host log warns "stopped agent process groups left by an earlier host".
+3. Real agent: passed on Linux on 11 October with Goose + DeepSeek ([batch 7](real-agent-testing.md#batch-7-run-11-october-2026-linux-1200-athens)). To repeat (paid): start the host, open a Goose session from the phone, ask for a long-running command (for example `sleep 600` through the shell tool), then `kill -9 <acpd pid>`. Expected: `ps -o pid,pgid,sid,args -s <agent sid>` still lists the command; `acpd start` again → within a second the list is empty and the host log warns "stopped agent process groups left by an earlier host".
 
 ## §2 Memory: allocation sites and retained objects
 
@@ -70,7 +70,7 @@ Expected: 4 tests pass — out-of-order creations on two loopback hosts are save
 
 ## §6 Real-agent Android checks (paid, explicit go-ahead each run)
 
-Host side: `scripts/real-agent-check.py` now refuses to run unless `ACPD_REAL_AGENT_OK=1` is set for that command ([real-agent testing](real-agent-testing.md)).
+Host side: `scripts/real-agent-check.py` now refuses to run unless `ACPD_REAL_AGENT_OK=1` is set for that command ([real-agent testing](real-agent-testing.md)). The host-side checks for this item already passed with real Goose + DeepSeek on 11 October ([batch 7](real-agent-testing.md#batch-7-run-11-october-2026-linux-1200-athens)); only the Android screens remain.
 
 Android side, opt-in instrumented check that renders the live session with the production screen and **never answers a permission or submits a form**:
 
@@ -85,6 +85,8 @@ Android side, opt-in instrumented check that renders the live session with the p
      -e realPrompt "Edit calc.py to fix add" \
      dev.acportal.acceptance.test/androidx.test.runner.AndroidJUnitRunner
    ```
+
+   The DeepSeek key never goes into the fixture, the test APK or instrumentation arguments: the phone only talks to your host, and the key lives in the host's environment. On your PC, set it for the host process only, for example (PowerShell) `$env:OPENAI_API_KEY = Get-Content $HOME\.config\deepseek-api-key; $env:DEEPSEEK_API_KEY = $env:OPENAI_API_KEY; acpd start`, with the Goose registry entry using `GOOSE_PROVIDER=openai`, `GOOSE_MODEL=deepseek-flash`, `OPENAI_HOST=https://api.deepseek.com` ([setup](real-agent-testing.md#setup-used-for-the-recorded-linux-run)). Close the shell afterwards.
 
    `expect` accepts `ownTools`, `hostWrite`, `autoReview`, `permission`, `form`. Expected: pass once every listed notice is visible; a still-running turn is cancelled at the end. Form *submission* stays a manual step: answer the form yourself in the app and confirm the agent receives it.
 

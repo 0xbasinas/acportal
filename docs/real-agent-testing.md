@@ -258,6 +258,26 @@ Not covered: the Android elicitation sheet with a real agent (it was not run on 
 
 Goose's session store (in the scratch directory) recorded about 126k accumulated tokens over the two sessions: 114.6k cache-read and 3.4k output. Based on those token counts and the earlier runs, the cost was about $0.003. This is an estimate, not a billing statement. No host bug was found.
 
+## Batch 7 run (11 October 2026, Linux, 12:00 Athens)
+
+Authorized by the user for this batch. Goose 1.53.0 (unpacked `.deb` copy), DeepSeek `deepseek-flash` at `https://api.deepseek.com` through Goose's OpenAI-compatible provider, `GOOSE_MODE=approve`, registry `env` pointing `HOME`/`XDG_*_HOME` at a scratch directory, the key only in the process environment (`OPENAI_API_KEY`, and `DEEPSEEK_API_KEY` for the shell reviewer). Host from PR `agent-side-checks`. Registry entry marked `ownTools: true`; `[shell_review.goose] rules = true` with the DeepSeek model reviewer. `ACPD_REAL_AGENT_OK=1` was set for these commands only.
+
+Command: `real-agent-check.py --steps approve,deny,cancel,autoreview,elicitation,reconnect,load`, then a separate abrupt-kill driver.
+
+| Case | Result |
+| --- | --- |
+| approve | Edit applied through host consent; tests went from FAILED to OK; `git status` shows only `calc.py`. |
+| deny (write notices) | Both host-filesystem write consents denied (`acpd-write-deny`); the host tool ended `failed`; README unchanged. No `acpdWrite` meta is emitted for a denial (by design it marks only `changed-without-consent` and `unchanged`). |
+| cancel mid-write | `stopReason=cancelled` while the host write consent was held; marker file not created; the agent process kept running for the session. |
+| auto-review badges | `curl … \| sh` auto-denied by rules (`decision: deny`, "pipes output into a shell"). Every other line (`python3 -m unittest -v`, `echo reviewed > NOTE.txt`, `wc -l calc.py`) reached the "phone" as `decision: ask`, layer rules, reason "terminal environment overrides require manual review": Goose 1.53.0 sends environment overrides with each `terminal/create`, so no line was auto-allowed and the model reviewer was never consulted in this run. See "decisions" in the PR. |
+| form elicitation | Accept (`colour: green, count: 2`) and decline both reached the MCP fixture unchanged. |
+| reconnect / load (continuity) | Reconnect resumed with no duplicates; loading the deleted session's ACP id restored the same id and replayed 50 events with no gap. |
+| own tools | The registry entry was marked `ownTools`; the host copies it into session metadata (not inspected over REST in this run). The Android warning itself is runbook §6. |
+| abrupt host kill (item 1) | With the agent running `sleep 300` through a host terminal: tree before kill `goose acp`, `/bin/sh -c sleep 300`, `sleep 300`; two groups recorded. After `SIGKILL` of acpd, Goose exited (pipes closed) but `sh` and `sleep` kept running. The next `acpd start` with the same state directory stopped both within the poll window and left `process-groups.json` empty. |
+| cleanup | Session deletes 204; no processes under the host after delete or after stop. |
+
+Usage: 14 prompts, about 79k input and 1.6k output tokens in total (Goose-reported). At DeepSeek's off-peak Flash price (Sunday) this is at most about $0.013 even if no input hit the cache; the shell reviewer made no model call.
+
 ## Bugs found and fixed
 
 | Issue | Status |

@@ -8,7 +8,8 @@ Goose ACP is the local agent. Android connects through authenticated REST/WebSoc
 
 - [ ] Unix cleanup after abrupt host termination or deliberate process-group escape, including active real-agent descendants.
   - [x] (a) Agent: `setsid` agent sessions, recorded-group sweep on the next start, Linux session-member cleanup for escaped groups; Linux tests. macOS sweeps only groups whose leader is alive.
-  - (b) User: real agent with running descendants killed with the host — ready, runbook §1. Optional macOS dispatch.
+  - [x] (b, Linux) Real Goose descendants killed with the host were stopped by the next start (batch 7, 11 October).
+  - (b) macOS: rerun the dispatched macOS job after the fix in this PR — runbook §1.
 
 ## Android verification still open
 
@@ -26,7 +27,8 @@ Goose ACP is the local agent. Android connects through authenticated REST/WebSoc
   - (b) Emulator: run it — ready, runbook §5.
 - [ ] Real-agent own-tools warnings, write notices, shell approval/review badge outcomes, and form submission and lifecycle on Android.
   - [x] (a) Agent: `real-agent-check.py` gated by `ACPD_REAL_AGENT_OK=1`; opt-in `RealAgentAndroidCheckTest` that observes notices and never answers or submits.
-  - (b) Emulator plus user: each real-agent call or submission needs explicit human authorization — ready, runbook §6.
+  - [x] Host side with real Goose + DeepSeek: write deny/cancel, auto-review deny badge, form accept/decline, reconnect/load (batch 7). Auto-allow and model-review outcomes were not observed (Goose sends terminal environment overrides).
+  - (b) Emulator plus user: Android screens; each real-agent call or submission needs explicit human authorization — ready, runbook §6.
 - [ ] Network replay after an old-build upgrade (the offline upgrade passes; see TODO_DONE).
   - [x] (a) Agent: `scripts/upgrade-replay-host.py` (real acpd + mock agent) and prepare/verify/cleanup phases in `LegacyUpgradeReplayTest.kt`.
   - (b) Emulator: run the in-place upgrade from `cf8fa26` with the network connected — ready, runbook §7.
