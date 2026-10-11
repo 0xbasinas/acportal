@@ -130,6 +130,35 @@ class TalkBackMainActivityUiTest {
                 }
                 assertEquals("Settings routes start no session or draft change","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
                 assertTrue(store.repository.liveActivities.value.isEmpty())
+                // Further production routes: pairing, connection chooser and the new-session form.
+                fun top(node:AccessibilityNodeInfo)=Rect().also(node::getBoundsInScreen).top
+                fun clickable(prefix:String,lowest:Boolean=false):AccessibilityNodeInfo {
+                    waitFor("$prefix control") {nodes(automation).any {it.isClickable && label(it).startsWith(prefix)}}
+                    val matches=nodes(automation).filter {it.isClickable && label(it).startsWith(prefix)}
+                    return if(lowest)matches.maxBy(::top) else matches.minBy(::top)
+                }
+                fun hasText(text:String)=nodes(automation).any {label(it).contains(text)}
+                fun back(waitText:String,step:String) {
+                    assertTrue(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                    waitFor("Returned to $waitText") {hasText(waitText)}
+                    reported(step)
+                }
+                assertTrue(clickable("Connections").performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                assertTrue(clickable("Add connection").performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Pairing page") {hasText("Pair connection")}
+                back("Add connection","PairingBack")
+                back("Appearance","ConnectionsBack")
+                assertTrue(clickable("Sessions",lowest=true).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                assertTrue(clickable("New session").performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Connection chooser") {hasText("Choose a connection")}
+                back("fixture-agent","ConnectionChooserBack")
+                assertTrue(clickable("New session").performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Connection chooser again") {hasText("Choose a connection")}
+                assertTrue(clickable("Owned workstation").performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("New-session form") {!hasText("Choose a connection")}
+                back("Choose a connection","NewSessionFormBack")
+                assertEquals("Further routes start no session or draft change","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
+                assertTrue(store.repository.liveActivities.value.isEmpty())
             }
         } finally {
             try {

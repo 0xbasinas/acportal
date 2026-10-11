@@ -136,3 +136,13 @@ Rich content: `ConversationUiRestorationTest` 2, `AgentThoughtUiTest` 2, `AutoRe
 ## Environment-dependent classes resolved, 11 October 2026
 
 `ConnectionLogsLayoutUiTest` passes 4/4 with the emulator set to an actual 1600×1280 window (800 dp), reset to 720×1280 afterward; its wide cases failed before only because the window was a phone. `SavedHistoryNavigationTest` passes 1/1 against the paired mock host (`scripts/mock-host.ps1 -RequireAuth -Terminal -Media`, started for the run and stopped afterward, listener verified gone). Android CI [38143193352](https://github.com/0xbasinas/acportal/actions/runs/38143193352) passes at `e372404`, covering all commits to date.
+
+## More production routes and the Markdown link dialog, 11 October 2026
+
+`TalkBackMainActivityUiTest` back-stack cases (dark and light, actual `MainActivity`, owned storage, font 1.0) now also walk Connections → Add connection (pairing) → Back, Connections → Back, Sessions → New session (connection chooser) → Back, and chooser → host → new-session form → Back. Focus after Back, reported not assumed: pairing → "Refresh connections" (first control of Connections); Connections → "Connections"; chooser → "New session"; new-session form → the page's error banner. All pass; no session started and the draft was untouched.
+
+Finding fixed: the owned fixture host has a non-UUID credential alias, which surfaced the raw Kotlin message "Failed requirement." on that error banner. `CredentialVault` alias checks now use the existing wording "Stored credential is invalid". The banner is a fixture artifact (a corrupt alias), but the raw message was a real wording gap. App and core JVM tests and lint pass.
+
+`MarkdownLinkLifecycleUiTest` (2 tests, dark/light): the "Open link?" confirmation closes on Activity recreation, nothing is opened or acted on (fixture actions stay empty), and the link can be reviewed again and cancelled. This is the intended safe behaviour, now tested.
+
+Still open and unattempted: Back focus on session options and the live conversation, opener focus (no supported Compose API found), third-party document providers and system-picker automation, audio/video codecs beyond WAV, physical-device media.
