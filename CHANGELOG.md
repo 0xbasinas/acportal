@@ -8,6 +8,7 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ### Added
 - One-line installers: `scripts/install.ps1` (Windows) and `scripts/install.sh` (Linux). They download the host and tray from the latest release, verify them against `SHA256SUMS.txt`, install into the user folder (Start menu or applications-menu entry, PATH or `~/.local/bin` links) and support update and uninstall. Downloads made this way carry no "from the internet" mark.
+- Uninstall scripts: `scripts/uninstall.ps1` and `scripts/uninstall.sh` stop the host and tray and remove the programs, links, shortcut and PATH entry; your settings and paired devices are kept unless `-Purge` / `--purge` is given (it asks you to type `DELETE`, or needs `-Yes` / `--yes`).
 - This changelog.
 
 ### Changed

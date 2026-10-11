@@ -20,7 +20,19 @@ irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.ps
 curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.sh | sh
 ```
 
-Each script downloads the host and the tray app from the [latest release](https://github.com/0xbasinas/acportal/releases/latest), checks them against the release's `SHA256SUMS.txt`, and installs them in your user folder (a Start menu or applications-menu entry is added). Run it again to update; add `-Uninstall` (Windows) or `--uninstall` (Linux) to remove it. Both scripts are short, so read them first if you prefer: [`install.ps1`](scripts/install.ps1), [`install.sh`](scripts/install.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
+Each script downloads the host and the tray app from the [latest release](https://github.com/0xbasinas/acportal/releases/latest), checks them against the release's `SHA256SUMS.txt`, and installs them in your user folder (a Start menu or applications-menu entry is added). Run it again to update. Both scripts are short, so read them first if you prefer: [`install.ps1`](scripts/install.ps1), [`install.sh`](scripts/install.sh).
+
+**To remove it** (your settings and paired devices are kept unless you add the purge option):
+
+```powershell
+irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.ps1 | iex
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.sh | sh
+```
+
+Save the script and add `-Purge` (Windows) or pass `--purge` (Linux, `| sh -s -- --purge`) to delete the settings and data too; it asks you to type `DELETE` first unless you add `-Yes` / `--yes`. See [`uninstall.ps1`](scripts/uninstall.ps1) and [`uninstall.sh`](scripts/uninstall.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
 
 ### On your phone
 

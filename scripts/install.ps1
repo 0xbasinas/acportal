@@ -46,7 +46,11 @@ $Files = @(
     @{ Asset = 'acpd-windows-x86_64.exe';      Name = 'acpd.exe' },
     @{ Asset = 'acpd-tray-windows-x86_64.exe'; Name = 'acpd-tray.exe' }
 )
-if (-not $Dir) { $Dir = Join-Path $env:LOCALAPPDATA 'acpd\bin' }
+if (-not $Dir) {
+    # The same place the host and the tray use: XDG_DATA_HOME if set, else the local app data folder.
+    $dataHome = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:LOCALAPPDATA }
+    $Dir = Join-Path $dataHome 'acpd\bin'
+}
 $Shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\ACP Portal.lnk'
 
 function Write-Step([string]$Text) { Write-Host "  $Text" }
