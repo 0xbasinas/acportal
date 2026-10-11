@@ -100,7 +100,7 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
         Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
             if(document==null) {
                 if(parsed?.first==source)Text("Message shown as plain text",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(source,style=MaterialTheme.typography.bodyLarge)
+                Text(source,style=MaterialTheme.typography.bodyMedium)
             } else MarkdownBlocks(document.children()) {link=it}
         }
     }
@@ -119,7 +119,7 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
             Row {Text(if(node is OrderedList)"${node.markerStartNumber+index}. " else "• ");Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {MarkdownBlocks(item.children(),onLink)}}
         }}}
         is ThematicBreak->HorizontalDivider()
-        is HtmlBlock->Text(node.literal,style=MaterialTheme.typography.bodyLarge)
+        is HtmlBlock->Text(node.literal,style=MaterialTheme.typography.bodyMedium)
         is TableBlock->Column(Modifier.horizontalScroll(rememberScrollState())) {
             node.children().flatMap {it.children()}.forEach {row->
                 Row {row.children().forEach {cell->Surface(color=MaterialTheme.colorScheme.surfaceContainer) {Text(markdownInline(cell,onLink),Modifier.width(180.dp).padding(10.dp),fontWeight=if(cell is TableCell && cell.isHeader)FontWeight.Bold else FontWeight.Normal)}}}
@@ -147,7 +147,7 @@ internal fun markdownInline(node:Node,onLink:(String)->Unit):AnnotatedString = b
         val url=(range.item as? LinkAnnotation.Clickable)?.tag
         if(url!=null)modifier=modifier.clickable(onClickLabel="Review link",role=Role.Button) {onLink(url)}
     }
-    Text(text,modifier,style=MaterialTheme.typography.bodyLarge)
+    Text(text,modifier,style=MaterialTheme.typography.bodyMedium)
 }
 
 @Composable private fun MarkdownCode(code:String,language:String) {
