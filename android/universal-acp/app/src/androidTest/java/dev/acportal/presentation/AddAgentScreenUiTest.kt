@@ -54,6 +54,26 @@ class AddAgentScreenUiTest {
         compose.onNodeWithText("Not found on this computer").assertDoesNotExist()
         assertNull(fake.saved)
     }
+    private fun suggestion(theme:String) {
+        val fake=Fake(true)
+        run(theme,fake)
+        compose.onNodeWithTag("suggest:Goose").performClick()
+        compose.onNodeWithTag("agent-name").assertTextContains("Goose")
+        compose.onNodeWithTag("agent-command").assertTextContains("goose")
+        compose.onNodeWithTag("agent-args").assertTextContains("acp")
+        compose.onNodeWithTag("agent-env").assertTextContains("GOOSE_MODE=approve")
+        // Filling the form registers nothing and does not count as a check.
+        compose.onNodeWithTag("agent-save").assertIsNotEnabled()
+        assertNull(fake.saved);assertTrue(fake.checked.isEmpty())
+        compose.onNodeWithTag("agent-check").performClick()
+        compose.waitUntil(5000) {compose.onAllNodesWithTag("agent-check-result").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("agent-save").assertIsEnabled()
+        // Picking another suggestion discards the earlier check.
+        compose.onNodeWithTag("suggest:Gemini CLI").performClick()
+        compose.onNodeWithTag("agent-save").assertIsNotEnabled()
+    }
+    @Test fun darkSuggestionFillsTheFormButRegistersNothing()=suggestion("dark")
+    @Test fun lightSuggestionFillsTheFormButRegistersNothing()=suggestion("light")
     @Test fun darkCheckThenSave()=check("dark")
     @Test fun lightCheckThenSave()=check("light")
     @Test fun darkMissingProgramCannotBeSaved()=notFound("dark")
