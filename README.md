@@ -1,170 +1,105 @@
 # ACP Portal
 
-11 October saved empty-history accessibility fix: the recovery message and explanation share a scrolling body, with the header and draft composer preserved. Native actual MainActivity checks pass both themes at normal and 2× font. Penpot boards 32–35 record the design. See [current evidence](docs/final-acceptance.md#native-page-state-traversal); broader acceptance remains in [TODO](TODO.md).
+Use the coding agents on your computer from your phone. The **host** (`acpd`) runs on your laptop, starts the agent CLIs you register, and keeps them contained to folders you allow. The **Android app** pairs with it over HTTPS and shows the conversation, tool output, diffs and approval requests, so you can steer an agent from the couch and approve every file write and shell command from your pocket.
 
-11 October write/page-state increment: installed Goose/router Android exact-file write, separate host consent, own-tools warning and draft preservation pass. Native page states pass dark/light at normal font; actual 2× offline empty-state traversal fails and remains open. Earlier Android Actions at `afd99d6` pass. See [current evidence](docs/final-acceptance.md) for consumed authorizations and precise limits.
+It speaks the open [Agent Client Protocol](https://agentclientprotocol.com) (ACP), so it works with any agent that does. **You register the agents you want; none are built in.**
 
-11 October 2026 continuation on `codex/final-acceptance`, from merged PR #15 main `8f4741b`: actual folder-error, message-cache settings and prompt-history process-death checks pass. Populated older-APK approval replay and installed-Goose Android form Submit also pass to their isolated scopes. See [current evidence](docs/final-acceptance.md) and [TODO](TODO.md) for the finite remaining gates. Older dated checkpoints below are historical.
+## Install
 
-Offline-history process death and allocation-site/retained-object profiling also pass their recorded scopes. The remaining acceptance areas are real-agent write/shell outcomes, native accessibility/page states, predictive motion and macOS real-agent abrupt cleanup. Physical-phone and signed-release checks remain user-owned/suspended.
+### On your computer
 
-
-11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
-
-The latest increment verifies real Goose pending form recovery across reload and Android process death, plus native TalkBack review/Cancel for standalone and individual inline Markdown links in both themes at normal/double font. [Acceptance continuation](docs/acceptance-continuation.md) records exact source/run evidence and remaining limits. PR #13 is merged on main at `e6a3460`.
-
-10 October acceptance continuation adds real Goose pending-approval reload, an actual older-APK offline upgrade, streaming/attachment allocator counters, rendered frame measurements and full session-creation TalkBack. Scope and measurements are in [the continuation report](docs/acceptance-continuation.md); [TODO](TODO.md) remains the acceptance checklist.
-
-Current status, 11 October 2026: [PR #13](https://github.com/0xbasinas/acportal/pull/13) is merged on main at `e6a3460`. Real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded profiling/full-form TalkBack have scoped passing evidence. [TODO.md](TODO.md) tracks remaining acceptance; [the continuation report](docs/acceptance-continuation.md) retains exact measurements, failures and limits. Earlier dated statements below are historical.
-
-10 October 2026 PR #13 acceptance increment: Penpot boards 24–31 cover the new screens in both themes. Model-picker Cancel is in the header after a native traversal failure exposed its footer placement. Four TalkBack runs pass across four pages at normal/actual 2× font; six options regressions and 60 app JVM tests pass, with both debug APKs and lint. See [acceptance continuation](docs/acceptance-continuation.md) for exact platform results, fixture failures and remaining limits.
-
-9 October 2026 daemon/reload increment: native background mode and operator-only local status/stop/reload are implemented. SessionManager publishes coherent launch snapshots; discovery/browse/future sessions use new settings while current sessions and approvals remain unchanged. Listener/TLS/token/storage/frame/logging changes require restart. See [daemon commands and reload rules](docs/daemon-and-reload.md), the ADR and TODO_DONE.md for actual verification and limits.
-
-9 October 2026 native CLI/motion increment: `acpd setup` remembers an existing config and HTTPS address; `acpd start`, `acpd pair` and `acpd doctor` then use that setup. No wrapper script is required. Android ordinary push/Back now use brief overlapping fades, and selected-tab taps no longer rebuild the route. See [native CLI and motion](docs/native-cli-and-motion.md) and TODO_DONE.md for scoped evidence and remaining phone profiling.
-
-9 October 2026 easier pairing and Markdown on `codex/session-model-picker`: Android offers QR scanning and simpler manual entry; `acpd pair --address HTTPS-ADDRESS --qr --name NAME` prints a terminal QR without changing authentication. Scans fill a reviewable form and never pair automatically. Agent replies render native Markdown with bounded off-Main parsing, literal HTML, no remote image fetch and confirmed web links. See [pairing and Markdown](docs/pairing-and-markdown.md) and TODO_DONE.md for verification and limits.
-
-9 October 2026 All sessions creation implemented on `codex/session-model-picker`: + opens connection selection, then the approved connection/workspace/agent form. Fresh discovery gates Start; pairing, unavailable reads and explicit recovery reuse existing boundaries. Isolated checks pass 14 component regressions, one actual-navigation/failed-creation case and four new-screen cases at actual font 2.0. 52 app JVM tests, both debug APKs and lint pass (0 errors, 16 warnings). Real-phone and native TalkBack verification of this flow remain open. See TODO_DONE.md and docs/session-creation-design.md.
-
-9 October 2026 phone-feedback fixes on `codex/session-model-picker`: catalogs over 40 choices use a searchable lazy dialog; smaller catalogs keep their dropdown. Choice mappings are remembered, advertised IDs remain exact, and opening/filtering/cancelling sends no configuration request. Conversation status now aligns with the subtitle inside the header, above the divider. See TODO_DONE.md for scoped verification and remaining phone checks.
-
-9 October 2026 PR #10 review: metadata refresh now updates only metadata, preserving original oversized history/drafts and archive/timestamps instead of writing guarded read placeholders back. Summary invalidation uses a bounded SHA-256 scan, covering equal-length/equal-timestamp changes and metadata hash collisions; production missing-summary rendering no longer decodes history on Main. Verification: 64 core/52 app JVM tests with zero failures/errors/skips, both debug APK builds and lint (0 errors, 16 dependency/toolchain warnings). Two isolated Room regressions and four dark/light Sessions layout/native-keyboard cases pass on small_phone, API 36, 720x1280, density 320, font 1.0. Full old-build upgrade, precise heap profiling, real-agent Android screens and broader route acceptance remain open. Original platform Actions run 37940712823 was inspected, including macOS RSS/process cleanup, container TLS/restart/revocation and identical cross-runner hashes; Rust sources were unchanged by the review and not locally rerun.
-
-Historical PR #10 checkpoint, 9 October 2026: PR #10 merged on main at `6ec49de`, after review at `d4ba9f2`. Local checks pass 64 core/52 app JVM tests, both debug APK builds and lint; six isolated emulator storage/Sessions tests pass. Current-head [Android Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743658) and [Rust Actions](https://github.com/0xbasinas/acportal/actions/runs/37949743959) pass. This does not establish production completion.
-
-Remaining work is tracked in [TODO.md](TODO.md). Current verification and platform limits are in the [acceptance report](docs/acceptance-report.md); historical results are in [TODO_DONE.md](TODO_DONE.md).
-
-An Android client and Rust host for coding agents that speak Agent Client Protocol. Agent commands live in a host registry. The Android client will never need a release to learn a new agent's executable or arguments.
-
-The repository includes the Rust host, authenticated WebSocket API, pairing service, and a compiling Android client. Secure WebSocket is the phone connection transport. The Android pages cover hosts, pairing, agent/workspace selection, sessions, settings, streamed conversation, permissions, tool output and basic diffs. See [milestones](docs/milestones.md) for verification status and remaining work.
-
-The implemented local client uses **Goose ACP** by default. Tests use a deterministic ACP executable with no model subscription. Filesystem tests write only inside temporary test workspaces.
-
-Opt-in shell review requires manual consent for agent-supplied terminal environment overrides and filename patterns. The Linux testy callback runner isolates upstream fixed `/tmp` paths in a private mount; see [testy verification and limits](docs/testy.md).
-
-[UI/accessibility work](docs/ui-accessibility.md) is active. Scoped emulator checks cover review badges, conversation restoration, conversation/history, pairing and MCP keyboards, and native TalkBack including automatic recovery/Agent focus at normal and actual 2.0 font scale. Broader pages, forms and route focus-restoration acceptance remain open. [HANDOFF.md](HANDOFF.md) records the current continuation checkpoint.
-
-Merged `main` at `981a97a` passes [Rust Actions verification](https://github.com/0xbasinas/acportal/actions/runs/37818450569) and [Android Actions verification](https://github.com/0xbasinas/acportal/actions/runs/37818455265), including the private-mount testy scenarios, Linux shell-review regressions and 47 core/35 app JVM tests. See [verification history](TODO_DONE.md) for coverage and remaining acceptance limits.
-
-## Run locally
-
-After [native setup](docs/native-cli-and-motion.md), run these commands from the directory containing your updated `acpd.exe`:
+**Windows** (PowerShell, no admin rights):
 
 ```powershell
-.\acpd.exe start --background
-.\acpd.exe daemon status
-# After editing the existing config or registry:
-.\acpd.exe daemon reload
-.\acpd.exe daemon stop
+irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.ps1 | iex
 ```
 
-Background startup returns once the listener is ready. Reload changes discovery and future-session settings while preserving live conversations and pending approvals. Listener/TLS, token settings, storage, frame size and logging changes require stop/restart. Automatic startup at boot is not installed. See [background operation and reload rules](docs/daemon-and-reload.md).
+**Linux** (x86_64, no root):
 
-Requires Rust 1.88 or newer and the Goose CLI on `PATH`. The supplied config allows this repository as a workspace and sets `GOOSE_MODE=approve` in the registry. Configure your provider through Goose itself. ACP Portal does not read or copy provider credentials.
-
-```powershell
-cargo build --locked --workspace --bins
-cargo run --locked -p acpd -- --config examples/config.toml agents
-cargo run --locked -p acpd -- --config examples/config.toml probe --workspace .
-cargo run --locked -p acpd -- --config examples/config.toml chat --workspace .
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.sh | sh
 ```
 
-`probe` negotiates ACP v1 without a model prompt. `chat` creates a real Goose session. Enter prompts, respond to numbered permission options, and use `/quit` to leave. Ctrl+C during a prompt sends ACP cancellation. A one-shot prompt is also supported:
+Each script downloads the host and the tray app from the [latest release](https://github.com/0xbasinas/acportal/releases/latest), checks them against the release's `SHA256SUMS.txt`, and installs them in your user folder (a Start menu or applications-menu entry is added). Run it again to update; add `-Uninstall` (Windows) or `--uninstall` (Linux) to remove it. Both scripts are short, so read them first if you prefer: [`install.ps1`](scripts/install.ps1), [`install.sh`](scripts/install.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
 
-```powershell
-cargo run --locked -p acpd -- --config examples/config.toml chat --workspace . --prompt "Say hello without using tools or changing files."
+### On your phone
+
+Install the newest APK from the [`debug` release](https://github.com/0xbasinas/acportal/releases/tag/debug) (allow installs from your browser or file manager once). After that, **Settings → Update app** installs newer builds for you; see [app updates](docs/app-updates.md). If you installed an earlier build from a computer, uninstall it once first (it was signed with a different key).
+
+## Quick start
+
+1. Run **ACP Portal** from the Start menu (the tray icon). In its menu choose **Set up with Tailscale**, then **Start host**, then **Pair a phone…**. (The tray can also download the host itself if it is missing.) See [the tray app](docs/tray.md).
+2. In the phone app, open Connections → Add connection → Scan pairing QR code.
+3. Agents → **Add agent**: pick a popular one or type your own command, tap **Check it is installed**, then **Save agent**.
+4. New session → **Add folder from this computer**, choose a project folder, start the session.
+
+The same thing from a terminal:
+
+```sh
+acpd setup --address https://YOUR-HOST     # creates your settings in the standard per-user folder
+acpd start --bg                            # runs the host in the background (-b also works)
+acpd pair                                  # prints a QR code and a one-use code (valid 60 seconds)
+acpd daemon status | reload | stop
 ```
 
-The local client prints the ACP session ID. Use `chat --workspace . --load "session-id"` with the same config and agent to load it later when the agent advertises that capability. Real Goose session loading has been verified locally.
+The phone reaches your computer over HTTPS; [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) gives you a trusted address with no certificates to manage (`tailscale serve --bg 8765`). Remote connections require TLS and the app never bypasses certificate checks. See [installation and trusted TLS](docs/installation.md).
 
-On PowerShell 7, the equivalent developer commands are:
+## Where things are stored
 
-```powershell
-./scripts/dev.ps1 setup
-./scripts/dev.ps1 acpd
-./scripts/dev.ps1 test
-./scripts/dev.ps1 probe
-./scripts/dev.ps1 chat
-./scripts/dev.ps1 mock
+| What | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Settings: `config.toml`, `agents.json`, `launcher.json` | `%APPDATA%\acpd` | `~/Library/Application Support/acpd` | `~/.config/acpd` |
+| Paired devices and session metadata (`state`) | `%LOCALAPPDATA%\acpd\state` | `~/Library/Application Support/acpd/state` | `~/.local/share/acpd/state` |
+| Programs installed by the scripts or the tray | `%LOCALAPPDATA%\acpd\bin` | | `~/.local/share/acpd/bin` |
+
+Folders and agents you add from the phone are kept in `user-settings.json` in the state folder, apart from your hand-written config. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` override these places. Details: [native setup](docs/native-cli-and-motion.md).
+
+## What it does
+
+- **Any ACP agent.** A registry of commands you control; the app never needs an update to learn a new agent. Agent sign-in choices, models, modes and options come from the agent itself.
+- **Review before anything happens.** File writes show a diff and wait for your approval; terminal commands show the exact line. Opt-in rules can auto-approve safe lines such as running tests. See [security](docs/security.md).
+- **Contained.** Agents only get folders you allow, with symlink and path-escape checks; you can add or remove folders from the phone.
+- **Survives your phone sleeping.** Sessions keep running on the computer; the phone reconnects and replays what it missed, never repeating a prompt or a decision. Saved conversations open offline.
+- **A real conversation view.** Streaming Markdown, tool cards, thoughts, plans, attachments, a searchable model picker, light and dark themes, and TalkBack support.
+
+## Build from source
+
+Requires Rust 1.88 or newer for the host, JDK 21 for the Android app.
+
+```sh
+cargo build --locked --release -p acpd            # the host
+cargo build --locked --release --manifest-path tray/Cargo.toml    # the tray (needs GTK 3 dev packages on Linux)
+cd android/universal-acp && ./gradlew :app:assembleDebug           # the app (gradlew.bat on Windows)
+cargo test --locked --workspace --all-targets
 ```
 
-On Unix, use `make setup`, `make acpd`, `make test`, `make probe`, and `make chat`. Windows batch wrappers are intentionally not spawned through a shell. Configure an actual executable for adapters on Windows.
-
-## What exists
-
-- Extensible JSON registry, no built-in agents (register your own, from a registry file or the phone), and executable discovery.
-- Official stable ACP v1 schema types, JSON-RPC validation, and lossless unknown payload preservation.
-- Subprocess actor with bounded frames, request correlation, deadlines, stderr draining, crash detection, Windows cleanup jobs and Unix process groups.
-- Capability negotiation, session creation, advertised `session/load`, prompts, streaming updates, and cancellation.
-- Agent-provided sign-in choices when authentication is required before session creation or loading.
-- Explicit permission choices, validation of agent-supplied options, and cancellation of pending permissions.
-- Multiple host-owned sessions, bounded event replay, history gap detection, and retained unresolved permissions.
-- Local CLI with discovery, configuration diagnostics, ACP probe, and interactive sessions.
-- Unit and executable integration tests for normal lifecycle and failure paths.
-- Authenticated REST and WebSocket API, expiring device credentials, revocation, one-use pairing codes, controller leases and reconnect replay.
-- Kotlin/Compose Android app with Room session storage, DataStore preferences and Keystore-encrypted credentials.
-
-## Run the Android client
-
-```powershell
-./scripts/dev.ps1 start
-# In another terminal, with the same config:
-./scripts/dev.ps1 pair
-./scripts/dev.ps1 android
-./scripts/dev.ps1 android-test
-```
-
-Install `android/universal-acp/app/build/outputs/apk/debug/app-debug.apk`. In the app, choose **Add host**, enter the address and the pairing code. The code expires after 60 seconds. For an Android emulator connected to the host's default loopback listener, use `http://10.0.2.2:8765`. That cleartext exception is restricted to local development addresses in debug builds.
-
-For a physical phone, configure a reachable listener and TLS certificate/private key in `[server]`. Remote listeners require TLS and the app verifies the certificate using Android's system trust store. Use a trusted certificate; there is no certificate-validation bypass. Release builds accept HTTPS only. Do not expose the development loopback listener by changing its address without TLS.
-
-See [installation and trusted TLS](docs/installation.md) for private host configuration, certificate paths, debug installation, pairing and revocation. [Custom registry templates](examples/agents.custom.json) are disabled placeholders for installed native agents and Node adapters.
-
-Managed sessions advertise workspace-scoped `fs.readTextFile`, `fs.writeTextFile` and `terminal`. Reads validate the session ID, line ranges, UTF-8 and size through an opened directory capability. Every write waits for a host permission request with a reviewable diff. Approval applies only to that proposed write; denial, cancellation and changed file contents prevent it. Terminal creation also requires explicit host consent. The phone shows bounded command output and exit status, including after the agent releases its terminal handle. The default mock reports simulated tool content; `scripts/mock-host.ps1 -Terminal` exercises actual ACP terminal callbacks using its own fixture executable.
-
-Active processes and delivery journals are in memory. Dropping a phone connection does not terminate an agent. Phone reconnection replays retained events and unresolved permissions. The phone saves session metadata, drafts and optional message history. The host retains a protected restart catalog: after daemon restart, prior sessions appear interrupted and require explicit capability-checked loading into a new process. Restart never repeats prompts or permission decisions. Exiting the local CLI terminates its agents.
+[Development](docs/development.md) lists the checks, the emulator workflow and the CI jobs. `scripts/dev.ps1` and the `Makefile` wrap the common commands, and `scripts/mock-host.ps1` starts a deterministic mock host for UI testing.
 
 ## Repository
 
 ```text
-acpd/                Rust host library, local CLI, mock agent and lifecycle tests
-protocol/            Shared Rust protocol boundary and upstream ACP v1 exports
-docs/                Architecture, protocol, Android plan, security and milestones
-examples/            Working Goose registry and host configuration
-scripts/             PowerShell developer commands
-docker/              Host CLI container recipe
-android/universal-acp/ Compose Android app and independently tested JVM protocol module
-Cargo.toml           Rust workspace
-Cargo.lock           Reproducible dependency resolution
-Makefile             Unix developer commands
+acpd/                  Rust host library, command line, mock agent and tests
+protocol/              Shared Rust protocol types (ACP v1)
+tray/                  System-tray controller for the host (its own Cargo workspace)
+android/universal-acp/ Compose Android app and the independently tested JVM protocol module
+scripts/               install.ps1 and install.sh, developer and test scripts
+assets/logo/           Logo SVGs
+docs/                  Architecture, protocol, security, UI guide and acceptance evidence
+examples/              Example configuration and disabled agent templates
+.github/workflows/     CI, the Build APK (debug release) and Release workflows
 ```
-
-Implementation boundaries are documented in [architecture](docs/architecture.md), [protocol](docs/protocol.md), and [Android](docs/android.md).
-
-## Verification
-
-Current scope, 8 October 2026: tablet/landscape acceptance is excluded for now. Physical-phone testing is suspended and user-owned; signed APK production/verification is also suspended. Supported-build verification will run in GitHub Actions rather than locally. TODO lists active and suspended work separately; suspended checks remain unverified.
-
-Use JDK 21 for local Gradle commands. Supported minimum-Rust, Linux/container and Windows reproducibility checks belong in GitHub Actions. See [development](docs/development.md) for commands and [the acceptance report](docs/acceptance-report.md) for completed platform checks.
-
-The project is not production complete. Active follow-ups include broader Android recovery routes, real-agent forms/warnings, allocation-site/provider profiling, upgrade replay, page/focus/content acceptance, Unix escape cleanup and motion checks. Physical-phone and signed-release checks are suspended; tablet/landscape is excluded. See [TODO](TODO.md) for exact scope.
 
 ## Documentation
 
-Checklist maintenance: periodically move completed items and verification notes from [TODO](TODO.md) to [TODO_DONE](TODO_DONE.md), preferably at each finished increment or handoff. Preserve evidence and limits; keep remaining and suspended work in TODO.
+- [Architecture](docs/architecture.md), [ACP forwarding and host API](docs/protocol.md), [security boundaries](docs/security.md)
+- [Registering agents](docs/agents.md), [the tray app](docs/tray.md), [host releases](docs/releases.md), [app updates](docs/app-updates.md)
+- [Installation and TLS](docs/installation.md), [native setup and background mode](docs/native-cli-and-motion.md), [reload rules](docs/daemon-and-reload.md), [pairing](docs/pairing-and-markdown.md)
+- [Android app](docs/android.md), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
+- [Development and testing](docs/development.md), [real-agent testing](docs/real-agent-testing.md), [acceptance report](docs/acceptance-report.md)
+- [Contributor context](AGENTS.md), [open work](TODO.md), [completed work and evidence](TODO_DONE.md), [user-reported issues](USER_ISSUES.md)
 
-- [Architecture and key models](docs/architecture.md)
-- [ACP forwarding and host API](docs/protocol.md)
-- [Adding agents and Goose setup](docs/agents.md)
-- [Android modules and pages](docs/android.md)
-- [Security boundaries](docs/security.md)
-- [Development and testing](docs/development.md)
-- [Real-agent testing through the host](docs/real-agent-testing.md)
-- [Implementation milestones](docs/milestones.md)
-- [Original request audit and remaining acceptance gates](docs/requirements-audit.md)
-- [Contributor context and test entry points](AGENTS.md)
-- [Current continuation checklist](TODO.md)
-- [Previous-task recovery verification](docs/task-recovery.md)
+## Status
 
-ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol) and its [v1 initialization specification](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/initialization.mdx). Schema package versions and negotiated ACP wire versions are separate. This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.
+Not production complete. The host and the Android app work end to end and pass their automated tests, but several acceptance checks have not been done: real-phone testing (trusted TLS, networking changes, token expiry), gesture-driven Back animation, macOS cleanup after an abrupt host death, and signed releases. [TODO.md](TODO.md) has the exact open items; the dated history of what changed and what was verified is in the [CHANGELOG](CHANGELOG.md).
+
+ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol). This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.
