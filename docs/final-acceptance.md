@@ -114,3 +114,5 @@ Repeated at actual system font 2.0 (set externally, restored to 1.0 and verified
 - Back from the interrupted route: focus lands on the "Sessions" heading, not the session row that opened it. TalkBack always has a focus target after Back, but returning to the opener is not implemented here (unlike Agents and Connection logs in the fixtures); this is recorded as behavior, not a defect fix.
 
 Draft stayed `Owned untouched draft`, no live session started, production data hash unchanged, accessibility settings restored. Font 1.0 only; actual 2× font, other routes and speech audibility remain open.
+
+Repeated at actual font 2.0 (restored to 1.0, verified): light passes; dark failed once ("Focus after InterruptedBack": TalkBack held no focus for 15 s after the second Back) and then passed on two immediate reruns with focus on "Sessions". Treat the second-Back focus as intermittent at 2× font: TalkBack can briefly hold no focus. Not root-caused.
