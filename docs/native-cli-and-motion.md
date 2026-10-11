@@ -41,7 +41,7 @@ Existing `--config` commands still work. An explicit different config cannot inh
 
 ## Background mode and reload
 
-Native background start/stop/status and explicit soft reload are implemented. Follow [the command guide and reload rules](daemon-and-reload.md). Foreground start remains available.
+Native background start/stop/status and explicit soft reload are implemented. `acpd start --bg` (also `-b` or `--background`) runs the host detached so the terminal is free; stop it with `acpd daemon stop`. Follow [the command guide and reload rules](daemon-and-reload.md). Foreground start remains available.
 
 ## Android motion
 
