@@ -80,6 +80,7 @@ import kotlinx.serialization.Serializable
                         sizeTransform=null,
                         transitionSpec={portalPageTransition()},
                         popTransitionSpec={portalPageTransition()},
+                        predictivePopTransitionSpec={portalPageTransition()},
                         entryProvider=entryProvider {
                         entry<HostsRoute> { HostsScreen(hosts,onAdd={stack.add(PairRoute)},onHost={stack.add(HostRoute(it.id))},onRefresh=vm::refresh) }
                         entry<PairRoute> { PairScreen(ui.loading,onBack=back,onPair={address,code,label->vm.pair(address,code,label,back)}) }

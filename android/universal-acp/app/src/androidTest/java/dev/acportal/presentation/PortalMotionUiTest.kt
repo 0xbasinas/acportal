@@ -15,14 +15,14 @@ import org.junit.Test
 /** Isolated clock-driven timing check using the same transition as production. */
 class PortalMotionUiTest {
     @get:Rule val compose=createComposeRule()
-    @Test fun darkPushAndBackSettleWithin240Millis()=check("dark")
-    @Test fun lightPushAndBackSettleWithin240Millis()=check("light")
+    @Test fun darkPushAndBackSettleWithin170Millis()=check("dark")
+    @Test fun lightPushAndBackSettleWithin170Millis()=check("light")
     private fun check(theme:String) {
         val stack=mutableStateListOf("first")
         compose.setContent {PortalTheme(theme) {
             NavDisplay(backStack=stack,onBack={stack.removeAt(stack.lastIndex)},modifier=Modifier.fillMaxSize(),
                 sizeTransform=null,
-                transitionSpec={portalPageTransition()},popTransitionSpec={portalPageTransition()},
+                transitionSpec={portalPageTransition()},popTransitionSpec={portalPageTransition()},predictivePopTransitionSpec={portalPageTransition()},
                 entryProvider=entryProvider {
                     entry<String> {key->Button({if(key=="first")stack.add("second") else stack.removeAt(stack.lastIndex)}) {Text(key)}}
                 })
@@ -32,11 +32,11 @@ class PortalMotionUiTest {
         compose.onNodeWithText("first").performClick()
         frame(2)
         compose.onNodeWithText("second").assertExists()
-        frame(12)
+        frame(8)
         compose.onNodeWithText("second").assertIsDisplayed()
         compose.onNodeWithText("first").assertDoesNotExist()
         compose.onNodeWithText("second").performClick()
-        frame(14)
+        frame(10)
         compose.onNodeWithText("first").assertIsDisplayed()
         compose.onNodeWithText("second").assertDoesNotExist()
         } finally {compose.mainClock.autoAdvance=true}
