@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -32,6 +33,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SessionsRoute:NavKey
 @Serializable data object SessionConnectionRoute:NavKey
 @Serializable data object SettingsRoute:NavKey
+@Serializable data object UpdateRoute:NavKey
 @Serializable data class HostRoute(val id:String):NavKey
 @Serializable data class NewSessionRoute(val hostId:String,val agentId:String?=null,val fromSessions:Boolean=false):NavKey
 @Serializable data class SessionRoute(val hostId:String,val id:String):NavKey
@@ -195,7 +197,20 @@ import kotlinx.serialization.Serializable
                                 }
                             }
                         }
-                        entry<SettingsRoute> { SettingsScreen(settings,onTheme=vm::theme,onCache=vm::cache,onConnections={stack.add(HostsRoute)},onMcp={stack.add(McpRoute())},onAccess={stack.add(WorkspaceAccessRoute())},onAgents={stack.add(AgentRoute())}) }
+                        entry<SettingsRoute> { SettingsScreen(settings,onTheme=vm::theme,onCache=vm::cache,onConnections={stack.add(HostsRoute)},onMcp={stack.add(McpRoute())},onAccess={stack.add(WorkspaceAccessRoute())},onAgents={stack.add(AgentRoute())},onUpdate={stack.add(UpdateRoute)},updateValue="Build ${(LocalContext.current.applicationContext as dev.acportal.PortalApplication).updates.installed.build}") }
+                        entry<UpdateRoute> {
+                            val context=LocalContext.current
+                            val updates=(context.applicationContext as dev.acportal.PortalApplication).updates
+                            val update by updates.state.collectAsStateWithLifecycle()
+                            // Look for a newer build whenever the screen opens, unless a download or install is under way.
+                            LaunchedEffect(Unit) {if(updates.state.value !is dev.acportal.data.UpdateState.Downloading && updates.state.value !is dev.acportal.data.UpdateState.Installing)updates.check()}
+                            val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
+                            DisposableEffect(owner) {
+                                val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME)updates.permissionMayHaveChanged()}
+                                owner.lifecycle.addObserver(observer);onDispose {owner.lifecycle.removeObserver(observer)}
+                            }
+                            UpdateScreen(update,updates.installed,back,updates::check,updates::install,updates::cancel,{context.startActivity(updates.permissionIntent())})
+                        }
                     })
                     if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
                     }
