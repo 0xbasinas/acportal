@@ -664,3 +664,19 @@ async fn receive(
     .await
     .expect("fixture event timed out")
 }
+
+#[test]
+fn bg_and_b_are_short_forms_of_background() {
+    let fixture = Fixture::new();
+    for flag in ["--bg", "-b"] {
+        let started = fixture.run(&["start", flag]);
+        assert!(started.status.success(), "start {flag} failed");
+        assert!(String::from_utf8_lossy(&started.stdout).contains("Background host started"));
+        let status = fixture.run(&["daemon", "status"]);
+        assert!(status.status.success());
+        assert!(String::from_utf8_lossy(&status.stdout).contains("running"));
+        assert!(fixture.run(&["daemon", "stop"]).status.success());
+    }
+    let help = fixture.run(&["start", "--help"]);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--bg"));
+}

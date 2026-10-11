@@ -42,7 +42,7 @@ enum Commands {
     /// Start the authenticated host. Remote listeners require configured TLS.
     Start {
         /// Run detached and control it with acpd daemon status/stop/reload.
-        #[arg(long)]
+        #[arg(long, short = 'b', visible_alias = "bg")]
         background: bool,
     },
     /// Manage a local host without using phone credentials.
@@ -219,7 +219,9 @@ async fn main() -> Result<()> {
         Registry::load(&config.registry)?;
         let pid =
             acpd::daemon::start(&selected_file, cli.registry.as_deref(), &profile_path).await?;
-        println!("Background host started (PID {pid}). Use acpd daemon status, reload or stop.");
+        println!(
+            "Background host started (PID {pid}). Pair a phone with acpd pair; manage it with acpd daemon status, reload or stop."
+        );
         return Ok(());
     }
     // Only the long-running host writes the optional bounded file sink; diagnostics and the
