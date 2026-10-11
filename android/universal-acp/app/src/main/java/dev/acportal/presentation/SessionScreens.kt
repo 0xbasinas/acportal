@@ -180,7 +180,7 @@ import kotlinx.coroutines.*
             else if(info.acpSessionId.isNotBlank())EmptyState("Ready to work","Ask the agent to explore or change your workspace.")
         }
         else LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            items(state.items,key={it.id}) { item -> when(item) {
+            items(state.items,key={it.id},contentType={it::class}) { item -> when(item) {
                 is TimelineItem.Text->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,style=MaterialTheme.typography.bodyMedium)}}} else MessageCard(item,info.agentId)
                 is TimelineItem.Content->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {ReceivedContentView(item.content)}} else Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text(if(item.role=="user")"You" else info.agentId,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);ReceivedContentView(item.content)}
                 is TimelineItem.Tool->{val key=remember(item.id) {disclosureKey("tool:",item.id)};ToolCard(item,state.terminals,onChange={changedFile=it},expandedOverride=key in expandedActivity,onExpandedChange={disclose(key,it)})}
@@ -189,9 +189,9 @@ import kotlinx.coroutines.*
             } }
         }
         if(pendingPermission!=null && !showPermission)TextButton({showPermission=true},Modifier.align(Alignment.CenterHorizontally)) {Text(if(pendingPermission.isElicitation)"Answer the agent's question" else "Review permission")}
-        Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainer,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {Column(Modifier.padding(8.dp)) {
+        Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceContainer,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {Column(Modifier.padding(4.dp)) {
             onRemoveAttachment?.let {AttachmentRows(attachments,!state.processing && !state.replaying,it)}
-            TextField(draft,{draft=it;onDraft(it)},placeholder={Text("Message, @files",style=MaterialTheme.typography.bodyMedium)},modifier=Modifier.fillMaxWidth(),minLines=1,maxLines=6,enabled=!state.replaying,colors=TextFieldDefaults.colors(focusedContainerColor=Color.Transparent,unfocusedContainerColor=Color.Transparent,disabledContainerColor=Color.Transparent,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,disabledIndicatorColor=Color.Transparent))
+            TextField(draft,{draft=it;onDraft(it)},placeholder={Text("Message, @files",style=MaterialTheme.typography.bodyMedium)},modifier=Modifier.fillMaxWidth(),textStyle=MaterialTheme.typography.bodyMedium,minLines=1,maxLines=5,enabled=!state.replaying,colors=TextFieldDefaults.colors(focusedContainerColor=Color.Transparent,unfocusedContainerColor=Color.Transparent,disabledContainerColor=Color.Transparent,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,disabledIndicatorColor=Color.Transparent))
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 onAddAttachment?.let {AttachmentControls(info,connected && info.acpSessionId.isNotBlank() && !state.processing && !state.replaying,draftResetVersion,{attachmentLoading=it},it,onHistory=if(!state.replaying && !state.sessionClosed) {{showHistory=true}} else null)}
                 Text(info.agentId,Modifier.weight(1f),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -268,7 +268,7 @@ import kotlinx.coroutines.*
     val user=item.role=="user"
     Box(Modifier.fillMaxWidth(),contentAlignment=if(user)Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(color=if(user)MaterialTheme.colorScheme.surfaceContainer else Color.Transparent,shape=RoundedCornerShape(8.dp),modifier=if(user)Modifier.fillMaxWidth(0.88f) else Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(if(user)16.dp else 8.dp)) {Text(if(user)"You" else agent,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);if(user)androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,Modifier.padding(top=8.dp),style=MaterialTheme.typography.bodyLarge)} else MarkdownMessage(item.text,Modifier.padding(top=8.dp))}
+            Column(Modifier.padding(if(user)12.dp else 6.dp)) {Text(if(user)"You" else agent,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);if(user)androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,Modifier.padding(top=4.dp),style=MaterialTheme.typography.bodyMedium)} else MarkdownMessage(item.text,Modifier.padding(top=4.dp))}
         }
     }
 }

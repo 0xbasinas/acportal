@@ -130,7 +130,7 @@ import kotlinx.serialization.json.*
         else LazyColumn {
             item { FilledTonalButton(onNew,Modifier.padding(horizontal=24.dp,vertical=8.dp)) { Icon(Icons.Outlined.Add,null);Spacer(Modifier.width(8.dp));Text("New session") } }
             item { SectionLabel("Workspaces") }
-            items(details.workspaces) { workspace -> ListItem(headlineContent={Text(workspace.name.ifBlank { workspace.path })},supportingContent={Text(workspace.path,fontFamily=FontFamily.Monospace,maxLines=2)},leadingContent={Icon(Icons.Outlined.Folder,null)}) }
+            items(details.workspaces) { workspace -> ListItem(headlineContent={Text(folderTitle(workspace.name,workspace.path))},supportingContent={FolderPathText(workspace.path)},leadingContent={Icon(Icons.Outlined.Folder,null)}) }
             item { SectionLabel("Agents") }
             items(details.agents) { agent -> ListItem(modifier=if(onAgent!=null)Modifier.clickable {onAgent(agent.id)} else Modifier,headlineContent={Text(agent.name)},supportingContent={Text(registryStatus(agent,withTools=true))},leadingContent={Icon(Icons.Outlined.Code,null)},trailingContent={if(onAgent!=null)Icon(Icons.Outlined.ChevronRight,"Inspect ${agent.name}")}) }
             item { SectionLabel("Active sessions") }
@@ -159,7 +159,7 @@ import kotlinx.serialization.json.*
             loading -> item {Row(Modifier.padding(24.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp);Text("Loading folders",style=MaterialTheme.typography.bodyMedium)}}
             error!=null -> item {Column(Modifier.padding(horizontal=24.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text("Could not open this folder",style=MaterialTheme.typography.titleMedium);Text(error,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant);onRetry?.let {TextButton(it) {Text("Retry")}}}}
             else -> {
-                items(workspaces,key={it.path}) { workspace -> ListItem(modifier=Modifier.clickable { onSelect(workspace.path) },headlineContent={Text(workspace.name.ifBlank { workspace.path })},supportingContent={Text(workspace.path,maxLines=2,fontFamily=FontFamily.Monospace)},leadingContent={Icon(Icons.Outlined.Folder,null)},trailingContent={IconButton({onBrowse(workspace.path)}) { Icon(Icons.Outlined.ChevronRight,"Browse ${workspace.name}") }}) }
+                items(workspaces,key={it.path}) { workspace -> ListItem(modifier=Modifier.clickable { onSelect(workspace.path) },headlineContent={Text(folderTitle(workspace.name,workspace.path))},supportingContent={FolderPathText(workspace.path)},leadingContent={Icon(Icons.Outlined.Folder,null)},trailingContent={IconButton({onBrowse(workspace.path)}) { Icon(Icons.Outlined.ChevronRight,"Browse ${workspace.name}") }}) }
                 if(workspaces.isEmpty()) item { Text(if(currentPath==null)"No allowed folders are available. Configure workspace roots on the host." else "No subfolders. You can use the current folder.",Modifier.padding(24.dp)) }
             }
         }
@@ -225,18 +225,18 @@ import kotlinx.serialization.json.*
                         }
                     }
                     item {SectionLabel("Workspace")}
-                    if(onChangeConnection!=null)item {SelectionCard(details.workspaces.firstOrNull {it.path==path}?.name?.ifBlank {path} ?: path.ifBlank {"Choose workspace"},path) {workspacePicker=true;browsePath=null}}
+                    if(onChangeConnection!=null)item {SelectionCard(if(path.isBlank())"Choose workspace" else folderTitle(details.workspaces.firstOrNull {it.path==path}?.name.orEmpty(),path),displayPath(path)) {workspacePicker=true;browsePath=null}}
                     else items(details.workspaces,key={it.path}) {workspace->
                         Row(Modifier.fillMaxWidth().clickable {path=workspace.path}.padding(horizontal=24.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Folder,null,Modifier.size(22.dp))
                             Spacer(Modifier.width(16.dp))
-                            Text(workspace.name.ifBlank {workspace.path},Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                            Text(folderTitle(workspace.name,workspace.path),Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
                             if(path==workspace.path)Icon(Icons.Outlined.Check,"Selected workspace",Modifier.size(20.dp))
                             else Icon(Icons.Outlined.ChevronRight,null,Modifier.size(20.dp))
                         }
                     }
                     item {TextButton({workspacePicker=true;browsePath=null},Modifier.padding(start=12.dp)) {Text("Browse folders",style=MaterialTheme.typography.bodySmall)}}
-                    if(path.isNotBlank() && details.workspaces.none {it.path==path})item {Text(path,Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    if(path.isNotBlank() && details.workspaces.none {it.path==path})item {FolderPathText(path,Modifier.padding(horizontal=24.dp))}
                     item {SectionLabel("Agent")}
                     if(onChangeConnection!=null)item {SelectionCard(details.agents.firstOrNull {it.id==agentId}?.name ?: "Choose agent","") {agentPicker=true}}
                     else items(details.agents,key={it.id}) {agent->
