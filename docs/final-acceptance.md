@@ -145,7 +145,7 @@ Finding fixed: the owned fixture host has a non-UUID credential alias, which sur
 
 `MarkdownLinkLifecycleUiTest` (2 tests, dark/light): the "Open link?" confirmation closes on Activity recreation, nothing is opened or acted on (fixture actions stay empty), and the link can be reviewed again and cancelled. This is the intended safe behaviour, now tested.
 
-Still open and unattempted: Back focus on session options and the live conversation, opener focus (no supported Compose API found), third-party document providers and system-picker automation, audio/video codecs beyond WAV, physical-device media.
+Still open and unattempted: Back focus on a connected live conversation and at font 2.0 (saved-conversation sub-pages are covered in the section above), opener focus (no supported Compose API found), third-party document providers and system-picker automation, audio/video codecs beyond WAV, physical-device media.
 
 ## Back focus on conversation sub-pages, 11 October 2026
 
