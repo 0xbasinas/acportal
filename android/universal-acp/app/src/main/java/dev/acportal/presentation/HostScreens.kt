@@ -353,7 +353,7 @@ import kotlinx.serialization.json.*
     }
     delete?.let {stored->AlertDialog(onDismissRequest={delete=null},title={Text("Terminate this session?")},text={Text("The host agent process will stop and this phone's session cache will be removed.")},confirmButton={TextButton({delete=null;onDelete(stored)}) {Text("Terminate")}},dismissButton={TextButton({delete=null}) {Text("Cancel")}})}
 }
-@Composable fun SettingsScreen(settings:PortalSettings,onTheme:(String)->Unit,onCache:(Boolean)->Unit,onConnections:(()->Unit)?=null,onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onAgents:(()->Unit)?=null) {
+@Composable fun SettingsScreen(settings:PortalSettings,onTheme:(String)->Unit,onCache:(Boolean)->Unit,onConnections:(()->Unit)?=null,onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onAgents:(()->Unit)?=null,onUpdate:(()->Unit)?=null,updateValue:String?=null) {
     // Open settings dialogs survive rotation and process recreation.
     var appearance by rememberSaveable {mutableStateOf(false)}
     var history by rememberSaveable {mutableStateOf(false)}
@@ -365,6 +365,7 @@ import kotlinx.serialization.json.*
         onAccess?.let {SettingsRow("Workspace access",onClick=it)}
         SettingsRow("Appearance",settings.theme.replaceFirstChar(Char::uppercase),onClick={appearance=true})
         SettingsRow("History on this device",onClick={history=true})
+        onUpdate?.let {HorizontalDivider(Modifier.padding(horizontal=24.dp,vertical=8.dp),color=MaterialTheme.colorScheme.outlineVariant);SettingsRow("Update app",updateValue,onClick=it)}
     }
     if(appearance)AlertDialog(onDismissRequest={appearance=false},title={Text("Appearance")},text={Column(Modifier.verticalScroll(rememberScrollState())) {listOf("system","light","dark").forEach {mode->Row(Modifier.fillMaxWidth().clickable {onTheme(mode);appearance=false}.padding(vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {Text(mode.replaceFirstChar(Char::uppercase),Modifier.weight(1f));RadioButton(settings.theme==mode,{onTheme(mode);appearance=false})}}}},confirmButton={TextButton({appearance=false}) {Text("Done")}})
     if(history)AlertDialog(onDismissRequest={history=false},title={Text("History on this device")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {Text("Keep recent messages available when this phone is offline. Turning this off removes cached messages from the phone.",style=MaterialTheme.typography.bodyMedium);Row(verticalAlignment=Alignment.CenterVertically) {Text("Save messages",Modifier.weight(1f));PortalSwitch(settings.cacheMessages,onCache)}}},confirmButton={TextButton({history=false}) {Text("Done")}})
