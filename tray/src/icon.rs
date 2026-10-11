@@ -11,6 +11,7 @@ fn colour(state: &HostState) -> [u8; 3] {
         HostState::Running { .. } => [0x2f, 0xbf, 0x8f],
         HostState::Stopped => [0x8a, 0x8a, 0x93],
         HostState::NotSetUp => [0xe0, 0xa0, 0x30],
+        HostState::NotInstalled => [0x4c, 0x8d, 0xf6],
         HostState::Other(_) => [0xe5, 0x53, 0x4b],
     }
 }
@@ -98,6 +99,7 @@ mod tests {
             HostState::Running { pid: 1 },
             HostState::Stopped,
             HostState::NotSetUp,
+            HostState::NotInstalled,
             HostState::Other("x".into()),
         ];
         let ring_x = SIZE / 2 + (SIZE as f32 * 0.4) as u32;

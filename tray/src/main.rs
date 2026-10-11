@@ -1,14 +1,16 @@
 //! ACP Portal tray: a small system-tray controller for the `acpd` host. It runs the same commands
-//! you would type (setup, start, stop, pair) and shows the pairing QR code in your browser.
+//! you would type (setup, start, stop, pair), shows the pairing QR code in your browser, and can
+//! download and install the host itself, so the tray works on its own.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod host;
 mod icon;
+mod install;
 mod pairing_page;
 mod tailscale;
 
 use anyhow::{Context, Result};
-use host::{Cli, HostState};
+use host::{Cli, Control, HostState};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -25,6 +27,8 @@ const CODE_SECONDS: u32 = 60;
 
 enum UserEvent {
     Status(HostState),
+    /// A message for the line under the status (progress or success).
+    Note(String),
     /// Result of a menu action: an error message, or None when it worked.
     Done(Option<String>),
     Menu(MenuId),
@@ -36,6 +40,7 @@ fn settings_dir() -> PathBuf {
 
 fn label(state: &HostState) -> String {
     match state {
+        HostState::NotInstalled => "ACP Portal: host not installed".into(),
         HostState::NotSetUp => "ACP Portal: not set up yet".into(),
         HostState::Stopped => "ACP Portal: stopped".into(),
         HostState::Running { .. } => "ACP Portal: running".into(),
@@ -74,34 +79,60 @@ fn setup_with_tailscale(cli: &Cli) -> Result<()> {
     cli.setup(&host.https_address(), &host.host_name)
 }
 
+/// Runs a host action off the UI thread, then reports the result and the new state.
 fn spawn_action(
     proxy: &EventLoopProxy<UserEvent>,
-    cli: &Arc<Cli>,
+    control: &Arc<Control>,
     action: impl FnOnce(&Cli) -> Result<()> + Send + 'static,
 ) {
-    let (proxy, cli) = (proxy.clone(), cli.clone());
+    let (proxy, control) = (proxy.clone(), control.clone());
     std::thread::spawn(move || {
-        let result = action(&cli).err().map(|error| error.to_string());
+        let result = control.with(action).err().map(|error| error.to_string());
         let _ = proxy.send_event(UserEvent::Done(result));
-        let _ = proxy.send_event(UserEvent::Status(cli.status(&settings_dir())));
+        let _ = proxy.send_event(UserEvent::Status(control.status(&settings_dir())));
+    });
+}
+
+/// Downloads the latest host from GitHub and installs it; the tray then uses it straight away.
+fn spawn_install(proxy: &EventLoopProxy<UserEvent>, control: &Arc<Control>) {
+    let (proxy, control) = (proxy.clone(), control.clone());
+    std::thread::spawn(move || {
+        let _ = proxy.send_event(UserEvent::Note("Downloading the host from GitHub…".into()));
+        match install::download_latest() {
+            Ok((path, tag)) => {
+                control.refresh();
+                let _ = proxy.send_event(UserEvent::Note(format!(
+                    "✓ Installed acpd {tag} in {}",
+                    path.display()
+                )));
+            }
+            Err(error) => {
+                let _ = proxy.send_event(UserEvent::Done(Some(error.to_string())));
+            }
+        }
+        let _ = proxy.send_event(UserEvent::Status(control.status(&settings_dir())));
     });
 }
 
 fn main() -> Result<()> {
-    let cli = Arc::new(Cli::locate()?);
+    let control = Arc::new(Control::new());
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let menu_proxy = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_proxy.send_event(UserEvent::Menu(event.id));
     }));
-    // Poll the host every few seconds so the icon follows `acpd start/stop` typed elsewhere too.
+    // Poll the host every few seconds so the icon follows `acpd start/stop` typed elsewhere too, and
+    // notices an `acpd` that was copied next to the tray or installed since the last check.
     {
-        let (proxy, cli) = (proxy.clone(), cli.clone());
+        let (proxy, control) = (proxy.clone(), control.clone());
         std::thread::spawn(move || {
             loop {
+                if control.get().is_none() {
+                    control.refresh();
+                }
                 if proxy
-                    .send_event(UserEvent::Status(cli.status(&settings_dir())))
+                    .send_event(UserEvent::Status(control.status(&settings_dir())))
                     .is_err()
                 {
                     break;
@@ -113,6 +144,7 @@ fn main() -> Result<()> {
 
     let status_item = MenuItem::new("ACP Portal", false, None);
     let problem_item = MenuItem::new("", false, None);
+    let install_item = MenuItem::new("Download host (acpd)…", true, None);
     let setup_item = MenuItem::new("Set up with Tailscale", true, None);
     let toggle_item = MenuItem::new("Start host", true, None);
     let pair_item = MenuItem::new("Pair a phone…", false, None);
@@ -123,6 +155,7 @@ fn main() -> Result<()> {
         &status_item,
         &problem_item,
         &PredefinedMenuItem::separator(),
+        &install_item,
         &setup_item,
         &toggle_item,
         &pair_item,
@@ -130,7 +163,8 @@ fn main() -> Result<()> {
         &folder_item,
         &quit_item,
     ])?;
-    let ids = (
+    let (install_id, setup_id, toggle_id, pair_id, folder_id, quit_id) = (
+        install_item.id().clone(),
         setup_item.id().clone(),
         toggle_item.id().clone(),
         pair_item.id().clone(),
@@ -141,7 +175,6 @@ fn main() -> Result<()> {
     let mut tray = None;
     let mut state = HostState::Stopped;
     let mut menu_holder = Some(menu);
-    problem_item.set_text("");
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
@@ -159,44 +192,56 @@ fn main() -> Result<()> {
             tao::event::Event::UserEvent(UserEvent::Status(next)) => {
                 if next != state {
                     state = next;
+                    let running = matches!(state, HostState::Running { .. });
+                    let installed = !matches!(state, HostState::NotInstalled);
                     status_item.set_text(label(&state));
-                    toggle_item.set_text(if matches!(state, HostState::Running { .. }) {
-                        "Stop host"
+                    install_item.set_text(if !installed {
+                        "Download host (acpd)…"
+                    } else if running {
+                        "Update host (stop it first)"
                     } else {
-                        "Start host"
+                        "Update host (download latest)…"
                     });
-                    toggle_item.set_enabled(!matches!(state, HostState::NotSetUp));
-                    pair_item.set_enabled(matches!(state, HostState::Running { .. }));
-                    setup_item.set_enabled(true);
-                    setup_item.set_text(if matches!(state, HostState::NotSetUp) {
-                        "Set up with Tailscale"
-                    } else {
-                        "Set up again with Tailscale"
-                    });
+                    // Replacing the program while it runs is not possible on Windows.
+                    install_item.set_enabled(!running);
+                    toggle_item.set_text(if running { "Stop host" } else { "Start host" });
+                    toggle_item.set_enabled(installed && !matches!(state, HostState::NotSetUp));
+                    pair_item.set_enabled(running);
+                    setup_item.set_enabled(installed);
+                    setup_item.set_text(
+                        if matches!(state, HostState::NotSetUp | HostState::NotInstalled) {
+                            "Set up with Tailscale"
+                        } else {
+                            "Set up again with Tailscale"
+                        },
+                    );
                     if let Some(tray) = &tray {
                         let _ = tray.set_icon(Some(icon::icon(&state)));
                         let _ = tray.set_tooltip(Some(label(&state)));
                     }
                 }
             }
+            tao::event::Event::UserEvent(UserEvent::Note(text)) => problem_item.set_text(text),
             tao::event::Event::UserEvent(UserEvent::Done(result)) => {
                 problem_item.set_text(result.map(|m| format!("⚠ {m}")).unwrap_or_default());
             }
             tao::event::Event::UserEvent(UserEvent::Menu(id)) => {
                 problem_item.set_text("");
-                if id == ids.4 {
+                if id == quit_id {
                     *control_flow = ControlFlow::Exit;
-                } else if id == ids.0 {
-                    spawn_action(&proxy, &cli, setup_with_tailscale);
-                } else if id == ids.1 {
+                } else if id == install_id {
+                    spawn_install(&proxy, &control);
+                } else if id == setup_id {
+                    spawn_action(&proxy, &control, setup_with_tailscale);
+                } else if id == toggle_id {
                     if matches!(state, HostState::Running { .. }) {
-                        spawn_action(&proxy, &cli, |cli| cli.stop());
+                        spawn_action(&proxy, &control, |cli| cli.stop());
                     } else {
-                        spawn_action(&proxy, &cli, |cli| cli.start());
+                        spawn_action(&proxy, &control, |cli| cli.start());
                     }
-                } else if id == ids.2 {
-                    spawn_action(&proxy, &cli, show_pairing);
-                } else if id == ids.3 {
+                } else if id == pair_id {
+                    spawn_action(&proxy, &control, show_pairing);
+                } else if id == folder_id {
                     let dir: &Path = &settings_dir();
                     let _ = std::fs::create_dir_all(dir);
                     let _ = open::that(dir);
