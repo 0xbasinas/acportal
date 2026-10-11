@@ -132,3 +132,7 @@ Trade-off, recorded not hidden: focus after Back is now deterministic but lands 
 Stale test fixed: `AgentThoughtUiTest` expected the exact status "Syncing" but the header shows "Syncing · Restoring conversation" while replaying; it now matches by substring (it already failed before this change). `SavedHistoryNavigationTest` needs the paired mock host on port 8767 and `ConnectionLogsLayoutUiTest` wide cases need an actual 800 dp window (tablet, out of scope); both fail on a plain phone emulator for those reasons and were not changed.
 
 Rich content: `ConversationUiRestorationTest` 2, `AgentThoughtUiTest` 2, `AutoReviewBadgeUiTest` 2, `ElicitationLifecycleUiTest` 2 pass. Markdown's link confirmation dialog uses `remember`, so it closes on Activity recreation; nothing opens afterwards (safe default); this is read from source, not tested.
+
+## Environment-dependent classes resolved, 11 October 2026
+
+`ConnectionLogsLayoutUiTest` passes 4/4 with the emulator set to an actual 1600×1280 window (800 dp), reset to 720×1280 afterward; its wide cases failed before only because the window was a phone. `SavedHistoryNavigationTest` passes 1/1 against the paired mock host (`scripts/mock-host.ps1 -RequireAuth -Terminal -Media`, started for the run and stopped afterward, listener verified gone). Android CI [38143193352](https://github.com/0xbasinas/acportal/actions/runs/38143193352) passes at `e372404`, covering all commits to date.
