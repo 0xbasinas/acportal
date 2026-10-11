@@ -1,40 +1,21 @@
 # Remaining work
 
-Reconciled 11 October 2026 against main `7685fca` (PRs #10–#13 merged). Each open item is split into (a) work an agent can do without a device and (b) checks that need an emulator, a device or the user. The agent parts below were delivered in PR `agent-side-checks` (marked done, details in TODO_DONE); the device parts are ready to run with exact commands in the [emulator runbook](docs/emulator-runbook.md). Instrumented tests from that PR compile but have not been run. Completed features, test counts and chronological evidence belong in [TODO_DONE.md](TODO_DONE.md). The unchecked items below are the remaining narrower acceptance scopes, not requests to implement their already completed parent features again.
+Reconciled 11 October 2026 for PR #15 against merged PR #14 main `5283b55`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [PR #15 review](docs/pr15-review.md) records actual emulator results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
 
-Goose ACP is the local agent. Android connects through authenticated REST/WebSocket; the host uses ACP stdio. Follow [HANDOFF.md](HANDOFF.md), [requirements audit](docs/requirements-audit.md) and [UI reference](docs/ui-reference.md). Checkmarks are reserved for verified work, and completed items are archived rather than kept here.
+Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
 
-## Current host verification
+## Host limits requiring further verification or a containment decision
 
-- [ ] Unix cleanup after abrupt host termination or deliberate process-group escape, including active real-agent descendants.
-  - [x] (a) Agent: `setsid` agent sessions, recorded-group sweep on the next start, Linux session-member cleanup for escaped groups; Linux tests. macOS sweeps only groups whose leader is alive.
-  - [x] (b, Linux) Real Goose descendants killed with the host were stopped by the next start (batch 7, 11 October).
-  - (b) macOS: rerun the dispatched macOS job after the fix in this PR — runbook §1.
+- [ ] macOS cleanup with real-agent descendants after abrupt host death, particularly when the leader has exited. Linux real-Goose cleanup and Linux/macOS controlled CI tests have passing evidence. macOS leader-less groups and descendants creating a new session remain documented limits; the implemented cleanup is not a sandbox guarantee.
 
-## Android verification still open
+## Android acceptance still open
 
-- [ ] Allocation-site and retained-object profiling.
-  - [x] (a) Agent: JVM load tests for long streams, 3,000 tools, 5,000/40,000-model lists, 300 saved sessions and per-chunk allocation.
-  - (b) Device: profiler allocation sites and retained objects — ready, runbook §2.
-- [ ] Route-specific recovery for folder browsing, error pages, message-cache settings, offline history and prompt-history restoration.
-  - [x] (a) Agent: `RouteRecoveryUiTest` (state-restoration fixtures for each route; nothing is resent); Settings dialogs now survive recreation.
-  - (b) Emulator: run it, then same-task process death by hand — ready, runbook §3.
-- [ ] Page-state and accessibility matrix: remaining loading/empty/offline/error pages, Connection logs failure states and return focus, page scroll/focus restoration, rich-content/thought accessibility and lifecycle, device codecs and document providers.
-  - [x] (a) Agent: `PageStateMatrixUiTest` (loading/empty/offline/error and Connection logs failure/focus, dark/light × font 1.0/2.0, labelled-action check). Rich-content/codec/document-provider cases are not covered.
-  - (b) Emulator: run it plus native TalkBack and 200% font — ready, runbook §4.
-- [ ] Session creation with multiple connections and a delayed live host (races).
-  - [x] (a) Agent: two race bugs fixed (stale credential restore on slow host reads; loading cleared early / duplicate Start session); `SessionCreationRaceTest` with loopback fixture hosts.
-  - (b) Emulator: run it — ready, runbook §5.
-- [ ] Real-agent own-tools warnings, write notices, shell approval/review badge outcomes, and form submission and lifecycle on Android.
-  - [x] (a) Agent: `real-agent-check.py` gated by `ACPD_REAL_AGENT_OK=1`; opt-in `RealAgentAndroidCheckTest` that observes notices and never answers or submits.
-  - [x] Host side with real Goose + DeepSeek: write deny/cancel, auto-review deny badge, form accept/decline, reconnect/load (batch 7). Auto-allow and model-review outcomes were not observed (Goose sends terminal environment overrides).
-  - (b) Emulator plus user: Android screens; each real-agent call or submission needs explicit human authorization — ready, runbook §6.
-- [ ] Network replay after an old-build upgrade (the offline upgrade passes; see TODO_DONE).
-  - [x] (a) Agent: `scripts/upgrade-replay-host.py` (real acpd + mock agent) and prepare/verify/cleanup phases in `LegacyUpgradeReplayTest.kt`.
-  - (b) Emulator: run the in-place upgrade from `cf8fa26` with the network connected — ready, runbook §7.
-- [ ] Motion: predictive Back, dialogs/sheets and keyboard animation, plus the cost of streaming frames.
-  - [x] (a) Agent: per-update streaming work cut (no full-list/last-item comparisons, no timeline copy for the title, Markdown no longer flips to plain text per chunk, one list copy per chunk); `ConversationRenderTest`; `MotionInputFixtureTest` for Back/dialog/keyboard. Frame-time effect unmeasured.
-  - (b) Emulator, then the user's phone: repeat the frame measurement and the predictive-Back gesture — ready, runbook §8.
+- [ ] Allocation-site and retained-object profiling during Sessions refresh/streaming and after closing sessions. JVM load regressions and isolated ART/heap/700-model counters pass; counters do not identify retained object paths. See [runbook §2](docs/emulator-runbook.md).
+- [ ] External same-task process-death recovery for folder browsing/error routes, message-cache settings, offline history and prompt history; broader scroll/expanded-state restoration. Four composable restoration checks pass, but do not prove external process death. See [runbook §3](docs/emulator-runbook.md).
+- [ ] Native TalkBack and actual large-font traversal of remaining loading/empty/offline/error pages, Connection logs return focus, broader scroll/focus restoration, rich-content/thought lifecycle, codecs and document providers. The 24 synthetic page-state cases and four native Markdown TalkBack runs pass to their stated scopes. See [runbook §4](docs/emulator-runbook.md).
+- [ ] Real-agent Android own-tools/write warnings, shell approval/review badge outcomes, and form submission/lifecycle. Host-side batch 7 and earlier pending-form recovery evidence remain valid; the new opt-in Android fixture was not run in this review. Each new paid call or decision needs its own human authorization. See [runbook §6](docs/emulator-runbook.md).
+- [ ] Old-build upgrade with a populated live conversation/authoritative approval replay. The actual `cf8fa26` in-place offline upgrade and authenticated empty mock-session replay pass, preserving the draft and cleaning only owned rows. Populated replay remains a broader check, not a failure of those passing phases. See [runbook §7](docs/emulator-runbook.md).
+- [ ] Predictive Back gesture progress/cancellation, sheet/dialog/keyboard animation and physical-phone streaming frame behavior. Three Back/input fixtures pass; debug-emulator streaming p95 remains about 36 ms. See [runbook §8](docs/emulator-runbook.md).
 
 ## Ongoing contributor requirements
 

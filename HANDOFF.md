@@ -1,5 +1,7 @@
 # ACP Portal agent handoff
 
+11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
+
 Published Android source `ff68a3b` now has successful full [Actions 38044579739](https://github.com/0xbasinas/acportal/actions/runs/38044579739). Rust is unchanged from passing platform source `16e7cbc`. Subsequent evidence-only documentation commits do not require repeating these source checks.
 
 Latest continuation: the user's one authorized `ask_preference` call was consumed once after exact fixture title/input validation. Real form elicitation reload and Android process-death recovery pass; do not reuse `.local/elicitation-approval-consumed`. Only the form/prompt cancellation was sent afterward. Both upgrade and real-Goose recorded rows were cleaned through guarded selected methods. Markdown native link confirmation/Cancel passes four dark/light normal/actual-2.0 runs. Rust/full Android Actions at `16e7cbc` pass; final Markdown source `ff68a3b` passes full Android Actions 38044579739. Normal debug APK outputs have been rebuilt without the acceptance property. See the continuation report and TODO for remaining scope.
@@ -45,7 +47,7 @@ Historical PR #10 checkpoint, 9 October 2026: PR #10 is merged on main at `6ec49
 
 ## Next implementation priorities
 
-Follow [TODO.md](TODO.md). Each open item is split into (a) agent work that needs no device and (b) emulator, device or user checks. The agent parts are delivered (PR `agent-side-checks`); the device parts are ready with exact commands in the [emulator runbook](docs/emulator-runbook.md), and its instrumented tests have not been run yet. Next: run runbook §1–§8, record results in TODO_DONE and the acceptance report. Real-agent runs (§1 step 3, §6) need explicit human authorization each time. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded.
+Follow [TODO.md](TODO.md): allocation-site/retained-object profiling, external route process death, remaining native page traversal/focus, real-agent Android warnings/badges/form submission, populated upgrade replay and predictive Back/phone motion. Session-creation races and authenticated empty-session upgrade replay are completed to their recorded scope. Use [the emulator runbook](docs/emulator-runbook.md); preparation/restoration phases are separate selected runs. Paid-provider calls and decisions need specific human authorization. Physical-phone and signed release checks remain suspended; tablet/landscape is excluded.
 
 ## Initial Android acceptance checkpoint — 9 October 2026 (historical scope)
 

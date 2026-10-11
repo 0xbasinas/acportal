@@ -1,6 +1,6 @@
 # Emulator and device runbook
 
-One place for the emulator, device and user checks that follow the agent-side work in PR `agent-side-checks`. Each section matches the numbered open item in [TODO.md](../TODO.md). Every instrumented test named here **compiles but has not been run**; the first run on an emulator is the acceptance step. Record results (pass/fail, emulator image, date) in [TODO_DONE.md](../TODO_DONE.md) and update [the acceptance report](acceptance-report.md).
+One place for the emulator, device and user checks that follow the agent-side work in PR `agent-side-checks`. Each section matches the numbered open item in [TODO.md](../TODO.md). The selected PR #15 review runs now pass: route restoration (4), page states (24), session-creation races (4), Back/input (3), streaming Markdown (4), native Markdown TalkBack (four runs), six profiling checks and three guarded upgrade phases. [Review evidence](pr15-review.md) records exact results and limits; real-agent Android and broader manual checks remain open. Record results (pass/fail, emulator image, date) in [TODO_DONE.md](../TODO_DONE.md) and update [the acceptance report](acceptance-report.md).
 
 ## Before you start
 
@@ -92,6 +92,10 @@ Android side, opt-in instrumented check that renders the live session with the p
 
 ## §7 Network replay after an old-build upgrade
 
+The automated runner is preferred: `python3 scripts/upgrade-replay-host.py --acpd <acpd binary> --mock <mock binary> --listen 127.0.0.1:<unused port> --adb <adb binary> --serial <verified serial> --old-apk <cf8fa26 acceptance APK> --current-apk <current acceptance APK> --test-apk <current acceptance test APK>`. It runs selected prepare/verify/cleanup phases, creates a fresh pairing code after installation without printing it, and restores its owned reverse mapping. Never run these classes as an ordinary whole-suite instrumentation. The review used this mode successfully with an empty host session; populated conversation/approval replay is still open.
+
+Manual alternative below: generate a **fresh** phone pairing code in Terminal A after step 4 installation, because codes expire after 60 seconds. Do not save codes in logs. Remove your owned reverse mapping after cleanup.
+
 1. Terminal A: `python3 scripts/upgrade-replay-host.py` (real acpd + mock agent, no model calls). It prints `replayHostId`, `replaySessionId`, `replayAddress` and a one-use phone pairing code. Leave it running.
 2. `adb reverse tcp:8767 tcp:8767`.
 3. Install the older APK built from `cf8fa26` with the acceptance ID (as in [acceptance continuation](acceptance-continuation.md)) and the current test APK, then prepare:
@@ -123,4 +127,4 @@ Agent-side changes: the conversation screen no longer compares the whole item li
    ```
 
    Expected: 3 tests pass — Back closes the prompt-history sheet without selecting, Back closes the Appearance dialog and keeps Settings, the first Back with the keyboard open hides it and keeps the typed address.
-3. By hand: with gesture navigation, drag the predictive Back gesture slowly on a pushed page, a sheet and a dialog; cancel halfway and complete once. Expected: preview follows the finger, cancel restores, completion matches the 240 ms transition. Then repeat 1–3 on your phone.
+3. By hand: with gesture navigation, drag the predictive Back gesture slowly on a pushed page, a sheet and a dialog; cancel halfway and complete once. Expected: preview follows the finger, cancel restores, completion follows the current short production transition. Then repeat 1–3 on your phone.
