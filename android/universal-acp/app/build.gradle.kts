@@ -15,16 +15,26 @@ android {
         applicationId = "dev.acportal"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("apkVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("apkVersionName") as String?) ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["attachmentAuthority"] = if (isolatedAcceptance)
             "dev.acportal.acceptance.test.attachments" else "dev.acportal.test.attachments"
     }
 
+    // Optional shared debug key (CI and local) so debug APKs update over one another. Without the
+    // keystore path the usual per-machine Android debug key is used. Never commit the keystore.
+    val sharedKeystore = providers.gradleProperty("acportalDebugKeystore").orNull
+    if (sharedKeystore != null) signingConfigs.create("shared") {
+        storeFile = file(sharedKeystore)
+        storePassword = System.getenv("ACPORTAL_DEBUG_KEYSTORE_PASSWORD")
+        keyAlias = "acportaldebug"
+        keyPassword = System.getenv("ACPORTAL_DEBUG_KEYSTORE_PASSWORD")
+    }
     buildTypes {
         debug {
             if (isolatedAcceptance) applicationIdSuffix = ".acceptance"
+            if (sharedKeystore != null) signingConfig = signingConfigs.getByName("shared")
         }
         release {
             isMinifyEnabled = false
