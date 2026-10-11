@@ -321,6 +321,20 @@ async fn main() -> anyhow::Result<()> {
                 ))
                 .await?;
             }
+            #[cfg(unix)]
+            "_mock/escape_group" => {
+                // A child that leaves the agent's process group, as job-control shells
+                // and some tools do. Host cleanup must still stop it.
+                use std::os::unix::process::CommandExt;
+                let child = std::process::Command::new(std::env::current_exe()?)
+                    .arg("--leaf")
+                    .process_group(0)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()?;
+                out.send(response(id, json!({"pid":child.id()}))).await?;
+            }
             "_mock/echo" => {
                 out.send(response(id, params.clone())).await?;
             }

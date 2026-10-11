@@ -1,5 +1,7 @@
 # ACP Portal
 
+11 October 2026 PR #15 review: fixes at `3ab4cd2` address continuous Markdown starvation, large-font empty-history clipping, inert dimension validation and failing fixtures. 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling tests and three actual older-APK upgrade phases pass. Full Android and all eight selected platform Actions jobs pass at `3ab4cd2`; see [review evidence](docs/pr15-review.md), [TODO](TODO.md) and [TODO_DONE](TODO_DONE.md) for exact scopes and remaining gates. PR #14 main `5283b55` is integrated; PR #15 remains open. Earlier checkpoints below are historical.
+
 The latest increment verifies real Goose pending form recovery across reload and Android process death, plus native TalkBack review/Cancel for standalone and individual inline Markdown links in both themes at normal/double font. [Acceptance continuation](docs/acceptance-continuation.md) records exact source/run evidence and remaining limits. PR #13 is merged on main at `e6a3460`.
 
 10 October acceptance continuation adds real Goose pending-approval reload, an actual older-APK offline upgrade, streaming/attachment allocator counters, rendered frame measurements and full session-creation TalkBack. Scope and measurements are in [the continuation report](docs/acceptance-continuation.md); [TODO](TODO.md) remains the acceptance checklist.

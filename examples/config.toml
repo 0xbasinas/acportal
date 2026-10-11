@@ -26,6 +26,8 @@ history_bytes = 8388608
 # See docs/security.md ("Shell-line auto-review") for what this does and does not protect.
 # [shell_review.goose]
 # rules = true                       # deterministic allowlist + hard-deny list
+# inert_env = false                  # default true: inert env overrides (PAGER=cat, TERM, NO_COLOR,
+#                                    # LANG, ... see docs/security.md) don't force the phone; false opts out
 # [shell_review.goose.model]         # optional reviewer for lines the rules leave undecided
 # base_url = "https://api.deepseek.com"
 # model = "deepseek-flash"

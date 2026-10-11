@@ -31,12 +31,19 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     private var detailsJob:Job?=null
     private var detailsVersion=0L
     init { refresh() }
-    private fun work(onRetry:(()->Unit)?=null,action:suspend ()->Unit) { viewModelScope.launch { ui.update { it.copy(loading=true,error=null,errorRetry=null) };try { action() } catch (cancelled:CancellationException) { throw cancelled } catch (failure:Exception) { ui.update { it.copy(error=failure.message ?: "Something went wrong. Try again.",errorRetry=onRetry) } } finally { ui.update { it.copy(loading=false) } } } }
+    // Main-thread counters: one finished operation must not clear loading while another
+    // (for example a slow session creation) is still running.
+    private var activeWork=0
+    private var detailsLoading=false
+    private fun publishLoading() {ui.update {it.copy(loading=activeWork>0 || detailsLoading)}}
+    private val creating=mutableSetOf<String>()
+    private fun work(onRetry:(()->Unit)?=null,action:suspend ()->Unit) { viewModelScope.launch { activeWork++;ui.update { it.copy(loading=true,error=null,errorRetry=null) };try { action() } catch (cancelled:CancellationException) { throw cancelled } catch (failure:Exception) { ui.update { it.copy(error=failure.message ?: "Something went wrong. Try again.",errorRetry=onRetry) } } finally { activeWork--;publishLoading() } } }
     fun refresh() = work { repository.refreshHosts() }
     fun details(id:String) {
         cancelBrowse()
         val version=++detailsVersion
         detailsJob?.cancel()
+        detailsLoading=true
         ui.update {it.copy(details=null,loading=true,error=null,errorRetry=null)}
         detailsJob=viewModelScope.launch {
             try {
@@ -44,7 +51,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
                 if(version==detailsVersion)ui.update {it.copy(details=details)}
             } catch(cancelled:CancellationException) {throw cancelled}
             catch(failure:Exception) {if(version==detailsVersion)ui.update {it.copy(error=failure.message ?: "Check the host connection and try again.",errorRetry={details(id)})}}
-            finally {if(version==detailsVersion)ui.update {it.copy(loading=false)}}
+            finally {if(version==detailsVersion) {detailsLoading=false;publishLoading()}}
         }
     }
     fun pair(address:String,code:String,label:String,onDone:()->Unit) = work { repository.pair(address,code,label);repository.refreshHosts();onDone() }
@@ -67,7 +74,13 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
             }
         }
     }
-    fun create(hostId:String,agentId:String,workspace:String,onDone:(StoredSession)->Unit) = work { onDone(repository.create(hostId,agentId,workspace)) }
+    /** A repeated request for the same host, agent and folder while one is in flight is ignored. */
+    fun create(hostId:String,agentId:String,workspace:String,onDone:(StoredSession)->Unit) {
+        val key=listOf(hostId,agentId,workspace).joinToString("\u0000")
+        if(!creating.add(key))return
+        work { try { onDone(repository.create(hostId,agentId,workspace)) } finally { creating.remove(key) } }
+    }
+    internal fun creationInFlight(hostId:String,agentId:String,workspace:String)=listOf(hostId,agentId,workspace).joinToString("\u0000") in creating
     fun open(stored:StoredSession):Unit = work(onRetry={open(stored)}) { val live=repository.open(stored.hostId,stored.id);ui.update { it.copy(live=live) } }
     fun prompt(live:LiveSession,text:String,uri:String?=null) {val attachments=live.attachments.value;work { repository.prompt(live,text,uri,attachments) }}
     fun addAttachment(live:LiveSession,attachment:PromptAttachment,version:Long) = repository.addAttachment(live,attachment,version)

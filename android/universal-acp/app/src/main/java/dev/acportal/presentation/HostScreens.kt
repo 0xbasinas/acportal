@@ -337,8 +337,9 @@ import kotlinx.serialization.json.*
     delete?.let {stored->AlertDialog(onDismissRequest={delete=null},title={Text("Terminate this session?")},text={Text("The host agent process will stop and this phone's session cache will be removed.")},confirmButton={TextButton({delete=null;onDelete(stored)}) {Text("Terminate")}},dismissButton={TextButton({delete=null}) {Text("Cancel")}})}
 }
 @Composable fun SettingsScreen(settings:PortalSettings,onTheme:(String)->Unit,onCache:(Boolean)->Unit,onConnections:(()->Unit)?=null,onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onAgents:(()->Unit)?=null) {
-    var appearance by remember {mutableStateOf(false)}
-    var history by remember {mutableStateOf(false)}
+    // Open settings dialogs survive rotation and process recreation.
+    var appearance by rememberSaveable {mutableStateOf(false)}
+    var history by rememberSaveable {mutableStateOf(false)}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeader("Settings")
         onConnections?.let {SettingsRow("Connections",onClick=it)}

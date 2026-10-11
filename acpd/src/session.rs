@@ -217,6 +217,9 @@ impl SessionManager {
     pub fn persistent(config: Config, registry: Registry, state_directory: &Path) -> Result<Self> {
         let mut manager = Self::new(config, registry)?;
         let catalog = Arc::new(SessionCatalog::open(state_directory)?);
+        // After an abrupt host kill, stop agent groups the earlier host left running.
+        #[cfg(unix)]
+        crate::process_tree::records::enable(state_directory);
         let records = catalog
             .records()
             .into_iter()

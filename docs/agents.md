@@ -47,6 +47,10 @@ Use Goose's own provider configuration and credential storage. The host inherits
 ```toml
 [shell_review.goose]
 rules = true
+# Inert environment overrides an agent sends with terminal/create (pager, colour,
+# terminal size, locale, CI, AGENT_SESSION_ID) don't force the phone; this applies to
+# every agent. Opt this agent out with:
+# inert_env = false
 # Optional model reviewer for lines the rules leave undecided:
 # [shell_review.goose.model]
 # base_url = "https://api.deepseek.com"

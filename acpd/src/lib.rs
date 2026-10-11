@@ -9,7 +9,7 @@ pub mod launcher;
 pub mod logging;
 pub mod mcp;
 pub mod pairing_input;
-pub(crate) mod process_tree;
+pub mod process_tree;
 pub mod registry;
 pub mod security;
 pub mod session;

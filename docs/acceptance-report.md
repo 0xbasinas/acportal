@@ -1,5 +1,7 @@
 # Acceptance report
 
+11 October 2026 PR #15 review: [executed emulator evidence](pr15-review.md) records 35 UI tests, four native Markdown TalkBack runs, ten isolated race/profiling checks and three actual older-APK upgrade phases. Recovery-state restoration is scoped separately from process death; empty-session replay is scoped separately from populated real-agent replay. [TODO](../TODO.md) lists the current remaining gates. Prior dated evidence below is historical.
+
 Current status, 11 October 2026: PR #13 is merged on main at `e6a3460`, with scoped passing platform Actions, Penpot boards 24–31, native TalkBack including full session creation, real Goose approval/reload/process-death recovery, an actual older-APK offline upgrade and expanded allocator/rendered-frame measurements. The real recovery run found and fixed historical replay clearing an unsent draft. [Acceptance continuation](acceptance-continuation.md) retains exact results and failures; broader routes, real-agent forms/warnings, allocation-site attribution, upgrade replay and motion follow-ups remain in [TODO.md](../TODO.md). Earlier dated checkpoints remain historical.
 
 10 October 2026: [acceptance continuation](acceptance-continuation.md) records Penpot boards 24–31, 16 scoped native TalkBack screen scenarios across four instrumentations, the picker header fix and current platform results. Broader acceptance remains open.
@@ -57,21 +59,24 @@ on the same commit passed its 3 PR jobs.
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| Rust format, strict Clippy (Linux + Windows target), tests | **Verified** (box, Linux) | `cargo fmt --check`; `cargo clippy -D warnings` for host and `x86_64-pc-windows-gnu`; 117 passed, 1 ignored. |
+| Rust format, strict Clippy (Linux + Windows target), tests | **Verified** (box, Linux) | `cargo fmt --check`; `cargo clippy -D warnings` for host and `x86_64-pc-windows-gnu`; 139 passed, 1 ignored (PR `agent-side-checks`). |
 | testy pinned agent | **Verified** (box) | `scripts/run-testy-isolated.sh`: 9 passed. In CI the testy job passed in the dispatch run and on main. |
 | Goose 1.53.0 + DeepSeek `deepseek-flash`, host side | **Verified** (box, Linux) | One run on 9 October 2026, 17:06–17:07 Athens, covering inspect, approve, deny, shell-line terminal, kill, reconnect, load, cancel mid-write, outside-workspace read and **form elicitation (accept and decline)**. Details are in [real-agent-testing.md](real-agent-testing.md#batch-6-run-9-october-2026-linux-1707-athens). |
 | Goose elicitation | **Verified** (host side) | Goose forwards an MCP server's `elicitation/create` to the ACP client as a form elicitation, but only when the client advertised `elicitation.form`. The answers (accept with content, and decline) reach the MCP server unchanged. |
-| Android screens with a real agent | **Partial** | Real Goose pending approval, form elicitation reload and Android process-death recovery pass (PR #13; [acceptance continuation](acceptance-continuation.md)). Own-tools warnings, write notices, badges and form submission remain open in [TODO.md](../TODO.md). |
+| Android screens with a real agent | **Partial** | Real Goose pending approval, form elicitation reload and Android process-death recovery pass (PR #13; [acceptance continuation](acceptance-continuation.md)). Own-tools warnings, write notices, badges and form submission remain open in [TODO.md](../TODO.md); an opt-in check that never answers or submits is ready ([runbook §6](emulator-runbook.md#6-real-agent-android-checks-paid-explicit-go-ahead-each-run), not run). |
+| Unix cleanup after an abrupt host kill | **Partial** (Linux) | Recorded-group sweep on the next start and session-based cleanup of escaped groups, tested on Linux with the real host binary. Linux real-Goose cleanup passed in batch 7; macOS controlled cleanup passes in Actions. macOS leader-less groups and real-agent descendants remain limited ([runbook §1](emulator-runbook.md#1-unix-cleanup-after-abrupt-host-kill-host-no-emulator)). |
 
 ## Android
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| JVM tests, debug and test APK builds, lint | **Verified** (box) | 115 core and app JVM tests (0 failures, 0 skipped); `assembleDebug`, `assembleDebugAndroidTest` and `lintDebug` pass. Android CI runs on the PR. |
-| Older-data safety (oversized or unreadable rows, draft and metadata write limits) | **Partial** | The guarded Room queries, tolerant decoding and write limits are covered by JVM tests (`StoredLimitsTest`). Both Room tests now pass on the API 36 emulator, including preservation of original oversized columns during metadata refresh. A full old-build upgrade remains open. |
+| JVM tests, debug and test APK builds, lint | **Verified** (box) | 133 core and app JVM tests (0 failures, 0 skipped); `assembleDebug`, `assembleDebugAndroidTest` and `lintDebug` pass. Android CI runs on the PR. |
+| Older-data safety (oversized or unreadable rows, draft and metadata write limits) | **Partial** | The guarded Room queries, tolerant decoding and write limits are covered by JVM tests (`StoredLimitsTest`). Both Room tests now pass on the API 36 emulator, including preservation of original oversized columns during metadata refresh. Actual older `cf8fa26` offline upgrade and authenticated empty mock-session replay now pass; populated live/approval replay remains open. |
 | Sessions list memory (decode only changed rows, off the main thread, bounded search text) | **Verified** (JVM) | `SessionListSummaryTest`. |
 | Timeline retention without re-serialising history | **Verified** (JVM) | `TimelineRetentionCostTest`. |
-| Heap profiling on a device | **Not verified** | Steps are in [android-acceptance.md](android-acceptance.md#heap-profiling-android-studio). |
+| Heavier provider load (long streams, many tools, large model lists, many saved sessions) | **Verified** (JVM) | `HeavyProviderLoadTest`, `ConversationRenderTest`. |
+| Heap profiling on a device | **Partial** | Isolated ART/heap/catalog/frame measurements pass in [PR #15 review](pr15-review.md); allocation sites and retained-object graphs remain open. Steps are in [android-acceptance.md](android-acceptance.md#heap-profiling-android-studio) and [runbook §2](emulator-runbook.md#2-memory-allocation-sites-and-retained-objects). |
+| Route recovery, page-state matrix, creation races, upgrade replay, Back/keyboard fixtures | **Partial** | Selected fixtures and guarded upgrade phases now pass; [PR #15 review](pr15-review.md) distinguishes composable restoration, empty-session replay and Back/input fixtures from broader acceptance. |
 | Emulator UI, TalkBack and process-death recovery | **Partial** | PR #8/#9 broader TalkBack/recovery results are historical scoped evidence in [android-acceptance.md](android-acceptance.md). PR #10 review adds six storage/Sessions layout/keyboard regressions; it does not rerun the full TalkBack/recovery suites. |
 
 ## Suspended or owned by the user
