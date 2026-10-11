@@ -146,3 +146,9 @@ Finding fixed: the owned fixture host has a non-UUID credential alias, which sur
 `MarkdownLinkLifecycleUiTest` (2 tests, dark/light): the "Open link?" confirmation closes on Activity recreation, nothing is opened or acted on (fixture actions stay empty), and the link can be reviewed again and cancelled. This is the intended safe behaviour, now tested.
 
 Still open and unattempted: Back focus on session options and the live conversation, opener focus (no supported Compose API found), third-party document providers and system-picker automation, audio/video codecs beyond WAV, physical-device media.
+
+## Back focus on conversation sub-pages, 11 October 2026
+
+`TalkBackMainActivityUiTest#darkProductionBackStackFocus` and `#lightProductionBackStackFocus` (actual `MainActivity`, owned storage, emulator-5554 API 36, font 1.0, via `pwsh scripts/verify-talkback-ui.ps1`) now also open Session options, Agent details and Connection details from the saved conversation's Session menu, press global Back from each, and report native focus. Both pass (1/1 each). Focus after every one of the three Backs lands on the saved-conversation body text ("Connect to view this conversation. Message caching can be changed in Settings."), deterministically in both themes; it does not return to the Session menu opener. The draft was unchanged and no live session started.
+
+Scope limit: these sub-pages are the same `SessionScreen` composable used by a live conversation, but this run is the offline saved copy. A connected live conversation (and font 2.0) was not run. A first attempt failed because the test raced the closing menu popup; it now waits for the sub-page heading.

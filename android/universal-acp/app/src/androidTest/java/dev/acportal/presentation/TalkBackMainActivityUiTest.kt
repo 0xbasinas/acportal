@@ -100,6 +100,22 @@ class TalkBackMainActivityUiTest {
             traverseTo(automation) {it=="Connect to view this conversation. Message caching can be changed in Settings."}
             assertEquals("Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
             assertTrue("Reading history must not start a live session",store.repository.liveActivities.value.isEmpty())
+            if(focusReport) {
+                // Conversation sub-pages share SessionScreen with the live conversation: open each from the session menu, press Back, report focus.
+                for((item,key) in listOf("Session options" to "SessionOptionsBack","Agent details" to "AgentDetailsBack","Connection details" to "ConnectionDetailsBack")) {
+                    waitFor("Session menu") {nodes(automation).any {it.isClickable && label(it)=="Session menu"}}
+                    assertTrue(nodes(automation).first {it.isClickable && label(it)=="Session menu"}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("$item menu item") {nodes(automation).any {it.isClickable && label(it).startsWith(item)}}
+                    assertTrue(nodes(automation).first {it.isClickable && label(it).startsWith(item)}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("$item opened") {nodes(automation).any {it.isHeading && label(it)==item}}
+                    assertTrue(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                    waitFor("Conversation restored after $item") {nodes(automation).any {it.isHeading && label(it)=="New conversation"}}
+                    waitFor("Focus after $key") {nodes(automation).any {it.isAccessibilityFocused}}
+                    instrumentation.sendStatus(2,android.os.Bundle().apply {putString("acportalFocusAfter$key",label(nodes(automation).first {it.isAccessibilityFocused}))})
+                }
+                assertEquals("Sub-pages start no session or draft change","Owned untouched draft",runBlocking {store.repository.sessions.first().single().draft})
+                assertTrue(store.repository.liveActivities.value.isEmpty())
+            }
             // Back is explicit, requires no host mutation and returns to the interrupted route.
             assertTrue(nodes(automation).first {it.isClickable && label(it)=="Back"}.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Interrupted route restored") {find(automation,"Session interrupted")!=null}
