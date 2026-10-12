@@ -54,7 +54,7 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
                 Text("Follow",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     UpdateChannel.entries.forEachIndexed {index,option->
-                        SegmentedButton(channel==option,{onChannel(option)},SegmentedButtonDefaults.itemShape(index,UpdateChannel.entries.size),enabled=!busy,modifier=Modifier.heightIn(min=48.dp).testTag("update-channel-${option.name.lowercase()}")) {Text(option.label)}
+                        SegmentedButton(channel==option,{onChannel(option)},SegmentedButtonDefaults.itemShape(index,UpdateChannel.entries.size),enabled=!busy,modifier=Modifier.heightIn(min=40.dp).testTag("update-channel-${option.name.lowercase()}")) {Text(option.label)}
                     }
                 }
                 if(channel!=installedChannel) {
@@ -96,13 +96,13 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
         Column(Modifier.padding(horizontal=24.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             when(state) {
                 is UpdateState.Available->{
-                    Button({onInstall(state.release)},Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-primary"),shape=ButtonShape) {Text("Download and install")}
-                    OutlinedButton(onCheck,Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Check again")}
+                    Button({onInstall(state.release)},Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-primary"),shape=ButtonShape) {Text("Download and install")}
+                    OutlinedButton(onCheck,Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Check again")}
                 }
-                is UpdateState.UpToDate->OutlinedButton(onCheck,Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Check again")}
-                is UpdateState.Downloading->OutlinedButton(onCancel,Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Cancel")}
-                is UpdateState.NeedsPermission->Button(onOpenSettings,Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-primary"),shape=ButtonShape) {Text("Open settings")}
-                is UpdateState.Failed->Button({state.release?.let(onInstall) ?: onCheck()},Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("update-primary"),shape=ButtonShape) {Text("Try again")}
+                is UpdateState.UpToDate->OutlinedButton(onCheck,Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Check again")}
+                is UpdateState.Downloading->OutlinedButton(onCancel,Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-secondary"),shape=ButtonShape) {Text("Cancel")}
+                is UpdateState.NeedsPermission->Button(onOpenSettings,Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-primary"),shape=ButtonShape) {Text("Open settings")}
+                is UpdateState.Failed->Button({state.release?.let(onInstall) ?: onCheck()},Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-primary"),shape=ButtonShape) {Text("Try again")}
                 UpdateState.Idle,UpdateState.Checking,is UpdateState.Installing->Unit
             }
         }
