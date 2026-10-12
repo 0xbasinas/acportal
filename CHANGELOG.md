@@ -35,6 +35,7 @@ The host and tray programs are unchanged from 0.1.1; this release adds the insta
 - This changelog.
 
 ### Changed
+- **Tailscale in the tray detects more.** A new status line tells apart: not installed, not started/signed out, turned off, waiting for approval, HTTPS certificates not enabled, no MagicDNS name, no permission (Linux operator), and ready. Tailscale is found in more places (Program Files, `%LOCALAPPDATA%`, `/usr/sbin`, snap, Linuxbrew, Homebrew). When `tailscale serve` waits for Serve/HTTPS to be enabled, the tray shows its real message and opens the enable page instead of a generic timeout.
 - README rewritten as a short user guide (install, quick start, where files live, build from source); the dated status paragraphs moved here.
 
 ## [0.1.1] - 2026-10-11

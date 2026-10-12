@@ -33,6 +33,8 @@ enum UserEvent {
     /// Result of a menu action: an error message, or None when it worked.
     Done(Option<String>),
     Menu(MenuId),
+    /// The line about Tailscale, refreshed in the background.
+    Tailscale(String),
     /// The uninstall finished: the tray quits, or shows what went wrong.
     Uninstalled(Option<String>),
 }
@@ -163,7 +165,24 @@ fn main() -> Result<()> {
         });
     }
 
+    // Tailscale is checked on its own, slower rhythm (it is a separate program); this only reads its status.
+    {
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            loop {
+                if proxy
+                    .send_event(UserEvent::Tailscale(tailscale::detect().line()))
+                    .is_err()
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(20));
+            }
+        });
+    }
+
     let status_item = MenuItem::new("ACP Portal", false, None);
+    let tailscale_item = MenuItem::new("Tailscale: checking…", false, None);
     let problem_item = MenuItem::new("", false, None);
     let install_item = MenuItem::new("Download host (acpd)…", true, None);
     let setup_item = MenuItem::new("Set up with Tailscale", true, None);
@@ -176,6 +195,7 @@ fn main() -> Result<()> {
     let menu = Menu::new();
     menu.append_items(&[
         &status_item,
+        &tailscale_item,
         &problem_item,
         &PredefinedMenuItem::separator(),
         &install_item,
@@ -259,6 +279,9 @@ fn main() -> Result<()> {
                         let _ = tray.set_tooltip(Some(label(&state)));
                     }
                 }
+            }
+            tao::event::Event::UserEvent(UserEvent::Tailscale(text)) => {
+                tailscale_item.set_text(text)
             }
             tao::event::Event::UserEvent(UserEvent::Note(text)) => problem_item.set_text(text),
             tao::event::Event::UserEvent(UserEvent::Done(result)) => {
