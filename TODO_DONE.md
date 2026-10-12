@@ -1,5 +1,15 @@
 # Completed work and verification history
 
+## 12 October 2026 v0.1.3: agent discovery and tray uninstall
+
+- Released as [v0.1.3](https://github.com/0xbasinas/acportal/releases/tag/v0.1.3) from PRs #35 and #36 (Release workflow run 38225068403): Windows and Linux host and tray binaries plus `SHA256SUMS.txt`. See [CHANGELOG](CHANGELOG.md).
+- Agent discovery (`acpd/src/discovery.rs`): `PATH`, then the usual user tool folders on Windows and Linux/macOS; npm `.cmd` shims on Windows start as `node.exe <script>` with literal arguments (no shell); a program found outside `PATH` gets its folder first on the child's `PATH`. `POST /v1/agents/locate` (names only) and the Add agent screen list installed agents first with "Scan again". Documented in [agents](docs/agents.md).
+- Fix: `plain_path` mangled the Windows `\?\` prefix (a typo), so v0.1.0-v0.1.2 returned wrong paths on Windows.
+- Tray: "Uninstall ACP Portal..." and "Uninstall and delete my settings..." (second click within 10 seconds). Stops the host, removes programs, shortcut/desktop entry, `~/.local/bin` links that point at the install folder, PATH entry and leftover pairing pages, then quits. On Windows a hidden PowerShell helper deletes the running tray after it exits. Documented in [tray](docs/tray.md).
+- Verified: Rust fmt, strict clippy and all tests on Windows; Actions on both PRs pass on Linux (stable and 1.88) and Windows, plus the Tray workflow. 11 discovery unit tests, `tests/discovery.rs`, the locate API test, 3 new Add agent device tests (15 Android device tests passed in the run) and a real Windows run with a fake npm shim (found, checked, launched). Tray: 22 tests, including a real PowerShell helper run on scratch files and the keep/purge, "named acpd" and symlink guards.
+- Two CI failures on the way were fixed: a Linux-only unused `mut` in discovery, and Windows-only helper code flagged as dead on Linux. `acpd/tests/launcher.rs` `short_start_uses_saved_listener_and_still_requires_authentication` failed once with "connection reset" on Linux and passed on rerun; treat it as a possible flake.
+- Not verified: the downloaded v0.1.3 binaries, clicking the tray menu on screen, a real uninstall, any real Linux machine (nvm/symlink paths beyond unit tests), the Android scan on a physical phone.
+
 ## 11 October 2026 saved empty-history accessibility fix
 
 - Owned actual MainActivity reproduces the original 2× TalkBack failure with no native scrollable body. Corrected session-row/action locators precede that reproduction; initial locator failures are not acceptance evidence.
