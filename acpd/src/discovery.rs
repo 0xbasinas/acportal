@@ -239,6 +239,7 @@ pub(crate) fn resolve_in(
     if command.contains(['/', '\\']) || command.is_empty() {
         return None;
     }
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut names = vec![command.to_string()];
     #[cfg(windows)]
     if given.extension().is_none() {
