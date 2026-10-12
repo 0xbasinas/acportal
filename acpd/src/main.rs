@@ -391,11 +391,11 @@ async fn main() -> Result<()> {
                 Some(cwd) => config.workspace(cwd)?,
                 None => workspace,
             };
-            let executable = definition
+            let launch = definition
                 .discover()
-                .executable
+                .launch
                 .context("agent executable not found")?;
-            let connection = AcpConnection::spawn(definition, &executable, &cwd, config.runtime)?;
+            let connection = AcpConnection::spawn(definition, launch, &cwd, config.runtime)?;
             let result = connection.request("initialize", initialize_params()).await;
             connection.shutdown().await;
             let result = result?;

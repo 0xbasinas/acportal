@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import dev.acportal.data.AgentClient
 import dev.acportal.data.AgentRegistration
 import dev.acportal.protocol.AgentCheck
+import dev.acportal.protocol.LocatedAgent
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -12,14 +13,21 @@ import org.junit.Test
 class AddAgentScreenUiTest {
     @get:Rule val compose=createComposeRule()
 
-    private class Fake(val installed:Boolean):AgentClient {
-        val checked=mutableListOf<String>();var saved:AgentRegistration?=null
+    private class Fake(val installed:Boolean,val onHost:Set<String> = setOf("goose"),var scanFailures:Int=0):AgentClient {
+        val checked=mutableListOf<String>();var saved:AgentRegistration?=null;var scans=0
+        override suspend fun locate(commands:List<String>):List<LocatedAgent> {
+            scans++
+            if(scanFailures>0) {scanFailures--;error("offline")}
+            return commands.map {if(it in onHost)LocatedAgent(it,true,"/home/me/.local/bin/$it") else LocatedAgent(it)}
+        }
         override suspend fun check(command:String,env:Map<String,String>):AgentCheck {checked+=command;return if(installed)AgentCheck(true,"/usr/bin/$command",true,"goose 1.53.0") else AgentCheck(false)}
         override suspend fun add(registration:AgentRegistration) {saved=registration}
         override suspend fun remove(id:String) {}
     }
     private fun run(theme:String,fake:Fake,onSaved:()->Unit={}) {
         compose.setContent {PortalTheme(theme) {AddAgentScreen(fake,"Laptop",{},onSaved)}}
+        // The screen first asks the host which popular agents are installed.
+        compose.waitUntil(5000) {compose.onAllNodesWithTag("agent-scan-progress").fetchSemanticsNodes().isEmpty()}
     }
     private fun fill() {
         compose.onNodeWithTag("agent-name").performTextInput("Goose")
@@ -74,6 +82,34 @@ class AddAgentScreenUiTest {
     }
     @Test fun darkSuggestionFillsTheFormButRegistersNothing()=suggestion("dark")
     @Test fun lightSuggestionFillsTheFormButRegistersNothing()=suggestion("light")
+    @Test fun installedAgentsAreShownFirstWithTheirPathAndTheRestAreMarkedNotInstalled() {
+        run("dark",Fake(true,onHost=setOf("goose","gemini")))
+        compose.onNodeWithTag("agent-found").assertExists()
+        compose.onNodeWithText("Found: /home/me/.local/bin/goose").assertExists()
+        compose.onNodeWithText("Not installed here",substring=true).assertExists()
+        compose.onNodeWithTag("agent-none-found").assertDoesNotExist()
+        // Both kinds still prefill the form.
+        compose.onNodeWithTag("suggest:Goose").performClick()
+        compose.onNodeWithTag("agent-command").assertTextContains("goose")
+        compose.onNodeWithTag("suggest:OpenCode").performClick()
+        compose.onNodeWithTag("agent-command").assertTextContains("opencode")
+    }
+    @Test fun whenNothingIsInstalledTheScreenSaysSoAndKeepsTheOthersUsable() {
+        run("light",Fake(true,onHost=emptySet()))
+        compose.onNodeWithTag("agent-none-found").assertExists()
+        compose.onNodeWithTag("agent-found").assertDoesNotExist()
+        compose.onNodeWithTag("suggest:Goose").performClick()
+        compose.onNodeWithTag("agent-name").assertTextContains("Goose")
+    }
+    @Test fun aFailedScanSaysSoAndScanAgainTriesAgain() {
+        val fake=Fake(true,scanFailures=1)
+        run("dark",fake)
+        compose.onNodeWithTag("agent-scan-failed").assertExists()
+        compose.onNodeWithTag("agent-scan-again").performClick()
+        compose.waitUntil(5000) {compose.onAllNodesWithTag("agent-scan-failed").fetchSemanticsNodes().isEmpty() && compose.onAllNodesWithTag("agent-scan-progress").fetchSemanticsNodes().isEmpty()}
+        compose.onNodeWithTag("agent-found").assertExists()
+        assertEquals(2,fake.scans)
+    }
     @Test fun darkCheckThenSave()=check("dark")
     @Test fun lightCheckThenSave()=check("light")
     @Test fun darkMissingProgramCannotBeSaved()=notFound("dark")

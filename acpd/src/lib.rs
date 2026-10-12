@@ -3,6 +3,7 @@ pub mod config;
 pub mod connection;
 pub mod daemon;
 mod detached;
+pub mod discovery;
 pub mod doctor;
 pub mod filesystem;
 pub mod launcher;

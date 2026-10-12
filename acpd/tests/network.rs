@@ -318,6 +318,57 @@ async fn phone_checks_registers_and_removes_agents_and_they_survive_restart() {
 }
 
 #[tokio::test]
+async fn phone_locates_installed_commands_by_name_only() {
+    let fixture = Fixture::start().await;
+    let url = format!("{}/v1/agents/locate", fixture.base);
+    // Needs the credential like every other route.
+    let anonymous = fixture
+        .client
+        .post(&url)
+        .json(&json!({"commands":["cargo"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let found: Value = fixture
+        .client
+        .post(&url)
+        .bearer_auth(&fixture.token)
+        .json(&json!({"commands":["cargo","definitely-not-installed-acp-cli"]}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(found[0]["command"], "cargo");
+    assert_eq!(found[0]["found"], true);
+    assert!(found[0]["executable"].is_string());
+    assert_eq!(found[1]["found"], false);
+    assert!(found[1].get("executable").is_none());
+    // Names only: paths, empty names and long lists are refused.
+    for body in [
+        json!({"commands":["/usr/bin/cargo"]}),
+        json!({"commands":["sub/cargo"]}),
+        json!({"commands":[""]}),
+        json!({"commands":(0..65).map(|n| format!("tool{n}")).collect::<Vec<_>>()}),
+    ] {
+        let reply = fixture
+            .client
+            .post(&url)
+            .bearer_auth(&fixture.token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), reqwest::StatusCode::BAD_REQUEST, "{body}");
+    }
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn api_mcp_configuration_is_validated_forwarded_and_not_catalogued() {
     let fixture = Fixture::start_with_args(&["--mcp-http"]).await;
     let definitions = json!([{"type":"http","name":"docs","url":"https://example.com/mcp","headers":[{"name":"Authorization","value":"synthetic-network-secret"}]}]);

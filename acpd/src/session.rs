@@ -324,10 +324,10 @@ impl SessionManager {
             None => workspace.clone(),
         };
         let discovery = definition.discover();
-        let executable = discovery.executable.context("agent executable not found")?;
+        let launch = discovery.launch.context("agent executable not found")?;
         let connection = AcpConnection::spawn_with_access(
             definition,
-            &executable,
+            launch,
             &cwd,
             config.runtime.clone(),
             &workspace,
