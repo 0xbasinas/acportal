@@ -42,6 +42,9 @@ class UpdateController(private val context:Context,private val updater:AppUpdate
     private val mutable=MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state:StateFlow<UpdateState> = mutable.asStateFlow()
     val installed:InstalledBuild = InstalledBuild.of(context.packageManager.getPackageInfo(context.packageName,0))
+    private val mutableVersions=MutableStateFlow<List<ReleaseInfo>>(emptyList())
+    /** Every build the followed channel offers, newest first, so the user can pick any of them, older ones included. */
+    val versions:StateFlow<List<ReleaseInfo>> = mutableVersions.asStateFlow()
     private var job:Job?=null
     private val preferences=context.getSharedPreferences("update",Context.MODE_PRIVATE)
     private val mutableChannel=MutableStateFlow(UpdateChannel.fromName(preferences.getString("channel",null)) ?: UpdateChannel.installed(installed.versionName))
@@ -54,6 +57,7 @@ class UpdateController(private val context:Context,private val updater:AppUpdate
         if(value==mutableChannel.value || current is UpdateState.Downloading || current is UpdateState.Installing)return
         job?.cancel();job=null
         mutableChannel.value=value
+        mutableVersions.value=emptyList()
         preferences.edit().putString("channel",value.name).apply()
         check()
     }
@@ -64,7 +68,9 @@ class UpdateController(private val context:Context,private val updater:AppUpdate
         val channel=mutableChannel.value
         job=scope.launch {
             mutable.value=try {
-                val release=updater.latest(channel)
+                val all=updater.available(channel)
+                mutableVersions.value=all
+                val release=all.first()
                 if(isUpdateFor(installed,channel,release))UpdateState.Available(release) else UpdateState.UpToDate(release)
             } catch(cancelled:CancellationException) {throw cancelled}
             catch(failure:Exception) {UpdateState.Failed(failure.message ?: "The update check failed.")}
@@ -86,7 +92,7 @@ class UpdateController(private val context:Context,private val updater:AppUpdate
             try {
                 val file=updater.download(release) {done->mutable.update {if(it is UpdateState.Downloading)it.copy(done=done) else it}}
                 mutable.value=UpdateState.Installing(release)
-                ApkInstaller.install(context,file)
+                ApkInstaller.install(context,file,allowDowngrade=release.build<installed.build)
             } catch(cancelled:CancellationException) {mutable.value=UpdateState.Available(release);throw cancelled}
             catch(failure:Exception) {mutable.value=UpdateState.Failed(failure.message ?: "The update failed.",release)}
         }

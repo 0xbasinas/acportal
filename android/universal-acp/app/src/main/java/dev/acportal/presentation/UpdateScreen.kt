@@ -39,7 +39,7 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
  * the user to confirm. Nothing is downloaded or installed until the user presses the button.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun UpdateScreen(state:UpdateState,installed:InstalledBuild,onBack:()->Unit,onCheck:()->Unit,onInstall:(ReleaseInfo)->Unit,onCancel:()->Unit,onOpenSettings:()->Unit,channel:UpdateChannel=UpdateChannel.installed(installed.versionName),onChannel:(UpdateChannel)->Unit={}) {
+@Composable fun UpdateScreen(state:UpdateState,installed:InstalledBuild,onBack:()->Unit,onCheck:()->Unit,onInstall:(ReleaseInfo)->Unit,onCancel:()->Unit,onOpenSettings:()->Unit,channel:UpdateChannel=UpdateChannel.installed(installed.versionName),onChannel:(UpdateChannel)->Unit={},versions:List<ReleaseInfo> = emptyList()) {
     val installedChannel=UpdateChannel.installed(installed.versionName)
     val busy=state is UpdateState.Downloading || state is UpdateState.Installing
     Column(Modifier.fillMaxSize()) {
@@ -90,6 +90,19 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
                 is UpdateState.Failed->Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(if(state.release==null)"Could not check for updates" else "The update did not finish",style=MaterialTheme.typography.titleMedium,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("update-status"))
                     Text(state.message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if(!busy && state !is UpdateState.Checking && state !is UpdateState.Idle && versions.isNotEmpty())Column(verticalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.testTag("update-versions")) {
+                Text("Choose a version",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                versions.forEach {release->
+                    val current=release.build==installed.build && channel==installedChannel
+                    val older=channel==installedChannel && release.build<installed.build
+                    InfoCard {
+                        Text(release.versionName,style=MaterialTheme.typography.titleSmall)
+                        Text(listOfNotNull("Build ${release.build}",release.sizeBytes.takeIf {it>0}?.let(::formatMegabytes),formatPublished(release.publishedAt)).joinToString(" · "),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(older)Text(if(channel==UpdateChannel.Debug)"Older than the installed build. Debug builds can be installed over a newer one." else "Older than the installed build. Android refuses this for signed releases; if it does, uninstall the app once (saved connections are removed) and install it.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton({onInstall(release)},Modifier.fillMaxWidth().heightIn(min=44.dp).testTag("update-version-${release.build}"),shape=ButtonShape) {Text(if(current)"Reinstall" else if(older)"Downgrade to this" else "Install this version")}
+                    }
                 }
             }
         }

@@ -210,7 +210,7 @@ import kotlinx.serialization.Serializable
                                 owner.lifecycle.addObserver(observer);onDispose {owner.lifecycle.removeObserver(observer)}
                             }
                             val channel by updates.channel.collectAsStateWithLifecycle()
-                            UpdateScreen(update,updates.installed,back,updates::check,updates::install,updates::cancel,{context.startActivity(updates.permissionIntent())},channel,updates::selectChannel)
+                            UpdateScreen(update,updates.installed,back,updates::check,updates::install,updates::cancel,{context.startActivity(updates.permissionIntent())},channel,updates::selectChannel,updates.versions.collectAsStateWithLifecycle().value)
                         }
                     })
                     if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))

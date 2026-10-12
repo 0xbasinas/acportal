@@ -62,7 +62,10 @@ fun parseRelease(json:String):ReleaseInfo {
 private val signedTag=Regex("""^app-v(\d+)\.(\d+)\.(\d+)$""")
 
 /** Reads the release list and returns the highest signed release (tag `app-vX.Y.Z`). The build number is the app's versionCode: major*10000 + minor*100 + patch. */
-fun parseSignedRelease(json:String):ReleaseInfo {
+fun parseSignedRelease(json:String):ReleaseInfo=parseSignedReleases(json).first()
+
+/** Every published signed release, newest first, so any of them can be chosen. */
+fun parseSignedReleases(json:String):List<ReleaseInfo> {
     val releases=try {WireJson.decodeFromString<List<GithubRelease>>(json)} catch(failure:Exception) {throw IllegalArgumentException("The release information could not be read.",failure)}
     val found=releases.filter {!it.draft}.mapNotNull {release->
         val parts=signedTag.matchEntire(release.tagName)?.groupValues?.drop(1)?.map {it.toLong()} ?: return@mapNotNull null
@@ -70,7 +73,8 @@ fun parseSignedRelease(json:String):ReleaseInfo {
         val sha=asset.digest?.removePrefix("sha256:")?.lowercase()?.takeIf {it.length==64 && it.all {c->c in '0'..'9' || c in 'a'..'f'}}
         ReleaseInfo(release.tagName.removePrefix("app-v"),parts[0]*10000+parts[1]*100+parts[2],asset.name,asset.url,asset.size,sha,release.publishedAt)
     }
-    return found.maxByOrNull {it.build} ?: throw IllegalArgumentException("No signed release has been published yet.")
+    if(found.isEmpty())throw IllegalArgumentException("No signed release has been published yet.")
+    return found.sortedByDescending {it.build}
 }
 
 /** An update is offered only for a strictly higher build number. */
@@ -92,14 +96,16 @@ fun sha256Hex(file:File):String {
 fun isTrustedUpdateAddress(url:okhttp3.HttpUrl)=url.scheme=="https" && UpdateSource.allowedHost(url.host)
 
 class AppUpdater(private val client:OkHttpClient,private val cacheDir:File,private val acceptAddress:(okhttp3.HttpUrl)->Boolean=::isTrustedUpdateAddress) {
-    suspend fun latest(channel:UpdateChannel=UpdateChannel.Debug):ReleaseInfo=withContext(Dispatchers.IO) {
+    suspend fun latest(channel:UpdateChannel=UpdateChannel.Debug):ReleaseInfo=available(channel).first()
+    /** Every build the channel offers, newest first. The debug channel only ever holds its newest build. */
+    suspend fun available(channel:UpdateChannel=UpdateChannel.Debug):List<ReleaseInfo> = withContext(Dispatchers.IO) {
         val request=Request.Builder().url(if(channel==UpdateChannel.Debug)UpdateSource.RELEASE_URL else UpdateSource.RELEASES_URL).header("Accept","application/vnd.github+json").build()
         client.newCall(request).execute().use {response->
             if(response.code==404)throw IOException("No release has been published yet.")
             if(!response.isSuccessful)throw IOException("GitHub answered ${response.code}. Try again later.")
             val body=response.body ?: throw IOException("GitHub sent an empty answer.")
             if(body.contentLength()>2_000_000)throw IOException("GitHub sent an unexpectedly large answer.")
-            if(channel==UpdateChannel.Debug)parseRelease(body.string()) else parseSignedRelease(body.string())
+            if(channel==UpdateChannel.Debug)listOf(parseRelease(body.string())) else parseSignedReleases(body.string())
         }
     }
     /** Downloads to a fixed cache file (replacing any earlier one) and returns it only if it checks out. */
@@ -139,9 +145,17 @@ class AppUpdater(private val client:OkHttpClient,private val cacheDir:File,priva
 /** Hands a downloaded APK to Android's installer. Android verifies the signature and asks the user to confirm. */
 object ApkInstaller {
     const val ACTION="dev.acportal.INSTALL_RESULT"
-    fun install(context:Context,apk:File) {
+    /** Android's hidden INSTALL_ALLOW_DOWNGRADE flag. Only a debuggable installed app may be replaced by an older build. */
+    private const val ALLOW_DOWNGRADE=0x00100000
+    fun install(context:Context,apk:File,allowDowngrade:Boolean=false) {
         val installer=context.packageManager.packageInstaller
-        val params=PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {setSize(apk.length())}
+        val params=PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setSize(apk.length())
+            if(allowDowngrade)try {
+                val field=PackageInstaller.SessionParams::class.java.getDeclaredField("installFlags").apply {isAccessible=true}
+                field.setInt(this,field.getInt(this) or ALLOW_DOWNGRADE)
+            } catch(failure:ReflectiveOperationException) {} catch(failure:RuntimeException) {}
+        }
         val id=installer.createSession(params)
         installer.openSession(id).use {session->
             apk.inputStream().use {input->session.openWrite("update.apk",0,apk.length()).use {output->input.copyTo(output);session.fsync(output)}}
@@ -153,6 +167,7 @@ object ApkInstaller {
     /** Plain-language reason for a failed install. */
     fun explain(status:Int,message:String?):String=when(status) {
         PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This build is signed with a different key than the installed app (debug builds and signed releases use different keys), so Android refused it. Uninstall the app once (saved connections are removed) and install this build."
+        PackageInstaller.STATUS_FAILURE_CONFLICT -> "Android refused to replace the installed app with an older version. Only debug builds can be downgraded in place; for a signed release, uninstall the app once (saved connections are removed) and install the older version."
         PackageInstaller.STATUS_FAILURE_STORAGE -> "There is not enough storage space to install the update."
         PackageInstaller.STATUS_FAILURE_ABORTED -> "The install was cancelled."
         PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android blocked the install on this phone."
