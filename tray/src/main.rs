@@ -77,16 +77,24 @@ fn show_pairing(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-/// Publishes the host over Tailscale and saves that address, so the phone can reach it.
-fn setup_with_tailscale(cli: &Cli) -> Result<()> {
-    let host = tailscale::status()?;
+/// Waits for Tailscale to be connected (reconnecting it if it was switched off), publishes the host over
+/// it and saves that address, so the phone can reach it. Progress shows in the menu as it goes.
+fn setup_with_tailscale(cli: &Cli, proxy: &EventLoopProxy<UserEvent>) -> Result<()> {
+    let note = |text: &str| {
+        let _ = proxy.send_event(UserEvent::Note(text.to_string()));
+    };
+    note("Checking Tailscale…");
+    let host = tailscale::ensure_ready(note)?;
     let port = acpd::config::Config::load(&settings_dir().join("config.toml"))
         .map(|config| config.server.listen.port())
         .unwrap_or_else(|_| acpd::config::Config::default().server.listen.port());
     // Make sure the standard settings exist first, then publish and save the address.
     acpd::config::bootstrap_default_config(&settings_dir())?;
+    note("Publishing the host over Tailscale…");
     tailscale::serve_background(port)?;
-    cli.setup(&host.https_address(), &host.host_name)
+    cli.setup(&host.https_address(), &host.host_name)?;
+    note(&format!("✓ Reachable at {}", host.https_address()));
+    Ok(())
 }
 
 /// Runs a host action off the UI thread, then reports the result and the new state.
@@ -326,7 +334,12 @@ fn main() -> Result<()> {
                 } else if id == install_id {
                     spawn_install(&proxy, &control);
                 } else if id == setup_id {
-                    spawn_action(&proxy, &control, setup_with_tailscale);
+                    {
+                        let setup_proxy = proxy.clone();
+                        spawn_action(&proxy, &control, move |cli| {
+                            setup_with_tailscale(cli, &setup_proxy)
+                        });
+                    }
                 } else if id == toggle_id {
                     if matches!(state, HostState::Running { .. }) {
                         spawn_action(&proxy, &control, |cli| cli.stop());
