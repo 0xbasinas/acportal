@@ -12,6 +12,8 @@
 | Start host / Stop host | `acpd start --bg` / `acpd daemon stop`. |
 | Pair a phone… | Creates a one-use pairing code (valid 60 seconds) and opens a page in your browser with the QR code, the code, the address and a countdown. In the phone app: Connections > Add connection > Scan pairing QR code. |
 | Open settings folder | Opens the per-user settings folder (`%APPDATA%\acpd`, `~/Library/Application Support/acpd` or `~/.config/acpd`). |
+| Uninstall ACP Portal… | Click twice (second click within 10 seconds). Stops the host, deletes the host and tray programs, the Start menu shortcut or desktop entry, the PATH entry (Windows) and leftover pairing pages, then closes the tray. Your settings and paired phones are kept. On Windows a hidden helper finishes deleting the tray after it exits. |
+| Uninstall and delete my settings… | The same, and also deletes the `acpd` settings and data folders (paired phones, saved sessions, folders and agents added from the phone). Folders are only deleted when literally named `acpd`. |
 | Quit | Closes the tray. The host keeps running; stop it first if you want it off. |
 
 A problem from the last action is shown as a `⚠` line under the status.
