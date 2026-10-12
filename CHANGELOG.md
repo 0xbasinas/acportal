@@ -6,6 +6,9 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+### Fixed
+- **Set up with Tailscale no longer fails while Tailscale is still starting.** A Tailscale that was connected but had just started (state `NoState`) was reported as "not started or not signed in". The tray now waits up to about 30 seconds with progress in the menu, tells a real sign-out from a switched-off or still-starting Tailscale, and reconnects a switched-off one with `tailscale up`. Problems that need you are still reported at once.
+
 ## [0.1.5] - 2026-10-12
 
 ### Added

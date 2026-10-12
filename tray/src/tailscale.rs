@@ -116,8 +116,9 @@ pub fn classify(json: &str) -> Tailnet {
         "NeedsMachineAuth" => return Tailnet::NeedsApproval,
         "Stopped" => return Tailnet::Stopped,
         "Starting" => return Tailnet::Starting,
-        // The service answers but has not loaded a login yet (seen right after boot, or before sign-in).
-        "NoState" => return Tailnet::NotRunning,
+        // The service answers but has not finished loading yet (right after boot or sign-in, or while the
+        // Tailscale app starts). `detect` looks at the saved preferences to tell this from a real sign-out.
+        "NoState" => return Tailnet::Starting,
         other => return Tailnet::Unknown(format!("unexpected state {other:?}")),
     }
     let dns_name = value["Self"]["DNSName"]
@@ -142,6 +143,29 @@ pub fn classify(json: &str) -> Tailnet {
         host_name,
         dns_name,
     })
+}
+
+/// Tailscale's own state name from its status JSON (empty when unreadable).
+fn backend_state(json: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|value| value["BackendState"].as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// While the state is `NoState`, the saved preferences say whether Tailscale is really signed out or
+/// switched off, or is just still starting.
+pub fn refine_no_state(prefs_json: &str) -> Tailnet {
+    let Ok(prefs) = serde_json::from_str::<serde_json::Value>(prefs_json) else {
+        return Tailnet::Starting;
+    };
+    if prefs["LoggedOut"] == true {
+        Tailnet::NeedsLogin
+    } else if prefs["WantRunning"] == false {
+        Tailnet::Stopped
+    } else {
+        Tailnet::Starting
+    }
 }
 
 /// What the command printed when it failed before giving any status.
@@ -250,7 +274,15 @@ pub fn detect() -> Tailnet {
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.trim_start().starts_with('{') {
-            return classify(&stdout);
+            let state = classify(&stdout);
+            if state == Tailnet::Starting
+                && backend_state(&stdout) == "NoState"
+                && let Ok(prefs) = command(&exe, &["debug", "prefs"]).output()
+                && prefs.status.success()
+            {
+                return refine_no_state(&String::from_utf8_lossy(&prefs.stdout));
+            }
+            return state;
         }
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if args.len() == 3 && stderr.to_ascii_lowercase().contains("flag") {
@@ -259,10 +291,6 @@ pub fn detect() -> Tailnet {
         return classify_failure(&stderr);
     }
     Tailnet::Unknown("it did not answer".into())
-}
-
-pub fn status() -> Result<TailnetHost> {
-    detect().into_result()
 }
 
 /// The address Tailscale prints when serving must first be enabled in the admin console.
@@ -291,17 +319,20 @@ fn collect(mut stream: impl Read + Send + 'static, into: Arc<Mutex<String>>) {
     });
 }
 
-/// `tailscale serve --bg PORT`: publishes the host's local port over HTTPS inside your tailnet and
-/// keeps doing so after this program exits. Gives up after 20 seconds (Tailscale waits for you when
-/// Serve or HTTPS is not yet enabled for the tailnet); then the page it asked you to visit is opened.
-pub fn serve_background(port: u16) -> Result<()> {
-    let exe = locate().context("Tailscale is not installed.")?;
-    let port = port.to_string();
-    let mut child = command(&exe, &["serve", "--bg", &port])
+/// The result of a command that was given a time limit.
+struct Captured {
+    /// `Some(success)` when it finished, `None` when it was still running at the limit and was stopped.
+    finished: Option<bool>,
+    /// What it printed (first 8 KiB of both streams).
+    text: String,
+}
+
+fn run_captured(exe: &PathBuf, args: &[&str], limit: Duration) -> Result<Captured> {
+    let mut child = command(exe, args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("run tailscale serve")?;
+        .with_context(|| format!("run tailscale {}", args.first().copied().unwrap_or("")))?;
     let output = Arc::new(Mutex::new(String::new()));
     if let Some(stream) = child.stdout.take() {
         collect(stream, output.clone());
@@ -309,18 +340,37 @@ pub fn serve_background(port: u16) -> Result<()> {
     if let Some(stream) = child.stderr.take() {
         collect(stream, output.clone());
     }
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
+    let deadline = Instant::now() + limit;
+    let finished = loop {
         if let Some(status) = child.try_wait()? {
-            if status.success() {
-                return Ok(());
-            }
             std::thread::sleep(Duration::from_millis(100)); // let the readers finish
-            let text = output.lock().map(|text| text.clone()).unwrap_or_default();
-            if matches!(classify_failure(&text), Tailnet::NeedsOperator) {
+            break Some(status.success());
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let text = output.lock().map(|text| text.clone()).unwrap_or_default();
+    Ok(Captured { finished, text })
+}
+
+/// `tailscale serve --bg PORT`: publishes the host's local port over HTTPS inside your tailnet and
+/// keeps doing so after this program exits. Gives up after 20 seconds (Tailscale waits for you when
+/// Serve or HTTPS is not yet enabled for the tailnet); then the page it asked you to visit is opened.
+pub fn serve_background(port: u16) -> Result<()> {
+    let exe = locate().context("Tailscale is not installed.")?;
+    let port = port.to_string();
+    let result = run_captured(&exe, &["serve", "--bg", &port], Duration::from_secs(20))?;
+    match result.finished {
+        Some(true) => Ok(()),
+        Some(false) => {
+            if matches!(classify_failure(&result.text), Tailnet::NeedsOperator) {
                 return Tailnet::NeedsOperator.into_result().map(|_| ());
             }
-            let reason = text.lines().find(|line| !line.trim().is_empty());
+            let reason = result.text.lines().find(|line| !line.trim().is_empty());
             bail!(
                 "tailscale serve failed{}. Run tailscale serve --bg {port} in a terminal to see why.",
                 reason
@@ -328,10 +378,8 @@ pub fn serve_background(port: u16) -> Result<()> {
                     .unwrap_or_default()
             )
         }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            let text = output.lock().map(|text| text.clone()).unwrap_or_default();
-            if let Some(url) = find_enable_url(&text) {
+        None => {
+            if let Some(url) = find_enable_url(&result.text) {
                 let _ = open::that(&url);
                 bail!(
                     "Tailscale needs you to enable Serve/HTTPS for your tailnet. The page was opened in your browser ({url}); enable it, then choose Set up again."
@@ -341,8 +389,86 @@ pub fn serve_background(port: u16) -> Result<()> {
                 "tailscale serve is waiting for you. Run tailscale serve --bg {port} in a terminal; Tailscale may ask you to enable HTTPS for your tailnet."
             )
         }
-        std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// `tailscale up`: reconnects a Tailscale that is signed in but switched off. If it needs a sign-in, the
+/// page it prints is opened in your browser and this gives up (you finish signing in there).
+fn bring_up() -> Result<()> {
+    let exe = locate().context("Tailscale is not installed.")?;
+    let result = run_captured(&exe, &["up"], Duration::from_secs(15))?;
+    match result.finished {
+        Some(true) => Ok(()),
+        Some(false) => match classify_failure(&result.text) {
+            Tailnet::NeedsOperator => Tailnet::NeedsOperator.into_result().map(|_| ()),
+            _ => bail!("tailscale up failed. Open the Tailscale app and connect it."),
+        },
+        None => {
+            if let Some(url) = find_enable_url(&result.text) {
+                let _ = open::that(&url);
+                bail!(
+                    "Tailscale needs you to sign in. The sign-in page was opened in your browser ({url}); finish there, then choose Set up again."
+                )
+            }
+            bail!(
+                "Tailscale did not connect. Open the Tailscale app and connect it, then try again."
+            )
+        }
+    }
+}
+
+/// How the wait for Tailscale goes. Pure so it can be tested with a scripted Tailscale.
+///
+/// - `Ready` returns at once.
+/// - `Starting` (still loading) and `NotRunning` (service not answering yet) are waited out, because both
+///   are normal for a few seconds after boot or sign-in; `NotRunning` gives up sooner.
+/// - `Stopped` (signed in but switched off) is reconnected once with `up`, then waited out.
+/// - Everything else (not installed, signed out, needs approval, HTTPS off, ...) needs the user, so it
+///   returns that explanation immediately.
+pub fn wait_until_ready(
+    mut detect: impl FnMut() -> Tailnet,
+    mut up: impl FnMut() -> Result<()>,
+    pause: impl Fn(),
+    progress: impl Fn(&str),
+    polls: u32,
+) -> Result<TailnetHost> {
+    let mut tried_up = false;
+    let mut not_running = 0;
+    for _ in 0..polls {
+        match detect() {
+            Tailnet::Ready(host) => return Ok(host),
+            Tailnet::Stopped if !tried_up => {
+                tried_up = true;
+                progress("Tailscale is turned off; turning it on…");
+                up()?;
+            }
+            Tailnet::NotRunning => {
+                not_running += 1;
+                if not_running > 8 {
+                    return Tailnet::NotRunning.into_result();
+                }
+                progress("Waiting for Tailscale to start…");
+            }
+            Tailnet::Starting | Tailnet::Stopped => progress("Waiting for Tailscale to connect…"),
+            other => return other.into_result(),
+        }
+        pause();
+    }
+    bail!(
+        "Tailscale did not finish connecting. Open the Tailscale app, check it is signed in and connected, then try again."
+    )
+}
+
+/// Waits (up to about 30 seconds) for Tailscale to be connected and ready for the phone, reconnecting it
+/// if it was switched off, and reports progress as it goes. Runs on a worker thread.
+pub fn ensure_ready(progress: impl Fn(&str)) -> Result<TailnetHost> {
+    wait_until_ready(
+        detect,
+        bring_up,
+        || std::thread::sleep(Duration::from_secs(1)),
+        progress,
+        30,
+    )
 }
 
 #[cfg(test)]
@@ -375,7 +501,7 @@ mod tests {
         assert_eq!(state("NeedsMachineAuth"), Tailnet::NeedsApproval);
         assert_eq!(state("Stopped"), Tailnet::Stopped);
         assert_eq!(state("Starting"), Tailnet::Starting);
-        assert_eq!(state("NoState"), Tailnet::NotRunning);
+        assert_eq!(state("NoState"), Tailnet::Starting);
         assert!(matches!(state("Weird"), Tailnet::Unknown(_)));
         assert_eq!(
             classify(r#"{"BackendState":"Running","Self":{"DNSName":"."}}"#),
@@ -492,5 +618,123 @@ mod tests {
         let state = detect();
         println!("{state:?}");
         assert!(state.line().starts_with("Tailscale: "));
+    }
+
+    #[test]
+    fn a_no_state_service_is_told_apart_by_its_saved_preferences() {
+        assert_eq!(
+            refine_no_state(r#"{"LoggedOut":true,"WantRunning":true}"#),
+            Tailnet::NeedsLogin
+        );
+        assert_eq!(
+            refine_no_state(r#"{"LoggedOut":false,"WantRunning":false}"#),
+            Tailnet::Stopped
+        );
+        assert_eq!(
+            refine_no_state(r#"{"LoggedOut":false,"WantRunning":true}"#),
+            Tailnet::Starting
+        );
+        assert_eq!(refine_no_state("garbage"), Tailnet::Starting);
+        assert_eq!(backend_state(r#"{"BackendState":"NoState"}"#), "NoState");
+        assert_eq!(backend_state("x"), "");
+    }
+
+    fn host() -> TailnetHost {
+        TailnetHost {
+            host_name: "pc".into(),
+            dns_name: "pc.x.ts.net".into(),
+        }
+    }
+
+    type Run = (Result<TailnetHost>, Vec<String>, u32, usize);
+
+    /// Runs the wait against a scripted Tailscale: (result, notes, `up` calls, polls used).
+    fn scripted(states: Vec<Tailnet>, up_fails: bool) -> Run {
+        let mut queue = states.into_iter();
+        let polls = std::cell::Cell::new(0usize);
+        let ups = std::cell::Cell::new(0u32);
+        let notes = std::cell::RefCell::new(Vec::new());
+        let result = wait_until_ready(
+            || {
+                polls.set(polls.get() + 1);
+                queue.next().unwrap_or(Tailnet::Starting)
+            },
+            || {
+                ups.set(ups.get() + 1);
+                if up_fails { bail!("up failed") } else { Ok(()) }
+            },
+            || {},
+            |note| notes.borrow_mut().push(note.to_string()),
+            30,
+        );
+        (result, notes.into_inner(), ups.get(), polls.get())
+    }
+
+    #[test]
+    fn a_slow_start_is_waited_out_then_succeeds() {
+        let (result, notes, ups, polls) = scripted(
+            vec![
+                Tailnet::NotRunning,
+                Tailnet::Starting,
+                Tailnet::Starting,
+                Tailnet::Ready(host()),
+            ],
+            false,
+        );
+        assert_eq!(result.unwrap(), host());
+        assert_eq!(polls, 4);
+        assert_eq!(ups, 0, "nothing is changed while it is just starting");
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("Waiting for Tailscale"))
+        );
+    }
+
+    #[test]
+    fn a_switched_off_tailscale_is_reconnected_once() {
+        let (result, notes, ups, _) = scripted(
+            vec![Tailnet::Stopped, Tailnet::Stopped, Tailnet::Ready(host())],
+            false,
+        );
+        assert!(result.is_ok());
+        assert_eq!(ups, 1);
+        assert!(notes[0].contains("turning it on"));
+        let (result, _, ups, polls) = scripted(vec![Tailnet::Stopped], true);
+        assert!(result.unwrap_err().to_string().contains("up failed"));
+        assert_eq!((ups, polls), (1, 1));
+    }
+
+    #[test]
+    fn problems_that_need_the_user_are_reported_at_once() {
+        for (state, text) in [
+            (Tailnet::NeedsLogin, "signed out"),
+            (Tailnet::NeedsApproval, "approval"),
+            (Tailnet::HttpsOff, "HTTPS"),
+            (Tailnet::NotInstalled, "not installed"),
+            (Tailnet::NeedsOperator, "operator"),
+        ] {
+            let (result, _, ups, polls) = scripted(vec![state], false);
+            assert!(result.unwrap_err().to_string().contains(text));
+            assert_eq!((ups, polls), (0, 1), "no waiting and no changes");
+        }
+    }
+
+    #[test]
+    fn waiting_ends_with_a_clear_message() {
+        let (result, _, _, polls) = scripted(vec![], false);
+        assert_eq!(polls, 30);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("did not finish connecting")
+        );
+        let (result, _, _, polls) = scripted((0..20).map(|_| Tailnet::NotRunning).collect(), false);
+        assert_eq!(
+            polls, 9,
+            "a service that never answers is given up on sooner"
+        );
+        assert!(result.unwrap_err().to_string().contains("has not started"));
     }
 }
