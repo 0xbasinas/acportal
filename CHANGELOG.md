@@ -6,6 +6,12 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+### Added
+- **Release APK workflow.** Actions > Release APK builds the signed release APK and publishes it as its own release (`app-v<version>`, with a SHA-256 file), never as the "latest" release. Needs the `RELEASE_KEYSTORE_BASE64` and `RELEASE_KEYSTORE_PASSWORD` secrets; see [releases](docs/releases.md#app-releases-signed-apk).
+
+### Fixed
+- The launcher icon is now in `mipmap-anydpi-v26`, so tools that read the APK without a recent Android version (older file managers, installers) pick the plain per-density icons instead of the adaptive icon.
+
 ## [0.1.3] - 2026-10-12
 
 ### Added

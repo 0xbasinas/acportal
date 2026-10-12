@@ -31,12 +31,23 @@ android {
         keyAlias = "acportaldebug"
         keyPassword = System.getenv("ACPORTAL_DEBUG_KEYSTORE_PASSWORD")
     }
+    // Release signing key, supplied only by the release workflow (and never committed). Without the
+    // keystore path the release build stays unsigned, as before.
+    val releaseKeystore = providers.gradleProperty("acportalReleaseKeystore").orNull
+    if (releaseKeystore != null) signingConfigs.create("release") {
+        storeFile = file(releaseKeystore)
+        storePassword = System.getenv("ACPORTAL_RELEASE_KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("ACPORTAL_RELEASE_KEY_ALIAS") ?: "acportal"
+        keyPassword = System.getenv("ACPORTAL_RELEASE_KEY_PASSWORD")
+            ?: System.getenv("ACPORTAL_RELEASE_KEYSTORE_PASSWORD")
+    }
     buildTypes {
         debug {
             if (isolatedAcceptance) applicationIdSuffix = ".acceptance"
             if (sharedKeystore != null) signingConfig = signingConfigs.getByName("shared")
         }
         release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
