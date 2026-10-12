@@ -36,7 +36,7 @@ Run from a terminal with no options, each script shows a menu: everything (keepi
 
 ### On your phone
 
-Install the newest APK from the [`debug` release](https://github.com/0xbasinas/acportal/releases/tag/debug) (allow installs from your browser or file manager once). After that, **Settings → Update app** installs newer builds for you; see [app updates](docs/app-updates.md). If you installed an earlier build from a computer, uninstall it once first (it was signed with a different key).
+Install the newest signed APK from the [`app-v…` releases](https://github.com/0xbasinas/acportal/releases) (look for "ACP Portal app"), or a rolling build from the [`debug` release](https://github.com/0xbasinas/acportal/releases/tag/debug); allow installs from your browser or file manager once. After that, **Settings → Update app** installs newer builds for you and has a **Follow** switch for debug builds or signed releases; see [app updates](docs/app-updates.md). Debug builds and signed releases use different signing keys, as does a build installed from a computer, so switching between them needs one uninstall first (saved connections are removed).
 
 ## Quick start
 
