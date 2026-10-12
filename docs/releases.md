@@ -43,3 +43,16 @@ macOS builds are not published yet; build from source with `cargo build --releas
 ## Limits
 
 Not signed or notarized, no installers, no automatic update of the host (the phone app updates itself from the `debug` release; the host is replaced by downloading a new release). The workflow has not run until the first tag or manual dispatch; a first run may need small fixes.
+
+## App releases (signed APK)
+
+The **Release APK** workflow (Actions > Release APK > Run workflow, with a version such as `0.1.3`) builds the Android app with the **release** key and publishes it as its own GitHub release, tag `app-v<version>`, with `acportal-<version>.apk` and a `.sha256` file. It is never marked "latest", so the install scripts keep finding the host and tray release. `versionCode` is `major*10000 + minor*100 + patch` (0.1.3 is 103). The workflow refuses a tag that already exists, checks the signature with `apksigner`, and has a "publish" tick box (untick it to build and keep the files as a test artifact).
+
+One-time setup, never committed:
+
+1. Create a release key and keep a private copy of it (an installed app can only be updated by an APK signed with the same key; losing it means users must uninstall):
+   `keytool -genkeypair -keystore acportal-release.jks -alias acportal -keyalg RSA -keysize 4096 -validity 10000`
+2. Add repository secrets `RELEASE_KEYSTORE_BASE64` (the file, base64 encoded) and `RELEASE_KEYSTORE_PASSWORD`. Optional: `RELEASE_KEY_ALIAS` (default `acportal`) and `RELEASE_KEY_PASSWORD` (default the keystore password).
+
+The release key is different from the shared debug key, so a debug build cannot be updated to a release build (or the other way round); uninstall once when switching. The in-app **Update app** screen still reads only the rolling `debug` pre-release (see [app updates](app-updates.md)); it does not offer `app-v*` releases yet. Without the secrets the workflow stops with a clear message, and a local `assembleRelease` stays unsigned.
+

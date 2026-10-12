@@ -19,6 +19,6 @@ Nothing is checked, downloaded or installed until you open the screen and press 
 
 ## Limits
 
-- Only debug builds exist; signed release delivery is not set up.
+- The screen only follows the `debug` pre-release. A signed release APK can be published with the **Release APK** workflow ([releases](releases.md#app-releases-signed-apk)), but the screen does not offer it yet.
 - The check needs the public GitHub API (60 unauthenticated requests per hour per address).
 - Verified on the emulator through the real release: check, permission step, a 22 MB download with checksum verification, Android's confirmation and Play Protect prompt, and a declined install reported as a failure. Not verified: a completed update (the emulator's installed app was signed with a different key), or any physical phone.
