@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
+    ffi::OsString,
     path::Path,
     process::Stdio,
     sync::{Arc, Mutex, Weak},
@@ -612,13 +613,13 @@ struct ActorContext<'a> {
 impl AcpConnection {
     pub fn spawn(
         definition: &AgentDefinition,
-        executable: &Path,
+        launch: impl Into<crate::discovery::Launch>,
         cwd: &Path,
         limits: RuntimeConfig,
     ) -> Result<Self> {
         Self::spawn_inner(
             definition,
-            executable,
+            launch.into(),
             cwd,
             limits,
             None,
@@ -633,14 +634,14 @@ impl AcpConnection {
     }
     pub fn spawn_with_filesystem(
         definition: &AgentDefinition,
-        executable: &Path,
+        launch: impl Into<crate::discovery::Launch>,
         cwd: &Path,
         limits: RuntimeConfig,
         workspace: &Path,
     ) -> Result<Self> {
         Self::spawn_with_access(
             definition,
-            executable,
+            launch,
             cwd,
             limits,
             workspace,
@@ -650,7 +651,7 @@ impl AcpConnection {
     }
     pub fn spawn_with_access(
         definition: &AgentDefinition,
-        executable: &Path,
+        launch: impl Into<crate::discovery::Launch>,
         cwd: &Path,
         limits: RuntimeConfig,
         workspace: &Path,
@@ -665,7 +666,7 @@ impl AcpConnection {
         let review = ShellReviewer::new(review, &definition.id)?.map(Arc::new);
         Self::spawn_inner(
             definition,
-            executable,
+            launch.into(),
             cwd,
             limits,
             Some(files),
@@ -675,7 +676,7 @@ impl AcpConnection {
     }
     fn spawn_inner(
         definition: &AgentDefinition,
-        executable: &Path,
+        launch: crate::discovery::Launch,
         cwd: &Path,
         limits: RuntimeConfig,
         files: Option<Arc<WorkspaceFiles>>,
@@ -683,10 +684,22 @@ impl AcpConnection {
         review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
-        let mut command = Command::new(executable);
+        let mut command = Command::new(&launch.program);
         command
+            .args(&launch.prefix_args)
             .args(&definition.args)
-            .envs(&definition.env)
+            .envs(&definition.env);
+        // Found in a known folder (or an npm shim): put that folder first on PATH so the program's
+        // own helpers, such as the node beside it, are found.
+        let base_path = definition
+            .env
+            .get("PATH")
+            .map(OsString::from)
+            .or_else(|| std::env::var_os("PATH"));
+        if let Some(path) = launch.path_with_dirs(base_path) {
+            command.env("PATH", path);
+        }
+        command
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

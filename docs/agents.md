@@ -68,7 +68,16 @@ Read the limits in [security](security.md#shell-line-auto-review-opt-in) first: 
 
 ## Discovery
 
-Discovery checks configured executable names in absolute PATH directories, or an explicit absolute executable path. On Unix the target must be a file with executable permissions. Windows discovery expands PATHEXT but accepts only `.exe` or `.com` binaries for direct spawning. Batch wrappers would require shell parsing, so configure the actual runtime executable and script arguments instead.
+Discovery looks for a configured command in this order: an absolute path as given; then the folders on the host's `PATH`; then the folders where command-line tools usually install themselves, because a host started from the tray, a service or a login item often has a shorter `PATH` than your terminal.
+
+- **Windows:** `%APPDATA%\npm`, `%LOCALAPPDATA%\pnpm`, `~\.local\bin`, `~\.cargo\bin`, `~\.bun\bin`, `~\go\bin`, `~\.volta\bin`, `~\.opencode\bin`, the WinGet `Links` folder, `~\scoop\shims` and `Program Files\nodejs`.
+- **Linux and macOS:** `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin`, `~/.npm-global/bin`, `~/.volta/bin`, `~/.opencode/bin`, `~/.deno/bin`, `~/.local/share/pnpm`, the Node versions kept by nvm and fnm (newest first), `/usr/local/bin`, `/opt/homebrew/bin`, Linuxbrew and `/snap/bin`.
+
+Only folders that exist are searched, `PATH` always wins, and a relative path with separators is never accepted. When a program is found outside `PATH`, its folder is put first on the `PATH` of the process the host starts, so a script that starts `env node` finds the Node beside it. On Unix the target must be a file with executable permissions.
+
+**npm shims on Windows.** An npm-installed agent (`gemini`, `qwen`, `cline`, `copilot`, `auggie`, ...) is a `.cmd` shim. The host never runs a batch file or a shell: it reads the shim, and when it has the standard npm form (`node` running one `.js`, `.mjs` or `.cjs` file) it starts `node.exe` directly with that script as the first argument and your arguments after it, as literal arguments. A `.cmd` that is not in that form is reported as missing and is never run. Apart from shims, Windows discovery accepts only `.exe` and `.com` files. The Node used is the `node.exe` beside the shim, else the first one on `PATH` or in the known folders.
+
+The phone's **Add agent** screen asks the host which popular agents are installed (`POST /v1/agents/locate`, names only, nothing is run) and shows the installed ones first, with their path. **Check it is installed** and **Save agent** use the same lookup.
 
 Discovery does not execute unknown binaries to infer ACP support. It reports `available`, `missing`, or `misconfigured`; an executable being present does not prove provider authentication or ACP compatibility. Version is currently null because arbitrary version probes may have side effects. Use `probe` to verify protocol negotiation deliberately. For enabled, available definitions, the management API reports `running` when at least one ready or working live process exists. If only live sessions waiting for authentication exist, it reports `authentication_required`. Interrupted/exited records do not imply a live process, and live status never overrides missing/disabled/misconfigured discovery. Running means a process exists, not necessarily that a prompt is processing; the Sessions page shows turn activity separately. Runtime errors remain session-specific.
 

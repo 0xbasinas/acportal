@@ -7,6 +7,8 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 ## [Unreleased]
 
 ### Added
+- **Fixed:** the host returned Windows folder paths with the `\\?\` prefix (the check that strips it had a typo), which also broke starting a Node script by such a path.
+- **Better agent discovery on Windows and Linux.** The host now also searches the usual user install folders (npm, pnpm, Cargo, Bun, Go, Volta, nvm/fnm Node versions, WinGet, Scoop, Homebrew, snap, `~/.local/bin`...) after `PATH`, and puts a found program's folder first on the `PATH` of the agent it starts. On Windows an npm `.cmd` shim is understood and started as `node script.js` with literal arguments (no shell), so agents installed with `npm -g` are no longer "not found". New `POST /v1/agents/locate` (names only) lets the phone show which popular agents are installed here, with their path; the **Add agent** screen lists them first and has a **Scan again** button.
 - `-Only host|tray` (Windows) and `--only host|tray` (Linux), or `ACPD_ONLY`, on the install and uninstall scripts: install or remove just the host or just the tray. PATH is only touched for the host, the shortcut and desktop entry only for the tray, and removing the host removes the PATH entry only when it was the last program in the folder. `-Purge` / `--purge` cannot be combined with it.
 
 ## [0.1.2] - 2026-10-11
@@ -38,7 +40,7 @@ First public release of the host and tray.
 - `acpd start --bg` (also `-b`) runs the host in the background.
 - **Add folders from the phone:** list host folder names and add or remove workspace roots (`/v1/filesystem/directories`, `/v1/workspaces`). Saved in `user-settings.json`; they survive restarts and reloads.
 - **Register agents from the phone:** `POST /v1/agents/check` runs `<command> --version` once (no shell, 5 s, 4 KiB), `POST/DELETE /v1/agents` registers and removes agents with the same validation as a registry file.
-- Windows paths are returned without the `\\?\` prefix.
+- Windows paths are returned without the `\\?\` prefix. (The first release still returned it on Windows because of a typo in the prefix check; fixed in Unreleased.)
 
 ### Breaking
 - **No built-in agents.** The Goose and Gemini entries that used to ship with the host are gone; register the agents you want from the phone or in `agents.json`.

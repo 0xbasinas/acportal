@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    registry::{AgentDefinition, Registry, resolve_executable},
+    registry::{AgentDefinition, Registry},
     security::{Device, SecurityStore},
     session::{AcpSession, SessionManager, SessionMetadata},
     userdata::{UserData, plain_path},
@@ -166,6 +166,7 @@ impl Host {
             .route("/v1/status", get(status))
             .route("/v1/agents", get(agents).post(add_agent))
             .route("/v1/agents/check", post(check_agent))
+            .route("/v1/agents/locate", post(locate_agents))
             .route("/v1/agents/{id}", delete(remove_agent))
             .route(
                 "/v1/workspaces",
@@ -425,6 +426,34 @@ mod discovery_tests {
     }
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocateInput {
+    commands: Vec<String>,
+}
+/// Tells the phone which of the given command names exist on this computer and where (on `PATH` or in
+/// the usual user install folders), so it can offer the agents that are really installed. Names only:
+/// paths, empty names and anything over 64 names are refused. Nothing is run.
+async fn locate_agents(Json(input): Json<LocateInput>) -> ApiResult<Json<Value>> {
+    if input.commands.len() > 64 {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    let extra = crate::discovery::known_tool_directories();
+    let mut found = vec![];
+    for command in input.commands {
+        if command.is_empty() || command.len() > 256 || command.contains(['/', '\\', '\0']) {
+            return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+        }
+        let launch = crate::discovery::resolve_in(&command, None, &extra);
+        found.push(match launch {
+            Some(launch) => {
+                json!({"command":command,"found":true,"executable":plain_path(&launch.found)})
+            }
+            None => json!({"command":command,"found":false}),
+        });
+    }
+    Ok(Json(json!(found)))
+}
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckAgentInput {
     command: String,
@@ -436,23 +465,33 @@ struct CheckAgentInput {
 /// resolved the same way a registered agent is: an absolute path, or a bare name found on PATH.
 async fn check_agent(Json(input): Json<CheckAgentInput>) -> ApiResult<Json<Value>> {
     use tokio::io::AsyncReadExt;
-    if input.command.trim().is_empty() || input.command.len() > 1024 || input.command.contains(' ')
+    if input.command.trim().is_empty() || input.command.len() > 1024 || input.command.contains('\0')
     {
         return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
     }
-    let Some(executable) =
-        resolve_executable(&input.command, input.env.get("PATH").map(String::as_str))
+    let Some(launch) =
+        crate::discovery::resolve(&input.command, input.env.get("PATH").map(String::as_str))
     else {
         return Ok(Json(json!({"found":false})));
     };
-    let mut command = tokio::process::Command::new(&executable);
+    let mut command = tokio::process::Command::new(&launch.program);
     command
+        .args(&launch.prefix_args)
         .arg("--version")
         .envs(&input.env)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
+    if let Some(path) = launch.path_with_dirs(
+        input
+            .env
+            .get("PATH")
+            .map(std::ffi::OsString::from)
+            .or_else(|| std::env::var_os("PATH")),
+    ) {
+        command.env("PATH", path);
+    }
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     let mut child = command.spawn().map_err(internal)?;
@@ -482,7 +521,7 @@ async fn check_agent(Json(input): Json<CheckAgentInput>) -> ApiResult<Json<Value
         }
     };
     Ok(Json(
-        json!({"found":true,"executable":plain_path(&executable),"versionOk":version_ok,"version":version}),
+        json!({"found":true,"executable":plain_path(&launch.found),"versionOk":version_ok,"version":version}),
     ))
 }
 /// Registers an agent CLI the user entered on the phone. It gets the same validation as a
@@ -493,7 +532,7 @@ async fn add_agent(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let _guard = host.user_changes.lock().await;
     definition.validate().map_err(input_error)?;
-    if resolve_executable(
+    if crate::discovery::resolve(
         &definition.command,
         definition.env.get("PATH").map(String::as_str),
     )

@@ -61,6 +61,9 @@ pub struct Discovery {
     pub status: AgentStatus,
     pub reason: Option<String>,
     pub own_tools: bool,
+    /// How to start it (an npm shim becomes node plus its script). Never sent to the phone.
+    #[serde(skip)]
+    pub launch: Option<crate::discovery::Launch>,
 }
 impl AgentDefinition {
     pub fn validate(&self) -> Result<()> {
@@ -98,8 +101,9 @@ impl AgentDefinition {
     }
     pub fn discover(&self) -> Discovery {
         let validation = self.validate().err().map(|error| error.to_string());
-        let executable =
-            resolve_executable(&self.command, self.env.get("PATH").map(String::as_str));
+        let launch =
+            crate::discovery::resolve(&self.command, self.env.get("PATH").map(String::as_str));
+        let executable = launch.as_ref().map(|launch| launch.found.clone());
         let status = if validation.is_some() {
             AgentStatus::Misconfigured
         } else if executable.is_some() {
@@ -117,6 +121,7 @@ impl AgentDefinition {
             status,
             reason: validation,
             own_tools: self.own_tools,
+            launch,
         }
     }
 }
@@ -211,7 +216,7 @@ pub fn resolve_executable(command: &str, custom_path: Option<&str>) -> Option<Pa
     }
     None
 }
-fn executable(path: &Path) -> bool {
+pub(crate) fn executable(path: &Path) -> bool {
     let Ok(metadata) = path.metadata() else {
         return false;
     };

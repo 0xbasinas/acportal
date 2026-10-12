@@ -13,6 +13,10 @@ fun JsonElement?.number(): Long = (this as? JsonPrimitive)?.longOrNull ?: 0
 @Serializable
 data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false,val removable:Boolean=false)
 
+/** One command name looked up on the host (on PATH or in the usual user install folders). */
+@Serializable
+data class LocatedAgent(val command:String,val found:Boolean=false,val executable:String?=null)
+
 /** Result of running `<command> --version` once on the host before an agent is registered. */
 @Serializable
 data class AgentCheck(val found:Boolean=false,val executable:String?=null,val versionOk:Boolean=false,val version:String?=null)

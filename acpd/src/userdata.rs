@@ -24,10 +24,10 @@ pub struct UserData {
 /// Other platforms and paths are returned unchanged.
 pub fn plain_path(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
-    if let Some(rest) = text.strip_prefix(r"\?\UNC\") {
-        return PathBuf::from(format!(r"\{rest}"));
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
     }
-    if let Some(rest) = text.strip_prefix(r"\?\")
+    if let Some(rest) = text.strip_prefix(r"\\?\")
         && rest.len() >= 2
         && rest.as_bytes()[1] == b':'
     {
@@ -86,13 +86,15 @@ mod tests {
     use super::*;
     #[test]
     fn verbatim_prefix_is_removed_only_for_windows_forms() {
+        // Compared as text: on Windows `\\?\C:\x` and `C:\x` are different path prefixes.
+        let text = |path: PathBuf| path.to_string_lossy().into_owned();
         assert_eq!(
-            plain_path(Path::new(r"\?\C:\Users\me")),
-            Path::new(r"C:\Users\me")
+            text(plain_path(Path::new(r"\\?\C:\Users\me"))),
+            r"C:\Users\me"
         );
         assert_eq!(
-            plain_path(Path::new(r"\?\UNC\srv\share")),
-            Path::new(r"\srv\share")
+            text(plain_path(Path::new(r"\\?\UNC\srv\share"))),
+            r"\\srv\share"
         );
         assert_eq!(plain_path(Path::new("/home/me")), Path::new("/home/me"));
         assert_eq!(plain_path(Path::new(r"C:\x")), Path::new(r"C:\x"));
