@@ -54,5 +54,5 @@ One-time setup, never committed:
    `keytool -genkeypair -keystore acportal-release.jks -alias acportal -keyalg RSA -keysize 4096 -validity 10000`
 2. Add repository secrets `RELEASE_KEYSTORE_BASE64` (the file, base64 encoded) and `RELEASE_KEYSTORE_PASSWORD`. Optional: `RELEASE_KEY_ALIAS` (default `acportal`) and `RELEASE_KEY_PASSWORD` (default the keystore password).
 
-The release key is different from the shared debug key, so a debug build cannot be updated to a release build (or the other way round); uninstall once when switching. The in-app **Update app** screen still reads only the rolling `debug` pre-release (see [app updates](app-updates.md)); it does not offer `app-v*` releases yet. Without the secrets the workflow stops with a clear message, and a local `assembleRelease` stays unsigned.
+The release key is different from the shared debug key, so a debug build cannot be updated to a release build (or the other way round); uninstall once when switching. The in-app **Update app** screen can follow either the rolling `debug` pre-release or these signed releases (see [app updates](app-updates.md)). Without the secrets the workflow stops with a clear message, and a local `assembleRelease` stays unsigned.
 

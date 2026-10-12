@@ -23,15 +23,28 @@ object UpdateSource {
     /** The static tag the Build APK workflow keeps pointing at the newest debug build. */
     const val TAG="debug"
     const val RELEASE_URL="https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG"
+    /** The signed releases (tags `app-vX.Y.Z`, published by the Release APK workflow) are found in the release list. */
+    const val RELEASES_URL="https://api.github.com/repos/$REPOSITORY/releases?per_page=30"
     /** GitHub serves release files from these hosts, after redirects. */
     fun allowedHost(host:String)=host=="github.com" || host=="api.github.com" || host.endsWith(".githubusercontent.com") || host=="github-releases.githubusercontent.com"
+}
+
+/** Which kind of build the Update app screen follows. They are signed with different keys, so Android will not update one into the other. */
+enum class UpdateChannel(val label:String,val singular:String) {
+    Debug("Debug builds","Debug build"),
+    Release("Signed releases","Signed release");
+    companion object {
+        /** Debug CI builds are named `0.1.0-debug.<run>+<sha>`; anything else is a signed release. */
+        fun installed(versionName:String)=if("-debug." in versionName)Debug else Release
+        fun fromName(name:String?)=entries.firstOrNull {it.name==name}
+    }
 }
 
 /** One downloadable build from the release. [build] is the run number, which is also the app's versionCode. */
 data class ReleaseInfo(val versionName:String,val build:Long,val assetName:String,val url:String,val sizeBytes:Long,val sha256:String?,val publishedAt:String?)
 
 @Serializable private data class GithubAsset(val name:String="",val size:Long=0,@SerialName("browser_download_url") val url:String="",val digest:String?=null)
-@Serializable private data class GithubRelease(val name:String?=null,@SerialName("published_at") val publishedAt:String?=null,val assets:List<GithubAsset> = emptyList())
+@Serializable private data class GithubRelease(val name:String?=null,@SerialName("tag_name") val tagName:String="",val draft:Boolean=false,@SerialName("published_at") val publishedAt:String?=null,val assets:List<GithubAsset> = emptyList())
 
 private val assetBuild=Regex("""acportal-debug-(\d+)-""")
 private val versionBuild=Regex("""debug\.(\d+)""")
@@ -46,8 +59,26 @@ fun parseRelease(json:String):ReleaseInfo {
     return ReleaseInfo(versionName,build,asset.name,asset.url,asset.size,sha,release.publishedAt)
 }
 
+private val signedTag=Regex("""^app-v(\d+)\.(\d+)\.(\d+)$""")
+
+/** Reads the release list and returns the highest signed release (tag `app-vX.Y.Z`). The build number is the app's versionCode: major*10000 + minor*100 + patch. */
+fun parseSignedRelease(json:String):ReleaseInfo {
+    val releases=try {WireJson.decodeFromString<List<GithubRelease>>(json)} catch(failure:Exception) {throw IllegalArgumentException("The release information could not be read.",failure)}
+    val found=releases.filter {!it.draft}.mapNotNull {release->
+        val parts=signedTag.matchEntire(release.tagName)?.groupValues?.drop(1)?.map {it.toLong()} ?: return@mapNotNull null
+        val asset=release.assets.firstOrNull {it.name.endsWith(".apk") && it.url.isNotBlank()} ?: return@mapNotNull null
+        val sha=asset.digest?.removePrefix("sha256:")?.lowercase()?.takeIf {it.length==64 && it.all {c->c in '0'..'9' || c in 'a'..'f'}}
+        ReleaseInfo(release.tagName.removePrefix("app-v"),parts[0]*10000+parts[1]*100+parts[2],asset.name,asset.url,asset.size,sha,release.publishedAt)
+    }
+    return found.maxByOrNull {it.build} ?: throw IllegalArgumentException("No signed release has been published yet.")
+}
+
 /** An update is offered only for a strictly higher build number. */
 fun isUpdate(installedBuild:Long,release:ReleaseInfo)=release.build>installedBuild
+
+/** Build numbers of the two channels are unrelated, so a build from the other channel is always offered (Android still checks the signing key). */
+fun isUpdateFor(installed:InstalledBuild,channel:UpdateChannel,release:ReleaseInfo)=
+    if(UpdateChannel.installed(installed.versionName)!=channel)true else isUpdate(installed.build,release)
 
 /** SHA-256 of a file as lower-case hex. */
 fun sha256Hex(file:File):String {
@@ -61,14 +92,14 @@ fun sha256Hex(file:File):String {
 fun isTrustedUpdateAddress(url:okhttp3.HttpUrl)=url.scheme=="https" && UpdateSource.allowedHost(url.host)
 
 class AppUpdater(private val client:OkHttpClient,private val cacheDir:File,private val acceptAddress:(okhttp3.HttpUrl)->Boolean=::isTrustedUpdateAddress) {
-    suspend fun latest():ReleaseInfo=withContext(Dispatchers.IO) {
-        val request=Request.Builder().url(UpdateSource.RELEASE_URL).header("Accept","application/vnd.github+json").build()
+    suspend fun latest(channel:UpdateChannel=UpdateChannel.Debug):ReleaseInfo=withContext(Dispatchers.IO) {
+        val request=Request.Builder().url(if(channel==UpdateChannel.Debug)UpdateSource.RELEASE_URL else UpdateSource.RELEASES_URL).header("Accept","application/vnd.github+json").build()
         client.newCall(request).execute().use {response->
             if(response.code==404)throw IOException("No release has been published yet.")
             if(!response.isSuccessful)throw IOException("GitHub answered ${response.code}. Try again later.")
             val body=response.body ?: throw IOException("GitHub sent an empty answer.")
             if(body.contentLength()>2_000_000)throw IOException("GitHub sent an unexpectedly large answer.")
-            parseRelease(body.string())
+            if(channel==UpdateChannel.Debug)parseRelease(body.string()) else parseSignedRelease(body.string())
         }
     }
     /** Downloads to a fixed cache file (replacing any earlier one) and returns it only if it checks out. */
@@ -121,7 +152,7 @@ object ApkInstaller {
     }
     /** Plain-language reason for a failed install. */
     fun explain(status:Int,message:String?):String=when(status) {
-        PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This build is signed with a different key than the installed app, so Android refused it. Uninstall the app once (saved connections are removed) and install this build."
+        PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This build is signed with a different key than the installed app (debug builds and signed releases use different keys), so Android refused it. Uninstall the app once (saved connections are removed) and install this build."
         PackageInstaller.STATUS_FAILURE_STORAGE -> "There is not enough storage space to install the update."
         PackageInstaller.STATUS_FAILURE_ABORTED -> "The install was cancelled."
         PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android blocked the install on this phone."

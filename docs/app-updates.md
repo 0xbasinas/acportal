@@ -4,6 +4,15 @@ Settings > **Update app** installs newer builds of the app without a computer or
 
 ## How it works
 
+The screen has a **Follow** switch with two choices, remembered between visits and defaulting to the kind of build that is installed (a version name containing `-debug.` is a debug build):
+
+- **Debug builds**: the rolling `debug` pre-release described below.
+- **Signed releases**: the newest release tagged `app-vX.Y.Z` (published by the **Release APK** workflow, see [releases](releases.md#app-releases-signed-apk)). The app reads the release list from the same GitHub repository, ignores drafts and other tags, and takes the highest version. Its build number is the app's versionCode (`major*10000 + minor*100 + patch`, so 0.1.4 is 104).
+
+The two kinds are signed with different keys, so Android refuses to install one over the other. Because their build numbers are unrelated, a build from the other kind is always offered, with a red note that you must uninstall once first (saved connections are removed). Within one kind only a strictly higher build is an update. The switch is disabled while a download or install is running.
+
+### Debug builds
+
 1. The **Build APK** workflow publishes every build from `main` as one pre-release with the static tag `debug`. The release name is `Debug build 0.1.0-debug.<run>+<sha>`, and its single asset is `acportal-debug-<run>-<sha>.apk`. The run number is also the app's `versionCode`, so builds are ordered.
 2. The screen reads `https://api.github.com/repos/0xbasinas/acportal/releases/tags/debug` (fixed in `UpdateSource`; the app installs from no other address), compares the build number with the installed `versionCode`, and offers an update only for a strictly higher build.
 3. **Download and install** downloads the APK into the app's cache. The download is refused unless the final address is `https` on a GitHub host (after redirects), the size matches the release, and its SHA-256 matches the `digest` GitHub publishes for the asset (when a release has no digest the screen says so). A failed or cancelled download leaves no file behind.
@@ -19,6 +28,6 @@ Nothing is checked, downloaded or installed until you open the screen and press 
 
 ## Limits
 
-- The screen only follows the `debug` pre-release. A signed release APK can be published with the **Release APK** workflow ([releases](releases.md#app-releases-signed-apk)), but the screen does not offer it yet.
+- Switching between debug builds and signed releases always needs an uninstall first. The signed-release check lists up to the 30 newest releases of the repository, so it keeps working only while an `app-v*` release is among them.
 - The check needs the public GitHub API (60 unauthenticated requests per hour per address).
 - Verified on the emulator through the real release: check, permission step, a 22 MB download with checksum verification, Android's confirmation and Play Protect prompt, and a declined install reported as a failure. Not verified: a completed update (the emulator's installed app was signed with a different key), or any physical phone.
