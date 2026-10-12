@@ -6,11 +6,15 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-12
+
 ### Added
 - **Uninstall from the tray.** Two new menu items (confirmed by clicking twice) stop the host, remove the programs, shortcut or desktop entry, PATH entry and leftovers, and quit the tray; the second one also deletes your settings and data. Same behavior as `uninstall.ps1` / `uninstall.sh`, without needing the script.
-- **Fixed:** the host returned Windows folder paths with the `\\?\` prefix (the check that strips it had a typo), which also broke starting a Node script by such a path.
 - **Better agent discovery on Windows and Linux.** The host now also searches the usual user install folders (npm, pnpm, Cargo, Bun, Go, Volta, nvm/fnm Node versions, WinGet, Scoop, Homebrew, snap, `~/.local/bin`...) after `PATH`, and puts a found program's folder first on the `PATH` of the agent it starts. On Windows an npm `.cmd` shim is understood and started as `node script.js` with literal arguments (no shell), so agents installed with `npm -g` are no longer "not found". New `POST /v1/agents/locate` (names only) lets the phone show which popular agents are installed here, with their path; the **Add agent** screen lists them first and has a **Scan again** button.
 - `-Only host|tray` (Windows) and `--only host|tray` (Linux), or `ACPD_ONLY`, on the install and uninstall scripts: install or remove just the host or just the tray. PATH is only touched for the host, the shortcut and desktop entry only for the tray, and removing the host removes the PATH entry only when it was the last program in the folder. `-Purge` / `--purge` cannot be combined with it.
+
+### Fixed
+- The host returned Windows folder paths with the `\\?\` prefix (the check that strips it had a typo), which also broke starting a Node script by such a path. v0.1.0–v0.1.2 have this on Windows.
 
 ## [0.1.2] - 2026-10-11
 
@@ -65,7 +69,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.3
 [0.1.2]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.2
 [0.1.1]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.1
 [0.1.0]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.0
