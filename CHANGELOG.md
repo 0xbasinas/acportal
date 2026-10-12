@@ -6,6 +6,8 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-12
+
 ### Added
 - **Release APK workflow.** Actions > Release APK builds the signed release APK and publishes it as its own release (`app-v<version>`, with a SHA-256 file), never as the "latest" release. Needs the `RELEASE_KEYSTORE_BASE64` and `RELEASE_KEYSTORE_PASSWORD` secrets; see [releases](docs/releases.md#app-releases-signed-apk).
 
@@ -79,7 +81,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.4
 [0.1.3]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.3
 [0.1.2]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.2
 [0.1.1]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.1
