@@ -6,6 +6,11 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-12
+
+### Changed
+- The host, tray and Android app are unchanged from 0.1.6; this release only carries updated documentation (README, TODO).
+
 ## [0.1.6] - 2026-10-12
 
 ### Fixed
@@ -96,7 +101,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.7
 [0.1.6]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.6
 [0.1.5]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.5
 [0.1.4]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.4
