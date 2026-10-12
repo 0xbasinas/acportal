@@ -6,6 +6,12 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-12
+
+### Fixed
+- The Android app is unchanged from 0.1.7; this release is for the host and tray.
+- **Agents no longer open a terminal window on Windows.** The host started agent programs (and host terminal commands) without the "no window" flag, so when it had no console of its own and Windows Terminal was the default terminal app, every agent launch popped open a visible terminal window. They now start with `CREATE_NO_WINDOW`; their input and output are piped, so nothing is lost.
+
 ## [0.1.7] - 2026-10-12
 
 ### Changed
