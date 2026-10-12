@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.acportal.data.InstalledBuild
 import dev.acportal.data.ReleaseInfo
+import dev.acportal.data.UpdateChannel
 import dev.acportal.data.UpdateSource
 import dev.acportal.data.UpdateState
 import java.time.Instant
@@ -37,14 +38,28 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
  * checksum verified, and hands it to Android's installer, which verifies the signature and asks
  * the user to confirm. Nothing is downloaded or installed until the user presses the button.
  */
-@Composable fun UpdateScreen(state:UpdateState,installed:InstalledBuild,onBack:()->Unit,onCheck:()->Unit,onInstall:(ReleaseInfo)->Unit,onCancel:()->Unit,onOpenSettings:()->Unit) {
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable fun UpdateScreen(state:UpdateState,installed:InstalledBuild,onBack:()->Unit,onCheck:()->Unit,onInstall:(ReleaseInfo)->Unit,onCancel:()->Unit,onOpenSettings:()->Unit,channel:UpdateChannel=UpdateChannel.installed(installed.versionName),onChannel:(UpdateChannel)->Unit={}) {
+    val installedChannel=UpdateChannel.installed(installed.versionName)
+    val busy=state is UpdateState.Downloading || state is UpdateState.Installing
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Update app","From GitHub releases",onBack)
         Column(Modifier.weight(1f).testTag("update-body").verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             InfoCard {
                 Text("Installed",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(installed.versionName.ifBlank {"Unknown"},style=MaterialTheme.typography.titleMedium)
-                Text("Build ${installed.build}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Build ${installed.build} · ${installedChannel.singular}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Follow",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    UpdateChannel.entries.forEachIndexed {index,option->
+                        SegmentedButton(channel==option,{onChannel(option)},SegmentedButtonDefaults.itemShape(index,UpdateChannel.entries.size),enabled=!busy,modifier=Modifier.heightIn(min=48.dp).testTag("update-channel-${option.name.lowercase()}")) {Text(option.label)}
+                    }
+                }
+                if(channel!=installedChannel) {
+                    Text("Signed releases and debug builds use different signing keys, so Android will not install one over the other. To switch, uninstall the app once (saved connections are removed), then install the build you want.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("update-switch-note"))
+                }
             }
             when(state) {
                 UpdateState.Idle,UpdateState.Checking->Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -53,7 +68,7 @@ internal fun formatPublished(iso:String?,zone:ZoneId=ZoneId.systemDefault()):Str
                 }
                 is UpdateState.UpToDate->Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text("You're up to date",style=MaterialTheme.typography.titleMedium,color=MaterialTheme.colorScheme.primary,modifier=Modifier.testTag("update-status"))
-                    Text("The latest release is build ${state.latest.build}.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(channel==UpdateChannel.Release)"The latest signed release is ${state.latest.versionName}." else "The latest release is build ${state.latest.build}.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 is UpdateState.Available->{ReleaseCard(state.release,"Update available");TrustNote(state.release.sha256!=null)}
                 is UpdateState.Downloading->InfoCard {

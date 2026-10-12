@@ -4,6 +4,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.acportal.data.InstalledBuild
 import dev.acportal.data.ReleaseInfo
+import dev.acportal.data.UpdateChannel
 import dev.acportal.data.UpdateState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -82,5 +83,29 @@ class UpdateScreenUiTest {
         compose.onNodeWithText("Checking for updates…").assertIsDisplayed()
         compose.onNodeWithTag("update-primary").assertDoesNotExist()
         compose.onNodeWithTag("update-secondary").assertDoesNotExist()
+    }
+
+    @Test fun channelChoiceOffersBothKindsAndExplainsTheKeyChange() {
+        val chosen=mutableListOf<UpdateChannel>()
+        compose.setContent {PortalTheme("dark") {UpdateScreen(UpdateState.UpToDate(release),installed,{},{},{},{},{},UpdateChannel.Debug,{chosen+=it})}}
+        compose.onNodeWithTag("update-channel-debug").assertIsDisplayed().assertIsSelected()
+        compose.onNodeWithTag("update-channel-release").assertIsDisplayed().assertIsNotSelected()
+        compose.onNodeWithTag("update-switch-note").assertDoesNotExist()
+        compose.onNodeWithTag("update-channel-release").performClick()
+        assertEquals(listOf(UpdateChannel.Release),chosen)
+    }
+
+    @Test fun followingTheOtherChannelShowsTheUninstallNoteAndSignedReleasesAreNamedByVersion() {
+        val signed=ReleaseInfo("0.1.4",104,"acportal-0.1.4.apk","https://github.com/x.apk",14L*1024*1024,null,null)
+        compose.setContent {PortalTheme("light") {UpdateScreen(UpdateState.UpToDate(signed),installed,{},{},{},{},{},UpdateChannel.Release,{})}}
+        compose.onNodeWithTag("update-channel-release").assertIsSelected()
+        compose.onNodeWithTag("update-switch-note").assertIsDisplayed()
+        compose.onNodeWithText("The latest signed release is 0.1.4.").assertIsDisplayed()
+    }
+
+    @Test fun channelCannotBeChangedWhileDownloading() {
+        compose.setContent {PortalTheme("dark") {UpdateScreen(UpdateState.Downloading(release,1024),installed,{},{},{},{},{},UpdateChannel.Debug,{})}}
+        compose.onNodeWithTag("update-channel-release").assertIsNotEnabled()
+        compose.onNodeWithTag("update-channel-debug").assertIsNotEnabled()
     }
 }

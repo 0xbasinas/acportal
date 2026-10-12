@@ -209,7 +209,8 @@ import kotlinx.serialization.Serializable
                                 val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME)updates.permissionMayHaveChanged()}
                                 owner.lifecycle.addObserver(observer);onDispose {owner.lifecycle.removeObserver(observer)}
                             }
-                            UpdateScreen(update,updates.installed,back,updates::check,updates::install,updates::cancel,{context.startActivity(updates.permissionIntent())})
+                            val channel by updates.channel.collectAsStateWithLifecycle()
+                            UpdateScreen(update,updates.installed,back,updates::check,updates::install,updates::cancel,{context.startActivity(updates.permissionIntent())},channel,updates::selectChannel)
                         }
                     })
                     if(ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))

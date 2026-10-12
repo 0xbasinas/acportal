@@ -6,6 +6,9 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+### Added
+- **Update app can follow debug builds or signed releases.** A new Follow switch on the Update app screen chooses between the rolling `debug` pre-release and the newest `app-v*` signed release. It defaults to the kind that is installed and remembers the choice. Because the two use different signing keys, a note explains that switching needs one uninstall.
+
 ## [0.1.4] - 2026-10-12
 
 ### Added

@@ -54,6 +54,46 @@ class AppUpdaterTest {
         assertFalse(trusted("https://notgithubusercontent.com/x.apk"))
     }
 
+    private fun signed(tag:String,name:String="acportal-x.apk",draft:Boolean=false,digest:String?=null)=
+        """{"tag_name":"$tag","draft":$draft,"published_at":"2026-10-12T11:42:00Z","assets":[{"name":"$name","size":15000000,"browser_download_url":"https://github.com/x/releases/download/$tag/$name"${digest?.let {""","digest":"$it""""} ?: ""}},{"name":"$name.sha256","size":85,"browser_download_url":"https://github.com/x/$name.sha256"}]}"""
+
+    @Test fun theHighestSignedReleaseIsChosenFromTheList() {
+        val sha="b".repeat(64)
+        val json="["+listOf(signed("v0.1.4"),signed("app-v0.1.3","acportal-0.1.3.apk"),signed("app-v0.1.10","acportal-0.1.10.apk",digest="sha256:$sha"),signed("app-v0.2.0","acportal-0.2.0.apk",draft=true),signed("debug","acportal-debug-9-abc.apk")).joinToString(",")+"]"
+        val release=parseSignedRelease(json)
+        assertEquals("0.1.10",release.versionName)
+        assertEquals(110L,release.build)
+        assertEquals("acportal-0.1.10.apk",release.assetName)
+        assertEquals(sha,release.sha256)
+    }
+    @Test fun noSignedReleaseIsExplained() {
+        val failure=assertThrows(IllegalArgumentException::class.java) {parseSignedRelease("["+signed("v0.1.4")+","+signed("debug")+"]")}
+        assertTrue(failure.message!!.contains("No signed release"))
+        assertThrows(IllegalArgumentException::class.java) {parseSignedRelease("not json")}
+        assertThrows(IllegalArgumentException::class.java) {parseSignedRelease("{}")}
+    }
+    @Test fun versionCodeMatchesWhatTheReleaseWorkflowBuilds() {
+        assertEquals(104L,parseSignedRelease("["+signed("app-v0.1.4","acportal-0.1.4.apk")+"]").build)
+        assertEquals(10203L,parseSignedRelease("["+signed("app-v1.2.3","acportal-1.2.3.apk")+"]").build)
+    }
+    @Test fun theInstalledChannelComesFromTheVersionName() {
+        assertEquals(UpdateChannel.Debug,UpdateChannel.installed("0.1.0-debug.15+df33193"))
+        assertEquals(UpdateChannel.Release,UpdateChannel.installed("0.1.4"))
+        assertEquals(UpdateChannel.Release,UpdateChannel.fromName("Release"))
+        assertNull(UpdateChannel.fromName("beta"))
+    }
+    @Test fun otherChannelBuildsAreAlwaysOfferedAndSameChannelOnesCompareNumbers() {
+        val debugInstalled=InstalledBuild("0.1.0-debug.15+abc",15)
+        val releaseInstalled=InstalledBuild("0.1.4",104)
+        val signedBuild=parseSignedRelease("["+signed("app-v0.1.4","acportal-0.1.4.apk")+"]")
+        val debugBuild=parseRelease(releaseJson())
+        assertTrue("a debug phone is offered the signed release",isUpdateFor(debugInstalled,UpdateChannel.Release,signedBuild))
+        assertTrue("a release phone is offered a debug build even though 15 < 104",isUpdateFor(releaseInstalled,UpdateChannel.Debug,debugBuild))
+        assertFalse(isUpdateFor(releaseInstalled,UpdateChannel.Release,signedBuild))
+        assertFalse(isUpdateFor(debugInstalled,UpdateChannel.Debug,debugBuild))
+        assertTrue(isUpdateFor(InstalledBuild("0.1.0-debug.12+abc",12),UpdateChannel.Debug,debugBuild))
+    }
+
     private fun serve(body:ByteArray,block:(MockWebServer)->Unit) {
         MockWebServer().use {server->server.enqueue(MockResponse().setBody(Buffer().write(body)));server.start();block(server)}
     }

@@ -43,14 +43,29 @@ class UpdateController(private val context:Context,private val updater:AppUpdate
     val state:StateFlow<UpdateState> = mutable.asStateFlow()
     val installed:InstalledBuild = InstalledBuild.of(context.packageManager.getPackageInfo(context.packageName,0))
     private var job:Job?=null
+    private val preferences=context.getSharedPreferences("update",Context.MODE_PRIVATE)
+    private val mutableChannel=MutableStateFlow(UpdateChannel.fromName(preferences.getString("channel",null)) ?: UpdateChannel.installed(installed.versionName))
+    /** Which kind of build this screen follows; remembered between visits. Defaults to the kind that is installed. */
+    val channel:StateFlow<UpdateChannel> = mutableChannel.asStateFlow()
+
+    /** Switches channel and looks again. Ignored while a download or install is under way. */
+    fun selectChannel(value:UpdateChannel) {
+        val current=mutable.value
+        if(value==mutableChannel.value || current is UpdateState.Downloading || current is UpdateState.Installing)return
+        job?.cancel();job=null
+        mutableChannel.value=value
+        preferences.edit().putString("channel",value.name).apply()
+        check()
+    }
 
     fun check() {
         if(job?.isActive==true)return
         mutable.value=UpdateState.Checking
+        val channel=mutableChannel.value
         job=scope.launch {
             mutable.value=try {
-                val release=updater.latest()
-                if(isUpdate(installed.build,release))UpdateState.Available(release) else UpdateState.UpToDate(release)
+                val release=updater.latest(channel)
+                if(isUpdateFor(installed,channel,release))UpdateState.Available(release) else UpdateState.UpToDate(release)
             } catch(cancelled:CancellationException) {throw cancelled}
             catch(failure:Exception) {UpdateState.Failed(failure.message ?: "The update check failed.")}
         }
