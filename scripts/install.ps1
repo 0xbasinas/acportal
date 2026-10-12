@@ -18,8 +18,12 @@
   Release tag to install, for example v0.1.1. Default: the latest release. Env: ACPD_VERSION.
 .PARAMETER Dir
   Install folder. Default: %LOCALAPPDATA%\acpd\bin. Env: ACPD_INSTALL_DIR.
+.PARAMETER Only
+  What to install: both (default), host (just acpd.exe, for the command line) or tray (just
+  acpd-tray.exe; its menu can download the host later). Env: ACPD_ONLY.
 .PARAMETER Uninstall
   Remove the programs, the shortcut and the PATH entry. Your settings and paired devices are kept.
+  Combine with -Only host or -Only tray to remove just one of them.
 .PARAMETER NoPath
   Do not add the install folder to your user PATH.
 .PARAMETER NoShortcut
@@ -31,6 +35,7 @@
 param(
     [string]$Version = $env:ACPD_VERSION,
     [string]$Dir = $env:ACPD_INSTALL_DIR,
+    [string]$Only = $env:ACPD_ONLY,
     [switch]$Uninstall,
     [switch]$NoPath,
     [switch]$NoShortcut,
@@ -42,10 +47,16 @@ $ProgressPreference = 'SilentlyContinue'   # the progress bar makes downloads mu
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
 $Repo = '0xbasinas/acportal'
-$Files = @(
-    @{ Asset = 'acpd-windows-x86_64.exe';      Name = 'acpd.exe' },
-    @{ Asset = 'acpd-tray-windows-x86_64.exe'; Name = 'acpd-tray.exe' }
+$Only = if ($Only) { $Only.ToLower() } else { 'both' }
+if ($Only -notin 'both', 'host', 'tray') { throw "-Only must be both, host or tray, got: $Only" }
+$AllFiles = @(
+    @{ Asset = 'acpd-windows-x86_64.exe';      Name = 'acpd.exe';      Kind = 'host' },
+    @{ Asset = 'acpd-tray-windows-x86_64.exe'; Name = 'acpd-tray.exe'; Kind = 'tray' }
 )
+$Files = @($AllFiles | Where-Object { $Only -eq 'both' -or $Only -eq $_.Kind })
+$WithHost = [bool]($Files | Where-Object { $_.Kind -eq 'host' })
+$WithTray = [bool]($Files | Where-Object { $_.Kind -eq 'tray' })
+$Label = switch ($Only) { 'host' { 'the acpd host' } 'tray' { 'the tray app' } default { 'ACP Portal (host and tray)' } }
 if (-not $Dir) {
     # The same place the host and the tray use: XDG_DATA_HOME if set, else the local app data folder.
     $dataHome = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:LOCALAPPDATA }
@@ -88,10 +99,10 @@ function Remove-FromUserPath([string]$Folder) {
 }
 
 function Stop-Running {
-    # A running program cannot be replaced or deleted on Windows.
-    Get-Process -Name 'acpd-tray' -ErrorAction SilentlyContinue | Stop-Process -Force
+    # A running program cannot be replaced or deleted on Windows. Only what is being changed is stopped.
+    if ($WithTray) { Get-Process -Name 'acpd-tray' -ErrorAction SilentlyContinue | Stop-Process -Force }
     $host_ = Join-Path $Dir 'acpd.exe'
-    if (Test-Path $host_) {
+    if ($WithHost -and (Test-Path $host_)) {
         try { & $host_ daemon stop 2>$null | Out-Null } catch { }
         Get-Process -Name 'acpd' -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -eq $host_ } | Stop-Process -Force
@@ -99,20 +110,22 @@ function Stop-Running {
 }
 
 if ($Uninstall) {
-    Write-Host "Uninstalling ACP Portal from $Dir"
+    Write-Host "Uninstalling $Label from $Dir"
     Stop-Running
     foreach ($file in $Files) { Remove-Item -LiteralPath (Join-Path $Dir $file.Name) -Force -ErrorAction SilentlyContinue }
-    Remove-Item -LiteralPath $Shortcut -Force -ErrorAction SilentlyContinue
-    $pathChanged = Remove-FromUserPath $Dir
+    if ($WithTray) { Remove-Item -LiteralPath $Shortcut -Force -ErrorAction SilentlyContinue }
+    # The folder stays on PATH for as long as the host is still there.
+    $pathChanged = $false
+    if (-not (Test-Path -LiteralPath (Join-Path $Dir 'acpd.exe'))) { $pathChanged = Remove-FromUserPath $Dir }
     if ((Test-Path $Dir) -and -not (Get-ChildItem -LiteralPath $Dir -Force)) { Remove-Item -LiteralPath $Dir -Force }
-    Write-Step ('Removed the programs and the Start menu shortcut' + $(if ($pathChanged) { ' and the PATH entry.' } else { '.' }))
+    Write-Step ("Removed $Label" + $(if ($WithTray) { ' and the Start menu shortcut' } else { '' }) + $(if ($pathChanged) { ' and the PATH entry.' } else { '.' }))
     Write-Step "Your settings ($env:APPDATA\acpd) and paired devices ($env:LOCALAPPDATA\acpd\state) were kept."
     return
 }
 
 if ($Version -and $Version -notmatch '^v\d+(\.\d+)*$') { throw "Version must look like v0.1.1, got: $Version" }
 $base = if ($Version) { "https://github.com/$Repo/releases/download/$Version" } else { "https://github.com/$Repo/releases/latest/download" }
-Write-Host ("Installing ACP Portal ({0}) into {1}" -f ($(if ($Version) { $Version } else { 'latest release' })), $Dir)
+Write-Host ("Installing {0} ({1}) into {2}" -f $Label, ($(if ($Version) { $Version } else { 'latest release' })), $Dir)
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ("acpd-install-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -144,12 +157,13 @@ try {
         catch { throw "Could not replace $final. Close anything using it (acpd daemon stop) and run this again. ($($_.Exception.Message))" }
         Unblock-File -LiteralPath $final -ErrorAction SilentlyContinue
     }
-    Write-Step "Installed acpd.exe and acpd-tray.exe in $Dir"
+    Write-Step ("Installed {0} in {1}" -f (($Files | ForEach-Object { $_.Name }) -join ' and '), $Dir)
 
-    if (-not $NoPath) {
+    # PATH is for the acpd command line, so it is only touched when the host is installed.
+    if ($WithHost -and -not $NoPath) {
         if (Add-ToUserPath $Dir) { Write-Step 'Added the folder to your user PATH (open a new terminal to use acpd).' }
     }
-    if (-not $NoShortcut) {
+    if ($WithTray -and -not $NoShortcut) {
         $shell = New-Object -ComObject WScript.Shell
         $link = $shell.CreateShortcut($Shortcut)
         $link.TargetPath = Join-Path $Dir 'acpd-tray.exe'
@@ -165,7 +179,14 @@ finally {
 
 Write-Host ''
 Write-Host 'Done. Next:'
-Write-Host '  1. Open ACP Portal from the Start menu (or run acpd-tray).'
-Write-Host '  2. In its menu: Set up with Tailscale, Start host, Pair a phone.'
-Write-Host '  Or use the command line: acpd setup --address https://YOUR-HOST ; acpd start --bg ; acpd pair'
-if ($Start) { Start-Process -FilePath (Join-Path $Dir 'acpd-tray.exe') }
+if ($Only -eq 'host') {
+    Write-Host '  acpd setup --address https://YOUR-HOST ; acpd start --bg ; acpd pair   (open a new terminal first)'
+} elseif ($Only -eq 'tray') {
+    Write-Host '  1. Open ACP Portal from the Start menu (or run acpd-tray).'
+    Write-Host '  2. In its menu: Download host (acpd)... (unless acpd is already installed), Set up with Tailscale, Start host, Pair a phone.'
+} else {
+    Write-Host '  1. Open ACP Portal from the Start menu (or run acpd-tray).'
+    Write-Host '  2. In its menu: Set up with Tailscale, Start host, Pair a phone.'
+    Write-Host '  Or use the command line: acpd setup --address https://YOUR-HOST ; acpd start --bg ; acpd pair'
+}
+if ($Start -and $WithTray) { Start-Process -FilePath (Join-Path $Dir 'acpd-tray.exe') }

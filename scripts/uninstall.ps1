@@ -22,6 +22,9 @@
   devices, saved sessions, folders and agents added from the phone). Paired phones must pair again.
 .PARAMETER Yes
   Do not ask for confirmation before -Purge deletes anything.
+.PARAMETER Only
+  What to remove: both (default), host (just acpd.exe) or tray (just acpd-tray.exe, its shortcut).
+  Env: ACPD_ONLY. Cannot be combined with -Purge, which removes everything.
 .PARAMETER Dir
   Install folder to remove from. Default: <data folder>\acpd\bin. Env: ACPD_INSTALL_DIR.
 #>
@@ -29,10 +32,17 @@
 param(
     [switch]$Purge,
     [switch]$Yes,
+    [string]$Only = $env:ACPD_ONLY,
     [string]$Dir = $env:ACPD_INSTALL_DIR
 )
 
 $ErrorActionPreference = 'Stop'
+$Only = if ($Only) { $Only.ToLower() } else { 'both' }
+if ($Only -notin 'both', 'host', 'tray') { throw "-Only must be both, host or tray, got: $Only" }
+if ($Purge -and $Only -ne 'both') { throw '-Purge removes everything, so it cannot be combined with -Only. Run it without -Only.' }
+$WithHost = $Only -ne 'tray'
+$WithTray = $Only -ne 'host'
+$Label = switch ($Only) { 'host' { 'the acpd host' } 'tray' { 'the tray app' } default { 'ACP Portal (host and tray)' } }
 
 # The same folders the host and the tray use: XDG_* overrides win, then the standard Windows places.
 $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $env:APPDATA }
@@ -41,7 +51,9 @@ $settingsDir = Join-Path $configHome 'acpd'
 $dataDir     = Join-Path $dataHome 'acpd'
 if (-not $Dir) { $Dir = Join-Path $dataDir 'bin' }
 $Shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\ACP Portal.lnk'
-$Programs = @('acpd.exe', 'acpd-tray.exe')
+$Programs = @()
+if ($WithHost) { $Programs += 'acpd.exe' }
+if ($WithTray) { $Programs += 'acpd-tray.exe' }
 
 function Write-Step([string]$Text) { Write-Host "  $Text" }
 
@@ -65,7 +77,7 @@ function Remove-FromUserPath([string]$Folder) {
     return $true
 }
 
-Write-Host 'Uninstalling ACP Portal'
+Write-Host "Uninstalling $Label"
 if ($Purge) {
     Write-Host ''
     Write-Host '  -Purge will also delete:'
@@ -83,10 +95,12 @@ if ($Purge) {
 
 # Stop the host and the tray first: Windows cannot delete a running program.
 $hostExe = Join-Path $Dir 'acpd.exe'
-if (Test-Path -LiteralPath $hostExe) { try { & $hostExe daemon stop 2>$null | Out-Null } catch { } }
-Get-Process -Name 'acpd-tray' -ErrorAction SilentlyContinue | Stop-Process -Force
-Get-Process -Name 'acpd' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and ($_.Path -eq $hostExe) } | Stop-Process -Force
+if ($WithHost -and (Test-Path -LiteralPath $hostExe)) { try { & $hostExe daemon stop 2>$null | Out-Null } catch { } }
+if ($WithTray) { Get-Process -Name 'acpd-tray' -ErrorAction SilentlyContinue | Stop-Process -Force }
+if ($WithHost) {
+    Get-Process -Name 'acpd' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and ($_.Path -eq $hostExe) } | Stop-Process -Force
+}
 Start-Sleep -Milliseconds 300
 
 $removed = 0
@@ -100,10 +114,15 @@ foreach ($name in $Programs) {
 if ($removed) { Write-Step "Removed $removed program file(s) from $Dir" } else { Write-Step "No programs found in $Dir" }
 if ((Test-Path -LiteralPath $Dir) -and -not (Get-ChildItem -LiteralPath $Dir -Force)) { Remove-Item -LiteralPath $Dir -Force }
 
-if (Test-Path -LiteralPath $Shortcut) { Remove-Item -LiteralPath $Shortcut -Force; Write-Step 'Removed the Start menu shortcut.' }
-if (Remove-FromUserPath $Dir) { Write-Step 'Removed the install folder from your user PATH.' }
-Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'acpd-pair-*' -ErrorAction SilentlyContinue |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+if ($WithTray) {
+    if (Test-Path -LiteralPath $Shortcut) { Remove-Item -LiteralPath $Shortcut -Force; Write-Step 'Removed the Start menu shortcut.' }
+    Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'acpd-pair-*' -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+# The folder stays on PATH for as long as the host is still there.
+if (-not (Test-Path -LiteralPath $hostExe)) {
+    if (Remove-FromUserPath $Dir) { Write-Step 'Removed the install folder from your user PATH.' }
+}
 
 if ($Purge) {
     foreach ($folder in @($settingsDir, $dataDir)) {

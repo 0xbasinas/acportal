@@ -6,6 +6,9 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+### Added
+- `-Only host|tray` (Windows) and `--only host|tray` (Linux), or `ACPD_ONLY`, on the install and uninstall scripts: install or remove just the host or just the tray. PATH is only touched for the host, the shortcut and desktop entry only for the tray, and removing the host removes the PATH entry only when it was the last program in the folder. `-Purge` / `--purge` cannot be combined with it.
+
 ## [0.1.2] - 2026-10-11
 
 The host and tray programs are unchanged from 0.1.1; this release adds the installers and documentation.

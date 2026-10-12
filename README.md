@@ -20,7 +20,7 @@ irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.ps
 curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.sh | sh
 ```
 
-Each script downloads the host and the tray app from the [latest release](https://github.com/0xbasinas/acportal/releases/latest), checks them against the release's `SHA256SUMS.txt`, and installs them in your user folder (a Start menu or applications-menu entry is added). Run it again to update. Both scripts are short, so read them first if you prefer: [`install.ps1`](scripts/install.ps1), [`install.sh`](scripts/install.sh).
+Each script downloads the host and the tray app from the [latest release](https://github.com/0xbasinas/acportal/releases/latest), checks them against the release's `SHA256SUMS.txt`, and installs them in your user folder (a Start menu or applications-menu entry is added). Run it again to update. By default they install both the host and the tray; to install just one, set `ACPD_ONLY` to `tray` or `host` before the one-liner (`$env:ACPD_ONLY='tray'; irm ... | iex` on Windows, `curl ... | ACPD_ONLY=tray sh` on Linux), or save the script and pass `-Only tray` / `--only host`. A tray-only install can download the host from its menu. Both scripts are short, so read them first if you prefer: [`install.ps1`](scripts/install.ps1), [`install.sh`](scripts/install.sh).
 
 **To remove it** (your settings and paired devices are kept unless you add the purge option):
 
@@ -32,7 +32,7 @@ irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.
 curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.sh | sh
 ```
 
-Save the script and add `-Purge` (Windows) or pass `--purge` (Linux, `| sh -s -- --purge`) to delete the settings and data too; it asks you to type `DELETE` first unless you add `-Yes` / `--yes`. See [`uninstall.ps1`](scripts/uninstall.ps1) and [`uninstall.sh`](scripts/uninstall.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
+`-Only host` / `--only tray` (and so on) removes just one of the two. Save the script and add `-Purge` (Windows) or pass `--purge` (Linux, `| sh -s -- --purge`) to delete the settings and data too; it asks you to type `DELETE` first unless you add `-Yes` / `--yes`. See [`uninstall.ps1`](scripts/uninstall.ps1) and [`uninstall.sh`](scripts/uninstall.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
 
 ### On your phone
 
