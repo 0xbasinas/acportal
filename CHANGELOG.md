@@ -6,8 +6,14 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-12
+
 ### Added
+- The host and tray programs are unchanged from 0.1.4; this release is for the Android app.
 - **Update app can follow debug builds or signed releases.** A new Follow switch on the Update app screen chooses between the rolling `debug` pre-release and the newest `app-v*` signed release. It defaults to the kind that is installed and remembers the choice. Because the two use different signing keys, a note explains that switching needs one uninstall.
+
+### Changed
+- The buttons on the Update app screen are smaller.
 
 ## [0.1.4] - 2026-10-12
 
@@ -84,7 +90,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.5
 [0.1.4]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.4
 [0.1.3]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.3
 [0.1.2]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.2
