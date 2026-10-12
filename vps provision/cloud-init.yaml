@@ -1,0 +1,152 @@
+#cloud-config
+# ACP Portal VPS provisioning for Ubuntu and Debian (cloud-init user-data).
+#
+# What you get: a hardened dev box with a non-root user, common dev tools, a firewall, Tailscale
+# (for private HTTPS to your phone), the Goose agent, and the acpd host running as a systemd service.
+#
+# Before use, edit the three places marked EDIT:
+#   1. your SSH public key (users section)
+#   2. the settings at the top of /usr/local/sbin/acpd-provision (Tailscale key, name, options)
+# Then paste this whole file into your provider's "user data" / "cloud-init" field when creating the VPS.
+# See README.md for the steps afterwards.
+
+package_update: true
+package_upgrade: true
+packages:
+  - build-essential
+  - ca-certificates
+  - curl
+  - wget
+  - git
+  - jq
+  - unzip
+  - tmux
+  - htop
+  - ripgrep
+  - python3
+  - python3-pip
+  - python3-venv
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+
+users:
+  - name: dev
+    gecos: Dev
+    shell: /bin/bash
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      # EDIT: your public key (the contents of ~/.ssh/id_ed25519.pub)
+      - ssh-ed25519 AAAA...replace-me you@example
+
+write_files:
+  # Key-only SSH, no root login.
+  - path: /etc/ssh/sshd_config.d/10-hardening.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+
+  # acpd runs as the dev user and listens on loopback only; Tailscale Serve adds HTTPS in front of it.
+  - path: /etc/systemd/system/acpd.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=ACP Portal host (acpd)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=dev
+      WorkingDirectory=/home/dev
+      Environment=PATH=/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin
+      ExecStart=/home/dev/.local/bin/acpd start
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Safe to run again at any time (for example after `sudo tailscale up`, or to update acpd).
+  - path: /usr/local/sbin/acpd-provision
+    permissions: "0700"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      # ---- EDIT: settings -------------------------------------------------------------
+      TAILSCALE_AUTHKEY=""          # tskey-auth-... (single-use, expiring). Empty = run `sudo tailscale up` yourself later.
+      CONNECTION_NAME="My VPS"      # the name shown in the phone app
+      INSTALL_GOOSE="yes"           # yes|no  the Goose agent (configure its provider afterwards)
+      ACPD_VERSION=""               # empty = latest release, or pin like v0.1.1
+      WORKSPACE="/home/dev/projects" # the folder agents may work in
+      # ---------------------------------------------------------------------------------
+
+      DEV=dev
+      HOME_DIR=/home/$DEV
+      say() { printf '\n==> %s\n' "$*"; }
+      as_dev() { sudo -u "$DEV" -H bash -lc "$1"; }
+
+      say "Firewall (SSH and Tailscale only)"
+      ufw default deny incoming
+      ufw default allow outgoing
+      ufw allow OpenSSH
+      ufw allow in on tailscale0
+      ufw --force enable
+      systemctl enable --now fail2ban
+      systemctl restart ssh 2>/dev/null || systemctl restart sshd
+
+      say "Workspace folder"
+      install -d -o "$DEV" -g "$DEV" "$WORKSPACE"
+
+      if ! command -v tailscale >/dev/null; then
+        say "Installing Tailscale"
+        curl -fsSL https://tailscale.com/install.sh | sh
+      fi
+      if [ -n "$TAILSCALE_AUTHKEY" ] && ! tailscale ip -4 >/dev/null 2>&1; then
+        say "Joining your tailnet"
+        tailscale up --authkey "$TAILSCALE_AUTHKEY" --ssh=false
+      fi
+
+      say "Installing acpd (checksum-verified by its installer)"
+      as_dev "curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/install.sh | ACPD_VERSION='$ACPD_VERSION' sh -s -- --only host"
+
+      if [ "$INSTALL_GOOSE" = yes ] && [ ! -x "$HOME_DIR/.local/bin/goose" ]; then
+        say "Installing Goose"
+        as_dev "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash" \
+          || echo "Goose install failed; install it later from the Goose docs."
+      fi
+
+      DNS=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)
+      if [ -z "$DNS" ]; then
+        say "Tailscale is not connected yet."
+        echo "Run: sudo tailscale up     then: sudo /usr/local/sbin/acpd-provision"
+        exit 0
+      fi
+
+      say "Configuring acpd for https://$DNS"
+      as_dev "acpd setup --address 'https://$DNS' --name '$CONNECTION_NAME'"
+      CONFIG=$HOME_DIR/.config/acpd/config.toml
+      if grep -q '^# workspace_roots = \[\]' "$CONFIG"; then
+        sed -i "s|^# workspace_roots = \[\].*|workspace_roots = [\"$WORKSPACE\"]|" "$CONFIG"
+      fi
+
+      say "Starting acpd and publishing it over Tailscale HTTPS"
+      systemctl daemon-reload
+      systemctl enable acpd
+      systemctl restart acpd
+      tailscale serve --bg 8765
+
+      printf '%s\n' "Next: ssh $DEV@$DNS (or the VPS IP), then run: acpd pair" \
+        "Scan the QR in the ACP Portal Android app within 60 seconds." \
+        "Set up Goose's model provider with: goose configure" > "$HOME_DIR/NEXT_STEPS.txt"
+      chown "$DEV:$DEV" "$HOME_DIR/NEXT_STEPS.txt"
+      say "Done. See $HOME_DIR/NEXT_STEPS.txt"
+
+runcmd:
+  - [bash, -c, "/usr/local/sbin/acpd-provision 2>&1 | tee -a /var/log/acpd-provision.log"]
+
+final_message: "ACP Portal provisioning finished after $UPTIME seconds. Log: /var/log/acpd-provision.log"
