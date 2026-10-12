@@ -25,6 +25,9 @@
 .PARAMETER Only
   What to remove: both (default), host (just acpd.exe) or tray (just acpd-tray.exe, its shortcut).
   Env: ACPD_ONLY. Cannot be combined with -Purge, which removes everything.
+
+  With no options, and when run in a terminal, a small menu asks what to remove: everything, everything
+  including your settings, only the host or only the tray.
 .PARAMETER Dir
   Install folder to remove from. Default: <data folder>\acpd\bin. Env: ACPD_INSTALL_DIR.
 #>
@@ -37,6 +40,26 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# No options given: ask what to remove (a terminal only; otherwise the default is both, keeping settings).
+if ($PSBoundParameters.Count -eq 0 -and -not $env:ACPD_ONLY -and -not $env:ACPD_INSTALL_DIR -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    Write-Host 'ACP Portal uninstall - what do you want to remove?'
+    Write-Host '  1) Everything (host and tray); keep my settings and paired phones'
+    Write-Host '  2) Everything, and DELETE my settings, paired phones and saved sessions'
+    Write-Host '  3) Only the host (acpd)'
+    Write-Host '  4) Only the tray'
+    Write-Host '  q) Cancel'
+    $choice = Read-Host 'Choose [1]'
+    switch ($choice.Trim().ToLower()) {
+        { $_ -in '', '1' } { }
+        '2' { $Purge = [switch]$true }
+        '3' { $Only = 'host' }
+        '4' { $Only = 'tray' }
+        default { Write-Host '  Cancelled. Nothing was removed.'; return }
+    }
+    Write-Host ''
+}
+
 $Only = if ($Only) { $Only.ToLower() } else { 'both' }
 if ($Only -notin 'both', 'host', 'tray') { throw "-Only must be both, host or tray, got: $Only" }
 if ($Purge -and $Only -ne 'both') { throw '-Purge removes everything, so it cannot be combined with -Only. Run it without -Only.' }

@@ -18,6 +18,8 @@
 #           --yes     do not ask for confirmation before --purge deletes anything
 #           --only host|tray   remove just the host or just the tray (default: both).
 #                              Cannot be combined with --purge, which removes everything.
+# With no options, and when run from a terminal, it asks what to remove with a small menu
+# (everything, everything and my settings, only the host, only the tray).
 # Environment: ACPD_ONLY, ACPD_INSTALL_DIR (default ${XDG_DATA_HOME:-~/.local/share}/acpd/bin)
 
 set -eu
@@ -25,15 +27,39 @@ set -eu
 PURGE=0
 YES=0
 ONLY="${ACPD_ONLY:-both}"
+# ASKED is 1 when the choice was already made with an option or ACPD_ONLY; otherwise a terminal gets the menu.
+ASKED=0
+[ -z "${ACPD_ONLY:-}" ] || ASKED=1
 while [ $# -gt 0 ]; do
     case "$1" in
-        --purge) PURGE=1; shift ;;
-        --yes|-y) YES=1; shift ;;
-        --only) [ $# -ge 2 ] || { echo "--only needs host or tray" >&2; exit 2; }; ONLY="$2"; shift 2 ;;
-        -h|--help) sed -n '2,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --purge) PURGE=1; ASKED=1; shift ;;
+        --yes|-y) YES=1; ASKED=1; shift ;;
+        --only) [ $# -ge 2 ] || { echo "--only needs host or tray" >&2; exit 2; }; ONLY="$2"; ASKED=1; shift 2 ;;
+        -h|--help) sed -n '2,23p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
     esac
 done
+
+# No options given: ask what to remove. Read from the terminal because stdin is the script when piped
+# from curl. (A failed redirect on a special builtin ends the shell, so the check runs in a subshell.)
+if [ "$ASKED" = 0 ] && [ -r /dev/tty ] && ( : < /dev/tty ) 2>/dev/null; then
+    echo "ACP Portal uninstall - what do you want to remove?"
+    echo "  1) Everything (host and tray); keep my settings and paired phones"
+    echo "  2) Everything, and DELETE my settings, paired phones and saved sessions"
+    echo "  3) Only the host (acpd)"
+    echo "  4) Only the tray"
+    echo "  q) Cancel"
+    printf 'Choose [1]: '
+    read -r choice < /dev/tty || choice=q
+    case "$choice" in
+        ""|1) ;;
+        2) PURGE=1 ;;
+        3) ONLY=host ;;
+        4) ONLY=tray ;;
+        *) echo "  Cancelled. Nothing was removed."; exit 0 ;;
+    esac
+    echo
+fi
 
 say() { printf '  %s\n' "$*"; }
 
