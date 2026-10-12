@@ -65,7 +65,12 @@ impl ProcessTree {
             // Start the primary thread suspended so no agent code, and therefore no
             // descendant, runs before the process belongs to the job. No caller sets
             // other creation flags; std adds CREATE_UNICODE_ENVIRONMENT itself.
-            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
+            // CREATE_NO_WINDOW keeps console agents from opening a terminal window when the
+            // host has no console of its own (stdio is piped, so none is needed).
+            command.creation_flags(
+                windows_sys::Win32::System::Threading::CREATE_SUSPENDED
+                    | windows_sys::Win32::System::Threading::CREATE_NO_WINDOW,
+            );
             let mut child = command.spawn().context("launch job-owned process")?;
             let process = match child.raw_handle() {
                 Some(process) => process,
