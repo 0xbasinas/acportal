@@ -12,6 +12,9 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 ### Fixed
 - The launcher icon is now in `mipmap-anydpi-v26`, so tools that read the APK without a recent Android version (older file managers, installers) pick the plain per-density icons instead of the adaptive icon.
 
+### Changed
+- `uninstall.ps1` and `uninstall.sh` now show a small menu when run in a terminal with no options: everything (keep settings), everything and delete settings, only the host, or only the tray. Options and `ACPD_ONLY` still skip the menu, and without a terminal the default is unchanged (both, keep settings). Deleting settings still asks you to type DELETE.
+
 ## [0.1.3] - 2026-10-12
 
 ### Added

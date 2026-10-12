@@ -32,7 +32,7 @@ irm https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.
 curl -fsSL https://raw.githubusercontent.com/0xbasinas/acportal/main/scripts/uninstall.sh | sh
 ```
 
-`-Only host` / `--only tray` (and so on) removes just one of the two. Save the script and add `-Purge` (Windows) or pass `--purge` (Linux, `| sh -s -- --purge`) to delete the settings and data too; it asks you to type `DELETE` first unless you add `-Yes` / `--yes`. See [`uninstall.ps1`](scripts/uninstall.ps1) and [`uninstall.sh`](scripts/uninstall.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
+Run from a terminal with no options, each script shows a menu: everything (keeping your settings), everything and delete my settings, only the host, or only the tray. Options skip the menu: `-Only host` / `--only tray` (and so on) removes just one of the two. Save the script and add `-Purge` (Windows) or pass `--purge` (Linux, `| sh -s -- --purge`) to delete the settings and data too; it asks you to type `DELETE` first unless you add `-Yes` / `--yes`. See [`uninstall.ps1`](scripts/uninstall.ps1) and [`uninstall.sh`](scripts/uninstall.sh). Or download the files yourself from the [releases page](https://github.com/0xbasinas/acportal/releases) and compare them with `SHA256SUMS.txt`; see [releases](docs/releases.md). The files are not code-signed, so Windows may show a SmartScreen warning for a file downloaded in a browser (the install script avoids it).
 
 ### On your phone
 
