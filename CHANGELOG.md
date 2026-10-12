@@ -6,7 +6,10 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-12
+
 ### Fixed
+- The host program and the Android app are unchanged from 0.1.5; this release is for the tray.
 - **Set up with Tailscale no longer fails while Tailscale is still starting.** A Tailscale that was connected but had just started (state `NoState`) was reported as "not started or not signed in". The tray now waits up to about 30 seconds with progress in the menu, tells a real sign-out from a switched-off or still-starting Tailscale, and reconnects a switched-off one with `tailscale up`. Problems that need you are still reported at once.
 
 ## [0.1.5] - 2026-10-12
@@ -93,7 +96,8 @@ First public release of the host and tray.
 ### Design
 - Logo as SVG in `assets/logo` (ring and prompt chevron); Penpot boards 36–50 for the new screens and the logo.
 
-[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/0xbasinas/acportal/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.6
 [0.1.5]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.5
 [0.1.4]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.4
 [0.1.3]: https://github.com/0xbasinas/acportal/releases/tag/v0.1.3
