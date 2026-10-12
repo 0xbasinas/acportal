@@ -8,6 +8,7 @@ mod icon;
 mod install;
 mod pairing_page;
 mod tailscale;
+mod uninstall;
 
 use anyhow::{Context, Result};
 use host::{Cli, Control, HostState};
@@ -32,7 +33,14 @@ enum UserEvent {
     /// Result of a menu action: an error message, or None when it worked.
     Done(Option<String>),
     Menu(MenuId),
+    /// The uninstall finished: the tray quits, or shows what went wrong.
+    Uninstalled(Option<String>),
 }
+
+const UNINSTALL_LABEL: &str = "Uninstall ACP Portal…";
+const PURGE_LABEL: &str = "Uninstall and delete my settings…";
+/// How long the second click may take to confirm an uninstall.
+const CONFIRM_SECONDS: u64 = 10;
 
 fn settings_dir() -> PathBuf {
     acpd::config::default_directory()
@@ -114,6 +122,19 @@ fn spawn_install(proxy: &EventLoopProxy<UserEvent>, control: &Arc<Control>) {
     });
 }
 
+/// Stops the host, removes the programs (and, when asked, the settings), then lets the tray quit.
+fn spawn_uninstall(proxy: &EventLoopProxy<UserEvent>, control: &Arc<Control>, purge: bool) {
+    let (proxy, control) = (proxy.clone(), control.clone());
+    std::thread::spawn(move || {
+        let _ = proxy.send_event(UserEvent::Note("Uninstalling…".into()));
+        let cli = control.get();
+        let result = uninstall::uninstall(cli.as_deref(), purge)
+            .err()
+            .map(|error| error.to_string());
+        let _ = proxy.send_event(UserEvent::Uninstalled(result));
+    });
+}
+
 fn main() -> Result<()> {
     let control = Arc::new(Control::new());
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -149,6 +170,8 @@ fn main() -> Result<()> {
     let toggle_item = MenuItem::new("Start host", true, None);
     let pair_item = MenuItem::new("Pair a phone…", false, None);
     let folder_item = MenuItem::new("Open settings folder", true, None);
+    let uninstall_item = MenuItem::new(UNINSTALL_LABEL, true, None);
+    let purge_item = MenuItem::new(PURGE_LABEL, true, None);
     let quit_item = MenuItem::new("Quit (the host keeps running)", true, None);
     let menu = Menu::new();
     menu.append_items(&[
@@ -161,8 +184,12 @@ fn main() -> Result<()> {
         &pair_item,
         &PredefinedMenuItem::separator(),
         &folder_item,
+        &PredefinedMenuItem::separator(),
+        &uninstall_item,
+        &purge_item,
         &quit_item,
     ])?;
+    let (uninstall_id, purge_id) = (uninstall_item.id().clone(), purge_item.id().clone());
     let (install_id, setup_id, toggle_id, pair_id, folder_id, quit_id) = (
         install_item.id().clone(),
         setup_item.id().clone(),
@@ -175,6 +202,8 @@ fn main() -> Result<()> {
     let mut tray = None;
     let mut state = HostState::Stopped;
     let mut menu_holder = Some(menu);
+    // An uninstall needs a second click within a few seconds: (delete settings too, when asked).
+    let mut confirming: Option<(bool, std::time::Instant)> = None;
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
@@ -189,7 +218,17 @@ fn main() -> Result<()> {
                         .ok();
                 }
             }
+            tao::event::Event::UserEvent(UserEvent::Uninstalled(result)) => match result {
+                None => *control_flow = ControlFlow::Exit,
+                Some(message) => problem_item.set_text(format!("⚠ {message}")),
+            },
             tao::event::Event::UserEvent(UserEvent::Status(next)) => {
+                if confirming.is_some_and(|(_, since)| since.elapsed().as_secs() >= CONFIRM_SECONDS)
+                {
+                    confirming = None;
+                    uninstall_item.set_text(UNINSTALL_LABEL);
+                    purge_item.set_text(PURGE_LABEL);
+                }
                 if next != state {
                     state = next;
                     let running = matches!(state, HostState::Running { .. });
@@ -227,7 +266,39 @@ fn main() -> Result<()> {
             }
             tao::event::Event::UserEvent(UserEvent::Menu(id)) => {
                 problem_item.set_text("");
-                if id == quit_id {
+                let asked = if id == uninstall_id {
+                    Some(false)
+                } else if id == purge_id {
+                    Some(true)
+                } else {
+                    None
+                };
+                let confirmed = asked.is_some_and(|purge| {
+                    confirming.is_some_and(|(was, since)| {
+                        was == purge && since.elapsed().as_secs() < CONFIRM_SECONDS
+                    })
+                });
+                uninstall_item.set_text(UNINSTALL_LABEL);
+                purge_item.set_text(PURGE_LABEL);
+                confirming = None;
+                if let Some(purge) = asked {
+                    if confirmed {
+                        uninstall_item.set_enabled(false);
+                        purge_item.set_enabled(false);
+                        spawn_uninstall(&proxy, &control, purge);
+                    } else {
+                        confirming = Some((purge, std::time::Instant::now()));
+                        let (item, text) = if purge {
+                            (
+                                &purge_item,
+                                "Click again: stop, uninstall and DELETE settings",
+                            )
+                        } else {
+                            (&uninstall_item, "Click again: stop the host and uninstall")
+                        };
+                        item.set_text(text);
+                    }
+                } else if id == quit_id {
                     *control_flow = ControlFlow::Exit;
                 } else if id == install_id {
                     spawn_install(&proxy, &control);
