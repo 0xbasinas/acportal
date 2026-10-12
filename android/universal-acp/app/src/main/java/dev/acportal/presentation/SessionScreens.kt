@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.window.Dialog
@@ -281,14 +282,20 @@ import kotlinx.coroutines.*
     var localExpanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     val expanded=expandedOverride ?: localExpanded
     Column(Modifier.fillMaxWidth().testTag("tool-card")) {
-        ListItem(headlineContent={Text(tool.title)},supportingContent={Column {Text("${tool.kind} · ${tool.status}");tool.hostWrite?.let {value->hostWriteLabel(value)?.let {label->Text(label,Modifier.testTag("host-write-badge"),style=MaterialTheme.typography.labelMedium,color=if(value==HOST_WRITE_CHANGED)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}};tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelMedium,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}},leadingContent={Icon(Icons.Outlined.Build,null)},trailingContent={IconButton({onExpandedChange?.invoke(!expanded) ?: run {localExpanded=!expanded}},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).testTag("tool-disclosure-${tool.id}").semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,(if(expanded)"Collapse tool: " else "Expand tool: ")+tool.title)}})
+        Row(Modifier.fillMaxWidth().padding(start=12.dp),verticalAlignment=Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Build,null,Modifier.size(14.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tool.title,Modifier.weight(1f).padding(start=8.dp),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+            Text("${tool.kind} · ${tool.status}",Modifier.padding(start=8.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
+            IconButton({onExpandedChange?.invoke(!expanded) ?: run {localExpanded=!expanded}},Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).testTag("tool-disclosure-${tool.id}").semantics {stateDescription=if(expanded)"Expanded" else "Collapsed"}) {Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,(if(expanded)"Collapse tool: " else "Expand tool: ")+tool.title,Modifier.size(18.dp))}
+        }
+        Column(Modifier.padding(start=34.dp,end=12.dp)) {tool.hostWrite?.let {value->hostWriteLabel(value)?.let {label->Text(label,Modifier.testTag("host-write-badge"),style=MaterialTheme.typography.labelSmall,color=if(value==HOST_WRITE_CHANGED)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}};tool.autoReview?.let {Text(autoReviewLabel(it),Modifier.testTag("auto-review-badge"),style=MaterialTheme.typography.labelSmall,color=if(it["decision"].text()=="deny")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)}}
         // A write the user refused that is already on disk stays visible without expanding.
         if(tool.hostWrite==HOST_WRITE_CHANGED)hostWriteExplanation(HOST_WRITE_CHANGED)?.let {text->
             Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp).testTag("host-write-notice"),shape=RoundedCornerShape(8.dp),color=MaterialTheme.colorScheme.errorContainer,contentColor=MaterialTheme.colorScheme.onErrorContainer) {
                 Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {Icon(Icons.Outlined.WarningAmber,null,Modifier.size(20.dp));Text(text,style=MaterialTheme.typography.bodySmall)}
             }
         }
-        if(expanded)Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        if(expanded)Column(Modifier.padding(start=34.dp,end=12.dp,bottom=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             if(tool.hostWrite==HOST_WRITE_UNCHANGED)hostWriteExplanation(HOST_WRITE_UNCHANGED)?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             tool.locations.forEach { Text(it.objectValue()["path"].text(),style=MaterialTheme.typography.labelSmall) }
             tool.autoReview?.let {review->
