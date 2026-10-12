@@ -5,6 +5,9 @@
 //! Safety: only files with the exact names `acpd`/`acpd-tray` inside the install folder are deleted
 //! (a link in `~/.local/bin` only when it points there), folders to purge must be literally named
 //! `acpd`, and nothing outside those is touched.
+// The PowerShell helper is only used on Windows; its tests still run everywhere.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 
