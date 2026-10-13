@@ -63,7 +63,8 @@ write_files:
       User=dev
       WorkingDirectory=/home/dev
       Environment=PATH=/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin
-      ExecStart=/home/dev/.local/bin/acpd start
+      # A login shell, so agents started by acpd see node, java and go (see ~/.devenv.sh).
+      ExecStart=/bin/bash -lc 'exec /home/dev/.local/bin/acpd start'
       Restart=on-failure
       RestartSec=5
 
@@ -83,6 +84,14 @@ write_files:
       INSTALL_GOOSE="yes"           # yes|no  the Goose agent (configure its provider afterwards)
       ACPD_VERSION=""               # empty = latest release, or pin like v0.1.1
       WORKSPACE="/home/dev/projects" # the folder agents may work in
+
+      INSTALL_NODE="yes"            # yes|no  Node.js (LTS) through nvm, plus pnpm from get.pnpm.io
+      NVM_VERSION="v0.40.3"         # nvm release to install (https://github.com/nvm-sh/nvm/releases)
+      INSTALL_JAVA="yes"            # yes|no  SDKMAN, a JDK, and the tools in SDKMAN_TOOLS
+      JAVA_VERSION=""               # empty = SDKMAN's default JDK, or an identifier like 21.0.5-tem (`sdk list java`)
+      SDKMAN_TOOLS="maven gradle"   # extra SDKMAN candidates; empty for none
+      INSTALL_GO="yes"              # yes|no  Go from go.dev (checksum-verified), in /usr/local/go
+      GO_VERSION=""                 # empty = latest stable, or like go1.23.4
       # ---------------------------------------------------------------------------------
 
       DEV=dev
@@ -118,6 +127,73 @@ write_files:
         say "Installing Goose"
         as_dev "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash" \
           || echo "Goose install failed; install it later from the Goose docs."
+      fi
+
+      say "Language toolchains"
+      # One file sets up PATH for nvm, pnpm, SDKMAN and Go. It is loaded from the top of .bashrc (before
+      # Ubuntu's "not interactive" early return) and from .profile, so tmux, ssh commands and acpd all get it.
+      printf '%s\n' \
+        'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+        'export PNPM_HOME="$HOME/.local/share/pnpm"' \
+        'export SDKMAN_DIR="$HOME/.sdkman"; [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && . "$SDKMAN_DIR/bin/sdkman-init.sh"' \
+        'for d in "$HOME/.local/bin" "$PNPM_HOME" /usr/local/go/bin "$HOME/go/bin"; do' \
+        '  case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d" ;; esac' \
+        'done; export PATH' > "$HOME_DIR/.devenv.sh"
+      chown "$DEV:$DEV" "$HOME_DIR/.devenv.sh"
+      for rc in .bashrc .profile; do
+        if ! grep -q 'devenv.sh' "$HOME_DIR/$rc" 2>/dev/null; then
+          if [ "$rc" = .bashrc ]; then
+            sed -i '1i [ -f "$HOME/.devenv.sh" ] \&\& . "$HOME/.devenv.sh"' "$HOME_DIR/$rc"
+          else
+            printf '\n[ -f "$HOME/.devenv.sh" ] && . "$HOME/.devenv.sh"\n' >> "$HOME_DIR/$rc"
+          fi
+          chown "$DEV:$DEV" "$HOME_DIR/$rc"
+        fi
+      done
+
+      if [ "$INSTALL_NODE" = yes ] && [ ! -s "$HOME_DIR/.nvm/nvm.sh" ]; then
+        say "Installing nvm, Node.js LTS and pnpm"
+        sudo -u "$DEV" -H env NVM_VERSION="$NVM_VERSION" bash -l <<'EOS' || echo "Node.js setup failed; rerun this script to retry."
+      set -e
+      curl -fsSL --proto '=https' "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" | PROFILE=/dev/null bash
+      export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
+      nvm install --lts
+      nvm alias default 'lts/*'
+      export PNPM_HOME="$HOME/.local/share/pnpm"
+      curl -fsSL https://get.pnpm.io/install.sh | SHELL=/bin/bash sh -
+      EOS
+      fi
+
+      if [ "$INSTALL_JAVA" = yes ] && [ ! -s "$HOME_DIR/.sdkman/bin/sdkman-init.sh" ]; then
+        say "Installing SDKMAN, Java and build tools"
+        sudo -u "$DEV" -H env JAVA_VERSION="$JAVA_VERSION" SDKMAN_TOOLS="$SDKMAN_TOOLS" bash -l <<'EOS' || echo "Java setup failed; rerun this script to retry."
+      curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
+      export SDKMAN_DIR="$HOME/.sdkman"
+      sed -i 's/^sdkman_auto_answer=.*/sdkman_auto_answer=true/' "$SDKMAN_DIR/etc/config"
+      . "$SDKMAN_DIR/bin/sdkman-init.sh"
+      sdk install java $JAVA_VERSION
+      for tool in $SDKMAN_TOOLS; do sdk install "$tool"; done
+      EOS
+      fi
+
+      if [ "$INSTALL_GO" = yes ] && [ ! -x /usr/local/go/bin/go ]; then
+        say "Installing Go"
+        (
+          set -e
+          case "$(dpkg --print-architecture)" in
+            amd64) arch=amd64 ;; arm64) arch=arm64 ;;
+            *) echo "No official Go build for this CPU."; exit 1 ;;
+          esac
+          ver=${GO_VERSION:-$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1)}
+          file="$ver.linux-$arch.tar.gz"
+          tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+          curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/$file"
+          want=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | jq -r --arg f "$file" '.[].files[] | select(.filename == $f) | .sha256')
+          [ -n "$want" ] || { echo "No checksum published for $file."; exit 1; }
+          echo "$want  $tmp/go.tgz" | sha256sum -c -
+          rm -rf /usr/local/go
+          tar -C /usr/local -xzf "$tmp/go.tgz"
+        ) || echo "Go install failed; rerun this script to retry."
       fi
 
       DNS=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)
