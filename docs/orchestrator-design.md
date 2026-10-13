@@ -196,16 +196,36 @@ Not required for the first phases; the existing consent cards already show the l
 | 4 | Streamable HTTP (once the RFD stabilizes), worktree isolation, `subagent_update` emission. | Compatibility against a second ACP implementation if available. |
 | 5 | Real-agent trial (Goose delegating to a second agent), then Android task-tree UI. | Same discipline as `scripts/real-agent-check.py`: record exact cost, scope and limits. |
 
-## 10. Decisions and open questions
+## 10. Compatibility with (almost) every ACP agent CLI
+
+The user needs support for nearly all ACP agent CLIs. The design therefore assumes agents implement **only baseline ACP over stdio** and treats everything else as a bonus. I could not list the official agent registry from this environment, so no specific CLI is claimed as verified; each one gets a compatibility check in phase 0.
+
+| Tier | What the agent supports | What works |
+| --- | --- | --- |
+| A. Baseline ACP | `initialize`, `session/new`, `session/prompt`, updates, cancel | Can be **delegated to** (a child), supervised, cancelled and shown in the task tree. Needs nothing from the agent. |
+| B. MCP servers | Accepts `mcpServers` in `session/new` (HTTP, or stdio if the agent has it) | Can also **delegate to others** (a supervisor), through the injected delegation tools. |
+| C. Extras | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements only. |
+
+Fallbacks so no CLI is left out:
+- **No MCP support:** the agent can only be a child. It can still be driven by a supervisor that does support MCP, or by you from the phone.
+- **Stdio only:** the bridge exposes it remotely, so remote use needs nothing from the agent.
+- **MCP over stdio only, or HTTP only:** the host injects whichever form the agent advertises. The tools are the same.
+- **No `session/load`:** the task is not resumable after a restart; it shows as interrupted.
+- **Agents that edit files with their own tools:** they work, but the host cannot gate their edits (see section 5).
+
+Each directory entry records its tier from real discovery, never from the agent's name, as `AGENTS.md` requires.
+
+## 11. Decisions and open questions
 
 Decided by the user on 13 October 2026:
 
 1. Peer links use the new `/acp` endpoint, not `acpd.v1`.
 2. `supervisor_max_risk` defaults to `medium`; `high` always goes to the phone.
 3. No separate reviewer model. The supervising agent decides, and anything it does not answer goes to the phone.
+4. Support nearly all ACP agent CLIs (section 10).
 
-Still open:
+Defaults chosen by the design for items the user did not want to decide (change them any time):
 
-1. How should `session/new` select an agent over `/acp`: a `_meta` field now, or wait for a selector in the spec?
-2. Which `own_tools` agents, if any, may ever be delegated to?
-3. What happens to a pending approval when the supervisor is busy mid-turn? Current answer: it waits for the timeout, then goes to the phone.
+1. **Selecting an agent over `/acp`:** the standard `session/new` has no field for "which agent", so the connecting side puts the agent ID in `_meta` and the host looks it up. If the spec later adds a selector, we switch to it.
+2. **Agents with their own tools:** delegable if the operator lists them, with the existing warning, and never auto-approved, because the host cannot see their edits.
+3. **Supervisor busy mid-turn:** a pending approval waits for a short timeout, then goes to your phone.
