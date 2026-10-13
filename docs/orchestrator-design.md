@@ -38,33 +38,62 @@ Docs sites `agentclientprotocol.com`, `a2a-protocol.org` and the registry CDN ar
 | MCP tools | Tools have `inputSchema`, optional `outputSchema`; results may carry `structuredContent`; tool failures use `isError: true`. | [MCP tools](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/server/tools.mdx) |
 | A2A | Latest release 1.0.0; Agent Card at `/.well-known/agent-card.json`; task states `WORKING`, `INPUT_REQUIRED`, `AUTH_REQUIRED`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`. Separate project from Zed's ACP. | [A2A spec](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) |
 
-### 2.1 Registry agents (13 October 2026)
+### 2.1 Registry agents (read from the official index, 13 October 2026)
 
-The [ACP Registry page](https://agentclientprotocol.com/get-started/registry) is blocked here, but its source (`docs/get-started/registry.mdx` in the ACP repository) lists **41 agents**, all curated to support authentication. Names and versions as listed that day:
+Source: `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json` (index version 1.0.0, `extensions` empty), fetched after the network policy was opened. The [registry page](https://agentclientprotocol.com/get-started/registry) lists the same 41 agents, all curated to support authentication. None has been run by us; versions change hourly.
 
-Agoragentic 1.3.0, Amp 0.10.0, Auggie CLI 0.36.0, Autohand Code 0.2.1, Claude Agent 0.89.1, Cline 3.0.70, Codebuddy Code 2.164.0, Codex 2.2.2, Copilot 1.0.96, Cortex Code 1.0.73, Corust Agent 0.6.0, crow-cli 0.1.24, Cursor 2026.10.01, DeepAgents 0.1.7, Devin 3000.11.3, DimCode 0.5.17, Dirac 0.5.20, Factory Droid 0.239.1, fast-agent 0.10.1, Gemini CLI 0.63.0, GLM Agent 1.14.0, Google Antigravity 1.3.0, goose 1.54.0, Grok Build 1.0.54, Harn 0.10.165, Junie 3579.7.0, Kilo 7.8.8, Kimchi 1.9.2, Kimi CLI 1.52.0, MiniMax Code 0.2.7, Minion Code 0.1.44, Mistral Vibe 2.26.1, Nova 1.1.52, OpenCode 1.19.0, pi ACP 0.0.34, Poolside 1.0.16, Qoder CLI 0.2.14, Qwen Code 0.25.1, siGit Code 1.6.8, Stakpak 0.3.88, VT Code 0.96.14.
+| id | version | launch (distribution) |
+| --- | --- | --- |
+| agoragentic-acp | 1.3.0 | npx `agoragentic-mcp@1.3.0 --acp` |
+| amp-acp | 0.10.0 | binary `./amp-acp` |
+| antigravity-acp | 1.3.0 | binary `./agy_acp_server.par` |
+| auggie | 0.36.0 | npx `@augmentcode/auggie@0.36.0 --acp` |
+| autohand | 0.2.1 | npx `@autohandai/autohand-acp@0.2.1` |
+| claude-acp | 0.89.1 | npx `@agentclientprotocol/claude-agent-acp@0.89.1` |
+| cline | 3.0.70 | npx `cline@3.0.70 --acp` |
+| codebuddy-code | 2.164.0 | npx `@tencent-ai/codebuddy-code@2.164.0 --acp` |
+| codex-acp | 2.2.2 | npx `@agentclientprotocol/codex-acp@2.2.2` |
+| cortex-code | 1.0.73 | binary `./coco-1.0.73+180523.e6179a031de9-darwin-arm64/cortex acp serve` |
+| corust-agent | 0.6.0 | binary `./corust-agent-acp` |
+| crow-cli | 0.1.24 | binary `./crow-cli acp` |
+| cursor | 2026.10.01 | binary `./dist-package/cursor-agent acp` |
+| deepagents | 0.1.7 | npx `deepagents-acp@0.1.7` |
+| devin | 3000.11.3 | binary `./bin/devin acp` |
+| dimcode | 0.5.17 | npx `dimcode@0.5.17 acp` |
+| dirac | 0.5.20 | npx `dirac-cli@0.5.20 --acp` |
+| factory-droid | 0.240.0 | npx `droid@0.240.0 exec --output-format acp-daemon` |
+| fast-agent | 0.10.1 | uvx `fast-agent-acp==0.10.1 -x` |
+| gemini | 0.63.0 | npx `@google/gemini-cli@0.63.0 --acp` |
+| github-copilot-cli | 1.0.96 | npx `@github/copilot@1.0.96 --acp` |
+| glm-acp-agent | 1.14.0 | npx `glm-acp-agent@1.14.0` |
+| goose | 1.54.0 | binary `./goose acp` |
+| grok-build | 1.0.54 | npx `@xai-official/grok@1.0.54 agent stdio` |
+| harn | 0.10.165 | binary `./harn serve acp` |
+| junie | 3579.7.0 | binary `./Applications/junie.app/Contents/MacOS/junie --acp=true` |
+| kilo | 7.8.8 | npx `@kilocode/cli@7.8.8 acp`; binary `./kilo acp` |
+| kimchi | 1.9.2 | binary `./bin/kimchi --mode acp` |
+| kimi | 1.52.0 | binary `./kimi acp` |
+| minimax-code | 0.2.7 | npx `@minimax-ai/code@0.2.7 acp` |
+| minion-code | 0.1.44 | uvx `minion-code@0.1.44 acp` |
+| mistral-vibe | 2.26.1 | binary `./vibe-acp` |
+| nova | 1.1.52 | npx `@compass-ai/nova@1.1.52 acp` |
+| opencode | 1.19.0 | binary `./opencode acp` |
+| pi-acp | 0.0.34 | npx `pi-acp@0.0.34` |
+| poolside | 1.0.16 | binary `./pool-darwin-arm64 acp` |
+| qoder | 0.2.14 | npx `@qoder-ai/qodercli@0.2.14 --acp` |
+| qwen-code | 0.25.1 | npx `@qwen-code/qwen-code@0.25.1 --acp --experimental-skills` |
+| sigit | 1.6.8 | npx `@smbcloud/sigit@1.6.8`; binary `./sigit` |
+| stakpak | 0.3.88 | binary `./stakpak acp` |
+| vtcode | 0.96.14 | binary `./vtcode acp` |
 
-The page says clients can fetch the full machine-readable index (including distribution data for automatic installation) from `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`; that CDN is also blocked here, so the real client path is untested. For 13 of the agents I could read `<id>/agent.json` directly from the registry repository, which gives their launch commands. None has been run by us.
+Index facts that shape the design:
 
-| id | version | distribution | launch |
-| --- | --- | --- | --- |
-| goose | 1.54.0 | binary | `goose acp` |
-| gemini | 0.63.0 | npx | `@google/gemini-cli --acp` |
-| claude-acp | 0.89.1 | npx | `@agentclientprotocol/claude-agent-acp` |
-| codex-acp | 2.2.2 | npx | `@agentclientprotocol/codex-acp` |
-| opencode | 1.19.0 | binary | `opencode acp` |
-| qwen-code | 0.25.1 | npx | `@qwen-code/qwen-code --acp --experimental-skills` |
-| github-copilot | 1.553.0 | npx | `@github/copilot-language-server --acp` |
-| cline | 3.0.70 | npx | `cline --acp` |
-| kimi | 1.52.0 | binary | `kimi acp` |
-| mistral-vibe | 2.26.1 | binary | `vibe-acp` |
-| junie | 3579.7.0 | binary | `junie --acp=true` |
-| cursor | 2026.10.01 | binary | `cursor-agent acp` |
-| auggie | 0.36.0 | npx | `auggie --acp` |
+- **Distributions:** 22 agents use `npx`, 19 `binary`, 2 `uvx` (Kilo and siGit offer both `npx` and `binary`). Binary entries are per-platform archives with a `sha256`, and some ship macOS-only archives (for example Cortex Code and Poolside list a darwin build in the first target), so availability differs by platform.
+- **Manifest env:** an entry may carry launch `env` (for example Factory Droid disables auto-update). Import must copy it into the registry entry as plain environment values, never as secrets.
+- **Same-name manifests:** the earlier GitHub probe found a `github-copilot` manifest (1.553.0, language server) that is **not** in the index. The index's Copilot is `github-copilot-cli` 1.0.96 (`@github/copilot --acp`). The index wins; the probe was a stale or unlisted manifest.
+- **Auth:** every listed agent returns valid `authMethods` at handshake, so the host should expect sign-in to be required before first use (`auth_required` is surfaced, never auto-handled).
 
-Discrepancy to resolve in phase 0: the page lists "Copilot 1.0.96", while the `github-copilot` manifest I read says 1.553.0 (a language-server package). They may be different entries or a stale manifest; do not trust either until the index is read.
-
-Consequence: most agents launch through `npx` (a literal executable plus an argument array, which the existing registry already supports). Registry import (read from the index, not scraped from pages) must resolve the `npx`/`uvx` executable like any other, never through a shell, and keep the existing rule that discovery resolves configured executables only.
+Consequence: most agents launch through `npx` (a literal executable plus an argument array, which the existing registry already supports). Registry import (read from the index, with archive `sha256` checked for binaries) must resolve the `npx`/`uvx` executable like any other, never through a shell, and keep the existing rule that discovery resolves configured executables only.
 
 ## 3. What is reused (verified in this repository)
 
@@ -381,7 +410,7 @@ The existing consent answering path is unchanged; `acpd.v1` frames gain an optio
 
 Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. `own_tools` agents run but are never auto-approved. Tier is stored per directory entry from real discovery, never from the agent name.
 
-Phase 0 builds a compatibility table from the registry index (section 2.1: 41 agents listed; start with the 13 whose manifests were read) plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `session/load` support; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
+Phase 0 builds a compatibility table from the registry index (section 2.1: all 41 listed agents) plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `session/load` support; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
 
 ## 13. Phases and acceptance gates
 
