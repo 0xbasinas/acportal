@@ -481,7 +481,8 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | `Orchestrator` wired into `SessionManager` (`begin`/`bind`/`abort`/`release_subtree`, `open_task`) and `Host` | Implemented; `[orchestrator]` config section (`enabled`, `orchestrate`, `delegable`, limits, default deadline) |
 | Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status` (incl. `wait_seconds`), `task_result`, `task_send`, `task_cancel`, `task_decide` (phase 2, section 18) |
 | Phase 3, inbound half (section 20) | `peer` device role and `acpd pair --role peer`, `/acp/{agent_id}` WebSocket bridge with reattach |
-| Not implemented | worktree isolation (`isolation_unsupported`), the outbound `ws` transport and `peers.json`, `GET /v1/peer/info`, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
+| Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts |
+| Not implemented | worktree isolation (`isolation_unsupported`), the `acpd peer` commands, reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
@@ -617,4 +618,35 @@ Two findings came out of it.
 2. **One survivor was an equivalent mutant.** The `Origin` check in the bridge handler could never run: the router's `no_browser_and_no_cache` layer already refuses every request that carries an `Origin` header, so breaking the handler's copy changed nothing. The duplicate was deleted. The route test (which asserts `403` for `/acp` with an `Origin`) now guards the global layer, and breaking that layer is caught by it.
 
 **Not verified or not done.** Linux and macOS; a real second host or `goose serve` as a peer; TLS (the bridge relies on the listener's rules, tested here over plain loopback); the outbox overflow disconnect (`1013`); rate limits; real-agent behavior through the bridge; any Android surface for peer sessions. HTTP/2 and Streamable HTTP are not offered.
+
+## 21. Phase 3, outbound half: this host as a client of another host's bridge (branch `experiment/orchestrator`)
+
+A registry entry with `transport = "ws"` is an agent that runs on another host, reached through that host's `/acp/{agent_id}` bridge (section 20). Opening one connects a WebSocket instead of spawning a process.
+
+**How it fits.** `AcpConnection`'s actor was made independent of a child process: it writes to any async writer and the child is optional (`over_transport`). `peer_link.rs` carries newline-framed JSON over two in-memory pipes and one pump task that turns each line into a WebSocket text frame and back, so the actor, journal, permission handling, cancellation and request timeouts are the same code as for a local agent. The refactor was proven behavior-neutral first: the full workspace suite, including the 22 containment tests, passed unchanged.
+
+**Registry entry.** `{"id","name","transport":"ws","url":"wss://host:port/acp/<agent>","peer":"<name>","workspaceAlias":"<alias>"}`, or `remoteCwd` (an absolute folder in either OS's style) instead of an alias for a server that is not acpd. It may not carry a command, arguments, environment or folder; local agents may not carry the remote fields. Discovery reports a remote agent as available without looking for a program; reachability is only known when connecting.
+
+**Credentials (`peers.rs`, `peers.json`).** One record per peer: a name, the single origin it may be sent to, and either a bearer token or a header of the server's choosing (Goose's server wants `X-Secret-Key`). The file is owner-only, parsed strictly (unknown fields refused), size-bounded, symlinks refused, and read afresh on every connection. Summaries never include the secret and `Debug` redacts it. The registry, which the phone can edit, names a peer but never holds a secret, and a URL whose origin differs from the peer's is refused before anything is sent. TLS uses the bundled web roots and is never switched off; a plaintext server where `wss://` is expected is met with a TLS hello, not a downgrade; `ws://` is accepted only to this computer.
+
+**What this host sends and refuses.**
+- `initialize` with empty client capabilities: the other host serves its own file and terminal callbacks, so none are offered from here.
+- `session/new` with the alias and only the rights this session asked for (`_meta.acpdWorkspace`, `_meta.acpdRights`), never a local path, and `mcpServers: []`. MCP servers and saved-session load are refused locally for remote agents, so nothing that could run a command crosses the link.
+- A frame containing a newline drops the link: a second message smuggled into one frame would otherwise slip past per-frame accounting.
+- When this host removes a remote session on purpose, the close frame says so (`end-sessions`) and the bridge ends the session at once instead of keeping it for the resume window. Losing the link (no such reason) leaves it there for a reattach.
+
+**Failure behavior.** A dropped or revoked link ends the session here; the turn in flight fails with "the link to the other host was lost; the prompt was not resent". Nothing reconnects or resends on its own (tested: one connection, no retry). A delegated task ends `failed` with that reason.
+
+**Trust decision.** A remote agent's permission requests are always for a person, never a supervising agent: their paths belong to another host and cannot be checked here, and a lexical match against a local folder would be false precision. Credential-path refusal still applies. The other host's own consents and policy apply there as well.
+
+**Verified (Windows).** 14 integration tests with two real hosts in one process, a TCP proxy that can be cut, a plaintext listener, and recording fake peers; 6 peers-store unit tests; the classifier and registry cases. They cover: a remote session running in the other host's alias folder with the rights it asked for; the permission arriving here and the turn finishing; delegation from a local agent to the remote one through the orchestrator, with cancel crossing the link; no credential sent to a mismatched origin (the attacker's listener was never contacted); no TLS downgrade; the exact frames sent (empty capabilities, alias, rights, no local path, the right header); newline smuggling; link loss; revocation on the other host; remote-folder validation in both OS styles. A first run caught a real bug (a Linux peer's `/srv/work` was rejected on Windows because the local OS's `is_absolute` was used).
+
+**Mutation check.** Twelve guards broken one at a time (each run under a timeout, restored with `git`), all caught: credential sent to any origin; plain `ws://` to any host; newline inside a frame; the client not ending sessions on purpose; the bridge ignoring the end-sessions close; client capabilities offered; MCP and load allowed; remote requests classified like local ones; the scan forgetting a session is remote; a remote agent carrying a command; link loss reported generically; the handshake refusal text. Three of the first tests would have survived breakage (newline, capabilities and credential header, MCP refusal) and were strengthened before this run. One run was interrupted by hand after eight mutations and resumed from the ninth; the earlier eight are from the same commit.
+
+**Not done or not verified.**
+- **No `acpd peer add|list|remove`** yet: peers can only be created through the store's code, so two hosts cannot be paired from the command line.
+- **No reconnect or reattach from the client** (the bridge supports reattach, the client never uses it) and no `GET /v1/peer/info`.
+- Linux and macOS, real TLS between two machines, `goose serve` as a peer, and the heartbeat's 70-second silence limit are untested.
+- A remote session is kept as interrupted metadata after a host restart but cannot be loaded.
+- The new dependency (`tokio-tungstenite` with rustls and the webpki roots) has not been reviewed; it adds no `aws-lc`.
 
