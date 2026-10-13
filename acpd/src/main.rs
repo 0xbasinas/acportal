@@ -226,6 +226,12 @@ async fn main() -> Result<()> {
             .await
             .context("cannot reach the host control channel")?;
         let backend = acpd::orchestrator::control::ControlBackend::new(stream, token);
+        {
+            // Tell the host the delegation tools really started. Failure is not fatal: the tools
+            // still work, the host just cannot show that they connected.
+            use acpd::orchestrator::delegate::Backend as _;
+            let _ = backend.call("_hello", serde_json::json!({})).await;
+        }
         acpd::orchestrator::delegate::serve(tokio::io::stdin(), tokio::io::stdout(), &backend)
             .await?;
         return Ok(());

@@ -1023,3 +1023,62 @@ async fn a_delegated_remote_task_whose_link_drops_fails_and_says_why() {
     );
     far.stop().await;
 }
+
+#[tokio::test]
+async fn a_delegated_remote_task_carries_its_trace_next_to_the_alias_and_rights() {
+    let peer = FakePeer::start(|frame| match frame["method"].as_str() {
+        Some("initialize") => vec![initialize_reply(&frame["id"])],
+        Some("session/new") => vec![session_reply(&frame["id"])],
+        _ => vec![],
+    })
+    .await;
+    let near = Near::start(
+        &bridge_url(&peer.addr),
+        &origin_of(&peer.addr),
+        &"t".repeat(64),
+        |_| {},
+    );
+    let root = near
+        .manager
+        .open_configured(
+            "test-agent",
+            &near.workspace,
+            None,
+            vec![],
+            WorkspaceAccess::default(),
+        )
+        .await
+        .unwrap();
+    let agent = agent_of(&root).await;
+    call(
+        &agent,
+        "task_delegate",
+        json!({"agent":"remote","prompt":"go","workspace":"sub"}),
+    )
+    .await;
+    let frames = eventually(|| async {
+        let seen = peer.frames.lock().unwrap().clone();
+        (seen.len() >= 3).then_some(seen)
+    })
+    .await;
+    assert_eq!(frames[1]["method"], "session/new");
+    let meta = &frames[1]["params"]["_meta"];
+    assert_eq!(meta["acpdWorkspace"], "shared", "{meta}");
+    assert_eq!(
+        meta["acpdRights"],
+        json!({"read":true,"write":false,"terminal":false})
+    );
+    let trace = meta["traceparent"]
+        .as_str()
+        .expect("a trace goes with the session");
+    let fields: Vec<&str> = trace.split('-').collect();
+    assert_eq!(
+        (fields[0], fields[1].len(), fields[2].len(), fields[3]),
+        ("00", 32, 16, "01"),
+        "{trace}"
+    );
+    // The prompt that follows carries the very same one.
+    assert_eq!(frames[2]["method"], "session/prompt");
+    assert_eq!(frames[2]["params"]["_meta"]["traceparent"], trace);
+    peer.task.abort();
+}

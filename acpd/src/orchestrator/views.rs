@@ -22,6 +22,19 @@ pub enum PauseRefusal {
     NotARoot,
 }
 
+/// `connected` once an `mcp-delegate` process has said hello for a task whose agent was offered
+/// the delegation tools, `not_connected` while it has not (the agent may not have started it yet,
+/// or it never will). Nothing for a task that was not offered the tools.
+fn delegate_label(runtime: &super::Runtime) -> Option<&'static str> {
+    runtime
+        .delegate_offered
+        .then_some(if runtime.delegate_connected {
+            "connected"
+        } else {
+            "not_connected"
+        })
+}
+
 /// The agent-facing `needs_decision` entry in the phone's camelCase.
 fn phone_request(entry: &Value) -> Value {
     let mut out = json!({
@@ -63,6 +76,9 @@ impl Orchestrator {
                 });
                 let mut view = Self::record_json(record);
                 view["pendingDecisions"] = json!(waiting);
+                if let Some(label) = state.runtime.get(&record.id).and_then(delegate_label) {
+                    view["delegate"] = json!(label);
+                }
                 view
             })
             .collect()
@@ -79,6 +95,9 @@ impl Orchestrator {
             .collect();
         let mut view = Self::record_json(&record);
         view["needsDecision"] = json!(waiting);
+        if let Some(label) = state.runtime.get(&id).and_then(delegate_label) {
+            view["delegate"] = json!(label);
+        }
         Some(view)
     }
 

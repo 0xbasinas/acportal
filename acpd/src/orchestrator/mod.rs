@@ -58,6 +58,8 @@ impl std::error::Error for AdmissionFailure {}
 pub struct Ticket {
     pub task: Uuid,
     pub mcp: Option<Value>,
+    /// The W3C `traceparent` for this task: the tree's trace id and this task's own span.
+    pub traceparent: Option<String>,
 }
 
 struct Runtime {
@@ -72,6 +74,10 @@ struct Runtime {
     limit: Option<Limit>,
     /// Cumulative USD cost the agent reported; `None` means unmetered.
     cost_usd: Option<f64>,
+    /// The delegation tools were offered to this task's agent (a token was issued)...
+    delegate_offered: bool,
+    /// ...and its `mcp-delegate` process has since said hello over the control channel.
+    delegate_connected: bool,
     cancel: Arc<Notify>,
     /// Permission requests of this task still waiting for an answer, by request id.
     requests: BTreeMap<String, decisions::Request>,
@@ -112,6 +118,15 @@ fn usd_cost(message: &Value) -> Option<f64> {
         .flatten()
         .filter(|amount| amount.is_finite() && *amount >= 0.0)
 }
+/// Random lowercase hex, `bytes` long, never all zero (an all-zero trace or span id is invalid).
+fn random_hex(bytes: usize) -> String {
+    loop {
+        let mut buffer = vec![0u8; bytes];
+        if getrandom::fill(&mut buffer).is_ok() && buffer.iter().any(|b| *b != 0) {
+            return buffer.iter().map(|b| format!("{b:02x}")).collect();
+        }
+    }
+}
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -130,6 +145,8 @@ impl Runtime {
             cancel_requested: false,
             limit: None,
             cost_usd: None,
+            delegate_offered: false,
+            delegate_connected: false,
             cancel: Arc::new(Notify::new()),
             requests: BTreeMap::new(),
             answered: VecDeque::new(),
@@ -441,6 +458,7 @@ impl Orchestrator {
                 let digest = hash(&token);
                 state.tokens.insert(digest.clone(), task);
                 runtime.token_hash = Some(digest);
+                runtime.delegate_offered = true;
                 Some(json!({
                     "name": "acpd-orchestrator",
                     "command": exe,
@@ -453,8 +471,18 @@ impl Orchestrator {
             }
             _ => None,
         };
+        // One trace per tree: a root starts it, children join it with a span of their own.
+        let trace = parent
+            .and_then(|parent| state.runtime.get(&parent).and_then(|r| r.trace_id.clone()))
+            .unwrap_or_else(|| random_hex(16));
+        let traceparent = format!("00-{trace}-{}-01", random_hex(8));
+        runtime.trace_id = Some(trace);
         state.runtime.insert(task, runtime);
-        Ok(Some(Ticket { task, mcp }))
+        Ok(Some(Ticket {
+            task,
+            mcp,
+            traceparent: Some(traceparent),
+        }))
     }
 
     /// The session for `task` exists. Phone-started (root) tasks are working from here on.
@@ -557,6 +585,13 @@ impl Orchestrator {
         }
         if let Some(runtime) = state.runtime.get_mut(&task) {
             runtime.updated_at = now();
+            // Metadata only: the ids and the state's name, nothing the task said or did.
+            tracing::info!(
+                trace_id = runtime.trace_id.as_deref().unwrap_or(""),
+                task = %task,
+                state = records::state_name(to),
+                "task state"
+            );
         }
         if matches!(
             to,
@@ -598,6 +633,15 @@ impl Orchestrator {
         arguments: Value,
     ) -> Result<Value, ToolFailure> {
         let caller = self.resolve(token)?;
+        if tool == "_hello" {
+            // Sent by `acpd mcp-delegate` as it starts: the agent really did launch the tools.
+            // It is not a tool an agent can call (`tools/list` never offers it).
+            if let Some(runtime) = self.lock().runtime.get_mut(&caller) {
+                runtime.delegate_connected = true;
+            }
+            self.bump();
+            return Ok(json!({}));
+        }
         let Value::Object(arguments) = arguments else {
             return Err(ToolFailure::new(
                 "invalid_arguments",

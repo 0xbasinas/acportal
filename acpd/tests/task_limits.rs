@@ -222,8 +222,11 @@ async fn an_agent_that_ignores_cancel_is_ended_and_the_reason_is_still_recorded(
     assert_eq!(failed["summary"], "the task made no progress for 1 seconds");
     eventually(|| async { (life.manager.active_count().await == 1).then_some(()) }).await;
 
-    // The same for a deadline (the permission it waits on is not idleness).
-    let life2 = start(&["--ignore-cancel"], |c| c.idle_timeout_seconds = 300);
+    // The same for a deadline, with an agent that is silent and deaf. (A permission it waits on
+    // is not idleness, and cancelling would end that turn on its own, so that is not this case.)
+    let life2 = start(&["--stall-prompt", "--ignore-cancel"], |c| {
+        c.idle_timeout_seconds = 300
+    });
     let (_, agent2) = root(&life2).await;
     let task2 = delegate(&agent2, json!({"deadline_seconds": 1})).await;
     let failed2 = reaches(&agent2, &task2, "failed").await;
@@ -231,6 +234,7 @@ async fn an_agent_that_ignores_cancel_is_ended_and_the_reason_is_still_recorded(
         failed2["summary"], "the task's deadline passed",
         "the force path used to leave no reason"
     );
+    eventually(|| async { (life2.manager.active_count().await == 1).then_some(()) }).await;
     life.manager.shutdown().await;
     life2.manager.shutdown().await;
 }
@@ -323,7 +327,7 @@ async fn an_agent_whose_cost_is_not_in_dollars_is_unmetered_and_not_stopped() {
 
 #[tokio::test]
 async fn a_finished_childs_session_is_ended_after_its_keep_time_but_its_record_stays() {
-    let life = start(&[], |c| c.finished_child_keep_seconds = 1);
+    let life = start(&[], |c| c.finished_child_keep_seconds = 3);
     let (_, agent) = root(&life).await;
     let task = delegate(&agent, json!({})).await;
     let child = worker_session(&life).await;
@@ -331,6 +335,13 @@ async fn a_finished_childs_session_is_ended_after_its_keep_time_but_its_record_s
     answer(&child).await;
     reaches(&agent, &task, "completed").await;
     drop(child);
+    // Kept for the whole of its keep time (a follow-up may still come)...
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(
+        life.manager.get(child_id).await.is_ok(),
+        "swept before its keep time was up"
+    );
+    // ...and then ended.
     eventually(|| async { life.manager.get(child_id).await.is_err().then_some(()) }).await;
     assert_eq!(
         life.manager.active_count().await,

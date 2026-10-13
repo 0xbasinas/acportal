@@ -174,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
                 if options.echo_mcp {
                     // Test-only: an agent knows its own MCP definitions, environment included.
                     reply["_meta"]["mockMcpFull"] = mcp_servers.clone();
+                    reply["_meta"]["mockNewMeta"] = params["_meta"].clone();
                 }
                 out.send(response(id, reply)).await?;
             }
@@ -299,6 +300,10 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(cancel) = cancellations.remove(&session) {
                     let _ = cancel.send(true);
                 }
+            }
+            "_mock/pid" => {
+                out.send(response(id, json!({"pid": std::process::id()})))
+                    .await?;
             }
             "_mock/crash" => std::process::exit(24),
             "_mock/stall" => {}

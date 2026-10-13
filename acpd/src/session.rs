@@ -52,6 +52,8 @@ pub struct AcpSession {
     load_id: Option<String>,
     mcp_servers: Vec<Value>,
     remote: Option<RemoteSetup>,
+    /// The W3C `traceparent` of the task this session belongs to, sent in `_meta`.
+    trace: Option<String>,
     catalog: Option<Arc<SessionCatalog>>,
     pub connection: AcpConnection,
 }
@@ -75,14 +77,12 @@ impl AcpSession {
         if metadata.acp_session_id.is_empty() {
             bail!("authentication required")
         }
-        let result = self
-            .connection
-            .request(
-                "session/prompt",
-                json!({"sessionId":metadata.acp_session_id,
-            "prompt":[{"type":"text","text":text}]}),
-            )
-            .await?;
+        let mut params = json!({"sessionId":metadata.acp_session_id,
+            "prompt":[{"type":"text","text":text}]});
+        if let Some(trace) = &self.trace {
+            params["_meta"] = json!({ "traceparent": trace });
+        }
+        let result = self.connection.request("session/prompt", params).await?;
         let _: acp::PromptResponse =
             serde_json::from_value(result.clone()).context("invalid ACP prompt result")?;
         Ok(result)
@@ -126,6 +126,7 @@ impl AcpSession {
                 self.load_id.as_deref(),
                 &self.mcp_servers,
                 self.remote.as_ref(),
+                self.trace.as_deref(),
             )
             .await?;
             let mut metadata = self.metadata.lock().unwrap();
@@ -148,6 +149,7 @@ async fn setup_session(
     load: Option<&str>,
     mcp_servers: &[Value],
     remote: Option<&RemoteSetup>,
+    trace: Option<&str>,
 ) -> Result<(Value, String)> {
     crate::mcp::validate(mcp_servers, Some(initialization))?;
     let setup = if let Some(session_id) = load {
@@ -167,6 +169,12 @@ async fn setup_session(
         };
         if let Some(meta) = remote.and_then(|remote| remote.meta.as_ref()) {
             params["_meta"] = meta.clone();
+        }
+        if let Some(trace) = trace {
+            if !params["_meta"].is_object() {
+                params["_meta"] = json!({});
+            }
+            params["_meta"]["traceparent"] = json!(trace);
         }
         connection.request("session/new", params).await?
     };
@@ -404,6 +412,7 @@ impl SessionManager {
         };
         // Admission before any process starts; the guard undoes it if startup fails below.
         let mut ticket = None;
+        let mut trace = None;
         if let Some(orchestrator) = self.orchestrator.get() {
             if let Some(issued) = orchestrator
                 .begin(parent, agent_id, &workspace, access, &settings)
@@ -415,6 +424,7 @@ impl SessionManager {
                     mcp_servers.push(mcp);
                     crate::mcp::validate(&mcp_servers, None)?;
                 }
+                trace = issued.traceparent.clone();
                 ticket = Some(TicketGuard {
                     orchestrator,
                     task: issued.task,
@@ -493,6 +503,7 @@ impl SessionManager {
                 load,
                 &mcp_servers,
                 remote_setup.as_ref(),
+                trace.as_deref(),
             )
             .await
             {
@@ -536,6 +547,7 @@ impl SessionManager {
             load_id: load.map(str::to_owned),
             mcp_servers,
             remote: remote_setup,
+            trace,
             catalog: self.catalog.clone(),
             connection,
         });
