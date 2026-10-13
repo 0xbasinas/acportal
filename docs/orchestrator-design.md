@@ -142,7 +142,7 @@ Safety requirements:
 - **Fail closed.** Missing, late or malformed supervisor answers go to the phone. A supervisor is never allowed to approve by silence.
 - **Bound to the request.** A decision carries the request id and a digest of the rendered request; it is single-use and cannot be applied to a different request or to the supervisor's own requests.
 - **Host-rendered facts only.** The supervisor sees what the host computed, not the child's free-text description, so a child cannot argue its way past review. The supervisor still reads untrusted text elsewhere, so classification caps what it can approve.
-- **Ceiling.** The operator config sets the highest risk class a supervisor may approve (default: `low`). A supervisor cannot widen scope, roots or the ceiling, and cannot approve for tasks outside its subtree.
+- **Ceiling.** The operator config sets the highest risk class a supervisor may approve (default: `medium`, decided by the user on 13 October 2026; `high` always asks the phone). A supervisor cannot widen scope, roots or the ceiling, and cannot approve for tasks outside its subtree.
 - **No self-approval.** An agent's decisions never apply to its own requests, and a child never decides for a sibling.
 - **Visible and revocable.** Decisions are published as `_meta.acpdAutoReview` with layer `supervisor`, the rationale length-bounded, and the phone shows who approved. The user can pause supervisor approval for a tree at any time; the pending requests then go to the phone.
 - **Own-tools caveat.** Agents with `own_tools` edit files and run commands without host callbacks, so no layer can gate them. They are not delegable by default and always show the existing warning.
@@ -160,7 +160,7 @@ max_depth = 2
 max_children_per_task = 4
 max_tasks_total = 16
 task_timeout_secs = 1800
-supervisor_max_risk = "low"     # low | medium; high always asks the phone
+supervisor_max_risk = "medium"  # low | medium; high always asks the phone
 [orchestrator.agents.<id>]
 delegable = true
 peers = ["laptop"]
@@ -176,7 +176,7 @@ peers = ["laptop"]
 
 ## 7. Security notes
 
-- Prompt injection is the main risk: results flow from one model to another. Mitigations are host-rendered facts, risk ceilings, no self-approval, and untrusted-data marking, but they do not remove the risk. Keep `supervisor_max_risk = "low"` until real-agent evidence exists.
+- Prompt injection is the main risk: results flow from one model to another. Mitigations are host-rendered facts, risk ceilings, no self-approval, and untrusted-data marking, but they do not remove the risk. The user judged strong models sufficient for the default (`medium`); the hard-deny list and "high goes to the phone" stay regardless because they are cheap deterministic checks that also catch ordinary model mistakes.
 - A paired peer is a credential. Revocation must end its sessions and delegated children immediately (the existing device revocation path, extended to peers).
 - Remote execution is a new trust boundary. A remote host enforces its own roots and consent; local policy never grants remote rights.
 - The inbound `/acp` surface needs the same rate limits, frame bounds and byte budgets as the WebSocket API.
@@ -196,10 +196,16 @@ Not required for the first phases; the existing consent cards already show the l
 | 4 | Streamable HTTP (once the RFD stabilizes), worktree isolation, `subagent_update` emission. | Compatibility against a second ACP implementation if available. |
 | 5 | Real-agent trial (Goose delegating to a second agent), then Android task-tree UI. | Same discipline as `scripts/real-agent-check.py`: record exact cost, scope and limits. |
 
-## 10. Open questions
+## 10. Decisions and open questions
 
-1. Should phase 3 reuse `acpd.v1` for peer links instead of the new `/acp` endpoint? That would ship sooner but keeps a non-standard protocol. This design prefers `/acp`.
-2. How should `session/new` select an agent over `/acp`: `_meta` field now, or wait for a registry-backed selector in the spec?
-3. Default for `supervisor_max_risk`: `low` here. Is `medium` ever acceptable without real-agent evidence?
-4. Is a separate reviewer model (like `shell_review`'s model layer) preferable to using the parent agent as supervisor when the parent is itself busy mid-turn? A reviewer-model fallback avoids the parent being the weakest link.
-5. Which of the `own_tools` agents, if any, may ever be delegated to?
+Decided by the user on 13 October 2026:
+
+1. Peer links use the new `/acp` endpoint, not `acpd.v1`.
+2. `supervisor_max_risk` defaults to `medium`; `high` always goes to the phone.
+3. No separate reviewer model. The supervising agent decides, and anything it does not answer goes to the phone.
+
+Still open:
+
+1. How should `session/new` select an agent over `/acp`: a `_meta` field now, or wait for a selector in the spec?
+2. Which `own_tools` agents, if any, may ever be delegated to?
+3. What happens to a pending approval when the supervisor is busy mid-turn? Current answer: it waits for the timeout, then goes to the phone.
