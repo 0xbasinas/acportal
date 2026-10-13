@@ -17,7 +17,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    process::{Child, Command},
     sync::{broadcast, mpsc, oneshot, watch},
     time::Instant,
 };
@@ -304,6 +304,12 @@ impl Journal {
             gap: after > self.sequence || after.saturating_add(1) < oldest,
         }
     }
+}
+/// A locally spawned agent: its process, descendant containment and stderr pipe.
+struct LocalProcess {
+    child: Child,
+    tree: crate::process_tree::ProcessTree,
+    stderr: tokio::process::ChildStderr,
 }
 #[derive(Clone)]
 pub struct AcpConnection {
@@ -716,12 +722,54 @@ impl AcpConnection {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let (mut child, mut process_tree) =
-            crate::process_tree::ProcessTree::spawn(&mut command)
-                .with_context(|| format!("launch agent {}", definition.id))?;
+        let (mut child, process_tree) = crate::process_tree::ProcessTree::spawn(&mut command)
+            .with_context(|| format!("launch agent {}", definition.id))?;
         let stdin = child.stdin.take().context("agent stdin unavailable")?;
         let stdout = child.stdout.take().context("agent stdout unavailable")?;
         let stderr = child.stderr.take().context("agent stderr unavailable")?;
+        Ok(Self::start(
+            stdout,
+            stdin,
+            Some(LocalProcess {
+                child,
+                tree: process_tree,
+                stderr,
+            }),
+            limits,
+            files,
+            access,
+            review,
+        ))
+    }
+    /// A connection whose agent runs on another host: `reader` yields newline-framed JSON from
+    /// the peer and `writer` takes newline-framed JSON for it. No process, no local file or
+    /// terminal service (the peer's own host enforces and asks for those), and the link ending
+    /// closes the connection like an agent exiting.
+    pub fn over_transport<R, W>(
+        reader: R,
+        writer: W,
+        limits: RuntimeConfig,
+        access: WorkspaceAccess,
+    ) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
+        Self::start(reader, writer, None, limits, None, access, None)
+    }
+    fn start<R, W>(
+        stdout: R,
+        stdin: W,
+        process: Option<LocalProcess>,
+        limits: RuntimeConfig,
+        files: Option<Arc<WorkspaceFiles>>,
+        access: WorkspaceAccess,
+        review: Option<Arc<ShellReviewer>>,
+    ) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
         let (commands, receiver) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
         let admission = Arc::new(tokio::sync::Semaphore::new(admission_budget(
             limits.max_frame_bytes,
@@ -751,17 +799,27 @@ impl AcpConnection {
             max_bytes: limits.history_bytes,
         }));
         // Drain without logging arbitrary stderr: agent logs may contain credentials or code.
-        let stderr_task = tokio::spawn(async move {
-            let mut stderr = stderr;
-            let mut buffer = [0u8; 4096];
-            while matches!(stderr.read(&mut buffer).await, Ok(count) if count > 0) {}
-        });
+        let (mut process, stderr_task) = match process {
+            Some(LocalProcess {
+                child,
+                tree,
+                stderr,
+            }) => {
+                let drain = tokio::spawn(async move {
+                    let mut stderr = stderr;
+                    let mut buffer = [0u8; 4096];
+                    while matches!(stderr.read(&mut buffer).await, Ok(count) if count > 0) {}
+                });
+                (Some((child, tree)), Some(drain))
+            }
+            None => (None, None),
+        };
         let journal_task = journal.clone();
         let events_task = events.clone();
         tokio::spawn(async move {
             let mut stdin = stdin;
             let reason = actor(
-                &mut child,
+                process.as_mut().map(|(child, _)| child),
                 &mut stdin,
                 frames,
                 receiver,
@@ -776,13 +834,19 @@ impl AcpConnection {
                 },
             )
             .await;
-            if process_tree.terminate().is_err() {
+            if let Some((_, tree)) = process.as_mut()
+                && tree.terminate().is_err()
+            {
                 tracing::warn!("agent descendant cleanup failed");
             }
             drop(stdin);
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            stderr_task.abort();
+            if let Some((mut child, _)) = process {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+            }
+            if let Some(task) = stderr_task {
+                task.abort();
+            }
             stdout_task.abort();
             {
                 let mut history = journal_task.lock().unwrap();
@@ -792,7 +856,7 @@ impl AcpConnection {
             let _ = busy_tx.send(false);
             let _ = closed_tx.send(Some(reason));
         });
-        Ok(Self {
+        Self {
             frame_limit,
             commands,
             events,
@@ -800,7 +864,7 @@ impl AcpConnection {
             admission,
             closed,
             busy,
-        })
+        }
     }
     fn admit(&self, size: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
         let permits = u32::try_from(size).context("outbound ACP frame exceeds limit")?;
@@ -988,7 +1052,9 @@ pub async fn read_sized_frame<R: AsyncRead + Unpin>(
     validate_message(&message)?;
     Ok(Some((message, bytes.len())))
 }
-async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()> {
+/// Where the actor writes ACP frames: an agent's stdin, or the pipe feeding a peer WebSocket.
+type Sink = dyn tokio::io::AsyncWrite + Unpin + Send;
+async fn write(stdin: &mut Sink, message: &Value, max: usize) -> Result<()> {
     validate_message(message)?;
     let mut bytes = serde_json::to_vec(message)?;
     bytes.push(b'\n');
@@ -1007,10 +1073,12 @@ async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()
 }
 
 async fn actor(
-    child: &mut Child,
+    // `None` for an agent on another host: there is no local process to watch, and the link
+    // ending is seen as the frame stream closing.
+    mut child: Option<&mut Child>,
     // Borrowed so the pipe stays open until descendant cleanup has looked at the tree:
     // an agent that exits on EOF would otherwise orphan its descendants first.
-    stdin: &mut ChildStdin,
+    stdin: &mut Sink,
     mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
     mut commands: mpsc::Receiver<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
     context: ActorContext<'_>,
@@ -1354,10 +1422,12 @@ async fn actor(
                 }
                 let awaiting_permission = !journal.lock().unwrap().permissions.is_empty();
                 if pending.values().any(|waiter| waiter.deadline <= Instant::now() && (waiter.method != "session/prompt" || (!awaiting_permission && terminal_waits.is_empty() && reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
-                match child.try_wait() {
-                    Ok(Some(status)) => break format!("agent exited with {status}"),
-                    Err(_) => break "agent process status failed".into(),
-                    Ok(None) => {}
+                if let Some(child) = child.as_deref_mut() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => break format!("agent exited with {status}"),
+                        Err(_) => break "agent process status failed".into(),
+                        Ok(None) => {}
+                    }
                 }
             }
             reviewed=model_reviews.join_next(),if !model_reviews.is_empty()=> {
