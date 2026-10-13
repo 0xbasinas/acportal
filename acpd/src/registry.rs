@@ -10,6 +10,8 @@ use std::{
 pub struct AgentDefinition {
     pub id: String,
     pub name: String,
+    /// The program to run. Empty for a remote (`ws`) agent, which runs on another host.
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -28,6 +30,40 @@ pub struct AgentDefinition {
     /// phone shows a warning. The host cannot detect this; the registry owner declares it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub own_tools: bool,
+    /// Remote (`ws`) agents only: the other host's bridge, `wss://host:port/acp/<agent>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Remote agents only: the name of the peer record (see `acpd peer`) that holds the
+    /// credential. The registry never carries a secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// Remote agents only: the workspace alias the other host maps to a folder of its own. A
+    /// path is never sent to an acpd peer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_alias: Option<String>,
+    /// Remote agents only, for a server that is not acpd: the absolute folder on that server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_cwd: Option<String>,
+}
+impl AgentDefinition {
+    pub fn is_remote(&self) -> bool {
+        self.transport == "ws"
+    }
+}
+/// Whether `path` is absolute on *some* common operating system. A remote folder follows the
+/// other host's conventions, not this computer's: `/srv/work` is absolute on a Linux peer even
+/// when this host (Windows) would call it relative.
+fn looks_absolute(path: &str) -> bool {
+    if path.is_empty() || path.contains('\0') || path.len() > 4096 {
+        return false;
+    }
+    let bytes = path.as_bytes();
+    path.starts_with('/')
+        || path.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
 }
 fn stdio() -> String {
     "stdio".into()
@@ -76,11 +112,24 @@ impl AgentDefinition {
         {
             bail!("agent id must contain 1..64 ASCII letters, digits, '-' or '_'")
         }
-        if self.name.trim().is_empty() || self.command.trim().is_empty() {
-            bail!("name and command are required")
+        if self.name.trim().is_empty() {
+            bail!("a name is required")
         }
-        if self.transport != "stdio" {
-            bail!("only stdio agent transport is supported")
+        match self.transport.as_str() {
+            "stdio" => {
+                if self.command.trim().is_empty() {
+                    bail!("name and command are required")
+                }
+                if self.url.is_some()
+                    || self.peer.is_some()
+                    || self.workspace_alias.is_some()
+                    || self.remote_cwd.is_some()
+                {
+                    bail!("url, peer and workspace fields belong to remote (ws) agents only")
+                }
+            }
+            "ws" => return self.validate_remote(),
+            _ => bail!("agent transport must be stdio or ws"),
         }
         if self.command.contains('\0') || self.args.iter().any(|arg| arg.contains('\0')) {
             bail!("command arguments cannot contain NUL")
@@ -99,8 +148,62 @@ impl AgentDefinition {
         }
         Ok(())
     }
+    /// A remote agent runs on another host: no program here, a bridge URL, a peer that holds
+    /// the credential and a workspace the other host will map.
+    fn validate_remote(&self) -> Result<()> {
+        if !self.command.is_empty()
+            || !self.args.is_empty()
+            || !self.env.is_empty()
+            || self.working_directory.is_some()
+        {
+            bail!("a remote agent cannot have a command, arguments, environment or folder")
+        }
+        let url = self.url.as_deref().context("a remote agent needs a url")?;
+        let origin = crate::peers::origin_of(url).context("invalid remote agent url")?;
+        let path = url
+            .parse::<axum::http::Uri>()
+            .map(|uri| uri.path().to_owned())
+            .unwrap_or_default();
+        if !path.starts_with("/acp/") || path.len() <= "/acp/".len() || path[5..].contains('/') {
+            bail!("the url path must be /acp/<agent id> on the other host")
+        }
+        let _ = origin;
+        let peer = self
+            .peer
+            .as_deref()
+            .context("a remote agent needs a peer")?;
+        if !crate::peers::valid_name(peer) {
+            bail!("invalid peer name")
+        }
+        match (&self.workspace_alias, &self.remote_cwd) {
+            (Some(alias), None) if crate::peers::valid_name(alias) => {}
+            (None, Some(cwd)) if looks_absolute(cwd) => {}
+            (Some(_), Some(_)) => bail!("use workspaceAlias or remoteCwd, not both"),
+            _ => bail!("a remote agent needs a workspaceAlias (or an absolute remoteCwd)"),
+        }
+        Ok(())
+    }
     pub fn discover(&self) -> Discovery {
         let validation = self.validate().err().map(|error| error.to_string());
+        if self.is_remote() {
+            // Nothing to find on this computer. Reachability is only known when connecting.
+            return Discovery {
+                id: self.id.clone(),
+                name: self.name.clone(),
+                enabled: self.enabled,
+                installed: validation.is_none(),
+                executable: None,
+                version: None,
+                status: if validation.is_some() {
+                    AgentStatus::Misconfigured
+                } else {
+                    AgentStatus::Available
+                },
+                reason: validation,
+                own_tools: self.own_tools,
+                launch: None,
+            };
+        }
         let launch =
             crate::discovery::resolve(&self.command, self.env.get("PATH").map(String::as_str));
         let executable = launch.as_ref().map(|launch| launch.found.clone());

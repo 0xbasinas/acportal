@@ -523,6 +523,7 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
     heartbeat.tick().await; // the first tick is immediate
     let mut last_received = tokio::time::Instant::now();
     let mut revoked = false;
+    let mut ended = false;
     let mut close_code = 1000u16;
     loop {
         tokio::select! {
@@ -545,6 +546,13 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
                     }
                     // Binary frames are ignored, as the RFD requires.
                     Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_))) => {}
+                    // A peer closing on purpose says so, and its sessions end now.
+                    Some(Ok(Message::Close(frame))) => {
+                        ended = frame
+                            .as_ref()
+                            .is_some_and(|f| f.reason.as_str() == crate::peer_link::END_SESSIONS);
+                        break;
+                    }
                     _ => break,
                 }
             }
@@ -575,6 +583,21 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
 
     for owned in peer.owned.values() {
         owned.forwarder.abort();
+    }
+    if ended {
+        // Ended on purpose by the peer: nothing to wait for.
+        let ids: Vec<Uuid> = peer
+            .owned
+            .values()
+            .map(|owned| owned.session.metadata().id)
+            .collect();
+        drop(peer);
+        for id in ids {
+            host.bridge.sessions.lock().unwrap().remove(&id);
+            let _ = host.sessions.remove(id).await;
+            host.gateways.lock().await.remove(&id);
+        }
+        return;
     }
     if revoked {
         // A revoked peer's sessions end now, including any waiting to be reattached.

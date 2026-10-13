@@ -11,6 +11,8 @@ pub mod logging;
 pub mod mcp;
 pub mod orchestrator;
 pub mod pairing_input;
+pub mod peer_link;
+pub mod peers;
 pub mod process_tree;
 pub mod registry;
 pub mod security;

@@ -1471,6 +1471,7 @@ async fn the_connection_knows_which_permissions_the_host_raised() {
         from_agent.host_origin,
         &scope,
         false,
+        false,
         1000,
     );
     assert_eq!(class.source, "agent");
@@ -1501,6 +1502,7 @@ async fn the_connection_knows_which_permissions_the_host_raised() {
         from_host.host_origin,
         &scope,
         false,
+        false,
         1000,
     );
     assert_eq!(class.source, "host-terminal");
@@ -1516,7 +1518,7 @@ async fn the_connection_knows_which_permissions_the_host_raised() {
     let _ = create.await;
     // The same words in an agent's request prove nothing: with the host-origin flag off it is
     // just an agent request.
-    let spoof = approvals::classify(&from_host.message, false, &scope, false, 1000);
+    let spoof = approvals::classify(&from_host.message, false, &scope, false, false, 1000);
     assert_eq!(spoof.source, "agent");
     fx.manager.shutdown().await;
 }

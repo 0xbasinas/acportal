@@ -188,6 +188,7 @@ pub fn classify(
     host_origin: bool,
     scope: &Path,
     own_tools: bool,
+    remote: bool,
     max_edit_bytes: usize,
 ) -> Classified {
     let params = &request["params"];
@@ -322,7 +323,14 @@ pub fn classify(
             };
         }
     }
-    if own_tools && class.denied.is_none() {
+    if remote && class.denied.is_none() {
+        // A request from an agent on another host names that host's paths, which cannot be
+        // checked against a folder here; a lexical match with a local scope would be false
+        // precision. Its own host already applies its policy; here only a person answers.
+        class.risk = Risk::High;
+        class.human_only =
+            Some("this agent runs on another host, whose paths cannot be checked here");
+    } else if own_tools && class.denied.is_none() {
         class.risk = Risk::High;
         class.human_only = Some("this agent edits with its own tools, which the host cannot see");
     }
@@ -410,7 +418,7 @@ mod tests {
                        {"optionId":"acpd-shell-allow","name":"Run","kind":"allow_once"}]}})
     }
     fn run(request: &Value, host: bool, own: bool) -> Classified {
-        classify(request, host, &scope(), own, 1000)
+        classify(request, host, &scope(), own, false, 1000)
     }
 
     #[test]
@@ -574,6 +582,26 @@ mod tests {
         assert!(class.human_only.is_some());
         assert_eq!(class.risk, Risk::High);
         assert!(run(&read, false, false).human_only.is_none());
+    }
+
+    #[test]
+    fn a_remote_agents_requests_are_for_people_only_but_credential_paths_are_still_refused() {
+        let request = agent_request(Some("read"), json!({"path": "src/a.rs"}));
+        let local = classify(&request, false, &scope(), false, false, 1000);
+        let remote = classify(&request, false, &scope(), false, true, 1000);
+        assert_eq!(
+            local.risk,
+            Risk::Low,
+            "the same request from a local agent is Low"
+        );
+        assert_eq!(remote.risk, Risk::High);
+        assert!(remote.human_only.unwrap().contains("another host"));
+        let secret = agent_request(Some("read"), json!({"path": ".env"}));
+        assert!(
+            classify(&secret, false, &scope(), false, true, 1000)
+                .denied
+                .is_some()
+        );
     }
 
     #[test]

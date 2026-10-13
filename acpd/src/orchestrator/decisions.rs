@@ -233,7 +233,9 @@ impl Orchestrator {
     async fn scan(&self, task: Uuid, session: &Arc<AcpSession>) {
         let Ok(policy) = self.policy() else { return };
         let pending = session.connection.pending_permissions();
-        let own_tools = session.metadata().own_tools;
+        let metadata = session.metadata();
+        let own_tools = metadata.own_tools;
+        let remote = metadata.remote_peer.is_some();
         let mut refuse: Vec<(Value, Classified)> = vec![];
         let mut changed = false;
         {
@@ -269,6 +271,7 @@ impl Orchestrator {
                     permission.host_origin,
                     &node.scope,
                     own_tools,
+                    remote,
                     policy.max_edit,
                 );
                 let digest = approvals::digest(task, &key, &class, &permission.message);

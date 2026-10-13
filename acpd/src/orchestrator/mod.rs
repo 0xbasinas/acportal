@@ -954,7 +954,16 @@ impl Orchestrator {
                 None => (
                     TaskState::Failed,
                     None,
-                    Some("the agent connection failed".to_owned()),
+                    Some(
+                        if session.metadata().remote_peer.is_some() {
+                            // The other host keeps the session for a while, but this prompt is
+                            // never sent again on its own: it may already have had effects.
+                            "the link to the other host was lost; the prompt was not resent"
+                        } else {
+                            "the agent connection failed"
+                        }
+                        .to_owned(),
+                    ),
                     false,
                 ),
             },

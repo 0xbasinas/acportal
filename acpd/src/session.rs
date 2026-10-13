@@ -33,6 +33,17 @@ pub struct SessionMetadata {
     /// inside the conversation.
     #[serde(default)]
     pub own_tools: bool,
+    /// For an agent that runs on another host: the name of the peer it runs on. Absent for
+    /// agents started on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_peer: Option<String>,
+}
+
+/// What `session/new` carries for an agent on another host, kept so signing in later repeats it.
+#[derive(Clone)]
+struct RemoteSetup {
+    cwd: String,
+    meta: Option<Value>,
 }
 
 pub struct AcpSession {
@@ -40,6 +51,7 @@ pub struct AcpSession {
     setup_lock: Mutex<()>,
     load_id: Option<String>,
     mcp_servers: Vec<Value>,
+    remote: Option<RemoteSetup>,
     catalog: Option<Arc<SessionCatalog>>,
     pub connection: AcpConnection,
 }
@@ -113,6 +125,7 @@ impl AcpSession {
                 &metadata.workspace,
                 self.load_id.as_deref(),
                 &self.mcp_servers,
+                self.remote.as_ref(),
             )
             .await?;
             let mut metadata = self.metadata.lock().unwrap();
@@ -134,6 +147,7 @@ async fn setup_session(
     workspace: &Path,
     load: Option<&str>,
     mcp_servers: &[Value],
+    remote: Option<&RemoteSetup>,
 ) -> Result<(Value, String)> {
     crate::mcp::validate(mcp_servers, Some(initialization))?;
     let setup = if let Some(session_id) = load {
@@ -147,12 +161,14 @@ async fn setup_session(
             )
             .await?
     } else {
-        connection
-            .request(
-                "session/new",
-                json!({"cwd":workspace,"mcpServers":mcp_servers}),
-            )
-            .await?
+        let mut params = match remote {
+            Some(remote) => json!({"cwd":remote.cwd,"mcpServers":mcp_servers}),
+            None => json!({"cwd":workspace,"mcpServers":mcp_servers}),
+        };
+        if let Some(meta) = remote.and_then(|remote| remote.meta.as_ref()) {
+            params["_meta"] = meta.clone();
+        }
+        connection.request("session/new", params).await?
     };
     let session_id = if let Some(session_id) = load {
         let _: acp::LoadSessionResponse =
@@ -365,13 +381,27 @@ impl SessionManager {
         if !definition.enabled {
             bail!("agent is disabled")
         }
+        // An agent on another host: no program to find or start here, and nothing local to
+        // hand it (an MCP server is a command to run, and the other host will not run ours).
+        let remote = definition.is_remote();
+        if remote && (!mcp_servers.is_empty() || load.is_some()) {
+            bail!("remote agents do not take MCP servers or load saved sessions yet")
+        }
         let workspace = config.workspace(workspace)?;
         let cwd = match &definition.working_directory {
             Some(path) => config.workspace(path)?,
             None => workspace.clone(),
         };
-        let discovery = definition.discover();
-        let launch = discovery.launch.context("agent executable not found")?;
+        let launch = if remote {
+            None
+        } else {
+            Some(
+                definition
+                    .discover()
+                    .launch
+                    .context("agent executable not found")?,
+            )
+        };
         // Admission before any process starts; the guard undoes it if startup fails below.
         let mut ticket = None;
         if let Some(orchestrator) = self.orchestrator.get() {
@@ -379,7 +409,9 @@ impl SessionManager {
                 .begin(parent, agent_id, &workspace, access, &settings)
                 .map_err(anyhow::Error::new)?
             {
-                if let Some(mcp) = issued.mcp.clone() {
+                if let Some(mcp) = issued.mcp.clone()
+                    && !remote
+                {
                     mcp_servers.push(mcp);
                     crate::mcp::validate(&mcp_servers, None)?;
                 }
@@ -392,18 +424,60 @@ impl SessionManager {
         } else if parent.is_some() {
             bail!("delegation is not available on this host")
         }
-        let connection = AcpConnection::spawn_with_access(
-            definition,
-            launch,
-            &cwd,
-            config.runtime.clone(),
-            &workspace,
-            access,
-            config.shell_review.get(agent_id),
-        )?;
+        let connection = match launch {
+            Some(launch) => AcpConnection::spawn_with_access(
+                definition,
+                launch,
+                &cwd,
+                config.runtime.clone(),
+                &workspace,
+                access,
+                config.shell_review.get(agent_id),
+            )?,
+            None => {
+                let peer = definition
+                    .peer
+                    .as_deref()
+                    .context("remote agent has no peer")?;
+                let url = definition
+                    .url
+                    .as_deref()
+                    .context("remote agent has no url")?;
+                let store = crate::peers::PeerStore::open(&config.state_directory);
+                let link =
+                    crate::peer_link::connect(&store, peer, url, config.runtime.max_frame_bytes)
+                        .await?;
+                AcpConnection::over_transport(
+                    link.reader,
+                    link.writer,
+                    config.runtime.clone(),
+                    access,
+                )
+            }
+        };
+        let remote_setup = remote.then(|| RemoteSetup {
+            cwd: definition
+                .remote_cwd
+                .clone()
+                .unwrap_or_else(|| "/".to_owned()),
+            // An acpd peer maps an alias to its own folder and grants at most what it allows;
+            // asking for less is always fine. A path is never sent to it.
+            meta: definition.workspace_alias.as_ref().map(|alias| {
+                json!({"acpdWorkspace": alias, "acpdRights": {
+                    "read": access.read_files,
+                    "write": access.write_files,
+                    "terminal": access.terminal}})
+            }),
+        });
         let setup_result = async {
             let mut initialization_request = initialize_params();
-            initialization_request["clientCapabilities"] = access.capabilities();
+            // This host serves no file or terminal callbacks for an agent that runs elsewhere:
+            // that host enforces and asks for those itself, and sends us only the permissions.
+            initialization_request["clientCapabilities"] = if remote {
+                json!({})
+            } else {
+                access.capabilities()
+            };
             let initialization = connection
                 .request("initialize", initialization_request)
                 .await?;
@@ -412,23 +486,29 @@ impl SessionManager {
             if parsed.protocol_version != acportal_protocol::ProtocolVersion::V1 {
                 bail!("agent does not support ACP protocolVersion {ACP_VERSION}")
             }
-            let (setup, acp_session_id) =
-                match setup_session(&connection, &initialization, &workspace, load, &mcp_servers)
-                    .await
+            let (setup, acp_session_id) = match setup_session(
+                &connection,
+                &initialization,
+                &workspace,
+                load,
+                &mcp_servers,
+                remote_setup.as_ref(),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(error)
+                    if error
+                        .downcast_ref::<AgentRpcError>()
+                        .is_some_and(|error| error.0 == -32000)
+                        && initialization["authMethods"]
+                            .as_array()
+                            .is_some_and(|methods| !methods.is_empty()) =>
                 {
-                    Ok(result) => result,
-                    Err(error)
-                        if error
-                            .downcast_ref::<AgentRpcError>()
-                            .is_some_and(|error| error.0 == -32000)
-                            && initialization["authMethods"]
-                                .as_array()
-                                .is_some_and(|methods| !methods.is_empty()) =>
-                    {
-                        (json!({}), String::new())
-                    }
-                    Err(error) => return Err(error),
-                };
+                    (json!({}), String::new())
+                }
+                Err(error) => return Err(error),
+            };
             Ok::<_, anyhow::Error>((initialization, setup, acp_session_id))
         }
         .await;
@@ -450,10 +530,12 @@ impl SessionManager {
                 status: "ready".into(),
                 workspace_access: access,
                 own_tools: definition.own_tools,
+                remote_peer: remote.then(|| definition.peer.clone()).flatten(),
             }),
             setup_lock: Mutex::new(()),
             load_id: load.map(str::to_owned),
             mcp_servers,
+            remote: remote_setup,
             catalog: self.catalog.clone(),
             connection,
         });
