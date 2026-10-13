@@ -12,6 +12,7 @@ pub mod approvals;
 pub mod control;
 mod decisions;
 pub mod delegate;
+pub mod records;
 pub mod tree;
 
 use crate::{
@@ -20,16 +21,20 @@ use crate::{
     session::{LaunchSettings, SessionManager},
 };
 use delegate::ToolFailure;
+use records::TaskRecord;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Component, Path},
-    sync::{Arc, Mutex, MutexGuard, OnceLock, Weak},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::sync::{Notify, watch};
-use tree::{AdmissionError, Limits, NewTask, Rights, TaskState, TaskTree};
+use tree::{AdmissionError, Limits, NewTask, Rights, TaskNode, TaskState, TaskTree};
 use uuid::Uuid;
 
 /// Most agent text kept per task. More is dropped and reported as `truncated`.
@@ -70,9 +75,20 @@ struct Runtime {
     answered: VecDeque<String>,
     /// Set on a root task by the phone: supervisor approvals stop for its whole tree.
     supervisor_paused: bool,
+    /// Unix seconds, for the task records.
+    created_at: u64,
+    updated_at: u64,
+    /// The W3C trace id the whole tree shares.
+    trace_id: Option<String>,
+}
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 impl Runtime {
     fn new() -> Self {
+        let stamp = now();
         Self {
             session: None,
             token_hash: None,
@@ -86,6 +102,9 @@ impl Runtime {
             requests: BTreeMap::new(),
             answered: VecDeque::new(),
             supervisor_paused: false,
+            created_at: stamp,
+            updated_at: stamp,
+            trace_id: None,
         }
     }
 }
@@ -106,6 +125,11 @@ pub struct Orchestrator {
     /// The executable that runs `mcp-delegate`. Defaults to the running host.
     delegate_executable: OnceLock<std::path::PathBuf>,
     cancel_grace: Duration,
+    me: Weak<Orchestrator>,
+    /// Where task records are kept, once `restore` has been called. Without it nothing is saved.
+    state_dir: OnceLock<std::path::PathBuf>,
+    persist_pending: AtomicBool,
+    write_lock: Mutex<()>,
 }
 
 fn limits(config: &OrchestratorConfig) -> Limits {
@@ -131,16 +155,7 @@ fn hash(token: &str) -> String {
         .collect()
 }
 fn state_name(state: TaskState) -> &'static str {
-    match state {
-        TaskState::Submitted => "submitted",
-        TaskState::Working => "working",
-        TaskState::InputRequired => "input_required",
-        TaskState::AuthRequired => "auth_required",
-        TaskState::Completed => "completed",
-        TaskState::Failed => "failed",
-        TaskState::Canceled => "canceled",
-        TaskState::Rejected => "rejected",
-    }
+    records::state_name(state)
 }
 fn failure(error: AdmissionError) -> ToolFailure {
     let message = match error {
@@ -188,7 +203,11 @@ impl Orchestrator {
         Self::with_cancel_grace(manager, Duration::from_secs(15))
     }
     pub fn with_cancel_grace(manager: Weak<SessionManager>, cancel_grace: Duration) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
+            state_dir: OnceLock::new(),
+            persist_pending: AtomicBool::new(false),
+            write_lock: Mutex::new(()),
             manager,
             state: Mutex::new(State {
                 tree: TaskTree::new(false, Limits::default()),
@@ -217,6 +236,125 @@ impl Orchestrator {
     }
     fn bump(&self) {
         self.changed.send_modify(|generation| *generation += 1);
+        self.schedule_persist();
+    }
+
+    /// Every task this host knows about, oldest first: what the phone, `acpd tasks` and the
+    /// saved records show.
+    pub fn tasks(&self) -> Vec<TaskRecord> {
+        let state = self.lock();
+        let mut records: Vec<TaskRecord> = state
+            .tree
+            .nodes()
+            .map(|node| {
+                let runtime = state.runtime.get(&node.id);
+                TaskRecord {
+                    id: node.id,
+                    parent: node.parent,
+                    root: node.root,
+                    depth: node.depth,
+                    agent: node.agent.clone(),
+                    scope: node.scope.clone(),
+                    rights: node.rights.into(),
+                    state: records::state_name(node.state).into(),
+                    session: runtime.and_then(|r| r.session),
+                    created_at: runtime.map_or(0, |r| r.created_at),
+                    updated_at: runtime.map_or(0, |r| r.updated_at),
+                    summary: runtime.and_then(|r| r.error.clone()),
+                    stop_reason: runtime.and_then(|r| r.stop_reason.clone()),
+                    trace_id: runtime.and_then(|r| r.trace_id.clone()),
+                }
+            })
+            .collect();
+        records.sort_by_key(|record| (record.created_at, record.depth));
+        records
+    }
+
+    /// Write the task records soon. Bursts of changes become one write, and the snapshot is
+    /// taken only when the writer runs, so the file always ends up matching the last change.
+    fn schedule_persist(&self) {
+        if self.state_dir.get().is_none() || self.persist_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        match (self.me.upgrade(), tokio::runtime::Handle::try_current()) {
+            (Some(me), Ok(handle)) => {
+                handle.spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    me.persist_pending.store(false, Ordering::Release);
+                    let writer = me.clone();
+                    let _ = tokio::task::spawn_blocking(move || writer.persist_now()).await;
+                });
+            }
+            _ => {
+                self.persist_pending.store(false, Ordering::Release);
+                self.persist_now();
+            }
+        }
+    }
+    /// Write the task records now. The snapshot is taken under the write lock, so a slower
+    /// earlier writer can never overwrite a later one.
+    pub fn persist_now(&self) {
+        let Some(directory) = self.state_dir.get() else {
+            return;
+        };
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let records = records::prune(self.tasks());
+        if records.is_empty() && !records::path(directory).exists() {
+            return; // no file for nothing
+        }
+        if records::save(directory, &records).is_err() {
+            tracing::warn!("task records could not be saved");
+        }
+    }
+    /// Remember where task records live, load what an earlier run left, and show every task that
+    /// was still open as failed because the host restarted. Nothing is restarted and no prompt
+    /// is sent again. An unreadable file is set aside rather than stopping the host. Returns the
+    /// number of records loaded.
+    pub fn restore(&self, directory: &std::path::Path) -> usize {
+        let _ = self.state_dir.set(directory.to_path_buf());
+        let mut loaded = match records::load(directory) {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                tracing::warn!("task records were unreadable and have been set aside");
+                records::set_aside(directory);
+                vec![]
+            }
+        };
+        let interrupted = records::interrupt(&mut loaded, now());
+        {
+            let mut state = self.lock();
+            for record in &loaded {
+                let Some(task_state) = records::parse_state(&record.state) else {
+                    continue;
+                };
+                state.tree.restore_node(TaskNode {
+                    id: record.id,
+                    parent: record.parent,
+                    root: record.root,
+                    depth: record.depth,
+                    agent: record.agent.clone(),
+                    scope: record.scope.clone(),
+                    rights: Rights {
+                        read: record.rights.read,
+                        write: record.rights.write,
+                        terminal: record.rights.terminal,
+                    },
+                    state: task_state,
+                });
+                let mut runtime = Runtime::new();
+                runtime.session = record.session;
+                runtime.created_at = record.created_at;
+                runtime.updated_at = record.updated_at;
+                runtime.error = record.summary.clone();
+                runtime.stop_reason = record.stop_reason.clone();
+                runtime.trace_id = record.trace_id.clone();
+                state.runtime.insert(record.id, runtime);
+            }
+        }
+        if interrupted > 0 {
+            self.persist_now();
+        }
+        loaded.len()
     }
     fn manager(&self) -> Result<Arc<SessionManager>, ToolFailure> {
         self.manager
@@ -289,6 +427,7 @@ impl Orchestrator {
         state.by_session.insert(session, task);
         if let Some(runtime) = state.runtime.get_mut(&task) {
             runtime.session = Some(session);
+            runtime.updated_at = now();
         }
         if state.tree.get(task).is_some_and(|n| n.parent.is_none()) {
             state.tree.transition(task, TaskState::Working);
@@ -317,6 +456,7 @@ impl Orchestrator {
             state.tree.transition(task, TaskState::Rejected);
             if let Some(runtime) = state.runtime.get_mut(&task) {
                 runtime.error = Some(clip(reason, 300).0.to_owned());
+                runtime.updated_at = now();
             }
         }
         drop(state);
@@ -378,6 +518,9 @@ impl Orchestrator {
         let mut state = self.lock();
         if !state.tree.transition(task, to) && to.is_terminal() {
             state.tree.force(task, to);
+        }
+        if let Some(runtime) = state.runtime.get_mut(&task) {
+            runtime.updated_at = now();
         }
         if matches!(
             to,

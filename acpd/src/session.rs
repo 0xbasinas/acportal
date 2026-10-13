@@ -626,6 +626,11 @@ impl SessionManager {
     }
     pub async fn shutdown(&self) {
         let _lifecycle = self.lifecycle.lock().await;
+        if let Some(orchestrator) = self.orchestrator.get() {
+            // Leave the task records as complete as they can be; whatever is open is shown as
+            // interrupted after a restart either way.
+            orchestrator.persist_now();
+        }
         let sessions = std::mem::take(&mut *self.sessions.lock().await);
         for session in sessions.values() {
             session.connection.shutdown().await;

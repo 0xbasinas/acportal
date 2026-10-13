@@ -76,6 +76,15 @@ enum Commands {
     Devices,
     /// Revoke a paired device, including its open sockets at the next heartbeat.
     Revoke { id: uuid::Uuid },
+    /// Show the delegated tasks this host has recorded, read from its saved task records.
+    ///
+    /// Works whether the host is running or not and shows the last state written. After a
+    /// restart, tasks that were still open show as failed ("interrupted"); nothing is restarted.
+    Tasks {
+        /// Print the records as JSON instead of a table.
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage the other hosts this computer connects to as a client (agents on another host).
     Peer {
         #[command(subcommand)]
@@ -165,6 +174,18 @@ enum PeerAction {
     List,
     /// Forget a peer. This does not revoke the credential on the other host.
     Remove { name: String },
+}
+/// "5s ago", "12m ago", "3h ago", "2d ago".
+fn ago(unix: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    match now.saturating_sub(unix) {
+        seconds if seconds < 60 => format!("{seconds}s ago"),
+        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
+        seconds if seconds < 86_400 => format!("{}h ago", seconds / 3600),
+        seconds => format!("{}d ago", seconds / 86_400),
+    }
 }
 fn computer_name() -> String {
     std::env::var("COMPUTERNAME")
@@ -406,6 +427,32 @@ async fn main() -> Result<()> {
         Commands::Revoke { id } => {
             SecurityStore::open(&config.state_directory)?.revoke(id)?;
             println!("Device revoked.");
+        }
+        Commands::Tasks { json } => {
+            let records = acpd::orchestrator::records::load(&config.state_directory)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&records)?);
+            } else if records.is_empty() {
+                println!("No tasks recorded.");
+            } else {
+                println!(
+                    "{:<9} {:<9} {:<16} {:<14} {:<10} NOTE",
+                    "TASK", "PARENT", "AGENT", "STATE", "UPDATED"
+                );
+                for record in &records {
+                    println!(
+                        "{:<9} {:<9} {:<16} {:<14} {:<10} {}",
+                        &record.id.to_string()[..8],
+                        record
+                            .parent
+                            .map_or("-".into(), |id| id.to_string()[..8].to_owned()),
+                        record.agent.chars().take(16).collect::<String>(),
+                        record.state,
+                        ago(record.updated_at),
+                        record.summary.as_deref().unwrap_or("")
+                    );
+                }
+            }
         }
         Commands::Peer { action } => {
             use acpd::peers::{Peer, PeerAuth, PeerStore, origin_of};

@@ -133,6 +133,15 @@ impl TaskTree {
     pub fn set_other_sessions(&mut self, count: usize) {
         self.other_sessions = count;
     }
+    /// Every task, in no particular order.
+    pub fn nodes(&self) -> impl Iterator<Item = &TaskNode> {
+        self.nodes.values()
+    }
+    /// Put back a task from an earlier run. It is always finished, so it holds no capacity.
+    pub fn restore_node(&mut self, node: TaskNode) {
+        debug_assert!(node.state.is_terminal());
+        self.nodes.entry(node.id).or_insert(node);
+    }
     pub fn get(&self, id: Uuid) -> Option<&TaskNode> {
         self.nodes.get(&id)
     }

@@ -158,6 +158,8 @@ impl Host {
         )?);
         let orchestrator = crate::orchestrator::Orchestrator::new(Arc::downgrade(&sessions));
         sessions.attach_orchestrator(orchestrator.clone());
+        // Tasks an earlier run left open are shown as failed by the restart; nothing is resumed.
+        orchestrator.restore(&config.state_directory);
         Ok(Self {
             config: Arc::new(config),
             registry: Arc::new(registry),
