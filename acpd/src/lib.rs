@@ -9,6 +9,7 @@ pub mod filesystem;
 pub mod launcher;
 pub mod logging;
 pub mod mcp;
+pub mod orchestrator;
 pub mod pairing_input;
 pub mod process_tree;
 pub mod registry;
