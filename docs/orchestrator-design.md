@@ -38,9 +38,13 @@ Docs sites `agentclientprotocol.com`, `a2a-protocol.org` and the registry CDN ar
 | MCP tools | Tools have `inputSchema`, optional `outputSchema`; results may carry `structuredContent`; tool failures use `isError: true`. | [MCP tools](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/server/tools.mdx) |
 | A2A | Latest release 1.0.0; Agent Card at `/.well-known/agent-card.json`; task states `WORKING`, `INPUT_REQUIRED`, `AUTH_REQUIRED`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`. Separate project from Zed's ACP. | [A2A spec](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) |
 
-### 2.1 Registry agents probed (13 October 2026)
+### 2.1 Registry agents (13 October 2026)
 
-The registry index is unreachable, so I probed likely IDs for `<id>/agent.json`. These 13 exist; the list is **not** complete. None has been run by us.
+The [ACP Registry page](https://agentclientprotocol.com/get-started/registry) is blocked here, but its source (`docs/get-started/registry.mdx` in the ACP repository) lists **41 agents**, all curated to support authentication. Names and versions as listed that day:
+
+Agoragentic 1.3.0, Amp 0.10.0, Auggie CLI 0.36.0, Autohand Code 0.2.1, Claude Agent 0.89.1, Cline 3.0.70, Codebuddy Code 2.164.0, Codex 2.2.2, Copilot 1.0.96, Cortex Code 1.0.73, Corust Agent 0.6.0, crow-cli 0.1.24, Cursor 2026.10.01, DeepAgents 0.1.7, Devin 3000.11.3, DimCode 0.5.17, Dirac 0.5.20, Factory Droid 0.239.1, fast-agent 0.10.1, Gemini CLI 0.63.0, GLM Agent 1.14.0, Google Antigravity 1.3.0, goose 1.54.0, Grok Build 1.0.54, Harn 0.10.165, Junie 3579.7.0, Kilo 7.8.8, Kimchi 1.9.2, Kimi CLI 1.52.0, MiniMax Code 0.2.7, Minion Code 0.1.44, Mistral Vibe 2.26.1, Nova 1.1.52, OpenCode 1.19.0, pi ACP 0.0.34, Poolside 1.0.16, Qoder CLI 0.2.14, Qwen Code 0.25.1, siGit Code 1.6.8, Stakpak 0.3.88, VT Code 0.96.14.
+
+The page says clients can fetch the full machine-readable index (including distribution data for automatic installation) from `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`; that CDN is also blocked here, so the real client path is untested. For 13 of the agents I could read `<id>/agent.json` directly from the registry repository, which gives their launch commands. None has been run by us.
 
 | id | version | distribution | launch |
 | --- | --- | --- | --- |
@@ -58,7 +62,9 @@ The registry index is unreachable, so I probed likely IDs for `<id>/agent.json`.
 | cursor | 2026.10.01 | binary | `cursor-agent acp` |
 | auggie | 0.36.0 | npx | `auggie --acp` |
 
-Consequence: most agents launch through `npx` (a literal executable plus an argument array, which the existing registry already supports). Registry import must resolve the `npx`/`uvx` executable like any other, never through a shell, and keep the existing rule that discovery resolves configured executables only.
+Discrepancy to resolve in phase 0: the page lists "Copilot 1.0.96", while the `github-copilot` manifest I read says 1.553.0 (a language-server package). They may be different entries or a stale manifest; do not trust either until the index is read.
+
+Consequence: most agents launch through `npx` (a literal executable plus an argument array, which the existing registry already supports). Registry import (read from the index, not scraped from pages) must resolve the `npx`/`uvx` executable like any other, never through a shell, and keep the existing rule that discovery resolves configured executables only.
 
 ## 3. What is reused (verified in this repository)
 
@@ -375,7 +381,7 @@ The existing consent answering path is unchanged; `acpd.v1` frames gain an optio
 
 Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. `own_tools` agents run but are never auto-approved. Tier is stored per directory entry from real discovery, never from the agent name.
 
-Phase 0 builds a compatibility table for the 13 agents in 2.1 plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `session/load` support; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
+Phase 0 builds a compatibility table from the registry index (section 2.1: 41 agents listed; start with the 13 whose manifests were read) plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `session/load` support; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
 
 ## 13. Phases and acceptance gates
 
