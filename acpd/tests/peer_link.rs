@@ -165,6 +165,7 @@ impl Near {
         let state = directory.path().join("state");
         PeerStore::open(&state)
             .add(Peer {
+                device_id: None,
                 name: "b".into(),
                 origin: origin.into(),
                 auth: PeerAuth::Bearer {
@@ -397,6 +398,7 @@ async fn an_encrypted_peer_is_never_downgraded_to_plaintext() {
     let store = PeerStore::open(&state);
     store
         .add(Peer {
+            device_id: None,
             name: "b".into(),
             origin: format!("wss://localhost:{port}"),
             auth: PeerAuth::Bearer {

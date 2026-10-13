@@ -86,6 +86,10 @@ pub struct Peer {
     /// `wss://host:port` (or `ws://` to a loopback address). The only place this credential goes.
     pub origin: String,
     pub auth: PeerAuth,
+    /// This host's device id on the other host, when it was paired with a code: what that host's
+    /// operator revokes (`acpd revoke <id>`). Not a secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<uuid::Uuid>,
 }
 impl std::fmt::Debug for Peer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -94,16 +98,20 @@ impl std::fmt::Debug for Peer {
             .field("name", &self.name)
             .field("origin", &self.origin)
             .field("auth", &self.auth)
+            .field("device_id", &self.device_id)
             .finish()
     }
 }
 
 /// What may be shown about a peer: never the secret.
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PeerSummary {
     pub name: String,
     pub origin: String,
     pub auth: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<uuid::Uuid>,
 }
 
 pub fn valid_name(name: &str) -> bool {
@@ -197,7 +205,9 @@ impl PeerStore {
         write_private_json(&self.file(), &peers)?;
         Ok(result)
     }
-    pub fn add(&self, peer: Peer) -> Result<()> {
+    /// Everything `add` would refuse, without writing. Used before a one-use pairing code is
+    /// spent, so a failure that could have been seen earlier does not waste it.
+    pub fn check_can_add(&self, peer: &Peer) -> Result<()> {
         ensure!(
             valid_name(&peer.name),
             "peer names are 1..32 of a-z, 0-9, '-' or '_'"
@@ -207,6 +217,15 @@ impl PeerStore {
             "the peer origin must be exactly scheme://host:port"
         );
         peer.auth.validate()?;
+        let existing = self.load()?;
+        ensure!(
+            existing.len() < MAX_PEERS || existing.iter().any(|p| p.name == peer.name),
+            "too many peers; remove one first"
+        );
+        Ok(())
+    }
+    pub fn add(&self, peer: Peer) -> Result<()> {
+        self.check_can_add(&peer)?;
         self.locked(|peers| {
             peers.retain(|existing| existing.name != peer.name);
             ensure!(peers.len() < MAX_PEERS, "too many peers; remove one first");
@@ -238,6 +257,7 @@ impl PeerStore {
                     PeerAuth::Bearer { .. } => "bearer".into(),
                     PeerAuth::Header { name, .. } => format!("header {name}"),
                 },
+                device_id: peer.device_id,
             })
             .collect())
     }
@@ -260,6 +280,7 @@ mod tests {
 
     fn bearer(name: &str, origin: &str) -> Peer {
         Peer {
+            device_id: None,
             name: name.into(),
             origin: origin.into(),
             auth: PeerAuth::Bearer {
@@ -306,6 +327,7 @@ mod tests {
             .unwrap();
         store
             .add(Peer {
+                device_id: None,
                 name: "goose".into(),
                 origin: "ws://127.0.0.1:3284".into(),
                 auth: PeerAuth::Header {
@@ -370,6 +392,7 @@ mod tests {
             ("X-Key", "line\nbreak"),
         ] {
             let peer = Peer {
+                device_id: None,
                 name: "p".into(),
                 origin: "wss://laptop.example:8765".into(),
                 auth: PeerAuth::Header {

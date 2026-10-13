@@ -76,6 +76,11 @@ enum Commands {
     Devices,
     /// Revoke a paired device, including its open sockets at the next heartbeat.
     Revoke { id: uuid::Uuid },
+    /// Manage the other hosts this computer connects to as a client (agents on another host).
+    Peer {
+        #[command(subcommand)]
+        action: PeerAction,
+    },
     /// Read authenticated host status with a token supplied through ACPD_TOKEN.
     Status {
         #[arg(long, default_value = "http://127.0.0.1:8765")]
@@ -125,6 +130,48 @@ enum Commands {
         #[arg(long)]
         load: Option<String>,
     },
+}
+#[derive(Subcommand)]
+enum PeerAction {
+    /// Pair with another acpd host, or save the shared secret of a server that is not acpd.
+    ///
+    /// For acpd, run `acpd pair --role peer` on the other host and give the code it prints here
+    /// within 60 seconds. For anything else, name the header and the environment variable that
+    /// holds its secret. The credential is stored owner-only and sent only to this address.
+    Add {
+        /// A short name for this peer (a-z, 0-9, '-' or '_'), used by registry entries.
+        #[arg(long)]
+        name: String,
+        /// The other host's address, such as https://laptop.example:8765.
+        #[arg(long)]
+        address: String,
+        /// The pairing code. Prefer --code-env: a command line is kept in shell history.
+        #[arg(long, conflicts_with_all = ["code_env", "header"])]
+        code: Option<String>,
+        /// The environment variable that holds the pairing code.
+        #[arg(long, conflicts_with = "header")]
+        code_env: Option<String>,
+        /// For a server that is not acpd: the header that carries its shared secret.
+        #[arg(long, requires = "secret_env")]
+        header: Option<String>,
+        /// The environment variable that holds that secret (never put it on the command line).
+        #[arg(long, requires = "header")]
+        secret_env: Option<String>,
+        /// The name the other host shows for this computer (default: this computer's name).
+        #[arg(long = "as")]
+        device_name: Option<String>,
+    },
+    /// List the peers: names, addresses and the kind of credential, never the secret.
+    List,
+    /// Forget a peer. This does not revoke the credential on the other host.
+    Remove { name: String },
+}
+fn computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "acpd host".into())
 }
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum PairRole {
@@ -359,6 +406,99 @@ async fn main() -> Result<()> {
         Commands::Revoke { id } => {
             SecurityStore::open(&config.state_directory)?.revoke(id)?;
             println!("Device revoked.");
+        }
+        Commands::Peer { action } => {
+            use acpd::peers::{Peer, PeerAuth, PeerStore, origin_of};
+            let store = PeerStore::open(&config.state_directory);
+            match action {
+                PeerAction::List => {
+                    println!("{}", serde_json::to_string_pretty(&store.summaries()?)?)
+                }
+                PeerAction::Remove { name } => {
+                    if !store.remove(&name)? {
+                        bail!("no peer named {name}")
+                    }
+                    println!(
+                        "Peer {name} removed. The other host still lists this computer as a paired device; revoke it there (acpd revoke <id>) if it should lose access."
+                    );
+                }
+                PeerAction::Add {
+                    name,
+                    address,
+                    code,
+                    code_env,
+                    header,
+                    secret_env,
+                    device_name,
+                } => {
+                    let origin = origin_of(&address)?;
+                    // Check everything that can be checked here before a one-use code is spent.
+                    let paired_with_code = header.is_none();
+                    let auth = match (header, secret_env) {
+                        (Some(header), Some(variable)) => PeerAuth::Header {
+                            name: header,
+                            value: std::env::var(&variable)
+                                .ok()
+                                .filter(|value| !value.is_empty())
+                                .with_context(|| {
+                                    format!("the environment variable {variable} is not set")
+                                })?,
+                        },
+                        // A stand-in with the right shape, replaced once the code is spent.
+                        _ => PeerAuth::Bearer {
+                            token: "0".repeat(64),
+                        },
+                    };
+                    let mut peer = Peer {
+                        name: name.clone(),
+                        origin: origin.clone(),
+                        auth,
+                        device_id: None,
+                    };
+                    store.check_can_add(&peer)?;
+                    if paired_with_code {
+                        let code = match (code, code_env) {
+                            (Some(code), _) => code,
+                            (None, Some(variable)) => std::env::var(&variable)
+                                .ok()
+                                .filter(|value| !value.trim().is_empty())
+                                .with_context(|| {
+                                    format!("the environment variable {variable} is not set")
+                                })?,
+                            (None, None) => {
+                                use std::io::IsTerminal;
+                                if !std::io::stdin().is_terminal() {
+                                    bail!("give the pairing code with --code-env (or --code)")
+                                }
+                                operator_input(
+                                    "Pairing code from the other host (acpd pair --role peer)",
+                                )?
+                            }
+                        };
+                        let (token, device_id) = acpd::peer_cli::redeem(
+                            &origin,
+                            code.trim(),
+                            &device_name.unwrap_or_else(computer_name),
+                        )
+                        .await?;
+                        peer.auth = PeerAuth::Bearer { token };
+                        peer.device_id = device_id;
+                    }
+                    let device_id = peer.device_id;
+                    store.add(peer)?;
+                    println!(
+                        "Peer {name} added for {origin}. The credential is stored owner-only and is sent only to that address."
+                    );
+                    if let Some(id) = device_id {
+                        println!(
+                            "On the other host this computer is device {id}; revoke it there with: acpd revoke {id}"
+                        );
+                    }
+                    println!(
+                        "To use an agent there, add a registry entry such as:\n  {{\"id\":\"{name}-agent\",\"name\":\"Agent on {name}\",\"transport\":\"ws\",\"url\":\"{origin}/acp/AGENT_ID\",\"peer\":\"{name}\",\"workspaceAlias\":\"ALIAS\"}}\nAGENT_ID and ALIAS must be shared with peers on the other host (peer_agents and peer_workspaces in its [orchestrator] settings)."
+                    );
+                }
+            }
         }
         Commands::Status { address } => host_query(&address, "/v1/status").await?,
         Commands::Sessions { address } => host_query(&address, "/v1/sessions").await?,
