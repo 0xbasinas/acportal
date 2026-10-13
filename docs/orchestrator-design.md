@@ -481,8 +481,8 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | `Orchestrator` wired into `SessionManager` (`begin`/`bind`/`abort`/`release_subtree`, `open_task`) and `Host` | Implemented; `[orchestrator]` config section (`enabled`, `orchestrate`, `delegable`, limits, default deadline) |
 | Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status` (incl. `wait_seconds`), `task_result`, `task_send`, `task_cancel`, `task_decide` (phase 2, section 18) |
 | Phase 3, inbound half (section 20) | `peer` device role and `acpd pair --role peer`, `/acp/{agent_id}` WebSocket bridge with reattach |
-| Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts |
-| Not implemented | worktree isolation (`isolation_unsupported`), the `acpd peer` commands, reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
+| Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts, `acpd peer add|list|remove` |
+| Not implemented | worktree isolation (`isolation_unsupported`), reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
@@ -644,9 +644,21 @@ A registry entry with `transport = "ws"` is an agent that runs on another host, 
 **Mutation check.** Twelve guards broken one at a time (each run under a timeout, restored with `git`), all caught: credential sent to any origin; plain `ws://` to any host; newline inside a frame; the client not ending sessions on purpose; the bridge ignoring the end-sessions close; client capabilities offered; MCP and load allowed; remote requests classified like local ones; the scan forgetting a session is remote; a remote agent carrying a command; link loss reported generically; the handshake refusal text. Three of the first tests would have survived breakage (newline, capabilities and credential header, MCP refusal) and were strengthened before this run. One run was interrupted by hand after eight mutations and resumed from the ninth; the earlier eight are from the same commit.
 
 **Not done or not verified.**
-- **No `acpd peer add|list|remove`** yet: peers can only be created through the store's code, so two hosts cannot be paired from the command line.
+- ~~No `acpd peer` commands~~: added; see "The peer commands" below.
 - **No reconnect or reattach from the client** (the bridge supports reattach, the client never uses it) and no `GET /v1/peer/info`.
 - Linux and macOS, real TLS between two machines, `goose serve` as a peer, and the heartbeat's 70-second silence limit are untested.
 - A remote session is kept as interrupted metadata after a host restart but cannot be loaded.
 - The new dependency (`tokio-tungstenite` with rustls and the webpki roots) has not been reviewed; it adds no `aws-lc`.
+
+### The peer commands
+
+`acpd peer add --name N --address https://host:port --code-env VAR` pairs this host with another acpd host: that host's operator runs `acpd pair --role peer` and the code is spent at its `/v1/pair` within 60 seconds, and the credential is stored in `peers.json` bound to that origin. The code can also come from `--code` (kept in shell history, so `--code-env` is preferred) or a prompt. For a server that is not acpd, `--header NAME --secret-env VAR` stores a header credential whose secret is read from the environment, never the command line. `acpd peer list` prints names, origins, the kind of credential and the other host's device id, never a secret; `acpd peer remove NAME` forgets a peer and says it does not revoke it on the other host (`acpd revoke <id>` there, using the device id `add` printed).
+
+Rules the command follows:
+- **The one-use code is spent last.** Everything that can fail locally (the name, the address, a full store) is checked first, so a failure that could have been seen earlier does not waste the code and leave an orphaned credential on the other host.
+- **Redirects are never followed**, the reply is size-bounded (8 KiB) and must hold a 64-hex credential, and the other host's error text is never repeated; only the HTTP status is shown.
+- **Nothing secret is printed**: not the credential, not the pairing code. It prints the device id to revoke and a registry entry to write.
+- Plain `ws://`/`http://` addresses are accepted only for this computer.
+
+Verified: 7 tests run the real `acpd` binary against a real far host, including one that opens a real remote session with a credential the CLI created, and one that proves bad input is refused with the code still usable afterwards. Eight guards were broken one at a time (local checks before the code is spent, redirects, token shape, reply size, code-and-header conflict, the full-store check, code shape, device-id recording) and each was caught. Reading the tests critically first found two that would have survived (an oversized reply that was also an invalid token, and a refusal test that did not check its reason); both were strengthened before the run. An inconsistency was fixed too: `peer list` printed `device_id` where `acpd devices` uses camelCase. Windows only so far; Linux CI covered the outbound half before the CLI was added.
 
