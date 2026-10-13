@@ -218,6 +218,13 @@ pub struct Event {
     pub message: Value,
     pub direction: &'static str,
 }
+/// A permission request still waiting for an answer.
+#[derive(Clone, Debug)]
+pub struct PendingPermission {
+    pub message: Value,
+    /// True only for consents the host itself raised; never inferred from the message content.
+    pub host_origin: bool,
+}
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
@@ -252,6 +259,9 @@ struct Journal {
     bytes: usize,
     events: VecDeque<(Arc<Event>, usize)>,
     permissions: HashMap<String, Value>,
+    /// Keys of `permissions` the host itself created (write, shell and terminal consents), as
+    /// opposed to requests the agent sent. Nothing in a request's content can claim to be one.
+    host_consents: std::collections::HashSet<String>,
     max_events: usize,
     max_bytes: usize,
 }
@@ -484,6 +494,7 @@ fn offer_terminal_consent(
             history
                 .permissions
                 .insert(consent_id.to_string(), consent.clone());
+            history.host_consents.insert(consent_id.to_string());
             true
         }
     };
@@ -735,6 +746,7 @@ impl AcpConnection {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: limits.history_events,
             max_bytes: limits.history_bytes,
         }));
@@ -772,7 +784,11 @@ impl AcpConnection {
             let _ = child.wait().await;
             stderr_task.abort();
             stdout_task.abort();
-            journal_task.lock().unwrap().permissions.clear();
+            {
+                let mut history = journal_task.lock().unwrap();
+                history.permissions.clear();
+                history.host_consents.clear();
+            }
             let _ = busy_tx.send(false);
             let _ = closed_tx.send(Some(reason));
         });
@@ -881,6 +897,19 @@ impl AcpConnection {
     // Subscribe BEFORE replay, then ignore live events <= latest_sequence to avoid a race.
     pub fn replay(&self, after: u64) -> Replay {
         self.journal.lock().unwrap().replay(after)
+    }
+    /// Permission requests (and elicitations) awaiting an answer, each with whether the host
+    /// created it. Cheaper than `replay` because it copies no event history.
+    pub fn pending_permissions(&self) -> Vec<PendingPermission> {
+        let journal = self.journal.lock().unwrap();
+        journal
+            .permissions
+            .iter()
+            .map(|(key, message)| PendingPermission {
+                message: message.clone(),
+                host_origin: journal.host_consents.contains(key),
+            })
+            .collect()
     }
     pub fn record(&self, message: Value, direction: &'static str) {
         let event = self
@@ -1151,7 +1180,7 @@ async fn actor(
                         let tool=json!({"toolCallId":tool_id,"title":format!("Write {}",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"pending","rawInput":{"path":prepared.path},"content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content}]});
                         let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":{"acpdSource":"host-filesystem"},"options":[{"optionId":"acpd-write-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-write-allow","name":"Allow write once","kind":"allow_once"}]}});
                         let consent_size=consent.to_string().len();
-                        let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
+                        let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());history.host_consents.insert(consent_id.to_string());true}};
                         if !inserted {if write(stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         host_writes.insert(consent_id.to_string(),HostWrite {callback_id:id.clone(),prepared});
                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
@@ -1236,7 +1265,11 @@ async fn actor(
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
                                 if write(stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
-                            journal.lock().unwrap().permissions.clear();
+                            {
+                                let mut history = journal.lock().unwrap();
+                                history.permissions.clear();
+                                history.host_consents.clear();
+                            }
                             model_reviews.abort_all();
                             for (key,(callback_id,_)) in reviewing.drain() {
                                 if failed {break}
@@ -1291,7 +1324,11 @@ async fn actor(
                         let result = write(stdin, &answer, limits.max_frame_bytes).await;
                         let failed = result.is_err();
                         if !failed {
-                            journal.lock().unwrap().permissions.remove(&id.to_string());
+                            {
+                                let mut history = journal.lock().unwrap();
+                                history.permissions.remove(&id.to_string());
+                                history.host_consents.remove(&id.to_string());
+                            }
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
                                 waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
                             }
@@ -1557,6 +1594,7 @@ mod tests {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: 2048,
             max_bytes: 4096,
         };
@@ -1591,6 +1629,7 @@ mod tests {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: 1,
             max_bytes: 1024,
         };

@@ -35,6 +35,22 @@ pub struct OrchestratorConfig {
     pub max_tasks_total: usize,
     /// Applied when a delegation names no deadline.
     pub default_deadline_seconds: u64,
+    /// Highest risk a supervising agent may approve for its sub-tasks. `none` leaves every
+    /// permission request to the phone; `high` is not allowed.
+    pub supervisor_max_risk: SupervisorRisk,
+    /// How long after a request appears the supervisor may still answer it. After that only the
+    /// phone can.
+    pub supervisor_timeout_seconds: u64,
+    /// Largest edit (bytes) still rated medium risk.
+    pub max_edit_bytes: usize,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SupervisorRisk {
+    None,
+    Low,
+    #[default]
+    Medium,
 }
 impl Default for OrchestratorConfig {
     fn default() -> Self {
@@ -46,6 +62,9 @@ impl Default for OrchestratorConfig {
             max_children_per_task: 4,
             max_tasks_total: 8,
             default_deadline_seconds: 1800,
+            supervisor_max_risk: SupervisorRisk::default(),
+            supervisor_timeout_seconds: 60,
+            max_edit_bytes: 256 * 1024,
         }
     }
 }
@@ -55,6 +74,8 @@ impl OrchestratorConfig {
             || !(1..=16).contains(&self.max_children_per_task)
             || !(1..=64).contains(&self.max_tasks_total)
             || !(1..=86_400).contains(&self.default_deadline_seconds)
+            || !(1..=600).contains(&self.supervisor_timeout_seconds)
+            || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
         {
             bail!("invalid orchestrator limits")
         }

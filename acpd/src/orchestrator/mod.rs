@@ -8,12 +8,14 @@
 //!
 //! Not implemented yet: supervisor approvals (`task_decide`), worktree isolation, peers/bridge.
 //! Permission requests from a delegated child go to the phone like any other session's.
+pub mod approvals;
 pub mod control;
+mod decisions;
 pub mod delegate;
 pub mod tree;
 
 use crate::{
-    config::OrchestratorConfig,
+    config::{OrchestratorConfig, SupervisorRisk},
     connection::{AgentRpcError, WorkspaceAccess},
     session::{LaunchSettings, SessionManager},
 };
@@ -21,7 +23,7 @@ use delegate::ToolFailure;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, VecDeque},
     path::{Component, Path},
     sync::{Arc, Mutex, MutexGuard, OnceLock, Weak},
     time::Duration,
@@ -62,6 +64,12 @@ struct Runtime {
     cancel_requested: bool,
     deadline_hit: bool,
     cancel: Arc<Notify>,
+    /// Permission requests of this task still waiting for an answer, by request id.
+    requests: BTreeMap<String, decisions::Request>,
+    /// Recently answered request ids, so a late duplicate decision is recognized.
+    answered: VecDeque<String>,
+    /// Set on a root task by the phone: supervisor approvals stop for its whole tree.
+    supervisor_paused: bool,
 }
 impl Runtime {
     fn new() -> Self {
@@ -75,6 +83,9 @@ impl Runtime {
             cancel_requested: false,
             deadline_hit: false,
             cancel: Arc::new(Notify::new()),
+            requests: BTreeMap::new(),
+            answered: VecDeque::new(),
+            supervisor_paused: false,
         }
     }
 }
@@ -418,14 +429,11 @@ impl Orchestrator {
         match tool {
             "agents_list" => self.agents_list(caller),
             "task_delegate" => self.task_delegate(caller, &arguments).await,
-            "task_status" => self.task_status(caller, &arguments),
+            "task_status" => self.task_status(caller, &arguments).await,
             "task_result" => self.task_result(caller, &arguments),
             "task_send" => self.task_send(caller, &arguments).await,
             "task_cancel" => self.task_cancel(caller, &arguments),
-            "task_decide" => Err(ToolFailure::new(
-                "not_supported",
-                "supervisor approvals are not implemented yet; the phone decides",
-            )),
+            "task_decide" => self.task_decide(caller, &arguments).await,
             _ => Err(ToolFailure::new("unknown_tool", "unknown tool")),
         }
     }
@@ -471,21 +479,21 @@ impl Orchestrator {
         }
         Ok(())
     }
-    fn view(state: &State, id: Uuid) -> Value {
+    fn view(state: &State, id: Uuid, policy: &decisions::Policy) -> Value {
         let node = state.tree.get(id).expect("task exists");
         let mut view = json!({
             "task_id": id,
             "state": state_name(node.state),
             "agent": node.agent,
-            "needs_decision": []
+            "needs_decision": Self::needs_decision(state, id, policy)
         });
         if let Some(error) = state.runtime.get(&id).and_then(|r| r.error.as_deref()) {
             view["summary"] = json!(error);
         }
         view
     }
-    fn result_view(state: &State, id: Uuid, max_bytes: usize) -> Value {
-        let mut view = Self::view(state, id);
+    fn result_view(state: &State, id: Uuid, max_bytes: usize, policy: &decisions::Policy) -> Value {
+        let mut view = Self::view(state, id, policy);
         if let Some(runtime) = state.runtime.get(&id) {
             let (text, clipped) = clip(&runtime.result, max_bytes);
             view["result"] = json!(text);
@@ -498,11 +506,14 @@ impl Orchestrator {
         view
     }
 
-    fn task_status(
+    /// The tasks asked about, their views, and a signature that changes when a state or the set
+    /// of waiting requests does (not when only a countdown ticks).
+    fn status_snapshot(
         &self,
         caller: Uuid,
         arguments: &Map<String, Value>,
-    ) -> Result<Value, ToolFailure> {
+        policy: &decisions::Policy,
+    ) -> Result<(Value, String), ToolFailure> {
         let state = self.lock();
         let ids = if arguments.contains_key("task_id") {
             let target = Self::task_id(arguments)?;
@@ -511,8 +522,65 @@ impl Orchestrator {
         } else {
             state.tree.children(caller)
         };
-        let tasks: Vec<Value> = ids.into_iter().map(|id| Self::view(&state, id)).collect();
-        Ok(json!({"tasks": tasks}))
+        let mut signature = String::new();
+        let mut tasks = vec![];
+        for id in ids {
+            let view = Self::view(&state, id, policy);
+            signature.push_str(&format!(
+                "{id}:{}:{}:{};",
+                view["state"],
+                view["needs_decision"]
+                    .as_array()
+                    .map_or(String::new(), |list| list
+                        .iter()
+                        .map(|r| format!("{}{}", r["digest"], r["decidable"]))
+                        .collect::<Vec<_>>()
+                        .join(",")),
+                view["summary"]
+            ));
+            tasks.push(view);
+        }
+        Ok((json!({"tasks": tasks}), signature))
+    }
+
+    /// With `wait_seconds`, hold until something about these tasks changes (a state, a request
+    /// appearing, being answered by anyone, or becoming undecidable) or the time runs out.
+    async fn task_status(
+        &self,
+        caller: Uuid,
+        arguments: &Map<String, Value>,
+    ) -> Result<Value, ToolFailure> {
+        let wait = arguments
+            .get("wait_seconds")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let policy = self.policy()?;
+        let mut changes = self.changed.subscribe();
+        let (mut current, first) = self.status_snapshot(caller, arguments, &policy)?;
+        // Nothing left to wait for once every task asked about has finished (or there are none).
+        let all_finished = current["tasks"].as_array().is_none_or(|tasks| {
+            tasks.iter().all(|task| {
+                matches!(
+                    task["state"].as_str(),
+                    Some("completed" | "failed" | "canceled" | "rejected")
+                )
+            })
+        });
+        if wait == 0 || all_finished {
+            return Ok(current);
+        }
+        let end = tokio::time::Instant::now() + Duration::from_secs(wait);
+        while tokio::time::timeout_at(end, changes.changed())
+            .await
+            .is_ok()
+        {
+            let (view, signature) = self.status_snapshot(caller, arguments, &policy)?;
+            current = view;
+            if signature != first {
+                break;
+            }
+        }
+        Ok(current)
     }
 
     fn task_result(
@@ -525,9 +593,10 @@ impl Orchestrator {
             .get("max_bytes")
             .and_then(Value::as_u64)
             .map_or(DEFAULT_RESULT_BYTES, |n| n as usize);
+        let policy = self.policy()?;
         let state = self.lock();
         Self::manage(&state, caller, target)?;
-        Ok(Self::result_view(&state, target, max))
+        Ok(Self::result_view(&state, target, max, &policy))
     }
 
     fn task_cancel(
@@ -552,7 +621,8 @@ impl Orchestrator {
                 runtime.cancel.notify_one();
             }
         }
-        let view = Self::view(&state, target);
+        let policy = self.policy()?;
+        let view = Self::view(&state, target, &policy);
         drop(state);
         Ok(json!({"state": view["state"], "cancelled": order}))
     }
@@ -611,8 +681,9 @@ impl Orchestrator {
             Duration::from_secs(deadline),
             false,
         ));
+        let policy = self.policy()?;
         let state = self.lock();
-        Ok(Self::view(&state, target))
+        Ok(Self::view(&state, target, &policy))
     }
 
     async fn task_delegate(
@@ -729,9 +800,18 @@ impl Orchestrator {
             Duration::from_secs(deadline),
             true,
         ));
+        if settings.config.orchestrator.supervisor_max_risk != SupervisorRisk::None {
+            tokio::spawn(self.clone().watch(task, session_id));
+        }
         self.wait(task, wait).await;
+        let policy = self.policy()?;
         let state = self.lock();
-        Ok(Self::result_view(&state, task, DEFAULT_RESULT_BYTES))
+        Ok(Self::result_view(
+            &state,
+            task,
+            DEFAULT_RESULT_BYTES,
+            &policy,
+        ))
     }
 
     /// Hold up to `seconds` for the task to finish or need a human, then return either way.

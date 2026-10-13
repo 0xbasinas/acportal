@@ -181,6 +181,7 @@ impl Host {
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
             .route("/v1/sessions/{id}/connect", get(connect))
+            .route("/v1/sessions/{id}/supervisor", post(set_supervisor))
             .route("/v1/device", delete(revoke_self))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
         Router::new()
@@ -794,6 +795,24 @@ async fn delete_session(State(host): State<Host>, Path(id): Path<Uuid>) -> ApiRe
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "session_not_found"))?;
     host.gateways.lock().await.remove(&id);
     Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SupervisorInput {
+    paused: bool,
+}
+/// Pause or resume supervisor approvals for the delegated tasks of a phone-started session.
+/// Pending requests stay pending for the phone either way.
+async fn set_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<SupervisorInput>,
+) -> ApiResult<StatusCode> {
+    if host.orchestrator.set_supervisor_paused(id, input.paused) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError(StatusCode::NOT_FOUND, "no_delegated_tasks"))
+    }
 }
 async fn revoke_self(
     State(host): State<Host>,

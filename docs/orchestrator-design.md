@@ -479,8 +479,8 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | `acpd mcp-delegate` (MCP 2025-06-18 stdio server, seven tools, argument validation) | Implemented; 11 unit tests plus a run of the real binary |
 | Control channel: client (`control::connect`, `ControlBackend`) and host server (`control::start`) | Implemented. Windows named pipe (random name, remote clients refused) exercised. **Unix socket (private 0700 directory, 0600 socket) compiled out on Windows and not yet built or run**; CI on Linux/macOS is its first test. Unix socket paths have a length limit (about 104-108 bytes), so a very long `state_directory` fails at start with a clear error |
 | `Orchestrator` wired into `SessionManager` (`begin`/`bind`/`abort`/`release_subtree`, `open_task`) and `Host` | Implemented; `[orchestrator]` config section (`enabled`, `orchestrate`, `delegable`, limits, default deadline) |
-| Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status`, `task_result`, `task_send`, `task_cancel` |
-| Not implemented | `task_decide` (returns `not_supported`; every child permission goes to the phone, which fails closed), worktree isolation (`isolation_unsupported`), supervisor approvals, the `/acp` bridge and peers, `InputRequired` tracking, Android UI, restart persistence of tasks |
+| Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status` (incl. `wait_seconds`), `task_result`, `task_send`, `task_cancel`, `task_decide` (phase 2, section 18) |
+| Not implemented | worktree isolation (`isolation_unsupported`), the `/acp` bridge and peers, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
@@ -515,3 +515,38 @@ Two findings that change the design or the code:
 
 Not covered: nested delegation by a Goose child, `task_cancel`/`task_send`/deadline driven by Goose, how Goose reacts to a tool error, other registry agents (the other 40 are untested), Linux or macOS, and any model other than DeepSeek. Cost of all three runs together was about one US cent.
 
+## 18. Phase 2: supervisor approvals (branch `experiment/orchestrator`)
+
+Implemented as designed in section 8 unless listed under "Differences". Off when `supervisor_max_risk = "none"`; the default is `medium`, as decided.
+
+**How it works.** For every delegated child (and only children) a watcher notices each pending permission request. `approvals.rs` classifies it (Low / Medium / High, or refused, or people-only), computes the digest, and records it. The task moves `working` to `input_required` while any request needs a person or the supervisor, and back afterwards. `task_status` lists them under `needs_decision` with `decidable` and, when not decidable, a `reason` (`human_only`, `escalated`, `supervisor_disabled`, `paused`, `risk_too_high`, `expired`). `task_decide` checks, in order: the caller is the task's parent (never the task itself, never another tree); the request exists and was not answered; the digest matches; nothing blocks it (the reasons above); the request offers a matching option. It then answers through the connection, which answers a request at most once, so a racing phone answer and a supervisor decision cannot both win (tested over 8 rounds). Every other outcome leaves the request pending for the phone. The phone is never excluded: it sees and may answer everything.
+
+**Classification.**
+
+| Request | Risk |
+| --- | --- |
+| Credential or configuration path (`.env*`, `.ssh`, `.aws`, `.git`, `.config`, `*.pem`, `*.key`, ...) in any request | Refused automatically, never offered (`_meta.acpdAutoReview` layer `rules`, decision `deny`) |
+| Host write consent outside the task's workspace | Refused automatically |
+| Host write consent, inside, at most `max_edit_bytes` | Medium; larger is High |
+| Host shell line | The shell-review rules: allowed-by-rules Low, hard-denied refused, plain "ask" Medium, "sensitive ask" High. The rules read `/bin/sh` only, so every Windows `cmd.exe` line is High |
+| Host terminal (literal argv) | High |
+| Agent's own request: read, search or think, all declared paths inside | Low |
+| Agent's own request: edit or move, paths inside and confirmed, at most `max_edit_bytes` | Medium |
+| Agent's own request: delete, fetch, execute, switch_mode, other, an unknown or missing kind, a path outside the scope, or an edit with no confirmable path | High |
+| Elicitation, or any request of an agent registered `ownTools` | Only a person (`human_only`), shown as High |
+
+High is never decidable by a supervisor; Low and Medium are decidable up to `supervisor_max_risk`.
+
+**Differences from the written design, and limits to know.**
+
+- **Trust.** A request the host raised (write, shell, terminal consent) is classified from the host's own description. The connection now records which pending permissions it created itself (`PendingPermission.host_origin`), because an agent controls every field of its own request, including `_meta.acpdSource`. A request the agent sent is classified from the agent's *declared* kind and paths, which it can misstate: those are trusted only to make a decision harder (unknown means High), but a child that declares `read` for something harmful gets a Low rating. The supervisor sees the facts, and the human sees everything. Path checks are lexical and do not follow symlinks.
+- `_meta.acpdAutoReview` uses the key `reason`, not `rationale`, with layer `supervisor` (or `rules`), so the existing Android badge renders it unchanged. The Android app was not run against it.
+- `supervisor_max_risk` accepts `"none"` (default `"medium"`; `"high"` stays disallowed) so delegation can run with the phone deciding everything. `"none"` starts no watcher, so there is no `input_required` tracking and no automatic refusal: exactly the phase 1 behavior.
+- New: `task_status {wait_seconds}` holds until a state or a request changes (and returns at once when every task asked about has finished), so a supervisor need not poll. `task_delegate {wait_seconds}` now also returns when a request needs a decision.
+- Pause is `POST /v1/sessions/{id}/supervisor {"paused": bool}` on the root session id, not `/v1/tasks/{id}/supervisor/pause` (there is no task REST yet). Pending requests are unaffected by pausing.
+- Config added: `supervisor_max_risk`, `supervisor_timeout_seconds` (default 60), `max_edit_bytes` (default 262144). After the timeout the supervisor can no longer answer; the phone still can.
+- Automatic refusal of denied requests applies to delegated children only. Phone-started sessions are unchanged.
+
+**Verified.** 27 integration tests with the mock agent (`acpd/tests/orchestrator.rs`) cover approve, refuse, escalate, wrong or stale digest, unknown request, replay, a late decision after the phone answered, an 8-round phone-versus-supervisor race, each risk class and ceiling, the off switch, refused credential paths, `ownTools` agents, parent-only authority (another tree, an unknown task, the child's own task), timeout, pause and resume, log hygiene (the decision is logged; the rationale, paths, digest, token and agent text are not), and host-origin tracking from a real host terminal consent. Ten classifier unit tests cover the risk table, the digest, spoofed labels and lexical path escapes. A network test covers the pause route over HTTP with a paired device. Six deliberate breakages of the safety checks (digest, host-origin, pause, ceiling, timeout, own-tools) were each caught by a test. Windows only so far.
+
+**Not verified.** No real agent has been through supervisor approval: with Goose on Windows every child request is High (the shell rules do not read `cmd.exe`, and extension tools declare no kind), so it would only demonstrate escalation. Not run on Linux or macOS, and not on a device. The shell-line and host-write classification paths are covered by unit tests; the shell rules themselves only run on Linux.

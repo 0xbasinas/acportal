@@ -40,6 +40,71 @@ async fn api_workspace_access_negotiates_and_returns_the_immutable_session_polic
 }
 
 #[tokio::test]
+async fn phone_pauses_and_resumes_supervisor_approvals_for_its_own_session() {
+    let fixture = Fixture::start_configured(&["--delay-ms", "1"], |config| {
+        config.orchestrator.enabled = true;
+        config.orchestrator.orchestrate = vec!["mock".into()];
+    })
+    .await;
+    let id = fixture.create().await["id"].as_str().unwrap().to_owned();
+    let url = format!("{}/v1/sessions/{id}/supervisor", fixture.base);
+    let send = |paused: Value| {
+        fixture
+            .client
+            .post(&url)
+            .bearer_auth(&fixture.token)
+            .json(&json!({ "paused": paused }))
+            .send()
+    };
+    assert_eq!(
+        send(json!(true)).await.unwrap().status(),
+        reqwest::StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        send(json!(false)).await.unwrap().status(),
+        reqwest::StatusCode::NO_CONTENT
+    );
+    // A wrong body, no credentials and an unknown session are all refused.
+    assert!(send(json!("yes")).await.unwrap().status().is_client_error());
+    let anonymous = fixture
+        .client
+        .post(&url)
+        .json(&json!({"paused": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let unknown = fixture
+        .client
+        .post(format!(
+            "{}/v1/sessions/{}/supervisor",
+            fixture.base,
+            uuid::Uuid::new_v4()
+        ))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"paused": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), reqwest::StatusCode::NOT_FOUND);
+    fixture.stop().await;
+
+    // With delegation off the session is not part of any task tree, so there is nothing to pause.
+    let plain = Fixture::start().await;
+    let id = plain.create().await["id"].as_str().unwrap().to_owned();
+    let reply = plain
+        .client
+        .post(format!("{}/v1/sessions/{id}/supervisor", plain.base))
+        .bearer_auth(&plain.token)
+        .json(&json!({"paused": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), reqwest::StatusCode::NOT_FOUND);
+    plain.stop().await;
+}
+
+#[tokio::test]
 async fn phone_adds_lists_and_removes_folders_and_they_survive_restart() {
     let fixture = Fixture::start().await;
     let extra = tempfile::tempdir().unwrap();
@@ -778,14 +843,18 @@ impl Fixture {
         Self::start_with_args(&["--delay-ms", "1"]).await
     }
     async fn start_with_args(args: &[&str]) -> Self {
+        Self::start_configured(args, |_| {}).await
+    }
+    async fn start_configured(args: &[&str], tweak: impl FnOnce(&mut Config)) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let workspace = directory.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
-        let config = Config {
+        let mut config = Config {
             workspace_roots: vec![workspace],
             state_directory: directory.path().join("state"),
             ..Default::default()
         };
+        tweak(&mut config);
         let registry = Registry::parse(&json!([{"id":"mock","name":"Mock ACP","command":env!("CARGO_BIN_EXE_mock-acp-agent"),"args":args}]).to_string()).unwrap();
         let host = Host::new(config, registry).unwrap();
         let code = host.security.new_pairing_code().unwrap();

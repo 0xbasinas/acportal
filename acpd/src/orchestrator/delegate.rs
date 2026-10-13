@@ -86,7 +86,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "task_status",
             "State of one sub-task, or of all your sub-tasks when task_id is omitted.",
-            json!({"task_id": task_id}),
+            json!({"task_id": task_id, "wait_seconds": {"type":"integer","minimum":0,"maximum":120}}),
             &[],
         ),
         tool(
@@ -223,8 +223,9 @@ pub fn validate(tool: &str, args: &Map<String, Value>) -> Result<(), ToolFailure
             Ok(())
         }
         "task_status" => {
-            only_keys(args, &["task_id"])?;
-            uuid_field(args, "task_id", false)
+            only_keys(args, &["task_id", "wait_seconds"])?;
+            uuid_field(args, "task_id", false)?;
+            integer(args, "wait_seconds", 0..=120)
         }
         "task_result" => {
             only_keys(args, &["task_id", "max_bytes"])?;

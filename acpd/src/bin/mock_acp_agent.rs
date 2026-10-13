@@ -23,6 +23,12 @@ struct Options {
     mcp_sse: bool,
     #[arg(long)]
     echo_mcp: bool,
+    /// Kind of the permission request the mock raises each turn (default `edit`).
+    #[arg(long, default_value = "edit")]
+    permission_kind: String,
+    /// Path named in that request's rawInput (default `example.rs`).
+    #[arg(long, default_value = "example.rs")]
+    permission_path: String,
     #[arg(long)]
     prompt_media: bool,
     #[arg(long)]
@@ -220,6 +226,8 @@ async fn main() -> anyhow::Result<()> {
                 let terminal_enabled =
                     options.terminal_during_prompt && client_capabilities["terminal"] == true;
                 let delay = options.delay_ms;
+                let permission_kind = options.permission_kind.clone();
+                let permission_path = options.permission_path.clone();
                 let terminal_delay = options.terminal_exit_delay_ms;
                 tokio::spawn(async move {
                     let mut cancellation = cancellation;
@@ -240,6 +248,7 @@ async fn main() -> anyhow::Result<()> {
                             &session,
                             &permission_id,
                             delay,
+                            (&permission_kind, &permission_path),
                         )
                         .await
                     };
@@ -440,6 +449,7 @@ async fn turn(
     session: &str,
     permission_id: &str,
     delay: u64,
+    (kind, path): (&str, &str),
 ) -> anyhow::Result<bool> {
     for text in ["I'll inspect ", "the workspace.\n"] {
         update(
@@ -458,7 +468,7 @@ async fn turn(
         .await
         .insert(json!(permission_id).to_string(), decision);
     out.send(json!({"jsonrpc":"2.0","id":permission_id,"method":"session/request_permission","params":{
-        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":"edit","rawInput":{"path":"example.rs"}},
+        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":kind,"rawInput":{"path":path}},
         "options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}})).await?;
     let decision = result.await?;
     if decision["outcome"]["outcome"] == "cancelled" {
