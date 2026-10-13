@@ -92,6 +92,8 @@ pub struct Orchestrator {
     state: Mutex<State>,
     changed: watch::Sender<u64>,
     control_path: OnceLock<String>,
+    /// The executable that runs `mcp-delegate`. Defaults to the running host.
+    delegate_executable: OnceLock<std::path::PathBuf>,
     cancel_grace: Duration,
 }
 
@@ -185,6 +187,7 @@ impl Orchestrator {
             }),
             changed: watch::channel(0).0,
             control_path: OnceLock::new(),
+            delegate_executable: OnceLock::new(),
             cancel_grace,
         })
     }
@@ -192,6 +195,11 @@ impl Orchestrator {
     /// delegation tools.
     pub fn set_control_path(&self, path: String) {
         let _ = self.control_path.set(path);
+    }
+    /// Use this executable for `mcp-delegate` instead of the running one. Only needed when the
+    /// host is embedded in something that is not `acpd` (tests, other programs).
+    pub fn set_delegate_executable(&self, path: std::path::PathBuf) {
+        let _ = self.delegate_executable.set(path);
     }
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().expect("orchestrator state")
@@ -236,11 +244,11 @@ impl Orchestrator {
             })
             .map_err(AdmissionFailure)?;
         let mut runtime = Runtime::new();
-        let mcp = match (
-            orchestrates,
-            self.control_path.get(),
-            std::env::current_exe(),
-        ) {
+        let executable = match self.delegate_executable.get() {
+            Some(path) => Ok(path.clone()),
+            None => std::env::current_exe(),
+        };
+        let mcp = match (orchestrates, self.control_path.get(), executable) {
             (true, Some(path), Ok(exe)) => {
                 let mut bytes = [0u8; 32];
                 getrandom::fill(&mut bytes).ok();
