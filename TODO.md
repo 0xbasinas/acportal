@@ -4,6 +4,10 @@ Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `cod
 
 Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
 
+## Proposed, not started
+
+- [ ] Agent orchestrator module in `acpd` (delegation, supervisor approvals with phone escalation, built-in ACP bridge for remote agents). Design only: [orchestrator design](docs/orchestrator-design.md). Needs the user's go-ahead and phase 0 spec/agent checks before any code.
+
 ## Host limits requiring further verification or a containment decision
 
 - [ ] macOS cleanup with real-agent descendants after abrupt host death, particularly when the leader has exited. Linux real-Goose cleanup and Linux/macOS controlled CI tests have passing evidence. macOS leader-less groups and descendants creating a new session remain documented limits; the implemented cleanup is not a sandbox guarantee.
