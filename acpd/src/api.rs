@@ -171,6 +171,21 @@ impl Host {
             user_changes: Arc::new(AsyncMutex::new(())),
         })
     }
+    /// The delegation orchestrator, for embedders and tests that drive it directly.
+    pub fn orchestrator(&self) -> &Arc<crate::orchestrator::Orchestrator> {
+        &self.orchestrator
+    }
+    /// Start the control channel agents' delegate processes connect to, if delegation is on.
+    /// Dropping the returned endpoint stops it. `serve` calls this once; it is public so a
+    /// host can be driven without a listener.
+    pub fn start_control_channel(&self) -> Result<Option<crate::orchestrator::control::Endpoint>> {
+        if !self.config.orchestrator.enabled {
+            return Ok(None);
+        }
+        crate::orchestrator::control::start(self.orchestrator.clone(), &self.config.state_directory)
+            .map(Some)
+            .context("start the delegation control channel")
+    }
     pub fn router(&self) -> Router {
         let protected = Router::new()
             .route("/v1/status", get(status))
@@ -188,6 +203,11 @@ impl Host {
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
             .route("/v1/sessions/{id}/connect", get(connect))
             .route("/v1/sessions/{id}/supervisor", post(set_supervisor))
+            .route("/v1/tasks", get(list_tasks))
+            .route("/v1/tasks/{id}", get(task_detail))
+            .route("/v1/tasks/{id}/cancel", post(cancel_task))
+            .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
+            .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
             .route("/v1/device", delete(revoke_self))
             .route_layer(middleware::from_fn(phones_only))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
@@ -241,17 +261,7 @@ impl Host {
         });
         // Experimental delegation: the control endpoint lives exactly as long as the host serves.
         // Enabling it by reload alone is not enough; it is started here, once.
-        let _control = if self.config.orchestrator.enabled {
-            Some(
-                crate::orchestrator::control::start(
-                    self.orchestrator.clone(),
-                    &self.config.state_directory,
-                )
-                .context("start the delegation control channel")?,
-            )
-        } else {
-            None
-        };
+        let _control = self.start_control_channel()?;
         let address = self.config.server.listen;
         let listener = std::net::TcpListener::bind(address)
             .context("bind host listener; check address and port conflicts")?;
@@ -851,6 +861,51 @@ async fn set_supervisor(
     } else {
         Err(ApiError(StatusCode::NOT_FOUND, "no_delegated_tasks"))
     }
+}
+/// Every task this host knows about, oldest first.
+async fn list_tasks(State(host): State<Host>) -> Json<Value> {
+    Json(Value::Array(host.orchestrator.task_list()))
+}
+fn task_id(id: &str) -> ApiResult<Uuid> {
+    Uuid::parse_str(id).map_err(|_| ApiError(StatusCode::NOT_FOUND, "task_not_found"))
+}
+async fn task_detail(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    host.orchestrator
+        .task_detail(task_id(&id)?)
+        .map(Json)
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "task_not_found"))
+}
+/// Cancel a task and what is still running below it.
+async fn cancel_task(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    use crate::orchestrator::views::CancelRefusal;
+    match host.orchestrator.cancel_task(task_id(&id)?).await {
+        Ok(cancelled) => Ok(Json(json!({ "cancelled": cancelled }))),
+        Err(CancelRefusal::Unknown) => Err(ApiError(StatusCode::NOT_FOUND, "task_not_found")),
+        Err(CancelRefusal::NotOpen) => Err(ApiError(StatusCode::CONFLICT, "task_not_open")),
+    }
+}
+fn supervisor(host: &Host, id: &str, paused: bool) -> ApiResult<StatusCode> {
+    use crate::orchestrator::views::PauseRefusal;
+    match host
+        .orchestrator
+        .set_supervisor_paused_for_task(task_id(id)?, paused)
+    {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(PauseRefusal::Unknown) => Err(ApiError(StatusCode::NOT_FOUND, "task_not_found")),
+        Err(PauseRefusal::NotARoot) => Err(ApiError(StatusCode::CONFLICT, "not_a_root_task")),
+    }
+}
+async fn pause_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    supervisor(&host, &id, true)
+}
+async fn resume_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    supervisor(&host, &id, false)
 }
 async fn revoke_self(
     State(host): State<Host>,

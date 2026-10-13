@@ -14,6 +14,7 @@ mod decisions;
 pub mod delegate;
 pub mod records;
 pub mod tree;
+pub mod views;
 
 use crate::{
     config::{OrchestratorConfig, SupervisorRisk},
