@@ -43,6 +43,33 @@ pub struct OrchestratorConfig {
     pub supervisor_timeout_seconds: u64,
     /// Largest edit (bytes) still rated medium risk.
     pub max_edit_bytes: usize,
+    /// Agent ids that paired peer hosts may use through `/acp/{agent_id}`. Empty: none.
+    pub peer_agents: Vec<String>,
+    /// Workspaces peers may name, by alias. A peer never supplies or sees a path.
+    pub peer_workspaces: BTreeMap<String, PathBuf>,
+    /// The most a peer's sessions may be allowed to do on this host. A peer may ask for less.
+    pub peer_rights: PeerRights,
+    /// How long a bridge session survives its socket, so the peer can reattach with
+    /// `session/load`. 0 removes it at once.
+    pub bridge_resume_seconds: u64,
+    /// Interval between WebSocket pings and credential re-checks on a bridge connection.
+    pub bridge_ping_seconds: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeerRights {
+    pub read: bool,
+    pub write: bool,
+    pub terminal: bool,
+}
+impl Default for PeerRights {
+    fn default() -> Self {
+        Self {
+            read: true,
+            write: false,
+            terminal: false,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -65,6 +92,11 @@ impl Default for OrchestratorConfig {
             supervisor_max_risk: SupervisorRisk::default(),
             supervisor_timeout_seconds: 60,
             max_edit_bytes: 256 * 1024,
+            peer_agents: vec![],
+            peer_workspaces: BTreeMap::new(),
+            peer_rights: PeerRights::default(),
+            bridge_resume_seconds: 120,
+            bridge_ping_seconds: 20,
         }
     }
 }
@@ -79,8 +111,22 @@ impl OrchestratorConfig {
         {
             bail!("invalid orchestrator limits")
         }
-        if self.orchestrate.len() > 64 || self.delegable.len() > 64 {
+        if self.orchestrate.len() > 64 || self.delegable.len() > 64 || self.peer_agents.len() > 64 {
             bail!("too many orchestrator agents")
+        }
+        if self.bridge_resume_seconds > 3600 || !(5..=120).contains(&self.bridge_ping_seconds) {
+            bail!("invalid bridge timers")
+        }
+        if self.peer_workspaces.len() > 32
+            || self.peer_workspaces.keys().any(|alias| {
+                alias.is_empty()
+                    || alias.len() > 32
+                    || !alias.bytes().all(|b| {
+                        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_'
+                    })
+            })
+        {
+            bail!("peer workspace aliases must be 1..32 characters of a-z, 0-9, '-' or '_'")
         }
         Ok(())
     }

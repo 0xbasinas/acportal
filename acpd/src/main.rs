@@ -55,6 +55,10 @@ enum Commands {
     DaemonWorker,
     /// Generate a one-use pairing code through the local operator store.
     Pair {
+        /// `phone` manages this host from the app. `peer` is another acpd host that may only use
+        /// the agent bridge (`/acp`); it cannot reach any phone management route.
+        #[arg(long, value_enum, default_value = "phone", conflicts_with_all = ["qr", "manual"])]
+        role: PairRole,
         /// Phone-reachable HTTPS address (for example a Tailscale Serve address).
         #[arg(long)]
         address: Option<String>,
@@ -121,6 +125,11 @@ enum Commands {
         #[arg(long)]
         load: Option<String>,
     },
+}
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum PairRole {
+    Phone,
+    Peer,
 }
 #[derive(Subcommand)]
 enum DaemonAction {
@@ -287,6 +296,7 @@ async fn main() -> Result<()> {
             unreachable!("daemon command handled before host initialization")
         }
         Commands::Pair {
+            role,
             address,
             qr,
             manual,
@@ -318,8 +328,17 @@ async fn main() -> Result<()> {
                 }
             }
             let store = SecurityStore::open(&config.state_directory)?;
-            let code = store.new_pairing_code()?;
+            let role = match role {
+                PairRole::Phone => acpd::security::Role::Phone,
+                PairRole::Peer => acpd::security::Role::Peer,
+            };
+            let code = store.new_pairing_code_for(role)?;
             println!("Pairing code: {}\nExpires in 60 seconds.", code);
+            if role == acpd::security::Role::Peer {
+                println!(
+                    "Role: peer. The paired host can use the agent bridge only, not phone management."
+                );
+            }
             if let Some(address) = address {
                 println!("Host address: {address}");
                 if qr {

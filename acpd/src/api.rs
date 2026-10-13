@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     registry::{AgentDefinition, Registry},
-    security::{Device, SecurityStore},
+    security::{Device, Role, SecurityStore},
     session::{AcpSession, SessionManager, SessionMetadata},
     userdata::{UserData, plain_path},
 };
@@ -33,12 +33,15 @@ use std::{
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
+mod bridge;
+
 #[derive(Clone)]
 pub struct Host {
     pub config: Arc<Config>,
     pub registry: Arc<Registry>,
     pub sessions: Arc<SessionManager>,
     orchestrator: Arc<crate::orchestrator::Orchestrator>,
+    bridge: Arc<bridge::BridgeState>,
     pub security: SecurityStore,
     gateways: Arc<AsyncMutex<HashMap<Uuid, Arc<Gateway>>>>,
     /// Serializes phone-initiated changes to folders (read, change, save, reload).
@@ -160,6 +163,7 @@ impl Host {
             registry: Arc::new(registry),
             sessions,
             orchestrator,
+            bridge: Arc::new(bridge::BridgeState::default()),
             security,
             gateways: Arc::new(AsyncMutex::new(HashMap::new())),
             user_changes: Arc::new(AsyncMutex::new(())),
@@ -183,9 +187,27 @@ impl Host {
             .route("/v1/sessions/{id}/connect", get(connect))
             .route("/v1/sessions/{id}/supervisor", post(set_supervisor))
             .route("/v1/device", delete(revoke_self))
+            .route_layer(middleware::from_fn(phones_only))
+            .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
+        // Standard ACP over a WebSocket for paired peer hosts. Streamable HTTP is not offered.
+        let bridge = Router::new()
+            .route(
+                "/acp",
+                get(bridge::agent_required)
+                    .post(bridge::not_supported)
+                    .delete(bridge::not_supported),
+            )
+            .route(
+                "/acp/{agent_id}",
+                get(bridge::upgrade)
+                    .post(bridge::not_supported)
+                    .delete(bridge::not_supported),
+            )
+            .route_layer(middleware::from_fn(peers_only))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
         Router::new()
             .merge(protected)
+            .merge(bridge)
             .route("/v1/pair", post(pair))
             .layer(DefaultBodyLimit::max(16 * 1024))
             .layer(middleware::from_fn(no_browser_and_no_cache))
@@ -288,6 +310,20 @@ async fn no_browser_and_no_cache(request: Request, next: Next) -> Response {
         .headers_mut()
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
+}
+/// Phone management routes are for phones only: a peer host's credential stops at `/acp`.
+async fn phones_only(request: Request, next: Next) -> Response {
+    match request.extensions().get::<Authorized>() {
+        Some(auth) if auth.device.role == Role::Phone => next.run(request).await,
+        _ => ApiError(StatusCode::FORBIDDEN, "role_not_allowed").into_response(),
+    }
+}
+/// The agent bridge is for peer hosts only.
+async fn peers_only(request: Request, next: Next) -> Response {
+    match request.extensions().get::<Authorized>() {
+        Some(auth) if auth.device.role == Role::Peer => next.run(request).await,
+        _ => ApiError(StatusCode::FORBIDDEN, "role_not_allowed").into_response(),
+    }
 }
 async fn authenticate(State(host): State<Host>, mut request: Request, next: Next) -> Response {
     let Some(token) = request
@@ -855,20 +891,7 @@ async fn connect(
         .get(id)
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "session_not_found"))?;
-    let gateway = host
-        .gateways
-        .lock()
-        .await
-        .entry(id)
-        .or_insert_with(|| {
-            Arc::new(Gateway {
-                controller: AtomicBool::new(false),
-                requests: Mutex::new(VecDeque::new()),
-                cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
-                result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
-            })
-        })
-        .clone();
+    let gateway = gateway_for(&host, id).await;
     let lease = if input.read_only {
         None
     } else {
@@ -892,6 +915,32 @@ async fn connect(
             socket_session(socket, host, session, gateway, lease, auth, input)
         })
         .into_response())
+}
+/// The per-session gateway: the single-controller lease and the request de-duplication cache.
+async fn gateway_for(host: &Host, id: Uuid) -> Arc<Gateway> {
+    host.gateways
+        .lock()
+        .await
+        .entry(id)
+        .or_insert_with(|| {
+            Arc::new(Gateway {
+                controller: AtomicBool::new(false),
+                requests: Mutex::new(VecDeque::new()),
+                cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
+                result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
+            })
+        })
+        .clone()
+}
+/// Take the controller lease, or `None` if someone else (a phone, a peer) already has it.
+fn take_lease(gateway: &Arc<Gateway>) -> Option<Lease> {
+    gateway
+        .controller
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| Lease {
+            gateway: gateway.clone(),
+        })
 }
 async fn send_json(
     socket: &mut futures_util::stream::SplitSink<WebSocket, Message>,
