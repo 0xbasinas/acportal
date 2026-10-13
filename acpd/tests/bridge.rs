@@ -10,7 +10,7 @@ use acpd::{
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Duration};
-use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
+use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Message, client::IntoClientRequest},
@@ -175,8 +175,11 @@ impl Client {
             .unwrap();
     }
     async fn next_frame(&mut self) -> Option<Value> {
+        // One deadline for the whole wait. A timeout per socket message would restart on every
+        // WebSocket ping (the bridge sends one every few seconds) and never fire.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
-            match timeout(Duration::from_secs(15), self.socket.next())
+            match tokio::time::timeout_at(deadline, self.socket.next())
                 .await
                 .expect("frame in time")?
             {
@@ -196,7 +199,13 @@ impl Client {
         self.wait_for_response(json!(id)).await
     }
     async fn wait_for_response(&mut self, id: Value) -> Value {
+        let give_up = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
+            assert!(
+                tokio::time::Instant::now() < give_up,
+                "no response to request {id} within 30 s; seen so far: {:?}",
+                self.seen
+            );
             let frame = self.next_frame().await.expect("socket stayed open");
             if frame.get("method").is_none() && frame["id"] == id {
                 return frame;
@@ -209,7 +218,13 @@ impl Client {
         if let Some(index) = self.seen.iter().position(&wanted) {
             return self.seen.remove(index);
         }
+        let give_up = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
+            assert!(
+                tokio::time::Instant::now() < give_up,
+                "the expected frame did not arrive within 30 s; seen so far: {:?}",
+                self.seen
+            );
             let frame = self.next_frame().await.expect("socket stayed open");
             if wanted(&frame) {
                 return frame;

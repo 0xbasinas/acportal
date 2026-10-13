@@ -46,13 +46,12 @@ pub(super) async fn upgrade(
     State(host): State<Host>,
     Path(agent_id): Path<String>,
     Extension(auth): Extension<Authorized>,
-    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> ApiResult<Response> {
-    // Peers are hosts, not browsers: a browser-supplied Origin is never legitimate here.
-    if headers.contains_key(header::ORIGIN) {
-        return Err(ApiError(StatusCode::FORBIDDEN, "origin_not_allowed"));
-    }
+    // A browser-supplied `Origin` never gets this far: the router's `no_browser_and_no_cache`
+    // layer refuses it for every route. (An Origin check here was unreachable, which a mutation
+    // run showed; `routes_roles_and_origin_are_enforced_before_any_session_exists` now pins the
+    // behavior for `/acp`.)
     let settings = host.sessions.launch_settings();
     let orchestrator = &settings.config.orchestrator;
     let known = orchestrator.enabled
