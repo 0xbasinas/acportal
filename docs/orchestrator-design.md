@@ -593,7 +593,28 @@ Only the inbound half of section 7 exists. Another acpd host (or any ACP client 
 
 **Verified.** 14 integration tests over real WebSockets (`acpd/tests/bridge.rs`) against a real `Host` and the mock agent: routes, roles, origin and sharing rules; strictness; workspace aliases, MCP refusal and rights ceilings (ten refused shapes, no agent started by any); a prompt with the peer answering a permission; cancel; two sessions with colliding agent ids; cross-peer isolation; reattach after a drop with a permission outstanding; a turn that finished while the peer was away; the gap report; the resume window; the stale-timer case; revocation (within 3 s, with an unaffected bystander); phone controller conflict. Security tests (4) for roles and old-format files. Full workspace tests, strict Clippy and formatting pass on Windows. The earlier phases' tests were rerun unchanged.
 
-**Mutation check: incomplete.** A script that breaks one guard at a time and reruns the bridge tests was started but not finished. The first run covered only mutation 3, disabling session id translation, and the test binary then hung for 18 minutes instead of failing. That is a weakness in the tests (an unbounded wait) and was not investigated here; the script has no per-run timeout. So, unlike phase 2, this slice's tests have **not** been shown to catch their intended regressions. The 12 other planned mutations (browser Origin accepted, every agent shared, initialize not required, batches accepted, peer MCP servers accepted, rights ceiling ignored, any peer may reattach, an attached session may be taken over, per-message credential check removed, stale timer honored, role checks removed in either direction) have not been run.
+**Mutation check.** Thirteen guards were broken one at a time and the bridge suite rerun, each test on its own under a timeout:
+
+| Broken guard | Caught by |
+| --- | --- |
+| Session ids not translated | six tests that prompt |
+| Every registered agent shared with peers | the routes test |
+| `initialize` not required first | the strictness test |
+| Batches accepted | the strictness test |
+| Peer MCP servers accepted | the alias and rights test |
+| Rights ceiling ignored | the alias and rights test |
+| Any peer may reattach any session | the cross-peer test |
+| An attached session may be taken over | the reattach test |
+| Per-message credential check removed | the revocation test (it now asserts disconnect within 3 s, so the 5-second heartbeat cannot hide it) |
+| Stale removal timer honored | the stale-timer test |
+| A phone may use `/acp` | the routes test |
+| A peer may use `/v1` | the routes test |
+| Browser `Origin` accepted | **survived**: see below |
+
+Two findings came out of it.
+
+1. **The tests could hang instead of fail.** The first mutation (ids not translated) hung the suite for 18 minutes. The cause was in the test client, not the bridge: its 15-second timeout restarted on every WebSocket ping, and the bridge pings every few seconds, so a frame that never arrived made a test wait forever with an idle CPU. A bridge regression would have hung CI. The client now uses one deadline per wait (15 s) and the multi-frame waits are limited to 30 s; the same mutation now fails six tests in seconds.
+2. **One survivor was an equivalent mutant.** The `Origin` check in the bridge handler could never run: the router's `no_browser_and_no_cache` layer already refuses every request that carries an `Origin` header, so breaking the handler's copy changed nothing. The duplicate was deleted. The route test (which asserts `403` for `/acp` with an `Origin`) now guards the global layer, and breaking that layer is caught by it.
 
 **Not verified or not done.** Linux and macOS; a real second host or `goose serve` as a peer; TLS (the bridge relies on the listener's rules, tested here over plain loopback); the outbox overflow disconnect (`1013`); rate limits; real-agent behavior through the bridge; any Android surface for peer sessions. HTTP/2 and Streamable HTTP are not offered.
 
