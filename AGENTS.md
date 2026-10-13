@@ -1,5 +1,7 @@
 # ACP Portal contributor context
 
+13 October 2026: the orchestrator experiment lives on `experiment/orchestrator` (draft PR #45), off by default (`[orchestrator] enabled`). Code is in `acpd/src/orchestrator/`, `peers.rs`, `peer_link.rs`, `peer_cli.rs` and `api/bridge.rs`. Evidence is Windows-local plus earlier Linux CI; macOS and two-machine TLS are unverified. Start at [orchestrator design](docs/orchestrator-design.md) section 22, then [TODO](TODO.md). Mutation checks must run on a clean tree and never alongside `git add -A`.
+
 11 October offline empty-history fix: Penpot boards 32–35 preserve the existing theme and show a shared scrolling recovery/empty-state body. Owned actual MainActivity native TalkBack passes both themes at normal and actual 2× font. The header, draft and composer remain available; populated history keeps its existing layout. The user requested finishing this increment and then pausing the goal. Resume only when requested; remaining gates stay in TODO. See [current evidence](docs/final-acceptance.md#native-page-state-traversal).
 
 Earlier write/page-state source `b135c9f` is pushed to draft PR #16. Full [Android Actions 38135646596](https://github.com/0xbasinas/acportal/actions/runs/38135646596) passes JVM tests, both debug APKs and lint. All write approvals are consumed; write-3 completes with one agent and one matching host consent. The later MainActivity reproduction and Penpot-backed fix supersede its open empty-state failure only. See [current continuation](docs/final-acceptance.md).

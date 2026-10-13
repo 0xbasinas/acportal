@@ -1,5 +1,7 @@
 # ACP Portal agent handoff
 
+13 October 2026 orchestrator handoff: see [orchestrator design section 22](docs/orchestrator-design.md) and the "Agent orchestrator" item in [TODO.md](TODO.md). Branch `experiment/orchestrator`, draft PR #45; the phase-1 gap commits may be unpushed, so check `git status` and `git log origin/experiment/orchestrator..` first.
+
 11 October offline empty-history increment: owned actual MainActivity reproduced the missing 2× TalkBack body; the Penpot-backed shared scrolling body now passes dark/light at normal and actual 2× font. Preserve boards 32–35 and all consumed approval markers. The user requested finishing this increment, updating PR #16 and then pausing the goal. Do not start the remaining shell, motion or macOS work until resumed. [TODO](TODO.md) retains unfinished gates; [current evidence](docs/final-acceptance.md#native-page-state-traversal) records failures, fixes and limits.
 
 Earlier write/page-state source `b135c9f` is pushed to draft PR #16. Full [Android Actions 38135646596](https://github.com/0xbasinas/acportal/actions/runs/38135646596) passes JVM tests, both debug APKs and lint. All write approvals are consumed; write-3 completes with one agent and one matching host consent. Its initial empty-state failure is superseded only by the later verified fix above. See [current continuation](docs/final-acceptance.md).

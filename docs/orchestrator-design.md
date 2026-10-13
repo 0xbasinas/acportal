@@ -482,14 +482,15 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status` (incl. `wait_seconds`), `task_result`, `task_send`, `task_cancel`, `task_decide` (phase 2, section 18) |
 | Phase 3, inbound half (section 20) | `peer` device role and `acpd pair --role peer`, `/acp/{agent_id}` WebSocket bridge with reattach |
 | Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts, `acpd peer add|list|remove` |
-| Not implemented | worktree isolation (`isolation_unsupported`), reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees and supervisor outcomes, restart persistence of tasks, token and cost budgets |
+| Phase 1 gaps (section 22) | Task records survive restart (`tasks.json`), phone REST routes and `acpd tasks`, idle/deadline/cost limits, finished-child sweep, delegate hello, W3C trace, process-level cleanup tests |
+| Not implemented | worktree isolation (`isolation_unsupported`), reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees, supervisor outcomes and delegate status, token and turn budgets |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
 Behaviour worth knowing:
 - Finished child sessions are kept (visible on the phone, open to `task_send`) and count toward `max_sessions` until their root session is removed.
 - An agent that ignores `session/cancel` has its session removed after a grace period (15 s, shortened in tests). That path is not exercised, because the mock agent always honors cancel.
-- Enabling the feature by reload alone does not start the control channel; the host must restart.
+- Enabling the feature by reload alone does not start the control channel; the host must restart. New limit settings (section 22) apply to future tasks after a reload.
 - The task token is held by the agent and by the agent's `mcp-delegate` child, so anything the agent runs can use it. It authorizes only what that one task could already do, and dies with its session or when its task fails or is cancelled.
 - A Windows named pipe's default access list lets other local users open the pipe; the unguessable name and the per-task token are what protect it.
 
@@ -662,3 +663,43 @@ Rules the command follows:
 
 Verified: 7 tests run the real `acpd` binary against a real far host, including one that opens a real remote session with a credential the CLI created, and one that proves bad input is refused with the code still usable afterwards. Eight guards were broken one at a time (local checks before the code is spent, redirects, token shape, reply size, code-and-header conflict, the full-store check, code shape, device-id recording) and each was caught. Reading the tests critically first found two that would have survived (an oversized reply that was also an invalid token, and a refusal test that did not check its reason); both were strengthened before the run. An inconsistency was fixed too: `peer list` printed `device_id` where `acpd devices` uses camelCase. Windows only so far; Linux CI covered the outbound half before the CLI was added.
 
+
+## 22. Phase 1 gaps closed, and handoff (branch `experiment/orchestrator`)
+
+Written 13 October 2026 for the next agent. Everything here is experimental and off by default (`[orchestrator] enabled = false`). Local runs were on Windows only.
+
+### What was added
+
+| Piece | Where | Behaviour |
+| --- | --- | --- |
+| Task records | `orchestrator/records.rs`, `Orchestrator::restore/persist_now/schedule_persist` | `tasks.json` in the state directory, written by a debounced writer that takes its snapshot under the write lock. Bounded to 256 records / 1 MiB; pruning keeps the newest whole trees. After a restart every non-terminal task becomes `interrupted` (nothing is restarted or resent) and is written back. An unreadable file is set aside, not overwritten; an empty list never creates a file. `SessionManager::shutdown` flushes. |
+| Phone routes | `orchestrator/views.rs`, `api.rs` | Task list/detail, cancel (a root cancels its whole subtree and the root's current turn; a finished task cannot be cancelled again), pause/resume supervision (roots only). Phone credentials only; peer and other roles are refused. `acpd tasks` lists them from the CLI. |
+| Limits | `Runtime::limit`, `run_prompt`, `start_janitor` | `idle_timeout_seconds` (default 300; any event resets it; waiting for a person is not idle), the existing deadline, `task_max_cost_usd` (default 0 = off; cumulative; only `USD` usage counts, another currency or none is unmetered), `finished_child_keep_seconds` (default 600; 0 keeps them; a child with open work below it is never swept). A forced end records its reason in the task error. A stuck agent's session is removed. |
+| Delegate hello | `call("_hello")`, `main.rs` `McpDelegate` | `acpd mcp-delegate` says hello over the control channel on start. Task detail shows `delegate: connected` or `not_connected` (only when the tools were offered). `_hello` is not in `tools/list`, so an agent cannot call it as a tool. |
+| Trace | `Ticket.traceparent`, `session.rs` | One W3C `traceparent` trace id per tree, a new span per task, sent in `_meta` on `session/new` and `session/prompt`. State changes log `trace_id`, task and state name only. |
+| Process tests | `tests/task_health.rs` | Handles-based (Windows `OpenProcess` / Unix `kill(pid,0)`) proof that an agent and a descendant end after cancel, limit, and session removal. |
+
+### Tests (all under `acpd/tests` unless noted)
+
+`task_records` 4, `task_api` 6, `task_limits` 8, `task_health` 6, plus the earlier `orchestrator` 27, `bridge` 14, `peer_link` 15, `peer_cli` 7 and 119 lib unit tests. Mock agent fixture flags used: `--usage-cost`, `--usage-currency`, `--stall-prompt`, `--ignore-cancel`, `--echo-mcp`, plus `_mock/pid` and `_mock/spawn_descendant`.
+
+### Mutation check
+
+`mut_phase1.py` (a disposable script, not in the repository) breaks one guard at a time in 23 places across records, routes, limits, sweep, hello and trace, runs the tests that should notice, and restores the file with `git checkout`. It refuses a dirty tree and kills the process tree on timeout. Never run it with uncommitted work, and never `git add -A` while it is running. Result (13 October 2026, Windows): 22 of 23 were caught on the first run. One survived, "keep 0 still sweeps", because its test waited 3.5 s while the janitor sleeps 10 s between passes when keep is 0, so it never saw a second sweep. The test now waits 11.5 s and catches the mutant (confirmed by re-applying it); the other 22 were not rerun after that change.
+
+### Honest limits
+
+- Linux CI has **not** run the phase-1 gap commits; the Unix process checks and the Unix control socket are unrun. macOS is never run (workflow skips it).
+- No real agent went through supervisor approval; Windows shell lines always rate High; request kinds and paths declared by an agent cannot be verified.
+- Real TLS between two machines, and `goose serve` as a peer, are untested.
+- Not built: token and turn budgets, client reconnect/reattach, `GET /v1/peer/info`, worktree isolation, Android UI (task tree, supervisor outcomes, `delegate` status, peer sessions).
+- The original phase-1 tree and `mcp-delegate` tests were never mutation-checked. Outbox overflow disconnect and rate limits are untested. The `tokio-tungstenite` dependency (rustls, webpki roots) has not been reviewed.
+- Enabling the orchestrator by reload does not start the control channel; restart the host.
+- Four test sessions from phase 0 (`20261013_2` to `_5`) remain in the user's Goose history; ask before deleting.
+
+### How to continue
+
+1. Read this section, then `TODO.md` ("Agent orchestrator"). Branch `experiment/orchestrator`, draft PR #45.
+2. Run: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`. For Linux evidence: `gh workflow run Rust --ref experiment/orchestrator` and read the result.
+3. Suggested order: Linux CI read and fixes; two-machine TLS check and `goose serve` peer test; decide client reconnect; `GET /v1/peer/info`; worktree isolation; Penpot boards then Android task tree; hardening (macOS, overflow/rate-limit tests, dependency review) before taking the PR out of draft.
+4. Keep invariants from `AGENTS.md`: literal argv, no secrets in logs, TLS never downgraded, record only verified scope.

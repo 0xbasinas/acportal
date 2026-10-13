@@ -364,7 +364,9 @@ async fn a_finished_childs_session_is_ended_after_its_keep_time_but_its_record_s
     let child = worker_session(&life).await;
     answer(&child).await;
     reaches(&agent, &task, "completed").await;
-    tokio::time::sleep(Duration::from_millis(3500)).await;
+    // With keep = 0 the janitor sleeps 10 s between passes and sweeps once at startup, so wait
+    // past a whole second pass; a shorter wait would never see a sweep happen at all.
+    tokio::time::sleep(Duration::from_millis(11_500)).await;
     assert!(life.manager.get(child.metadata().id).await.is_ok());
     life.manager.shutdown().await;
 }
