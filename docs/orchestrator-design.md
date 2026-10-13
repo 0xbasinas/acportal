@@ -20,7 +20,7 @@ Non-goals for the first release: A2A interoperability, a hosted relay, agent-to-
 
 ## 2. Verified findings from official sources
 
-Docs sites `agentclientprotocol.com`, `a2a-protocol.org` and the registry CDN are blocked by this environment's egress policy. I read the source repositories on GitHub (`main`) instead. Re-check statuses before building.
+Most facts below were read from the source repositories on GitHub (`main`) while `agentclientprotocol.com` was blocked by this environment's egress policy. The docs site and registry CDN became reachable later (the registry index was read from the CDN); statuses should still be re-checked on the live site before building.
 
 | Topic | Verified fact | Source |
 | --- | --- | --- |
@@ -88,7 +88,7 @@ Source: `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json` (
 
 Index facts that shape the design:
 
-- **Distributions:** 22 agents use `npx`, 19 `binary`, 2 `uvx` (Kilo and siGit offer both `npx` and `binary`). Binary entries are per-platform archives with a `sha256`, and some ship macOS-only archives (for example Cortex Code and Poolside list a darwin build in the first target), so availability differs by platform.
+- **Distributions:** 22 agents use `npx`, 19 `binary`, 2 `uvx` (Kilo and siGit offer both `npx` and `binary`). Binary entries are per-platform archives with a `sha256`. Coverage differs: for example `kimi` has no `darwin-x86_64`, and `corust-agent` and `vtcode` have no `linux-aarch64`, so availability must be checked per platform before launch.
 - **Manifest env:** an entry may carry launch `env` (for example Factory Droid disables auto-update). Import must copy it into the registry entry as plain environment values, never as secrets.
 - **Same-name manifests:** the earlier GitHub probe found a `github-copilot` manifest (1.553.0, language server) that is **not** in the index. The index's Copilot is `github-copilot-cli` 1.0.96 (`@github/copilot --acp`). The index wins; the probe was a stale or unlisted manifest.
 - **Auth:** every listed agent returns valid `authMethods` at handshake, so the host should expect sign-in to be required before first use (`auth_required` is surfaced, never auto-handled).
