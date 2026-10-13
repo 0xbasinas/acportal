@@ -95,6 +95,12 @@ Rules: the host session UUID and the agent's ACP session ID stay separate, as in
 
 ### 4.2 Delegation tools (agents reach the orchestrator through MCP)
 
+**Transport choice.** The ACP [session setup](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/session-setup.mdx) page says all agents MUST support MCP servers over stdio, while HTTP and SSE are optional capabilities (`mcpCapabilities.http` / `.sse`). So the delegation server is offered as a **stdio** MCP server: the agent launches a tiny `acpd mcp-delegate` subcommand, which connects back to the running `acpd` over a local authenticated socket (per-session token passed in the environment, never in argv or logs). This needs nothing beyond the baseline every compliant agent already has. HTTP is used only if an agent advertises it and stdio proves unusable. This removes any new listener port.
+
+MCP is only the **agent-facing surface**. Discovery, launch, supervision, the permission pipeline and the bridge all stay host-side ACP code; agents that are only delegated to never need MCP.
+
+Long-running calls: `task_delegate` with `wait = true` holds one MCP tool call open, and some agents time out tool calls. The default is therefore non-blocking: return a task ID immediately, and the supervisor polls `task_status` (which also returns `needs_decision` items). `wait = true` is bounded by a short host timeout and falls back to the same polling.
+
 Most ACP agents are servers and know nothing about each other. The one hook they all honor is `mcpServers` in `session/new`. For each session the host injects a **loopback MCP server scoped by a per-session token**, so the caller identity cannot be spoofed and a child cannot see another tree. It is injected only when the agent advertises the needed MCP capability (same check as `mcp.rs`) and only for agents the operator enabled for orchestration.
 
 | Tool | Behavior |
@@ -203,7 +209,7 @@ The user needs support for nearly all ACP agent CLIs. The design therefore assum
 | Tier | What the agent supports | What works |
 | --- | --- | --- |
 | A. Baseline ACP | `initialize`, `session/new`, `session/prompt`, updates, cancel | Can be **delegated to** (a child), supervised, cancelled and shown in the task tree. Needs nothing from the agent. |
-| B. MCP servers | Accepts `mcpServers` in `session/new` (HTTP, or stdio if the agent has it) | Can also **delegate to others** (a supervisor), through the injected delegation tools. |
+| B. MCP servers | Accepts `mcpServers` in `session/new`. Stdio is mandatory in the spec, so this should be every compliant agent; real behavior is verified per CLI in phase 0 | Can also **delegate to others** (a supervisor), through the injected delegation tools. |
 | C. Extras | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements only. |
 
 Fallbacks so no CLI is left out:
