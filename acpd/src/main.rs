@@ -98,6 +98,9 @@ enum Commands {
         #[arg(long, requires = "agent")]
         prompt_check: bool,
     },
+    /// Run the experimental MCP delegation server for an agent session. Started by the host, not by hand.
+    #[command(hide = true)]
+    McpDelegate,
     /// Print effective non-secret host configuration. Does not overwrite files.
     Config,
     /// Verify ACP initialization without sending a prompt or starting a model request.
@@ -137,6 +140,19 @@ async fn main() -> Result<()> {
         .profile
         .clone()
         .unwrap_or_else(|| default_directory().join("launcher.json"));
+    if let Commands::McpDelegate = &cli.command {
+        // Only MCP messages may reach stdout; diagnostics go to stderr. The task token is read from
+        // the environment (never an argument) and is not printed.
+        let path = std::env::var_os("ACPD_CONTROL").context("ACPD_CONTROL is not set")?;
+        let token = std::env::var("ACPD_TASK_TOKEN").context("ACPD_TASK_TOKEN is not set")?;
+        let stream = acpd::orchestrator::control::connect(std::path::Path::new(&path))
+            .await
+            .context("cannot reach the host control channel")?;
+        let backend = acpd::orchestrator::control::ControlBackend::new(stream, token);
+        acpd::orchestrator::delegate::serve(tokio::io::stdin(), tokio::io::stdout(), &backend)
+            .await?;
+        return Ok(());
+    }
     if let Commands::Setup { address, name } = &cli.command {
         // Without --config the settings live in the standard per-user folder, created on first use.
         let config = match &cli.config {
@@ -253,6 +269,7 @@ async fn main() -> Result<()> {
     let foreground = matches!(&cli.command, Commands::Start { background: false });
     match cli.command {
         Commands::Setup { .. } => unreachable!("setup handled before host initialization"),
+        Commands::McpDelegate => unreachable!("mcp-delegate handled before host initialization"),
         Commands::Start { background: false } | Commands::DaemonWorker => {
             if foreground {
                 println!(
