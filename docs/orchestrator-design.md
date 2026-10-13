@@ -1,237 +1,397 @@
-# Agent orchestrator design (acpd module)
+# Agent orchestrator specification (acpd module)
 
-Status: design proposal, 13 October 2026. Nothing here is implemented. It does not change the paused acceptance gates in [TODO.md](../TODO.md).
+Status: design specification, 13 October 2026. Nothing here is implemented. It does not change the paused acceptance gates in [TODO.md](../TODO.md). "Verified" below means read in a primary source or in this repository on that date; everything else is a proposal.
 
-## 1. Goal
+## 1. Goal and decisions
 
-Let ACP agents, local or on other hosts, be discovered, launched, supervised and delegated to by one another, without a second remote-shell transport and without changing how the phone works today. Requirements from the user:
+Let ACP agents, local or on other hosts, be discovered, launched, supervised and delegated to by one another, with no second remote-shell transport and no change to how the phone works today.
+
+Decided by the user:
 
 1. Remote agents are in scope.
-2. A **supervisor agent** may approve a child's permission request when it judges it safe, and may **escalate to the phone** when it is not.
-3. The orchestrator is a **module inside `acpd`**, not a separate product.
-4. Host-to-host links should use a **bridge built into the server**, so a remote agent looks like any other registry entry.
+2. A **supervisor agent** may approve a child's permission request when it judges it safe, and escalates to the phone when not. Default ceiling `medium`; `high` always goes to the phone.
+3. No separate reviewer model. The supervising agent decides; anything unanswered goes to the phone.
+4. The orchestrator is a module inside `acpd`.
+5. Host-to-host links use the standard ACP **`/acp` endpoint** built into the server (the bridge), not `acpd.v1`.
+6. Support nearly all ACP agent CLIs, so the design assumes baseline ACP over stdio only.
+7. Prompt injection between strong models is accepted as a residual risk; cheap deterministic checks stay (section 8).
 
-Non-goals for the first release: A2A interoperability, agent-to-agent traffic that bypasses the host, a hosted relay service, automatic prompt retries.
+Non-goals for the first release: A2A interoperability, a hosted relay, agent-to-agent traffic that bypasses the host, automatic prompt retries, Android UI.
 
-## 2. What the official specs say (checked 13 October 2026)
+## 2. Verified findings from official sources
 
-The documentation site `agentclientprotocol.com` is blocked by this environment's egress policy. I read the RFD and protocol sources from the `agentclientprotocol/agent-client-protocol` and `a2aproject/A2A` repositories on GitHub (`main`) instead. Statuses below come from each document's revision history, not from a live site, so recheck before building.
+Docs sites `agentclientprotocol.com`, `a2a-protocol.org` and the registry CDN are blocked by this environment's egress policy. I read the source repositories on GitHub (`main`) instead. Re-check statuses before building.
 
-| Topic | Source | What it says | Consequence for us |
+| Topic | Verified fact | Source |
+| --- | --- | --- |
+| Remote transport | RFD "Streamable HTTP & WebSocket Transport", moved to Active 2026-07-02. One `/acp` endpoint. `POST` for client→server (always `202`, except `initialize` which returns `200` + JSON), long-lived SSE `GET` streams (one per connection plus one per session), HTTP/2 required, `Acp-Connection-Id` / `Acp-Session-Id` headers. A `GET` with `Upgrade: websocket` upgrades; the `101` response carries `Acp-Connection-Id`; messages are JSON-RPC **text frames** (binary ignored); the client must still send `initialize` first. Clients MUST support both; servers MAY offer WebSocket only. Cookies required for affinity. Batches return `501`. `DELETE` ends a connection. | [RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/streamable-http-websocket-transport.mdx) |
+| v1 durability | Sessions survive disconnects and resume via `session/load`. **No sequencing, no replay of messages missed while disconnected, liveness is the implementer's job.** Message IDs and `Last-Event-ID` resumption are deferred to v2. Phase 4 (origin validation, protocol-version header, security audit) is still future work. | same RFD |
+| Authentication on remote | Not defined in the RFD as read. | same RFD |
+| Reference implementation | Goose (`block/goose`) is the reference implementation in progress; Rust SDK (`sacp`) next. | same RFD |
+| MCP servers | **All agents MUST support MCP servers over stdio.** HTTP and SSE are optional and advertised as `mcpCapabilities.http` / `.sse`. `session/new` takes `cwd` and `mcpServers: [{name, command, args, env}]`. | [session-setup](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/session-setup.mdx) |
+| Permission | `session/request_permission` carries `sessionId`, `toolCall`, `options[{optionId,name,kind}]` with kinds including `allow_once` and `reject_once`; answers are `{"outcome":{"outcome":"selected","optionId":…}}` or `{"outcome":{"outcome":"cancelled"}}` (matches `connection.rs`). Tool kinds: `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `switch_mode`, `other`. | [tool-calls](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/tool-calls.mdx) |
+| Cancellation | `session/cancel` ends a prompt turn with stop reason `cancelled`; the client must answer pending permission requests with `cancelled`. `$/cancel_request` is a stabilized, optional request cancel (error `-32800`). | [prompt-turn](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/prompt-turn.mdx), [RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/request-cancellation.mdx) |
+| Subagents | RFD adds `subagent_update` and `session_message` with a client `subagents` capability. Child requests are subject to the same client checks as the parent. Cancellation cascades only along work the cancelled work waits on. Status marker not verified (revised 2026-10-05). | [RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/subagents.mdx) |
+| MCP-over-ACP | Draft; declares `{"type":"acp"}` MCP servers; targets MCP 2026-07-28 only. | [RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/mcp-over-acp.mdx) |
+| Trace context | `_meta.traceparent`, `tracestate`, `baggage` reserved for W3C trace context. Completed 2026-06-03. | [RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/meta-propagation.mdx) |
+| Registry | Manifest `<id>/agent.json` with `distribution` of `binary`, `npx` or `uvx`; the registry only lists agents that return valid `authMethods` in the ACP handshake. Index at `cdn.agentclientprotocol.com/registry/v1/latest/registry.json` (unreachable here). | [registry](https://github.com/agentclientprotocol/registry) |
+| MCP tools | Tools have `inputSchema`, optional `outputSchema`; results may carry `structuredContent`; tool failures use `isError: true`. | [MCP tools](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/server/tools.mdx) |
+| A2A | Latest release 1.0.0; Agent Card at `/.well-known/agent-card.json`; task states `WORKING`, `INPUT_REQUIRED`, `AUTH_REQUIRED`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`. Separate project from Zed's ACP. | [A2A spec](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) |
+
+### 2.1 Registry agents probed (13 October 2026)
+
+The registry index is unreachable, so I probed likely IDs for `<id>/agent.json`. These 13 exist; the list is **not** complete. None has been run by us.
+
+| id | version | distribution | launch |
 | --- | --- | --- | --- |
-| Remote transport | RFD [Streamable HTTP & WebSocket Transport](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/streamable-http-websocket-transport.mdx) (moved to Active 2026-07-02; Transports Working Group announced [2026-04-22](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/announcements/transports-working-group.mdx)) | One `/acp` endpoint. Streamable HTTP (POST + SSE GET streams, HTTP/2, `Acp-Connection-Id` / `Acp-Session-Id` headers) or **WebSocket upgrade** on the same endpoint. Clients MUST support both; servers may offer WebSocket only. Cookies required for affinity. Same JSON-RPC and lifecycle as stdio. | The bridge speaks this, WebSocket first. It is not final, so isolate it behind one module. |
-| Durability in v1 | same RFD | Sessions survive disconnects and are resumed with `session/load`. **No stream resumption, no replay of messages missed while disconnected**, liveness is the implementer's job. Message IDs and resumption are deferred to v2. | The bridge must keep its own journal cursor and heartbeat. `acpd` already has both (`connection.rs` journal and replay). |
-| Auth on remote | same RFD | I did not find an authentication scheme in what I read. | Reuse `acpd` TLS plus device tokens (`security.rs`). Do not invent a new scheme. |
-| Subagents | RFD [Subagent Sessions](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/subagents.mdx) (revised as late as 2026-10-05; status marker not verified) | An agent can expose children as their own session IDs through `subagent_update`, with `session_message` between sessions. Gated by a client `subagents` capability. Child requests are subject to the same client capability and permission checks as the parent, and a child must not be used to get around parent restrictions. Cancellation cascades only along work the cancelled work waits on. | Use as the **outward-facing shape** of the task tree. Our children are created by the host, not by the agent, so we map onto it rather than depend on agents implementing it. |
-| Proxy chains / conductor | RFD [Agent Extensions via ACP Proxies](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/proxy-chains.mdx) | A conductor sits between a client and an agent and forwards or rewrites messages (`proxy/successor`). | Our `acpd` is already a conductor-like broker. Not adopted now; could later let delegation be a proxy rather than an MCP tool. |
-| MCP-over-ACP | RFD [MCP-over-ACP](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/mcp-over-acp.mdx) (draft; targets MCP 2026-07-28 only) | Declare `{"type":"acp"}` MCP servers in `session/new`; tool calls travel over the existing ACP connection. | Cleanest long-term way to hand agents orchestration tools with no extra listener. Needs agent support we cannot assume today. Phase 1 uses ordinary MCP (see 4.2). |
-| Trace propagation | RFD [Meta field propagation](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/meta-propagation.mdx) (Completed 2026-06-03) | `_meta.traceparent`, `tracestate`, `baggage` are reserved for W3C trace context. | Use these to link parent and child spans. |
-| Cancellation | RFD [Request cancellation](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/request-cancellation.mdx) (Completed 2026-06-29) | Stabilized request cancellation. | Cascading cancel can rely on it where an agent advertises it. |
-| Agent registry | RFD [ACP Agent Registry](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/acp-agent-registry.mdx) | Manifest `agent.json` with `id`, `name`, `version`, `description`, `distribution` (`binary`, `npx`, `uvx`). Describes installation, not remote endpoints. | Directory entries should be importable from it. It does not cover remote peers, so peers are our own entries. |
-| A2A | [A2A specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md), latest released **1.0.0** | Separate protocol (Linux Foundation). Agent Card at `/.well-known/agent-card.json`; Task with states `WORKING`, `INPUT_REQUIRED`, `AUTH_REQUIRED`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`; JSON-RPC, gRPC and REST bindings; push notifications. Zed's ACP and A2A are different projects (ACP is editor-to-agent). | Do not build on it first. Borrow its task states for our task model and keep an optional adapter for later. |
+| goose | 1.54.0 | binary | `goose acp` |
+| gemini | 0.63.0 | npx | `@google/gemini-cli --acp` |
+| claude-acp | 0.89.1 | npx | `@agentclientprotocol/claude-agent-acp` |
+| codex-acp | 2.2.2 | npx | `@agentclientprotocol/codex-acp` |
+| opencode | 1.19.0 | binary | `opencode acp` |
+| qwen-code | 0.25.1 | npx | `@qwen-code/qwen-code --acp --experimental-skills` |
+| github-copilot | 1.553.0 | npx | `@github/copilot-language-server --acp` |
+| cline | 3.0.70 | npx | `cline --acp` |
+| kimi | 1.52.0 | binary | `kimi acp` |
+| mistral-vibe | 2.26.1 | binary | `vibe-acp` |
+| junie | 3579.7.0 | binary | `junie --acp=true` |
+| cursor | 2026.10.01 | binary | `cursor-agent acp` |
+| auggie | 0.36.0 | npx | `auggie --acp` |
 
-Not verified: whether Goose or any other target agent implements the new HTTP/WebSocket transport, `subagents`, or `type: "acp"` MCP servers today. Treat every such use as capability-checked and optional.
+Consequence: most agents launch through `npx` (a literal executable plus an argument array, which the existing registry already supports). Registry import must resolve the `npx`/`uvx` executable like any other, never through a shell, and keep the existing rule that discovery resolves configured executables only.
 
-## 3. What we reuse
+## 3. What is reused (verified in this repository)
 
-| Need | Existing code |
+| Need | Code |
 | --- | --- |
-| Directory of agents, executable resolution | `registry.rs`, `discovery.rs` |
-| Launch, ACP actor, journal and replay, backpressure | `connection.rs`, `session.rs` |
-| Safe process trees and cleanup | `process_tree.rs`, `detached.rs` |
-| Host callbacks with consent (`fs/*`, `terminal/*`) | `filesystem.rs`, `terminal.rs` |
-| Rules plus model reviewer for shell lines, fail-closed to the phone | `shell_review.rs` |
-| Pairing, tokens, TLS, revocation | `security.rs`, `api.rs` |
-| MCP server injection into `session/new` (capability checked) | `mcp.rs` |
+| Agent directory, executable resolution | `registry.rs` (`AgentDefinition`, `transport` field currently rejected unless `"stdio"` at `registry.rs:82`), `discovery.rs` |
+| One agent process per host session, initialize, `session/new`, load | `SessionManager::open` in `session.rs` (spawns one `AcpConnection` per session) |
+| ACP actor, journal with sequence and replay, byte budgets, pending-permission tracking | `connection.rs` |
+| Host consent for `fs/*` and `terminal/*`, `_meta.acpdSource` | `connection.rs`, `filesystem.rs`, `terminal.rs` |
+| Rules and model reviewer returning `Decision::{Allow,Ask,Deny}`, `_meta.acpdAutoReview` | `shell_review.rs` |
+| Bearer-token authentication on all `/v1` routes, 60-second one-use pairing | `api.rs::authenticate`, `security.rs` |
+| `acpd.v1` WebSocket with `?after=` cursor and single-controller lease | `api.rs::connect`, `socket_session` |
+| MCP server validation against advertised capabilities | `mcp.rs` |
+| Process-tree cleanup | `process_tree.rs` |
 | Interrupted-session metadata | `session_catalog.rs` |
-
-Hooks that already exist: `AgentDefinition.transport` (today `registry.rs:82` rejects anything except `"stdio"`), and the `_meta.acpdAutoReview` convention for publishing a decision and its layer.
+| Strict config parsing (`deny_unknown_fields`), soft reload of future launches | `config.rs`, `session.rs::reload`, [daemon-and-reload](daemon-and-reload.md) |
 
 ## 4. Architecture
 
 ```mermaid
 flowchart TD
-    Phone[Android app: acpd.v1] --> API
-    Peer[Remote ACP client or peer acpd] -->|ACP over WebSocket /acp| Bridge
+    Phone[Android: acpd.v1 /v1] --> API
+    Peer[Remote ACP client or peer acpd] -->|ACP over WebSocket /acp/agent| Bridge
     subgraph acpd
       API[api.rs] --> SM[SessionManager]
-      Bridge[bridge: inbound /acp] --> SM
-      SM --> Tree[orchestrator: task tree and limits]
-      Tree --> Deleg[delegation MCP server]
-      Tree --> Pol[approval pipeline]
-      Tree --> Dir[directory: local and remote agents]
-      Dir --> Out[bridge: outbound client]
+      Bridge[orchestrator::bridge inbound] --> SM
+      SM --> Tree[orchestrator::tree]
+      Tree --> Gate[orchestrator::approvals]
+      Tree --> Dir[orchestrator::directory]
+      Dir --> Out[orchestrator::bridge outbound]
+      Ctl[orchestrator::control socket] --- Tree
     end
-    SM -->|ACP stdio| Local[local agents]
-    Out -->|ACP over WebSocket /acp| Remote[remote acpd or ACP server]
-    Deleg -.MCP tools.-> Local
+    SM -->|ACP stdio| Local[local agent processes]
+    Local -->|stdio MCP| Del[acpd mcp-delegate]
+    Del -->|local socket| Ctl
+    Out -->|ACP over WebSocket| Remote[remote acpd or ACP server]
 ```
 
-New code lives under `acpd/src/orchestrator/` (a module of the existing crate, no new binary):
+New code, `acpd/src/orchestrator/`, in the existing crate (no new binary, one new subcommand `acpd mcp-delegate`):
 
-| Module | Responsibility |
+| File | Responsibility |
 | --- | --- |
-| `directory` | One list of launchable agents: local registry entries plus remote ones. Each entry carries origin (`local`, or a peer name), capabilities from real discovery, and an `own_tools` flag. |
-| `tree` | Task nodes with `parent`, `root`, depth, state, budget, owner. Enforces limits. Single owner of lineage. |
-| `delegate` | The scoped MCP server given to agents (4.2). |
-| `approvals` | The permission pipeline (section 5). |
-| `bridge` | Inbound `/acp` endpoint and outbound client (4.3). |
-| `supervise` | Timeouts, heartbeats, cascading cancel, restart policy, cleanup. |
+| `mod.rs` | `Orchestrator` handle owned by `SessionManager`; config snapshot per launch |
+| `tree.rs` | `TaskNode` store, lineage, limits, state machine |
+| `directory.rs` | Merges local registry agents and peer agents into `DirectoryEntry` |
+| `control.rs` | Local-socket server used by `mcp-delegate`; token binding |
+| `delegate.rs` | MCP tool definitions and handlers (also the `mcp-delegate` subcommand) |
+| `approvals.rs` | Risk classification, pending requests, supervisor decision, escalation |
+| `bridge/inbound.rs` | `/acp` WebSocket endpoint |
+| `bridge/outbound.rs` | WebSocket ACP client used for `transport = "ws"` agents |
+| `peers.rs` | Peer records, credentials, `peer` role |
+| `supervise.rs` | Timeouts, heartbeat, cascading cancel, cleanup |
 
-### 4.1 Task model
+## 5. Task model
 
-A task is a host-owned record that wraps one child session.
-
-```text
-TaskNode { id, parent_task, root_task, depth,
-           session (host UUID, as today), agent_ref (local id | peer/agent),
-           workspace_scope, state, limits, created_by_session,
-           pending_requests[], result }
-state: submitted | working | input_required | auth_required
-       | completed | failed | canceled | rejected     (names follow A2A 1.0.0)
+```rust
+struct TaskNode {
+    id: Uuid,
+    parent: Option<Uuid>,        // None = a root task started by phone or API
+    root: Uuid,
+    depth: u8,
+    session: Uuid,               // host session id (distinct from the ACP session id)
+    agent: AgentRef,             // Local(id) | Peer { peer, id }
+    scope: WorkspaceScope,       // sub-path of the caller's scope, plus rights
+    isolation: Isolation,        // Shared | Worktree(path)
+    limits: TaskLimits,          // deadline, idle timeout, max_children
+    state: TaskState,
+    pending: Vec<PendingRequest>,
+    result: Option<TaskResult>,  // bounded summary + artifact refs
+    created_by: Principal,       // Phone(device) | Task(Uuid)
+}
+enum TaskState { Submitted, Working, InputRequired, AuthRequired,
+                 Completed, Failed, Canceled, Rejected }   // A2A 1.0.0 names
 ```
 
-Rules: the host session UUID and the agent's ACP session ID stay separate, as in [AGENTS.md](../AGENTS.md). The tree is in memory; `session_catalog.rs` persists metadata so a restart shows interrupted tasks and never silently restarts them. A task never resends its prompt on reconnect.
+State transitions (anything else is a bug):
 
-### 4.2 Delegation tools (agents reach the orchestrator through MCP)
+| From | To | Trigger |
+| --- | --- | --- |
+| Submitted | Working | child `session/prompt` sent |
+| Submitted | Rejected | admission failed (limits, cycle, scope, agent not delegable) |
+| Working | InputRequired | a pending `session/request_permission` or elicitation needs an answer |
+| InputRequired | Working | request answered |
+| Working / InputRequired | AuthRequired | agent returned ACP `auth_required` (`-32000`); never auto-handled |
+| Working | Completed | prompt stop reason `end_turn` |
+| Working | Failed | process exit, protocol error, deadline, bridge loss not recovered |
+| Working / InputRequired | Canceled | cancel requested and prompt ends `cancelled` |
+| Completed | Working | `task_send` follow-up on the same child |
 
-**Transport choice.** The ACP [session setup](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/session-setup.mdx) page says all agents MUST support MCP servers over stdio, while HTTP and SSE are optional capabilities (`mcpCapabilities.http` / `.sse`). So the delegation server is offered as a **stdio** MCP server: the agent launches a tiny `acpd mcp-delegate` subcommand, which connects back to the running `acpd` over a local authenticated socket (per-session token passed in the environment, never in argv or logs). This needs nothing beyond the baseline every compliant agent already has. HTTP is used only if an agent advertises it and stdio proves unusable. This removes any new listener port.
+Rules: host session UUID and ACP session ID stay separate. The tree is in memory; `session_catalog.rs` persists metadata so a restart shows interrupted tasks as `Failed (interrupted)` and **never restarts them or resends prompts**. Terminal states are final except `Completed → Working`.
 
-MCP is only the **agent-facing surface**. Discovery, launch, supervision, the permission pipeline and the bridge all stay host-side ACP code; agents that are only delegated to never need MCP.
+### 5.1 Admission checks (reject with a specific code before any process starts)
 
-Long-running calls: `task_delegate` with `wait = true` holds one MCP tool call open, and some agents time out tool calls. The default is therefore non-blocking: return a task ID immediately, and the supervisor polls `task_status` (which also returns `needs_decision` items). `wait = true` is bounded by a short host timeout and falls back to the same polling.
-
-Most ACP agents are servers and know nothing about each other. The one hook they all honor is `mcpServers` in `session/new`. For each session the host injects a **loopback MCP server scoped by a per-session token**, so the caller identity cannot be spoofed and a child cannot see another tree. It is injected only when the agent advertises the needed MCP capability (same check as `mcp.rs`) and only for agents the operator enabled for orchestration.
-
-| Tool | Behavior |
+| Check | Code |
 | --- | --- |
-| `agents_list` | Delegable agents visible to the caller, with origin, capabilities, `own_tools`, availability. |
-| `task_delegate` | `agent`, `prompt`, `workspace` (name or sub-path within the caller's scope), `isolation` (`shared`, `worktree`), `limits`, `wait` (`true` returns the final result or a `needs_decision` status). |
-| `task_status` / `task_result` | State, summary, artifacts, bounded output. |
-| `task_send` | Follow-up prompt to an idle child. |
-| `task_cancel` | Cancel one task and the work it waits on. |
-| `task_decide` | Supervisor's answer to a child's pending permission request (section 5). |
+| `orchestrator.enabled` false | `orchestrator_disabled` |
+| depth would exceed `max_depth` | `depth_limit` |
+| parent already has `max_children_per_task` open children, or total open tasks ≥ `max_tasks_total` | `fan_out_limit` |
+| target agent not `delegable`, not enabled, or not visible to the caller | `agent_not_delegable` |
+| same agent id in the same workspace already an ancestor | `cycle` |
+| requested scope not inside the caller's scope | `scope_not_allowed` |
+| requested rights exceed the caller's rights | `rights_not_allowed` |
+| `max_sessions` reached | `session_limit` |
 
-Child output returned to a parent is **untrusted data** and is marked as such in the tool result.
+## 6. Delegation interface (agents reach the orchestrator through MCP)
 
-Outward shape: for clients that advertise the ACP `subagents` capability, the host also emits `subagent_update` and routes child traffic as child session IDs. The phone gets the same tree through the `acpd.v1` API. Later, when agents support MCP-over-ACP, the same tools can be declared as `{"type":"acp"}` servers with no listener.
+### 6.1 Wiring
 
-### 4.3 The bridge (built into the server)
+On `session/new` for an agent that has `orchestrate = true` in config, `acpd` appends one MCP server to the request:
 
-The bridge removes the need for a bespoke peer protocol. It is the standard ACP remote transport, implemented once, used in both directions.
+```json
+{ "name": "acpd-orchestrator",
+  "command": "<absolute path of the running acpd>",
+  "args": ["mcp-delegate"],
+  "env": [{"name":"ACPD_CONTROL","value":"<socket or pipe path>"},
+          {"name":"ACPD_TASK_TOKEN","value":"<random 256-bit token>"}] }
+```
 
-**Inbound.** `acpd` serves `/acp` (WebSocket upgrade first, Streamable HTTP later) next to the existing `/v1` API, on the same TLS listener. A remote ACP client, including another `acpd`, connects, runs `initialize`, and then `session/new` with an `agentId`-selection field in `_meta`, because plain ACP has no agent selector (stdio gets its agent from the command line). `acpd` answers with an ordinary session backed by a local registry agent. The ACP wire flow is unchanged; the host callbacks, workspace containment and consent still apply to that agent's callbacks.
+This is the stdio form that every ACP agent must support (verified), so no agent capability check is needed beyond the agent accepting the `session/new`. The token is generated per session, bound to that session's task and subtree, held only in memory, and invalid after the session ends. `mcp-delegate` is a plain MCP stdio server (JSON-RPC over stdio, `initialize`, `tools/list`, `tools/call`) that forwards each call to the control socket and returns the answer. It reads nothing else and logs nothing to stdout except MCP messages.
 
-**Outbound.** A registry entry may have `transport = "ws"` (later `"http"`) and a URL. Launching it opens an ACP client connection through the bridge instead of spawning a process; the rest of `session.rs` and `connection.rs` see the same actor interface. The `registry.rs:82` check is relaxed only for these types, and the entry cannot carry a command to execute.
+The control socket is a Unix domain socket in the state directory (mode `0600`) or a Windows named pipe with an owner-only ACL. The token is checked on every call; an unknown or expired token returns `isError: true` with code `invalid_task_token`. The token reaches the agent process environment, so it is scoped to exactly what that session could already do through the tools; it grants nothing to anyone without the socket.
 
-Result: a remote agent is just a directory entry. The same bridge also lets a stdio-only agent be exposed remotely with no change to the agent. Peer-to-peer then needs only "pair with that host and add it as a directory source", not a second protocol.
+An HTTP MCP server is used only if an agent advertises `mcpCapabilities.http` **and** stdio proved unusable (phase 0 decides per CLI).
 
-Bridge rules:
+### 6.2 Tools
 
-- TLS required for any non-loopback listener, exactly as today. Certificate validation is never bypassed.
-- Authentication uses existing device tokens in a header, with a `peer` role created by the same one-use 60-second pairing flow. Roles limit what a peer may call (list, create, prompt, cancel) and which agents and workspace aliases it may use.
-- Because the v1 transport does not replay missed messages, each bridge session keeps an `acpd` journal cursor (`?after=`-style, as `acpd.v1` already does) and a heartbeat. After a drop the outbound side re-attaches with `session/load` and the cursor and surfaces any gap as a visible history gap.
-- Remote workspaces are addressed by **alias**, never by client-supplied paths. The remote host maps aliases to its own allowed roots.
-- Code moves between hosts as git branches or patches carried as artifacts, not as shared filesystems.
+All tools return both a human `text` content block and `structuredContent` with an `outputSchema`. Errors use `isError: true` with a stable code from 5.1 or the table in 6.3.
 
-## 5. Permission pipeline
+| Tool | Input (JSON Schema summary) | Output |
+| --- | --- | --- |
+| `agents_list` | `{}` | `{agents:[{ref, name, origin:"local"\|peer, available, tier, own_tools, delegable}]}` |
+| `task_delegate` | `{agent: ref, prompt: string(≤64 KiB), workspace?: string (relative sub-path or alias), isolation?: "shared"\|"worktree", rights?: {read?,write?,terminal?}, deadline_seconds?: int, wait_seconds?: int(0..120, default 0)}` | `{task_id, state, summary?, result?}` |
+| `task_status` | `{task_id?}` (omit = all my children) | `{tasks:[{task_id, state, agent, updated_at, summary?, needs_decision:[{request_id, digest, kind, risk, facts}]}]}` |
+| `task_result` | `{task_id, max_bytes?}` | `{state, result, truncated, untrusted: true}` |
+| `task_send` | `{task_id, prompt}` | `{state}` (only from `Completed`; otherwise `invalid_state`) |
+| `task_cancel` | `{task_id}` | `{state}` |
+| `task_decide` | `{task_id, request_id, digest, decision:"allow_once"\|"deny"\|"escalate", rationale: string(≤500)}` | `{applied: bool, outcome}` |
 
-Today every consent goes to the phone, with an optional rules and model reviewer for shell lines (`shell_review.rs`). Children add many more requests, so requests flow through ordered layers and stop at the first definite answer. Every layer can only narrow what the next layer may allow.
+`wait_seconds = 0` returns immediately (default). A positive value holds the call up to that many seconds and then returns the current state, so a long task never needs a tool call that outlives an agent's tool timeout.
 
-1. **Hard deny (host, deterministic).** The existing hard-deny list plus orchestration limits (outside scope, privileged commands, credential paths). Not overridable by any layer below.
-2. **Rules (host, deterministic).** The existing allowlist and classification. Output: `low`, `medium`, `high` risk class plus a host-rendered description.
-3. **Supervisor decision.** Only for requests classified `low` or `medium`. The supervisor receives the request as a `needs_decision` result with the host-rendered facts (tool kind, resolved path or command line, cwd relative to the scope, diff size) and answers with `task_decide(allow_once | deny | escalate, rationale)`.
-4. **Phone.** Anything `high`, any `escalate`, any timeout, any error, and anything the supervisor did not answer. This is the same consent card users already have.
+`result` is always bounded (`task_result` default 32 KiB) and carries `untrusted: true`; the delegating agent's instructions should tell it to treat that content as data. `facts` in `needs_decision` come only from host-computed values (6.4), never the child's description.
 
-Safety requirements:
+### 6.3 Error codes
 
-- **Fail closed.** Missing, late or malformed supervisor answers go to the phone. A supervisor is never allowed to approve by silence.
-- **Bound to the request.** A decision carries the request id and a digest of the rendered request; it is single-use and cannot be applied to a different request or to the supervisor's own requests.
-- **Host-rendered facts only.** The supervisor sees what the host computed, not the child's free-text description, so a child cannot argue its way past review. The supervisor still reads untrusted text elsewhere, so classification caps what it can approve.
-- **Ceiling.** The operator config sets the highest risk class a supervisor may approve (default: `medium`, decided by the user on 13 October 2026; `high` always asks the phone). A supervisor cannot widen scope, roots or the ceiling, and cannot approve for tasks outside its subtree.
-- **No self-approval.** An agent's decisions never apply to its own requests, and a child never decides for a sibling.
-- **Visible and revocable.** Decisions are published as `_meta.acpdAutoReview` with layer `supervisor`, the rationale length-bounded, and the phone shows who approved. The user can pause supervisor approval for a tree at any time; the pending requests then go to the phone.
-- **Own-tools caveat.** Agents with `own_tools` edit files and run commands without host callbacks, so no layer can gate them. They are not delegable by default and always show the existing warning.
+`invalid_task_token`, `invalid_state`, `unknown_task`, `unknown_request`, `digest_mismatch`, `already_answered`, `risk_too_high`, `not_authorized_for_task` (not in the caller's subtree), plus the admission codes in 5.1.
 
-Child-requested permissions use the same pipeline whether the request comes from the agent's own `session/request_permission` or from a host consent (`host-filesystem`, `host-shell-command`), so the phone sees one consistent card.
+### 6.4 Outward shape
 
-## 6. Supervision and limits
+For clients that advertise the ACP `subagents` capability, the host also emits `subagent_update` for each child. The phone sees the same tree through new REST routes (section 9.3).
 
-Operator config (names indicative), all enforced by the host, none changeable by agents:
+## 7. The bridge (`/acp`)
+
+### 7.1 Inbound endpoint
+
+Served on the existing listener (same TLS rules: remote listeners require TLS; Android and peers validate certificates).
+
+| Route | Behavior |
+| --- | --- |
+| `GET /acp/{agent_id}` with `Upgrade: websocket` | Authenticate (7.3), look up the agent (`agent_not_found` 404), upgrade. The `101` includes `Acp-Connection-Id: <uuid>`. Text frames only; binary frames ignored; max message size = `runtime.max_frame_bytes`. |
+| `GET /acp` without an agent | `400 agent_required`. Standard ACP has no way to name an agent, so the agent is part of the path. |
+| `POST`, `GET` (SSE), `DELETE` on `/acp/...` | Not implemented in phase 3. Return `501 transport_not_supported`. Streamable HTTP waits for the RFD to stabilize (phase 4). |
+
+Behavior on the socket, using the existing one-process-per-session model (`SessionManager::open`):
+
+1. `initialize`: answered by the host with the capabilities from that agent's cached discovery plus bridge-added fields; no process is spawned yet. If no cached initialization exists, the host spawns the agent once, initializes, caches the result and stops the probe process.
+2. `session/new`: runs `SessionManager::open_configured` (workspace validation, spawn, real `initialize`, `session/new`) and returns the agent's ACP `sessionId`. The host keeps the map `ACP sessionId ↔ host session UUID`.
+3. All later traffic for that `sessionId` is forwarded to that session's `AcpConnection` actor, so callbacks, consent, byte budgets and journal apply exactly as for the phone. Requests for an unknown `sessionId` return JSON-RPC error `-32602`.
+4. `session/load`: only if the agent advertised `loadSession`; otherwise `-32601`.
+5. Socket close or `DELETE`: sessions created on this connection are **kept for `bridge_resume_seconds` (default 120)** so the remote side can reattach with `session/load`; after that they are removed. The host never replays prompts.
+
+Because ACP v1 over HTTP/WebSocket does not replay missed messages, the host keeps the journal and the bridge adds one extension that is ignored by other implementations: after `session/load`, the host sends a `session/update` with `_meta.acpdGap = {missed: n}` when events were lost. Non-acpd clients simply do not see the extra field.
+
+Frame limits, rate limits, ping interval (default 20 s, close after 3 missed pongs) and the byte budgets in `connection.rs` apply per bridge connection.
+
+### 7.2 Outbound client
+
+Registry entry for a remote agent:
+
+```json
+{ "id": "laptop-goose", "name": "Goose on laptop",
+  "transport": "ws", "url": "wss://laptop.example:8765/acp/goose",
+  "peer": "laptop", "delegable": true }
+```
+
+Rules: `transport = "ws"` entries must have `url` with scheme `wss` (or `ws` only to loopback for tests), must not have `command`/`args`/`env`, and take credentials only from the named `peer` record (never from the registry file). Launch: open WebSocket, send `initialize`, `session/new` with `cwd` = the remote path from the peer's alias table (7.4), then hand the connection to the same `AcpConnection` interface that stdio uses (a transport trait with `send(frame)` / `recv() -> frame` / `close()`), so `session.rs` is unchanged apart from choosing the transport. `registry.rs:82` is relaxed only for `transport = "ws"`.
+
+Reconnect: after a drop the client reconnects with exponential backoff (1 s … 30 s, max 6 tries), sends `initialize`, then `session/load` with the remembered ACP session ID. It never resends an in-flight `session/prompt` or a permission answer. A prompt in flight when the link dropped is reported to the parent as `Failed (link lost)` unless the reload proves it finished.
+
+### 7.3 Authentication and roles
+
+Existing bearer device tokens, unchanged format, sent in the `Authorization: Bearer` header on the WebSocket upgrade over TLS. A new device **role** is added to the paired-device record:
+
+| Role | May call |
+| --- | --- |
+| `phone` (existing default) | everything it can today |
+| `peer` | `/acp/{agent_id}` for agents in its allow list; `GET /v1/peer/info`; nothing else |
+
+Peer pairing uses the same one-use 60-second code flow: `acpd peer pair --name laptop --address https://…` on the initiating host prints a code request to the other host's operator; the resulting token is stored in a `0600` peer file in the state directory (`peers.json`, same protections as device tokens), never in `config.toml`, the registry, logs or reports. Revoking a peer ends all its sessions and delegated subtree immediately.
+
+### 7.4 Workspaces on remote hosts
+
+Remote paths are never accepted from the caller. `GET /v1/peer/info` (peer role) returns the peer's `agents` (with `own_tools`, `delegable`) and `workspaceAliases` (`name`, no absolute path exposed beyond what the operator marks as shareable). The delegating host resolves an alias to a path internally and the remote `config.workspace()` check still applies. Code moves between hosts as git branches or patches carried in `task_result` artifacts, never as a shared filesystem.
+
+## 8. Permission pipeline
+
+Every pending permission in a task tree is a `PendingRequest`:
+
+```rust
+struct PendingRequest {
+    request_id: String,       // JSON-RPC id of session/request_permission
+    task: Uuid,
+    source: Source,           // AgentOwn | HostFilesystem | HostShell | HostTerminal
+    kind: ToolKind,           // ACP tool kind, or Execute for host shell
+    facts: Facts,             // host-rendered, see below
+    risk: Risk,               // Low | Medium | High (computed by the host)
+    digest: [u8; 32],         // SHA-256 of canonical JSON of (task, request_id, source, kind, facts, option ids)
+    answered: AtomicBool,
+}
+```
+
+`Facts` are values the host computes, never the child's free text: resolved path relative to the task scope (or `outside`), command line and cwd (host shell), diff size in bytes for edits, option ids and kinds, and the agent's `own_tools` flag.
+
+### 8.1 Risk classification (deterministic)
+
+| Situation | Risk |
+| --- | --- |
+| `Decision::Deny` from `shell_review` hard-deny, or outside scope, credential/dot-config paths, privileged commands | **Denied** (not decidable by anyone) |
+| `read`, `search`, `think`, `switch_mode` inside scope | Low |
+| `shell_review` rules `Allow` (read-only/test commands inside scope) | Low |
+| `edit`, `move` inside scope and within `max_edit_bytes` | Medium |
+| `execute` through shell review `Ask` for non-sensitive lines | Medium |
+| `delete`, `fetch`/network, writes outside scope, large edits, anything marked sensitive by `shell_review`, `own_tools` agents, `other` | High |
+
+`switch_mode` and `other` kinds are treated by the strictest applicable row; unknown kinds are High.
+
+### 8.2 Flow
+
+1. A request arrives (agent's own `session/request_permission`, or a host consent such as `host-filesystem` / `host-shell-command`). The host classifies it.
+2. **Denied** → the agent gets a refusal using the existing callback-denied code.
+3. **High** → published to the phone immediately; the supervisor can still see it in `task_status` (read-only, `risk_too_high` on `task_decide`).
+4. **Low/Medium and risk ≤ `supervisor_max_risk`** → recorded as `needs_decision` in the parent's `task_status`. The phone also sees it, so a human can answer first; the first valid answer wins (atomic compare-and-set on `answered`).
+5. The supervisor calls `task_decide` with the `digest`. The host recomputes the digest; a mismatch returns `digest_mismatch` and applies nothing. `allow_once` selects the option of kind `allow_once`; `deny` selects `reject_once`; `escalate` sends the card to the phone with the rationale attached.
+6. **No answer within `supervisor_timeout_seconds`** (default 60), supervisor session gone, error, malformed call or any failure → the request goes to the phone. It never auto-allows.
+7. Every supervisor outcome is published as `_meta.acpdAutoReview = {"decision","layer":"supervisor","rationale"}` (rationale length-bounded, content never logged), so the phone shows who approved.
+
+Additional rules: a decision is single-use; an agent cannot decide on its own requests or those of tasks outside its subtree; `supervisor_max_risk` cannot be raised by an agent; the user can pause supervisor approval for a root task, after which all pending requests go to the phone. Agents with `own_tools` never get supervisor approval (the host cannot see their edits).
+
+## 9. Configuration, API and CLI
+
+### 9.1 Config (`config.toml`, strict parsing)
 
 ```toml
 [orchestrator]
-enabled = false                 # off by default
-max_depth = 2
-max_children_per_task = 4
-max_tasks_total = 16
-task_timeout_secs = 1800
-supervisor_max_risk = "medium"  # low | medium; high always asks the phone
-[orchestrator.agents.<id>]
-delegable = true
-peers = ["laptop"]
+enabled = false                      # off by default; restart or soft reload for future launches
+max_depth = 2                        # 1..8
+max_children_per_task = 4            # 1..16
+max_tasks_total = 16                 # 1..64, counted with [runtime].max_sessions
+task_timeout_seconds = 1800          # 30..86400
+idle_timeout_seconds = 300           # 30..3600
+supervisor_max_risk = "medium"       # "low" | "medium"; "high" is not allowed
+supervisor_timeout_seconds = 60      # 5..600
+max_edit_bytes = 262144              # medium ceiling for edits
+bridge_resume_seconds = 120          # 0..3600
+bridge_ping_seconds = 20             # 5..120
+
+[orchestrator.agents.goose]          # keyed by agent id
+orchestrate = true                   # agent receives the delegation tools
+delegable = true                     # may be a child
 ```
 
-- **Cancel cascade.** Cancelling a task cancels the work it waits on, then ends the process tree on timeout, using existing process cleanup. Background children follow the ACP subagents RFD semantics.
-- **Liveness.** Per-task timeout, idle timeout, and bridge heartbeat. Failure marks the task `failed` and notifies its parent; it is never retried automatically.
-- **Cycles and fan-out.** Reject delegation back to an ancestor agent in the same workspace, and enforce depth and count limits at admission.
-- **Isolation.** A child that writes gets a `git worktree` by default when the workspace is a repository; shared-directory writes are an explicit opt-in.
-- **Attenuation.** A child's access is a subset of the parent's: workspace sub-path, file read/write, terminal, MCP servers. The host computes it; a request for more is rejected.
-- **Budget.** Turn and wall-clock budgets are always enforced; token budgets only when an agent reports usage.
-- **Observability.** `traceparent` is propagated in `_meta`, one span per task. Logging stays metadata-only as today: no prompts, replies, tokens, paths or secrets.
+Validation follows `config.rs`: unknown keys rejected; values outside ranges fail startup/reload; `enabled = true` requires non-empty `workspace_roots`. Reload rules follow [daemon-and-reload](daemon-and-reload.md): existing sessions keep their snapshot; the listener, TLS and peer-role changes need a restart.
 
-## 7. Security notes
+### 9.2 CLI
 
-- Prompt injection is the main risk: results flow from one model to another. Mitigations are host-rendered facts, risk ceilings, no self-approval, and untrusted-data marking, but they do not remove the risk. The user judged strong models sufficient for the default (`medium`); the hard-deny list and "high goes to the phone" stay regardless because they are cheap deterministic checks that also catch ordinary model mistakes.
-- A paired peer is a credential. Revocation must end its sessions and delegated children immediately (the existing device revocation path, extended to peers).
-- Remote execution is a new trust boundary. A remote host enforces its own roots and consent; local policy never grants remote rights.
-- The inbound `/acp` surface needs the same rate limits, frame bounds and byte budgets as the WebSocket API.
+`acpd mcp-delegate` (internal; used only as an MCP stdio server), `acpd peer pair|list|revoke`, `acpd tasks` (operator view of the tree).
 
-## 8. Android impact
+### 9.3 REST additions (phone and operator, `phone` role)
 
-Not required for the first phases; the existing consent cards already show the layer and reason. Later: a task-tree view and a supervisor-approved badge on cards. Per [AGENTS.md](../AGENTS.md), new screens need Penpot boards in both themes before implementation.
+| Route | Purpose |
+| --- | --- |
+| `GET /v1/tasks`, `GET /v1/tasks/{id}` | Tree and task detail with `needs_decision` (phone may also answer) |
+| `POST /v1/tasks/{id}/cancel` | Cancel a task and what it waits on |
+| `POST /v1/tasks/{id}/supervisor/pause` / `resume` | Stop/restore supervisor approvals for a root |
+| `GET /v1/peers`, `DELETE /v1/peers/{name}` | List and revoke peers |
+| `GET /v1/peer/info` | (peer role) agents and workspace aliases |
 
-## 9. Phases and acceptance gates
+The existing consent answering path is unchanged; `acpd.v1` frames gain an optional `taskId` for child sessions.
 
-| Phase | Scope | Gate (scope-limited, no production claims) |
+## 10. Supervision, limits and cleanup
+
+- **Cancel cascade.** `task_cancel` or phone cancel: send `session/cancel` to the child, answer its pending permissions `cancelled`, wait up to 5 s for the turn to end `cancelled`, then cancel the child's own children, then terminate the process tree through `process_tree.rs` if still alive. Closing a parent ends all descendants.
+- **Liveness.** Per-task deadline, idle timeout (no events), WebSocket ping for remote links. Failure marks `Failed` and notifies the parent through `task_status`; no automatic retry.
+- **Isolation.** A writing child gets a `git worktree` under the state directory when the workspace is a git repository and `isolation` is not `shared`; the worktree is removed with the task unless it holds uncommitted changes, in which case it is kept and reported. Non-git workspaces use `shared` only after an explicit phone consent.
+- **Attenuation.** A child's scope and rights (read, write, terminal, MCP servers) are always a subset of its parent's, computed by the host. A request for more is `rights_not_allowed`.
+- **Budgets.** Wall-clock and turn budgets always; token budgets only when an agent reports usage.
+- **Tracing.** `_meta.traceparent` is propagated from root task to children, one span per task. Logs stay metadata-only as today: no prompts, replies, tokens, paths or secrets.
+- **Byte bounds.** Task results, `needs_decision` lists and bridge frames reuse the existing byte budgets; nothing new is unbounded.
+
+## 11. Security
+
+- **Prompt injection** is accepted as residual by the user; results are marked `untrusted`, facts are host-rendered, and the hard-deny list plus "High goes to the phone" stay because they are cheap deterministic checks that also catch ordinary model mistakes.
+- **A paired peer is a credential.** Revocation ends its sessions and delegated subtree. Peer tokens are never logged or reported.
+- **Remote is a trust boundary.** A remote host enforces its own roots and consent; local policy never grants remote rights.
+- **`ACPD_TASK_TOKEN`** is visible to the agent process by design; it is session-scoped, socket-bound, memory-only and not logged.
+- **`/acp`** has the same TLS requirement, frame bound, rate limit and byte budgets as the existing WebSocket API. Origin validation follows the RFD's phase 4 once defined.
+
+## 12. Compatibility with ACP agent CLIs
+
+| Tier | Agent supports | Works |
 | --- | --- | --- |
-| 0 | Confirm which specs and agents are real: check Goose support for HTTP/WebSocket, `subagents`, MCP-over-ACP, and re-read the RFD statuses. | Written notes in this document. |
-| 1 | `tree`, `directory`, `delegate` for **local** agents with the mock ACP agent. `parent`, limits, cascade cancel, cleanup. | Rust tests: depth/fan-out rejection, cycle rejection, cancel leaves no process, restart shows interrupted tasks. |
-| 2 | `approvals`: rules, `task_decide`, fail-closed, single-use digest, escalation to the phone. | Tests: late/malformed/duplicate decisions go to the phone; high risk never supervisor-approved; no self-approval; secrets absent from logs. |
-| 3 | Bridge inbound WebSocket `/acp`; outbound `transport = "ws"` directory entries; `peer` role and pairing. | Two `acpd` instances in a test: delegate to a remote mock agent, drop and re-attach with cursor, revoke the peer. TLS required. Actions on Linux and Windows. |
-| 4 | Streamable HTTP (once the RFD stabilizes), worktree isolation, `subagent_update` emission. | Compatibility against a second ACP implementation if available. |
-| 5 | Real-agent trial (Goose delegating to a second agent), then Android task-tree UI. | Same discipline as `scripts/real-agent-check.py`: record exact cost, scope and limits. |
+| A | Baseline ACP over stdio | Can be a child; supervised, cancelled, shown in the tree |
+| B | Accepts stdio MCP servers in `session/new` (mandatory in the spec) | Can also delegate (be a supervisor) |
+| C | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements |
 
-## 10. Compatibility with (almost) every ACP agent CLI
+Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. `own_tools` agents run but are never auto-approved. Tier is stored per directory entry from real discovery, never from the agent name.
 
-The user needs support for nearly all ACP agent CLIs. The design therefore assumes agents implement **only baseline ACP over stdio** and treats everything else as a bonus. I could not list the official agent registry from this environment, so no specific CLI is claimed as verified; each one gets a compatibility check in phase 0.
+Phase 0 builds a compatibility table for the 13 agents in 2.1 plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `session/load` support; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
 
-| Tier | What the agent supports | What works |
+## 13. Phases and acceptance gates
+
+| Phase | Scope | Gate (scoped; no production claim) |
 | --- | --- | --- |
-| A. Baseline ACP | `initialize`, `session/new`, `session/prompt`, updates, cancel | Can be **delegated to** (a child), supervised, cancelled and shown in the task tree. Needs nothing from the agent. |
-| B. MCP servers | Accepts `mcpServers` in `session/new`. Stdio is mandatory in the spec, so this should be every compliant agent; real behavior is verified per CLI in phase 0 | Can also **delegate to others** (a supervisor), through the injected delegation tools. |
-| C. Extras | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements only. |
+| 0 | Compatibility table (section 12); confirm RFD statuses | Table committed with exact versions and per-check results |
+| 1 | `tree`, `directory`, `control`, `delegate`, `mcp-delegate`, admission, cascade cancel, restart behavior, local agents, mock agent | Rust tests: each admission code; state transitions; cancel leaves no process (Linux group check as in `lifecycle.rs`); restart shows interrupted, no prompt resent; token rejection after session end; `mcp-delegate` MCP conformance (`initialize`, `tools/list`, `tools/call`, `isError`) |
+| 2 | `approvals`: classification, supervisor decision, digest, single-use, fail closed, escalation, pause | Tests: late/duplicate/malformed/mismatched decisions go to the phone; High and `own_tools` never supervisor-approved; no self-approval; first answer wins race between phone and supervisor; logs contain no secrets |
+| 3 | `bridge` inbound WebSocket, outbound `ws` transport trait, `peer` role, `peers.json`, alias resolution | Two `acpd` instances: delegate to a remote mock agent; drop link and resume with `session/load`; `_meta.acpdGap` after loss; revoke peer ends subtree; TLS required; `501` on SSE routes; Actions on Linux and Windows |
+| 4 | Streamable HTTP when the RFD stabilizes; git worktree isolation; `subagent_update` | Interop test against a second implementation if available |
+| 5 | Real-agent trial: one supervisor CLI delegating to a second CLI; then Android task-tree UI (Penpot boards first per [AGENTS.md](../AGENTS.md)) | Same discipline as `scripts/real-agent-check.py`: exact costs, scope and limits recorded |
 
-Fallbacks so no CLI is left out:
-- **No MCP support:** the agent can only be a child. It can still be driven by a supervisor that does support MCP, or by you from the phone.
-- **Stdio only:** the bridge exposes it remotely, so remote use needs nothing from the agent.
-- **MCP over stdio only, or HTTP only:** the host injects whichever form the agent advertises. The tools are the same.
-- **No `session/load`:** the task is not resumable after a restart; it shows as interrupted.
-- **Agents that edit files with their own tools:** they work, but the host cannot gate their edits (see section 5).
+## 14. Open items
 
-Each directory entry records its tier from real discovery, never from the agent's name, as `AGENTS.md` requires.
-
-## 11. Decisions and open questions
-
-Decided by the user on 13 October 2026:
-
-1. Peer links use the new `/acp` endpoint, not `acpd.v1`.
-2. `supervisor_max_risk` defaults to `medium`; `high` always goes to the phone.
-3. No separate reviewer model. The supervising agent decides, and anything it does not answer goes to the phone.
-4. Support nearly all ACP agent CLIs (section 10).
-
-Defaults chosen by the design for items the user did not want to decide (change them any time):
-
-1. **Selecting an agent over `/acp`:** the standard `session/new` has no field for "which agent", so the connecting side puts the agent ID in `_meta` and the host looks it up. If the spec later adds a selector, we switch to it.
-2. **Agents with their own tools:** delegable if the operator lists them, with the existing warning, and never auto-approved, because the host cannot see their edits.
-3. **Supervisor busy mid-turn:** a pending approval waits for a short timeout, then goes to your phone.
+1. Whether each CLI in 2.1 honors stdio MCP servers and prompts reliably enough to use `task_delegate` (phase 0).
+2. Exact `initialize` caching behavior for `/acp` when capabilities depend on credentials (phase 1 to measure).
+3. `own_tools` agents: delegable only when listed, never auto-approved; revisit after phase 5 evidence.
+4. Peer pairing UX details (who displays the code) before phase 3.
+5. Whether Goose's reference `/acp` implementation matches the RFD closely enough to interoperate with our inbound bridge; test in phase 3.
