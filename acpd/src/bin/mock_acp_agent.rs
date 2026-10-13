@@ -22,6 +22,8 @@ struct Options {
     #[arg(long)]
     mcp_sse: bool,
     #[arg(long)]
+    echo_mcp: bool,
+    #[arg(long)]
     prompt_media: bool,
     #[arg(long)]
     read_during_load: bool,
@@ -150,11 +152,12 @@ async fn main() -> anyhow::Result<()> {
             "session/new" => {
                 mcp_servers = params["mcpServers"].clone();
                 session_counter += 1;
-                out.send(response(
-                    id,
-                    json!({"sessionId":format!("mock-{session_counter}"),"_meta":{"mockMcpServers":mcp_servers.as_array().unwrap().iter().map(|server| json!({"name":server["name"],"type":server.get("type").and_then(Value::as_str).unwrap_or("stdio")})).collect::<Vec<_>>()}}),
-                ))
-                .await?;
+                let mut reply = json!({"sessionId":format!("mock-{session_counter}"),"_meta":{"mockMcpServers":mcp_servers.as_array().unwrap().iter().map(|server| json!({"name":server["name"],"type":server.get("type").and_then(Value::as_str).unwrap_or("stdio")})).collect::<Vec<_>>()}});
+                if options.echo_mcp {
+                    // Test-only: an agent knows its own MCP definitions, environment included.
+                    reply["_meta"]["mockMcpFull"] = mcp_servers.clone();
+                }
+                out.send(response(id, reply)).await?;
             }
             "session/load" if !options.no_resume => {
                 mcp_servers = params["mcpServers"].clone();

@@ -69,6 +69,8 @@ pub enum AdmissionError {
     ScopeNotAllowed,
     RightsNotAllowed,
     SessionLimit,
+    /// The delegating task has already finished.
+    ParentNotOpen,
 }
 impl AdmissionError {
     pub fn code(self) -> &'static str {
@@ -81,6 +83,7 @@ impl AdmissionError {
             Self::ScopeNotAllowed => "scope_not_allowed",
             Self::RightsNotAllowed => "rights_not_allowed",
             Self::SessionLimit => "session_limit",
+            Self::ParentNotOpen => "invalid_state",
         }
     }
 }
@@ -122,6 +125,11 @@ impl TaskTree {
             other_sessions: 0,
         }
     }
+    /// Limits and the enabled flag apply to admissions from now on; existing tasks keep running.
+    pub fn configure(&mut self, enabled: bool, limits: Limits) {
+        self.enabled = enabled;
+        self.limits = limits;
+    }
     pub fn set_other_sessions(&mut self, count: usize) {
         self.other_sessions = count;
     }
@@ -157,6 +165,9 @@ impl TaskTree {
             Some(id) => Some(self.nodes.get(&id).ok_or(AdmissionError::ScopeNotAllowed)?),
             None => None,
         };
+        if parent.is_some_and(|p| p.state.is_terminal()) {
+            return Err(AdmissionError::ParentNotOpen);
+        }
         let depth = parent.map_or(0, |p| p.depth + 1);
         if depth > self.limits.max_depth {
             return Err(AdmissionError::DepthLimit);
@@ -242,6 +253,40 @@ impl TaskTree {
         allowed
     }
 
+    /// End an open task regardless of the transition table (cancel watchdog, deadline, session
+    /// removal). Only terminal states are accepted; a finished task is left unchanged.
+    pub fn force(&mut self, id: Uuid, to: TaskState) -> bool {
+        debug_assert!(to.is_terminal());
+        match self.nodes.get_mut(&id) {
+            Some(node) if !node.state.is_terminal() && to.is_terminal() => {
+                node.state = to;
+                true
+            }
+            _ => false,
+        }
+    }
+    /// Direct children of `id`, oldest-agnostic, in no particular order.
+    pub fn children(&self, id: Uuid) -> Vec<Uuid> {
+        self.nodes
+            .values()
+            .filter(|n| n.parent == Some(id))
+            .map(|n| n.id)
+            .collect()
+    }
+    /// `id` and every descendant in any state, deepest first.
+    pub fn subtree(&self, id: Uuid) -> Vec<Uuid> {
+        let mut found: Vec<&TaskNode> = self
+            .nodes
+            .values()
+            .filter(|n| self.is_ancestor_or_self_of(id, n.id))
+            .collect();
+        found.sort_by_key(|n| std::cmp::Reverse(n.depth));
+        found.into_iter().map(|n| n.id).collect()
+    }
+    /// Forget a whole task tree once its root session is gone.
+    pub fn remove_tree(&mut self, root: Uuid) {
+        self.nodes.retain(|_, node| node.root != root);
+    }
     /// Every open descendant of `id` (excluding `id`), deepest first, for cascading cancel.
     pub fn open_descendants(&self, id: Uuid) -> Vec<Uuid> {
         let mut found: Vec<&TaskNode> = self
@@ -476,6 +521,38 @@ mod tests {
         t.transition(other, TaskState::Rejected);
         assert_eq!(t.open_descendants(r), vec![g, c]);
         assert!(t.open_descendants(g).is_empty());
+    }
+
+    #[test]
+    fn finished_parent_cannot_delegate_and_force_ends_open_tasks_only() {
+        let mut t = tree();
+        let r = root(&mut t);
+        let c = child(&mut t, r, "b", "/w", ALL).unwrap();
+        assert!(t.force(c, TaskState::Failed));
+        assert!(
+            !t.force(c, TaskState::Canceled),
+            "finished tasks stay as they ended"
+        );
+        assert_eq!(t.get(c).unwrap().state, TaskState::Failed);
+        assert_eq!(
+            child(&mut t, c, "d", "/w", ALL),
+            Err(AdmissionError::ParentNotOpen)
+        );
+        assert_eq!(AdmissionError::ParentNotOpen.code(), "invalid_state");
+    }
+
+    #[test]
+    fn subtree_children_and_tree_removal() {
+        let mut t = tree();
+        let r = root(&mut t);
+        let c = child(&mut t, r, "b", "/w", ALL).unwrap();
+        let g = child(&mut t, c, "c", "/w", ALL).unwrap();
+        let r2 = root_of(&mut t, "q", "/w", ALL);
+        assert_eq!(t.children(r), vec![c]);
+        assert_eq!(t.subtree(r), vec![g, c, r]);
+        t.remove_tree(r);
+        assert!(t.get(r).is_none() && t.get(g).is_none());
+        assert!(t.get(r2).is_some());
     }
 
     #[test]

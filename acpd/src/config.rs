@@ -16,6 +16,53 @@ pub struct Config {
     /// Opt-in automatic review of agent shell lines, keyed by agent id. Absent = off:
     /// every shell line needs explicit phone approval.
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
+    /// Experimental agent-to-agent delegation. Off by default.
+    pub orchestrator: OrchestratorConfig,
+}
+
+/// Experimental delegation between agents (see `docs/orchestrator-design.md`). Changes apply to
+/// sessions and tasks started after a reload; running sessions keep what they were launched with.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OrchestratorConfig {
+    pub enabled: bool,
+    /// Agent ids whose sessions get the delegation tools (an MCP server added to `session/new`).
+    pub orchestrate: Vec<String>,
+    /// Agent ids that other agents may delegate to.
+    pub delegable: Vec<String>,
+    pub max_depth: u8,
+    pub max_children_per_task: usize,
+    pub max_tasks_total: usize,
+    /// Applied when a delegation names no deadline.
+    pub default_deadline_seconds: u64,
+}
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            orchestrate: vec![],
+            delegable: vec![],
+            max_depth: 2,
+            max_children_per_task: 4,
+            max_tasks_total: 8,
+            default_deadline_seconds: 1800,
+        }
+    }
+}
+impl OrchestratorConfig {
+    fn validate(&self) -> Result<()> {
+        if !(1..=5).contains(&self.max_depth)
+            || !(1..=16).contains(&self.max_children_per_task)
+            || !(1..=64).contains(&self.max_tasks_total)
+            || !(1..=86_400).contains(&self.default_deadline_seconds)
+        {
+            bail!("invalid orchestrator limits")
+        }
+        if self.orchestrate.len() > 64 || self.delegable.len() > 64 {
+            bail!("too many orchestrator agents")
+        }
+        Ok(())
+    }
 }
 
 /// Optional bounded file sink for host lifecycle logs. Stderr output is unchanged.
@@ -98,6 +145,7 @@ impl Default for Config {
             state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
+            orchestrator: OrchestratorConfig::default(),
         }
     }
 }
@@ -221,6 +269,7 @@ impl Config {
         {
             bail!("invalid history limits")
         }
+        self.orchestrator.validate()?;
         let logging = &self.logging;
         if !(64 * 1024..=64 * 1024 * 1024).contains(&logging.max_file_bytes) {
             bail!("log file size must be 64 KiB..64 MiB")

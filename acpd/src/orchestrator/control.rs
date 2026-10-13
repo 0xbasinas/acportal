@@ -4,9 +4,15 @@
 //!
 //! Request: `{"token":"…","tool":"task_status","arguments":{…}}`
 //! Reply:   `{"ok":true,"result":{…}}` or `{"ok":false,"code":"…","message":"…"}`
-use super::delegate::{Backend, ToolFailure, read_line};
+use super::{
+    Orchestrator,
+    delegate::{Backend, ToolFailure, read_line},
+};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::Mutex,
@@ -84,9 +90,171 @@ pub async fn connect(path: &Path) -> std::io::Result<Box<dyn Stream>> {
 }
 #[cfg(windows)]
 pub async fn connect(path: &Path) -> std::io::Result<Box<dyn Stream>> {
-    Ok(Box::new(
-        tokio::net::windows::named_pipe::ClientOptions::new().open(path)?,
-    ))
+    use tokio::net::windows::named_pipe::ClientOptions;
+    // ERROR_PIPE_BUSY: the server is between accepting one client and creating the next pipe
+    // instance. Waiting briefly and retrying is the documented way to connect.
+    const PIPE_BUSY: i32 = 231;
+    let mut attempts = 0;
+    loop {
+        match ClientOptions::new().open(path) {
+            Ok(client) => return Ok(Box::new(client)),
+            Err(error) if error.raw_os_error() == Some(PIPE_BUSY) && attempts < 100 => {
+                attempts += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+// ---- Host side ---------------------------------------------------------------------------
+
+/// Largest request line the host accepts. The delegate caps its own input at 1 MiB and wraps it
+/// with a token and tool name, so this leaves room for that.
+const MAX_REQUEST: usize = 1024 * 1024 + 8 * 1024;
+const MAX_CONNECTIONS: usize = 64;
+
+/// Answer one request line. Never panics on hostile input: anything malformed is an error reply.
+pub async fn process(orchestrator: &Arc<Orchestrator>, line: &[u8]) -> Value {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        token: String,
+        tool: String,
+        #[serde(default)]
+        arguments: Value,
+    }
+    let Ok(request) = serde_json::from_slice::<Request>(line) else {
+        return json!({"ok": false, "code": "invalid_request", "message": "malformed request"});
+    };
+    match orchestrator
+        .call(&request.token, &request.tool, request.arguments)
+        .await
+    {
+        Ok(result) => json!({"ok": true, "result": result}),
+        Err(failure) => json!({"ok": false, "code": failure.code, "message": failure.message}),
+    }
+}
+
+async fn serve_connection<S: AsyncRead + AsyncWrite + Unpin>(
+    orchestrator: Arc<Orchestrator>,
+    stream: S,
+) {
+    let mut stream = BufReader::new(stream);
+    while let Ok(Some(line)) = read_line(&mut stream, MAX_REQUEST).await {
+        let mut reply = serde_json::to_vec(&process(&orchestrator, line.trim_ascii()).await)
+            .expect("JSON values serialize");
+        reply.push(b'\n');
+        if stream.get_mut().write_all(&reply).await.is_err()
+            || stream.get_mut().flush().await.is_err()
+        {
+            break;
+        }
+    }
+}
+
+/// A running control endpoint. Dropping it stops accepting and removes the socket file.
+pub struct Endpoint {
+    path: PathBuf,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Endpoint {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        self.task.abort();
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Start the control endpoint and tell the orchestrator where it is. Must run inside a Tokio
+/// runtime. Unix: a socket in a private (0700) directory under `state_directory`. Windows: a
+/// named pipe with an unguessable name that refuses remote clients. In both cases the task
+/// token, not the endpoint's reachability, is what authorizes a call.
+pub fn start(orchestrator: Arc<Orchestrator>, state_directory: &Path) -> std::io::Result<Endpoint> {
+    let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
+    #[cfg(unix)]
+    let (path, task) = {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let directory = state_directory.join("orchestrator");
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&directory)?;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
+        let path = directory.join("control.sock");
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() || meta.is_dir() => {
+                return Err(std::io::Error::other(
+                    "unexpected file at the control socket path",
+                ));
+            }
+            Ok(_) => std::fs::remove_file(&path)?, // a stale socket from a previous run
+            Err(_) => {}
+        }
+        let listener = tokio::net::UnixListener::bind(&path)?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        let accepting = orchestrator.clone();
+        let task = tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let Ok(permit) = permits.clone().acquire_owned().await else {
+                    break;
+                };
+                let orchestrator = accepting.clone();
+                tokio::spawn(async move {
+                    serve_connection(orchestrator, stream).await;
+                    drop(permit);
+                });
+            }
+        });
+        (path, task)
+    };
+    #[cfg(windows)]
+    let (path, task) = {
+        use tokio::net::windows::named_pipe::ServerOptions;
+        let _ = state_directory;
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random)
+            .map_err(|_| std::io::Error::other("randomness unavailable"))?;
+        let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let name = format!(r"\\.\pipe\acpd-orchestrator-{suffix}");
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .reject_remote_clients(true)
+            .create(&name)?;
+        let accepting = orchestrator.clone();
+        let pipe = name.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                if server.connect().await.is_err() {
+                    break;
+                }
+                // The next instance must exist before this client is handed off, or a client
+                // arriving in between would find no pipe.
+                let Ok(next) = ServerOptions::new()
+                    .reject_remote_clients(true)
+                    .create(&pipe)
+                else {
+                    break;
+                };
+                let connected = std::mem::replace(&mut server, next);
+                let Ok(permit) = permits.clone().acquire_owned().await else {
+                    break;
+                };
+                let orchestrator = accepting.clone();
+                tokio::spawn(async move {
+                    serve_connection(orchestrator, connected).await;
+                    drop(permit);
+                });
+            }
+        });
+        (PathBuf::from(name), task)
+    };
+    orchestrator.set_control_path(path.to_string_lossy().into_owned());
+    Ok(Endpoint { path, task })
 }
 
 #[cfg(test)]

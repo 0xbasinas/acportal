@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     connection::{AcpConnection, AgentRpcError, Replay, WorkspaceAccess},
+    orchestrator::Orchestrator,
     registry::Registry,
     session_catalog::SessionCatalog,
 };
@@ -174,6 +175,22 @@ pub struct SessionManager {
     catalog: Option<Arc<SessionCatalog>>,
     // Serializes lifecycle creation to enforce limits without holding the sessions lock across IO.
     lifecycle: Mutex<()>,
+    orchestrator: std::sync::OnceLock<Arc<Orchestrator>>,
+}
+
+/// Undoes orchestrator admission if the session never finishes starting.
+struct TicketGuard<'a> {
+    orchestrator: &'a Orchestrator,
+    task: Uuid,
+    armed: bool,
+}
+impl Drop for TicketGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.orchestrator
+                .abort(self.task, "the agent could not be started");
+        }
+    }
 }
 pub struct LaunchSettings {
     pub config: Config,
@@ -211,7 +228,25 @@ impl SessionManager {
             retained: Mutex::new(BTreeMap::new()),
             catalog: None,
             lifecycle: Mutex::new(()),
+            orchestrator: std::sync::OnceLock::new(),
         })
+    }
+    /// Attach the orchestrator once, right after construction. Sessions started before this are
+    /// never part of a task tree.
+    pub fn attach_orchestrator(&self, orchestrator: Arc<Orchestrator>) {
+        let _ = self.orchestrator.set(orchestrator);
+    }
+    /// Start a delegated child session for `parent`. Admission runs before any process starts and
+    /// refusals surface as [`crate::orchestrator::AdmissionFailure`].
+    pub async fn open_task(
+        &self,
+        agent_id: &str,
+        workspace: &Path,
+        access: WorkspaceAccess,
+        parent: Uuid,
+    ) -> Result<Arc<AcpSession>> {
+        self.open_inner(agent_id, workspace, None, Vec::new(), access, Some(parent))
+            .await
     }
     /// Network hosts retain metadata. Standalone local chats stay in memory.
     pub fn persistent(config: Config, registry: Registry, state_directory: &Path) -> Result<Self> {
@@ -307,6 +342,18 @@ impl SessionManager {
         mcp_servers: Vec<Value>,
         access: WorkspaceAccess,
     ) -> Result<Arc<AcpSession>> {
+        self.open_inner(agent_id, workspace, load, mcp_servers, access, None)
+            .await
+    }
+    async fn open_inner(
+        &self,
+        agent_id: &str,
+        workspace: &Path,
+        load: Option<&str>,
+        mut mcp_servers: Vec<Value>,
+        access: WorkspaceAccess,
+        parent: Option<Uuid>,
+    ) -> Result<Arc<AcpSession>> {
         crate::mcp::validate(&mcp_servers, None)?;
         let _lifecycle = self.lifecycle.lock().await;
         let settings = self.launch_settings();
@@ -325,6 +372,26 @@ impl SessionManager {
         };
         let discovery = definition.discover();
         let launch = discovery.launch.context("agent executable not found")?;
+        // Admission before any process starts; the guard undoes it if startup fails below.
+        let mut ticket = None;
+        if let Some(orchestrator) = self.orchestrator.get() {
+            if let Some(issued) = orchestrator
+                .begin(parent, agent_id, &workspace, access, &settings)
+                .map_err(anyhow::Error::new)?
+            {
+                if let Some(mcp) = issued.mcp.clone() {
+                    mcp_servers.push(mcp);
+                    crate::mcp::validate(&mcp_servers, None)?;
+                }
+                ticket = Some(TicketGuard {
+                    orchestrator,
+                    task: issued.task,
+                    armed: true,
+                });
+            }
+        } else if parent.is_some() {
+            bail!("delegation is not available on this host")
+        }
         let connection = AcpConnection::spawn_with_access(
             definition,
             launch,
@@ -409,6 +476,10 @@ impl SessionManager {
             .lock()
             .await
             .insert(session.metadata().id, session.clone());
+        if let Some(mut guard) = ticket {
+            guard.armed = false;
+            guard.orchestrator.bind(guard.task, session.metadata().id);
+        }
         tracing::info!(session_id = %session.metadata().id, "session created");
         Ok(session)
     }
@@ -443,6 +514,15 @@ impl SessionManager {
         self.sessions.lock().await.len()
     }
     pub async fn remove(&self, id: Uuid) -> Result<()> {
+        // Delegated children go first, so none outlives the session that started it.
+        if let Some(orchestrator) = self.orchestrator.get() {
+            for child in orchestrator.release_subtree(id) {
+                let _ = self.remove_one(child).await;
+            }
+        }
+        self.remove_one(id).await
+    }
+    async fn remove_one(&self, id: Uuid) -> Result<()> {
         let _lifecycle = self.lifecycle.lock().await;
         let session = self.get(id).await.ok();
         let _setup = if let Some(session) = &session {

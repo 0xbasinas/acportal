@@ -38,6 +38,7 @@ pub struct Host {
     pub config: Arc<Config>,
     pub registry: Arc<Registry>,
     pub sessions: Arc<SessionManager>,
+    orchestrator: Arc<crate::orchestrator::Orchestrator>,
     pub security: SecurityStore,
     gateways: Arc<AsyncMutex<HashMap<Uuid, Arc<Gateway>>>>,
     /// Serializes phone-initiated changes to folders (read, change, save, reload).
@@ -152,10 +153,13 @@ impl Host {
             registry.clone(),
             security.directory(),
         )?);
+        let orchestrator = crate::orchestrator::Orchestrator::new(Arc::downgrade(&sessions));
+        sessions.attach_orchestrator(orchestrator.clone());
         Ok(Self {
             config: Arc::new(config),
             registry: Arc::new(registry),
             sessions,
+            orchestrator,
             security,
             gateways: Arc::new(AsyncMutex::new(HashMap::new())),
             user_changes: Arc::new(AsyncMutex::new(())),
@@ -210,6 +214,19 @@ impl Host {
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(5)));
             host.sessions.shutdown().await;
         });
+        // Experimental delegation: the control endpoint lives exactly as long as the host serves.
+        // Enabling it by reload alone is not enough; it is started here, once.
+        let _control = if self.config.orchestrator.enabled {
+            Some(
+                crate::orchestrator::control::start(
+                    self.orchestrator.clone(),
+                    &self.config.state_directory,
+                )
+                .context("start the delegation control channel")?,
+            )
+        } else {
+            None
+        };
         let address = self.config.server.listen;
         let listener = std::net::TcpListener::bind(address)
             .context("bind host listener; check address and port conflicts")?;
