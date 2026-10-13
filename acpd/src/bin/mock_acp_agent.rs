@@ -29,6 +29,18 @@ struct Options {
     /// Path named in that request's rawInput (default `example.rs`).
     #[arg(long, default_value = "example.rs")]
     permission_path: String,
+    /// A prompt that says nothing and never ends on its own (it still ends if cancelled).
+    #[arg(long)]
+    stall_prompt: bool,
+    /// Ignore `session/cancel` entirely.
+    #[arg(long)]
+    ignore_cancel: bool,
+    /// Report this cumulative cost in a `usage_update` at the start of each turn (negative: none).
+    #[arg(long, default_value_t = -1.0, allow_negative_numbers = true)]
+    usage_cost: f64,
+    /// The currency of that cost.
+    #[arg(long, default_value = "USD")]
+    usage_currency: String,
     #[arg(long)]
     prompt_media: bool,
     #[arg(long)]
@@ -214,6 +226,18 @@ async fn main() -> anyhow::Result<()> {
                 out.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}))
                     .await?;
             }
+            "session/prompt" if options.stall_prompt => {
+                let (cancel, mut cancellation) = watch::channel(false);
+                cancellations.insert(session.clone(), cancel);
+                let worker_out = out.clone();
+                tokio::spawn(async move {
+                    if cancellation.changed().await.is_ok() {
+                        let _ = worker_out
+                            .send(response(id, json!({"stopReason":"cancelled"})))
+                            .await;
+                    }
+                });
+            }
             "session/prompt" => {
                 last_prompt = params.clone();
                 permission_counter += 1;
@@ -229,6 +253,8 @@ async fn main() -> anyhow::Result<()> {
                 let permission_kind = options.permission_kind.clone();
                 let permission_path = options.permission_path.clone();
                 let terminal_delay = options.terminal_exit_delay_ms;
+                let usage = (options.usage_cost >= 0.0)
+                    .then(|| (options.usage_cost, options.usage_currency.clone()));
                 tokio::spawn(async move {
                     let mut cancellation = cancellation;
                     let work = async {
@@ -249,6 +275,9 @@ async fn main() -> anyhow::Result<()> {
                             &permission_id,
                             delay,
                             (&permission_kind, &permission_path),
+                            usage
+                                .as_ref()
+                                .map(|(amount, currency)| (*amount, currency.as_str())),
                         )
                         .await
                     };
@@ -265,6 +294,7 @@ async fn main() -> anyhow::Result<()> {
                         .await;
                 });
             }
+            "session/cancel" if options.ignore_cancel => {}
             "session/cancel" => {
                 if let Some(cancel) = cancellations.remove(&session) {
                     let _ = cancel.send(true);
@@ -450,7 +480,17 @@ async fn turn(
     permission_id: &str,
     delay: u64,
     (kind, path): (&str, &str),
+    usage: Option<(f64, &str)>,
 ) -> anyhow::Result<bool> {
+    if let Some((amount, currency)) = usage {
+        update(
+            out,
+            session,
+            json!({"sessionUpdate":"usage_update","used":1000,"size":200000,
+                   "cost":{"amount":amount,"currency":currency}}),
+        )
+        .await?;
+    }
     for text in ["I'll inspect ", "the workspace.\n"] {
         update(
             out,

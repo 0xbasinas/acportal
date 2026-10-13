@@ -35,6 +35,16 @@ pub struct OrchestratorConfig {
     pub max_tasks_total: usize,
     /// Applied when a delegation names no deadline.
     pub default_deadline_seconds: u64,
+    /// A task that has produced no event for this long, and is not waiting for a person, is
+    /// cancelled and ends failed.
+    pub idle_timeout_seconds: u64,
+    /// Stop a task whose cumulative cost, as the agent reports it in USD, goes over this.
+    /// 0 turns it off. An agent that reports no cost, or one in another currency, is unmetered
+    /// and cannot be held to it.
+    pub task_max_cost_usd: f64,
+    /// How long a finished child task's session is kept (so a follow-up can still be sent)
+    /// before it is ended. 0 keeps it until its root session is removed.
+    pub finished_child_keep_seconds: u64,
     /// Highest risk a supervising agent may approve for its sub-tasks. `none` leaves every
     /// permission request to the phone; `high` is not allowed.
     pub supervisor_max_risk: SupervisorRisk,
@@ -89,6 +99,9 @@ impl Default for OrchestratorConfig {
             max_children_per_task: 4,
             max_tasks_total: 8,
             default_deadline_seconds: 1800,
+            idle_timeout_seconds: 300,
+            task_max_cost_usd: 0.0,
+            finished_child_keep_seconds: 600,
             supervisor_max_risk: SupervisorRisk::default(),
             supervisor_timeout_seconds: 60,
             max_edit_bytes: 256 * 1024,
@@ -106,6 +119,10 @@ impl OrchestratorConfig {
             || !(1..=16).contains(&self.max_children_per_task)
             || !(1..=64).contains(&self.max_tasks_total)
             || !(1..=86_400).contains(&self.default_deadline_seconds)
+            || !(1..=3600).contains(&self.idle_timeout_seconds)
+            || !self.task_max_cost_usd.is_finite()
+            || self.task_max_cost_usd < 0.0
+            || self.finished_child_keep_seconds > 86_400
             || !(1..=600).contains(&self.supervisor_timeout_seconds)
             || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
         {

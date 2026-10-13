@@ -68,7 +68,10 @@ struct Runtime {
     stop_reason: Option<String>,
     error: Option<String>,
     cancel_requested: bool,
-    deadline_hit: bool,
+    /// Which limit ended (or is ending) this task, if one did.
+    limit: Option<Limit>,
+    /// Cumulative USD cost the agent reported; `None` means unmetered.
+    cost_usd: Option<f64>,
     cancel: Arc<Notify>,
     /// Permission requests of this task still waiting for an answer, by request id.
     requests: BTreeMap<String, decisions::Request>,
@@ -81,6 +84,33 @@ struct Runtime {
     updated_at: u64,
     /// The W3C trace id the whole tree shares.
     trace_id: Option<String>,
+}
+/// A bound a task went past.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Limit {
+    Deadline,
+    /// No event for this many seconds.
+    Idle(u64),
+    Cost,
+}
+/// What the task's summary says, in the host's own words.
+fn limit_text(limit: Limit) -> String {
+    match limit {
+        Limit::Deadline => "the task's deadline passed".into(),
+        Limit::Idle(seconds) => format!("the task made no progress for {seconds} seconds"),
+        Limit::Cost => "the task went over its cost budget".into(),
+    }
+}
+/// The cumulative USD cost in a `usage_update`, if it carries one. Another currency is not
+/// converted: that agent is unmetered for a USD budget.
+fn usd_cost(message: &Value) -> Option<f64> {
+    let update = &message["params"]["update"];
+    (message["method"] == "session/update"
+        && update["sessionUpdate"] == "usage_update"
+        && update["cost"]["currency"] == "USD")
+        .then(|| update["cost"]["amount"].as_f64())
+        .flatten()
+        .filter(|amount| amount.is_finite() && *amount >= 0.0)
 }
 fn now() -> u64 {
     std::time::SystemTime::now()
@@ -98,7 +128,8 @@ impl Runtime {
             stop_reason: None,
             error: None,
             cancel_requested: false,
-            deadline_hit: false,
+            limit: None,
+            cost_usd: None,
             cancel: Arc::new(Notify::new()),
             requests: BTreeMap::new(),
             answered: VecDeque::new(),
@@ -131,6 +162,7 @@ pub struct Orchestrator {
     state_dir: OnceLock<std::path::PathBuf>,
     persist_pending: AtomicBool,
     write_lock: Mutex<()>,
+    janitor_started: AtomicBool,
 }
 
 fn limits(config: &OrchestratorConfig) -> Limits {
@@ -209,6 +241,7 @@ impl Orchestrator {
             state_dir: OnceLock::new(),
             persist_pending: AtomicBool::new(false),
             write_lock: Mutex::new(()),
+            janitor_started: AtomicBool::new(false),
             manager,
             state: Mutex::new(State {
                 tree: TaskTree::new(false, Limits::default()),
@@ -264,6 +297,7 @@ impl Orchestrator {
                     summary: runtime.and_then(|r| r.error.clone()),
                     stop_reason: runtime.and_then(|r| r.stop_reason.clone()),
                     trace_id: runtime.and_then(|r| r.trace_id.clone()),
+                    cost_usd: runtime.and_then(|r| r.cost_usd),
                 }
             })
             .collect();
@@ -349,6 +383,7 @@ impl Orchestrator {
                 runtime.error = record.summary.clone();
                 runtime.stop_reason = record.stop_reason.clone();
                 runtime.trace_id = record.trace_id.clone();
+                runtime.cost_usd = record.cost_usd;
                 state.runtime.insert(record.id, runtime);
             }
         }
@@ -807,7 +842,7 @@ impl Orchestrator {
             runtime.stop_reason = None;
             runtime.error = None;
             runtime.cancel_requested = false;
-            runtime.deadline_hit = false;
+            runtime.limit = None;
             session
         };
         self.bump();
@@ -947,6 +982,7 @@ impl Orchestrator {
         if settings.config.orchestrator.supervisor_max_risk != SupervisorRisk::None {
             tokio::spawn(self.clone().watch(task, session_id));
         }
+        self.start_janitor();
         self.wait(task, wait).await;
         let policy = self.policy()?;
         let state = self.lock();
@@ -1016,17 +1052,52 @@ impl Orchestrator {
             self.set_state(task, TaskState::Working);
         }
         let baseline = session.replay(u64::MAX).latest_sequence;
+        let (idle_seconds, budget) = {
+            let settings = manager.launch_settings();
+            let config = &settings.config.orchestrator;
+            (config.idle_timeout_seconds, config.task_max_cost_usd)
+        };
+        let idle = Duration::from_secs(idle_seconds);
+        let mut events = session.connection.subscribe();
+        let mut events_open = true;
         let mut prompting = Box::pin(session.prompt(&prompt));
         let mut interrupted = false;
-        let outcome = tokio::select! {
-            result = &mut prompting => Some(result),
-            _ = tokio::time::sleep(deadline) => {
-                if let Some(runtime) = self.lock().runtime.get_mut(&task) {
-                    runtime.deadline_hit = true;
+        let deadline_at = tokio::time::Instant::now() + deadline;
+        let mut idle_at = tokio::time::Instant::now() + idle;
+        let outcome = loop {
+            tokio::select! {
+                result = &mut prompting => break Some(result),
+                _ = tokio::time::sleep_until(deadline_at) => {
+                    self.note_limit(task, Limit::Deadline);
+                    break None;
                 }
-                None
+                _ = cancel.0.notified() => break None,
+                _ = tokio::time::sleep_until(idle_at) => {
+                    // A task waiting for a person is not idle.
+                    if session.connection.pending_permissions().is_empty() {
+                        self.note_limit(task, Limit::Idle(idle_seconds));
+                        break None;
+                    }
+                    idle_at = tokio::time::Instant::now() + idle;
+                }
+                event = events.recv(), if events_open => match event {
+                    Ok(event) => {
+                        idle_at = tokio::time::Instant::now() + idle;
+                        if let Some(spent) = usd_cost(&event.message) {
+                            self.note_cost(task, spent);
+                            if budget > 0.0 && spent > budget {
+                                self.note_limit(task, Limit::Cost);
+                                break None;
+                            }
+                        }
+                    }
+                    // Missed events still mean the agent was talking.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        idle_at = tokio::time::Instant::now() + idle;
+                    }
+                    Err(_) => events_open = false,
+                },
             }
-            _ = cancel.0.notified() => None,
         };
         let outcome = match outcome {
             Some(result) => result,
@@ -1036,14 +1107,17 @@ impl Orchestrator {
                 match tokio::time::timeout(self.cancel_grace, &mut prompting).await {
                     Ok(result) => result,
                     Err(_) => {
-                        let hit = self
-                            .lock()
-                            .runtime
-                            .get(&task)
-                            .is_some_and(|runtime| runtime.deadline_hit);
+                        // The agent ignored the cancel: end its session and say why.
+                        let limit = self.limit_of(task);
+                        {
+                            let mut state = self.lock();
+                            if let Some(runtime) = state.runtime.get_mut(&task) {
+                                runtime.error = limit.map(limit_text);
+                            }
+                        }
                         self.set_state(
                             task,
-                            if hit {
+                            if limit.is_some() {
                                 TaskState::Failed
                             } else {
                                 TaskState::Canceled
@@ -1064,21 +1138,16 @@ impl Orchestrator {
         let (next, stop_reason, error, truncated) = match outcome {
             Ok(value) => {
                 let reason = value["stopReason"].as_str().unwrap_or("").to_owned();
-                let hit = self
-                    .lock()
-                    .runtime
-                    .get(&task)
-                    .is_some_and(|runtime| runtime.deadline_hit);
+                let limit = self.limit_of(task);
                 let (next, truncated) = match reason.as_str() {
                     "end_turn" => (TaskState::Completed, false),
                     "max_tokens" | "max_turn_requests" => (TaskState::Completed, true),
                     "refusal" => (TaskState::Rejected, false),
-                    "cancelled" if hit => (TaskState::Failed, false),
+                    "cancelled" if limit.is_some() => (TaskState::Failed, false),
                     "cancelled" => (TaskState::Canceled, false),
                     _ => (TaskState::Failed, false),
                 };
-                let error = (hit && next == TaskState::Failed)
-                    .then(|| "the task's deadline passed".to_owned());
+                let error = limit.filter(|_| next == TaskState::Failed).map(limit_text);
                 (next, Some(reason), error, truncated)
             }
             Err(error) => match error.downcast_ref::<AgentRpcError>() {
@@ -1094,7 +1163,16 @@ impl Orchestrator {
                     Some(format!("agent error {code}")),
                     false,
                 ),
-                None if interrupted => (TaskState::Canceled, None, None, false),
+                None if interrupted => (
+                    // Cancelled on purpose, or stopped by a limit when the connection ended.
+                    match self.limit_of(task) {
+                        Some(_) => TaskState::Failed,
+                        None => TaskState::Canceled,
+                    },
+                    None,
+                    self.limit_of(task).map(limit_text),
+                    false,
+                ),
                 None => (
                     TaskState::Failed,
                     None,
@@ -1122,5 +1200,77 @@ impl Orchestrator {
             }
         }
         self.set_state(task, next);
+    }
+
+    fn note_limit(&self, task: Uuid, limit: Limit) {
+        if let Some(runtime) = self.lock().runtime.get_mut(&task) {
+            runtime.limit = Some(limit);
+        }
+    }
+    fn limit_of(&self, task: Uuid) -> Option<Limit> {
+        self.lock()
+            .runtime
+            .get(&task)
+            .and_then(|runtime| runtime.limit)
+    }
+    fn note_cost(&self, task: Uuid, cost: f64) {
+        if let Some(runtime) = self.lock().runtime.get_mut(&task) {
+            runtime.cost_usd = Some(cost);
+        }
+    }
+
+    /// Start the sweep that ends the sessions of finished child tasks once they have sat for
+    /// `finished_child_keep_seconds`, so they stop counting against `max_sessions`. A task keeps
+    /// its record; only its session goes, so a later follow-up is refused as "session gone".
+    /// Started once, by the first delegation.
+    fn start_janitor(self: &Arc<Self>) {
+        if self.janitor_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                let Some(this) = me.upgrade() else { return };
+                let Ok(manager) = this.manager() else { return };
+                let keep = manager
+                    .launch_settings()
+                    .config
+                    .orchestrator
+                    .finished_child_keep_seconds;
+                if keep > 0 {
+                    for session in this.expired_children(keep) {
+                        let _ = manager.remove(session).await;
+                    }
+                }
+                let tick = if keep == 0 {
+                    10
+                } else {
+                    (keep / 2).clamp(1, 10)
+                };
+                drop((this, manager));
+                tokio::time::sleep(Duration::from_secs(tick)).await;
+            }
+        });
+    }
+    /// Sessions of child tasks that ended at least `keep` seconds ago and have nothing open
+    /// below them (ending the session would end that too).
+    fn expired_children(&self, keep: u64) -> Vec<Uuid> {
+        let state = self.lock();
+        let now = now();
+        state
+            .tree
+            .nodes()
+            .filter(|node| {
+                node.parent.is_some()
+                    && node.state.is_terminal()
+                    && state.tree.open_descendants(node.id).is_empty()
+            })
+            .filter_map(|node| {
+                let runtime = state.runtime.get(&node.id)?;
+                let session = runtime.session?;
+                (state.by_session.contains_key(&session) && runtime.updated_at + keep <= now)
+                    .then_some(session)
+            })
+            .collect()
     }
 }

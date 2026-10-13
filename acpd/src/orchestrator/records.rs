@@ -40,7 +40,7 @@ impl From<Rights> for RecordRights {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskRecord {
     pub id: Uuid,
@@ -62,6 +62,9 @@ pub struct TaskRecord {
     pub stop_reason: Option<String>,
     /// The W3C trace id shared by every task in the tree.
     pub trace_id: Option<String>,
+    /// Cumulative cost in USD, if the agent reported one. Absent means unmetered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -217,6 +220,7 @@ mod tests {
             summary: None,
             stop_reason: None,
             trace_id: None,
+            cost_usd: None,
         }
     }
 
