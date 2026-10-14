@@ -303,8 +303,8 @@ async fn two_workers_get_separate_worktrees_cannot_touch_each_other_and_are_clea
 
     let sa = fx.session_of_task(&sup, &a).await;
     let sb = fx.session_of_task(&sup, &b).await;
-    assert_eq!(sa.metadata().workspace, pa);
-    assert_eq!(sb.metadata().workspace, pb);
+    assert_eq!(plain(sa.metadata().workspace.clone()), plain(pa.clone()));
+    assert_eq!(plain(sb.metadata().workspace.clone()), plain(pb.clone()));
 
     // A writes inside its own worktree, approved by the phone.
     let own = write(&sa, &pa.join("lib.rs"), "from a\n");
