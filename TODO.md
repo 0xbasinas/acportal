@@ -11,6 +11,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
   - [ ] Two-machine check with real TLS, and `goose serve` as a peer.
   - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Review the `tokio-tungstenite` dependency. The bridge's 256-frame outbox signal is not isolated from the 5 s send timeout in a test.
+  - [ ] Run Linux and macOS CI (and an Android run) for `f123159` and the review fixes (design section 29); neither has run on them. Repository-configured filters, merge drivers and textconv are not blocked in worktree git calls (documented; refuse-when-configured is the next step if wanted).
   - [ ] Worktrees: no cap on kept branches; merge conflicts are refused, not resolved (merge by hand on the host). Submodules are not initialised in a worktree.
   - [ ] Phone task views on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, worktree row, merge button, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested only.
   - [ ] Penpot boards 51-54 (design section 24) have two known flaws: board 53's note text overflows its box, and board 54's `</>` icon text wraps. Renders are at `/workspace/penpot/renders` on the build box (not in the repository).

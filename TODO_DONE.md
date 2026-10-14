@@ -1,5 +1,9 @@
 # Completed work and verification history
 
+## 14 October 2026 review fixes for orchestrator phases 4-5
+
+- Reviewed `d1d52b3`..`f123159`. Local Windows: fmt, strict Clippy, whole-workspace Rust tests, Android build, 76 core + 95 app JVM tests and lint all pass at `f123159`. Fixed and tested (mutation-checked): start-up stall on a stuck worktree, supervisor refusal using `reject_always`, merge-conflict file list and notice on the phone, `ownTools` documentation, worktree safety comment. See [design section 29](docs/orchestrator-design.md#29-review-fixes-14-october-2026). Not run: a device, instrumented tests, Linux/macOS CI for `f123159` and later.
+
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
 - 14 October 2026: [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409` passes every job with the extras on: Linux stable and 1.88, Windows, macOS, container smoke and Windows reproducibility; this covers the phone merge on Windows and macOS. Docs synced the same day (TODO, HANDOFF, AGENTS, README, design sections 16-27, runbook §9, PR #45 description).
