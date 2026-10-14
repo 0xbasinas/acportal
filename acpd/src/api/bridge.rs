@@ -35,6 +35,34 @@ struct Retained {
     epoch: u64,
 }
 
+/// What a paired peer may use here, so it can check before it opens a session: the agents shared
+/// with peers (only ones that exist and are enabled), workspace aliases (never their paths), the
+/// rights ceiling and the resume window. Nothing about agents that are not shared.
+pub(super) async fn info(State(host): State<Host>) -> ApiResult<Json<Value>> {
+    let settings = host.sessions.launch_settings();
+    let orchestrator = &settings.config.orchestrator;
+    if !orchestrator.enabled {
+        return Err(ApiError(StatusCode::NOT_FOUND, "bridge_not_enabled"));
+    }
+    let agents: Vec<Value> = orchestrator
+        .peer_agents
+        .iter()
+        .filter_map(|id| {
+            let definition = settings.registry.get(id).ok().filter(|d| d.enabled)?;
+            Some(json!({"id": id, "name": definition.name}))
+        })
+        .collect();
+    Ok(Json(json!({
+        "hostId": host.security.host_id().map_err(internal)?,
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocolVersion": 1,
+        "agents": agents,
+        "workspaces": orchestrator.peer_workspaces.keys().collect::<Vec<_>>(),
+        "rights": orchestrator.peer_rights,
+        "resumeSeconds": orchestrator.bridge_resume_seconds,
+    })))
+}
+
 pub(super) async fn agent_required() -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, "agent_required")
 }

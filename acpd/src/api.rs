@@ -213,6 +213,7 @@ impl Host {
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
         // Standard ACP over a WebSocket for paired peer hosts. Streamable HTTP is not offered.
         let bridge = Router::new()
+            .route("/v1/peer/info", get(bridge::info))
             .route(
                 "/acp",
                 get(bridge::agent_required)

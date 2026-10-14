@@ -442,8 +442,17 @@ impl Watch {
     }
     #[cfg(unix)]
     fn gone(&self) -> bool {
-        unsafe { libc::kill(self.pid as i32, 0) != 0 }
-        &&std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        let missing = unsafe { libc::kill(self.pid as i32, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        // A process that has exited but is not yet reaped still answers `kill`; on Linux it shows
+        // as a zombie in /proc and counts as stopped.
+        let zombie =
+            std::fs::read_to_string(format!("/proc/{}/stat", self.pid)).is_ok_and(|stat| {
+                stat.rsplit(')')
+                    .next()
+                    .is_some_and(|rest| rest.trim_start().starts_with('Z'))
+            });
+        missing || zombie
     }
 }
 /// The agent's own process and the child and grandchild it starts.

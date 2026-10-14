@@ -1017,3 +1017,53 @@ async fn the_phone_can_watch_a_bridged_session_but_not_take_control_of_it() {
     );
     h.stop().await;
 }
+
+#[tokio::test]
+async fn peer_info_tells_a_peer_what_it_may_use_and_nothing_more() {
+    let h = Harness::start().await;
+    let (peer, _) = h.pair(Role::Peer, "Laptop").await;
+    let url = format!("http://{}/v1/peer/info", h.addr);
+    // Credentials: none, and a phone (which has /v1/status for itself).
+    assert_eq!(h.client.get(&url).send().await.unwrap().status(), 401);
+    let phone = h
+        .client
+        .get(&url)
+        .bearer_auth(&h.phone)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(phone.status(), 403);
+
+    let reply = h.client.get(&url).bearer_auth(&peer).send().await.unwrap();
+    assert_eq!(reply.status(), 200);
+    let text = reply.text().await.unwrap();
+    let info: Value = serde_json::from_str(&text).unwrap();
+    // Only the shared agent: "private" exists in the registry but is not shared with peers.
+    assert_eq!(info["agents"], json!([{"id": "mock", "name": "mock"}]));
+    assert_eq!(info["workspaces"], json!(["shared"]));
+    assert_eq!(
+        info["rights"],
+        json!({"read": true, "write": false, "terminal": false})
+    );
+    assert_eq!(info["resumeSeconds"], 120);
+    assert_eq!(info["protocolVersion"], 1);
+    assert!(info["hostId"].is_string());
+    // An alias is all a peer ever learns: no path, no unshared agent, no token.
+    assert!(!text.contains(['/', '\\']), "no path in {text}");
+    assert!(!text.contains("private"), "{text}");
+    assert!(!text.contains(&peer), "{text}");
+}
+
+#[tokio::test]
+async fn peer_info_is_not_found_when_the_bridge_is_off() {
+    let h = Harness::start_with(|config| config.orchestrator.enabled = false).await;
+    let (peer, _) = h.pair(Role::Peer, "Laptop").await;
+    let reply = h
+        .client
+        .get(format!("http://{}/v1/peer/info", h.addr))
+        .bearer_auth(&peer)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), 404);
+}
