@@ -55,14 +55,14 @@ impl Fixture {
             .unwrap()
     }
     async fn session_of_task(&self, agent: &Agent, task: &str) -> Arc<AcpSession> {
-        let path = eventually(|| async {
+        let path = eventually_named("task worktree path", || async {
             let status = ok(agent, "task_status", json!({"task_id": task})).await;
             status["tasks"][0]["worktree"]["path"]
                 .as_str()
                 .map(PathBuf::from)
         })
         .await;
-        eventually(|| async {
+        eventually_named("child session in the worktree", || async {
             for metadata in self.manager.list().await {
                 if metadata.workspace == path {
                     return self.manager.get(metadata.id).await.ok();
@@ -167,7 +167,14 @@ async fn refused(agent: &Agent, tool: &str, arguments: Value) -> ToolFailure {
         Err(failure) => failure,
     }
 }
-async fn eventually<T, F, Fut>(mut check: F) -> T
+async fn eventually<T, F, Fut>(check: F) -> T
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<T>>,
+{
+    eventually_named("condition", check).await
+}
+async fn eventually_named<T, F, Fut>(what: &str, mut check: F) -> T
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<T>>,
@@ -181,7 +188,7 @@ where
         }
     })
     .await
-    .expect("condition not reached in time")
+    .unwrap_or_else(|_| panic!("{what} not reached in time"))
 }
 async fn status(agent: &Agent, task: &str) -> Value {
     ok(agent, "task_status", json!({"task_id": task})).await["tasks"][0].clone()
@@ -215,7 +222,7 @@ fn plain(path: PathBuf) -> PathBuf {
 }
 /// Act as the phone: answer the child's pending request from the given source.
 async fn answer(connection: &AcpConnection, host_write: bool, option: &str) {
-    let permission = eventually(|| async {
+    let permission = eventually_named("pending permission", || async {
         connection
             .replay(0)
             .pending_permissions
@@ -338,7 +345,10 @@ async fn two_workers_get_separate_worktrees_cannot_touch_each_other_and_are_clea
     // Ending the root session ends A: the worktree goes, the branch with the commit stays.
     let branch_a = wa["branch"].as_str().unwrap().to_owned();
     fx.manager.remove(root.metadata().id).await.unwrap();
-    eventually(|| async { (!top_a.exists()).then_some(()) }).await;
+    eventually_named("worktree A removed", || async {
+        (!top_a.exists()).then_some(())
+    })
+    .await;
     assert_eq!(
         git(&repo, &["show", &format!("{branch_a}:src/lib.rs")]),
         "from a"

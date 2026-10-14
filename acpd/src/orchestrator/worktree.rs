@@ -236,17 +236,32 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
         Err(_) => return Outcome::CleanupFailed,
     }
     let target = worktree.path.to_string_lossy().into_owned();
-    // Windows keeps a folder locked for a moment after the agent process that used it exits.
+    // Windows keeps a folder locked while an agent process still runs in it (a cancelled task's
+    // process can outlive the cancel, and a removed session's process is stopped just after its
+    // tree is released), and two git commands on one repository can collide on its lock files.
+    // Retry for up to two minutes, one release at a time per host, before calling it a failure.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     let mut removed = false;
-    for attempt in 0..20 {
-        if git(root, &worktree.repository, &["worktree", "remove", &target]).is_ok() {
-            removed = true;
-            break;
+    loop {
+        let attempt = {
+            let _one = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
+            git(root, &worktree.repository, &["worktree", "remove", &target])
+        };
+        match attempt {
+            Ok(_) => {
+                removed = true;
+                break;
+            }
+            Err(error) if std::time::Instant::now() < deadline && worktree.path.exists() => {
+                tracing::debug!(%error, "worktree removal will be retried");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(error) => {
+                tracing::warn!(%error, path = %target, "worktree removal failed");
+                break;
+            }
         }
-        if !cfg!(windows) || attempt == 19 {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(250));
     }
     if !removed {
         return Outcome::CleanupFailed;
