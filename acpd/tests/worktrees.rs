@@ -190,11 +190,28 @@ async fn reaches(agent: &Agent, task: &str, wanted: &str) {
     eventually(|| async { (status(agent, task).await["state"] == wanted).then_some(()) }).await;
 }
 async fn outcome(agent: &Agent, task: &str, wanted: &str) -> Value {
-    eventually(|| async {
-        let view = status(agent, task).await;
-        (view["worktree"]["outcome"] == wanted).then_some(view)
+    let found = timeout(Duration::from_secs(20), async {
+        loop {
+            let view = status(agent, task).await;
+            if view["worktree"]["outcome"] == wanted {
+                return view;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     })
-    .await
+    .await;
+    match found {
+        Ok(view) => view,
+        Err(_) => panic!(
+            "outcome {wanted} not reached; last view {}",
+            status(agent, task).await
+        ),
+    }
+}
+/// The worktree folder as the host reports it (no `\\?\` prefix on Windows).
+fn plain(path: PathBuf) -> PathBuf {
+    let text = path.canonicalize().unwrap().to_string_lossy().into_owned();
+    PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned())
 }
 /// Act as the phone: answer the child's pending request from the given source.
 async fn answer(connection: &AcpConnection, host_write: bool, option: &str) {
@@ -260,8 +277,8 @@ async fn two_workers_get_separate_worktrees_cannot_touch_each_other_and_are_clea
         pa.ends_with("src"),
         "the task folder keeps its place in the tree"
     );
-    assert!(top_a.starts_with(fx.worktrees().canonicalize().unwrap()));
-    assert!(pb.starts_with(fx.worktrees().canonicalize().unwrap()));
+    assert!(top_a.starts_with(plain(fx.worktrees())));
+    assert!(pb.starts_with(plain(fx.worktrees())));
     assert!(!pa.starts_with(&repo) && !pb.starts_with(&repo));
 
     let sa = fx.session_of_task(&sup, &a).await;

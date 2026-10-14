@@ -236,7 +236,19 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
         Err(_) => return Outcome::CleanupFailed,
     }
     let target = worktree.path.to_string_lossy().into_owned();
-    if git(root, &worktree.repository, &["worktree", "remove", &target]).is_err() {
+    // Windows keeps a folder locked for a moment after the agent process that used it exits.
+    let mut removed = false;
+    for attempt in 0..20 {
+        if git(root, &worktree.repository, &["worktree", "remove", &target]).is_ok() {
+            removed = true;
+            break;
+        }
+        if !cfg!(windows) || attempt == 19 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    if !removed {
         return Outcome::CleanupFailed;
     }
     match branch_cleanup(root, worktree) {
