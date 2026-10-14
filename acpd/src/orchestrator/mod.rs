@@ -770,7 +770,9 @@ impl Orchestrator {
     }
 
     /// With `wait_seconds`, hold until something about these tasks changes (a state, a request
-    /// appearing, being answered by anyone, or becoming undecidable) or the time runs out.
+    /// appearing, being answered by anyone, or becoming undecidable) or the time runs out. It
+    /// returns at once when every task has finished or a request the caller can decide is
+    /// already waiting.
     async fn task_status(
         &self,
         caller: Uuid,
@@ -792,7 +794,18 @@ impl Orchestrator {
                 )
             })
         });
-        if wait == 0 || all_finished {
+        // A request the caller may decide right now is something to act on, not to wait out:
+        // holding here would let its time run out (a real Goose supervisor lost a Medium write
+        // that way when its previous poll returned a moment before the request appeared).
+        // Requests it cannot decide keep the hold, or a supervisor would spin on them.
+        let actionable = current["tasks"].as_array().is_some_and(|tasks| {
+            tasks.iter().any(|task| {
+                task["needs_decision"]
+                    .as_array()
+                    .is_some_and(|list| list.iter().any(|r| r["decidable"] == true))
+            })
+        });
+        if wait == 0 || all_finished || actionable {
             return Ok(current);
         }
         let end = tokio::time::Instant::now() + Duration::from_secs(wait);

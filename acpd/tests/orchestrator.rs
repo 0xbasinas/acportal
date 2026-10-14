@@ -1179,6 +1179,53 @@ async fn risk_classes_and_the_ceiling_decide_who_may_answer() {
 }
 
 #[tokio::test]
+async fn a_poll_returns_at_once_for_a_request_the_supervisor_can_decide_but_holds_for_one_it_cannot()
+ {
+    // A Medium request the supervisor may decide: a long hold returns immediately with it.
+    let fx = fixture(|_| {});
+    let root = fx.root("test-agent").await;
+    let agent = agent_of(&root).await;
+    let task = start(&agent, "worker").await;
+    let request = pending(&agent, &task).await;
+    assert_eq!(request["decidable"], true);
+    let began = std::time::Instant::now();
+    let status = ok(
+        &agent,
+        "task_status",
+        json!({"task_id": task, "wait_seconds": 30}),
+    )
+    .await;
+    assert!(
+        began.elapsed() < Duration::from_secs(3),
+        "held {:?} with a decidable request waiting",
+        began.elapsed()
+    );
+    assert_eq!(status["tasks"][0]["needs_decision"][0]["decidable"], true);
+    fx.manager.shutdown().await;
+
+    // A High request it cannot decide: the same poll still holds for its time.
+    let fx = fixture(|_| {});
+    let root = fx.root("test-agent").await;
+    let agent = agent_of(&root).await;
+    let task = start(&agent, "deleter").await;
+    let request = pending(&agent, &task).await;
+    assert_eq!(request["decidable"], false);
+    let began = std::time::Instant::now();
+    ok(
+        &agent,
+        "task_status",
+        json!({"task_id": task, "wait_seconds": 2}),
+    )
+    .await;
+    assert!(
+        began.elapsed() >= Duration::from_millis(1800),
+        "returned after {:?} for a request it cannot act on",
+        began.elapsed()
+    );
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
 async fn with_the_supervisor_turned_off_nothing_changes_for_the_phone() {
     let fx = fixture(|config| config.orchestrator.supervisor_max_risk = SupervisorRisk::None);
     let root = fx.root("test-agent").await;

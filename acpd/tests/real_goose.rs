@@ -330,9 +330,26 @@ async fn escalating_phone(
     log
 }
 
+/// A delegated child gets read-only rights unless the delegation asks for more. Without write
+/// rights Goose writes with its own tool (a request the host rates High); with them the host
+/// offers `fs/write_text_file`, and a write becomes a host consent the supervisor may decide.
 #[tokio::test]
 #[ignore = "uses a real Goose and real model requests; see the file comment"]
 async fn goose_supervisor_trial() {
+    supervisor_trial("", "TRIAL-REPORT").await;
+}
+
+#[tokio::test]
+#[ignore = "uses a real Goose and real model requests; see the file comment"]
+async fn goose_supervisor_trial_with_write_rights() {
+    supervisor_trial(
+        " and rights {\"read\": true, \"write\": true}",
+        "TRIAL-REPORT-WRITE",
+    )
+    .await;
+}
+
+async fn supervisor_trial(rights_clause: &str, label: &str) {
     assert!(
         std::env::var_os("OPENAI_API_KEY").is_some(),
         "set OPENAI_API_KEY in the environment for the provider (not in a file)"
@@ -365,7 +382,7 @@ async fn goose_supervisor_trial() {
     let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
     orchestrator.set_delegate_executable(env!("CARGO_BIN_EXE_acpd").into());
     manager.attach_orchestrator(orchestrator.clone());
-    let _endpoint = control::start(orchestrator, state.path()).unwrap();
+    let _endpoint = control::start(orchestrator.clone(), state.path()).unwrap();
 
     let root = manager.create("goose", workspace.path()).await.unwrap();
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -374,18 +391,66 @@ async fn goose_supervisor_trial() {
         done.clone(),
         Duration::from_secs(30),
     ));
+    // What the host shows as waiting for a decision, and when it changes (offsets from the start).
+    let started = Instant::now();
+    let watched = {
+        let (orchestrator, done, root) = (orchestrator.clone(), done.clone(), root.clone());
+        tokio::spawn(async move {
+            let mut last = String::new();
+            let mut changes: Vec<Value> = vec![];
+            let mut seen_events = 0usize;
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                // The root's own tool calls, as they start and finish, with the same clock.
+                let events = root.replay(0).events;
+                for event in events.iter().skip(seen_events) {
+                    let update = &event.message["params"]["update"];
+                    if matches!(
+                        update["sessionUpdate"].as_str(),
+                        Some("tool_call" | "tool_call_update")
+                    ) && update["status"].is_string()
+                    {
+                        changes.push(json!({
+                            "at": started.elapsed().as_secs_f32(),
+                            "root_tool": update["title"], "status": update["status"],
+                            "input": update["rawInput"],
+                            "output": update["rawOutput"].to_string().chars().take(300).collect::<String>(),
+                        }));
+                    }
+                }
+                seen_events = events.len();
+                let mut now = vec![];
+                for task in orchestrator.task_list() {
+                    let Some(id) = task["id"].as_str().and_then(|id| id.parse().ok()) else {
+                        continue;
+                    };
+                    if let Some(detail) = orchestrator.task_detail(id) {
+                        now.push(json!({"state": detail["state"], "needsDecision": detail["needsDecision"]}));
+                    }
+                }
+                let text = serde_json::to_string(&now).unwrap();
+                if text != last {
+                    changes.push(json!({"at": started.elapsed().as_secs_f32(), "tasks": now}));
+                    last = text;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            changes
+        })
+    };
 
-    let prompt = "You supervise a worker agent through the MCP server acpd-orchestrator. \
-        Call task_delegate with agent \"worker\", workspace \"sub\", wait_seconds 60 and prompt \
+    let prompt = format!(
+        "You supervise a worker agent through the MCP server acpd-orchestrator. \
+        Call task_delegate with agent \"worker\", workspace \"sub\"{rights_clause}, wait_seconds 60 and prompt \
         \"Create a file named hello.txt in your current directory containing exactly the word hi, \
         using your file tools, then reply done.\" \
         Whenever a result lists needs_decision entries: if an entry is decidable, call task_decide \
         for it with decision allow_once, copying request_id and digest exactly and giving a short \
         rationale; if it is not decidable, do not decide it. Keep calling task_status with \
         wait_seconds 60 until the task is completed or failed. Finally say in two sentences what \
-        happened, including who or what allowed the worker's request.";
+        happened, including who or what allowed the worker's request."
+    );
     let begun = Instant::now();
-    let outcome = tokio::time::timeout(Duration::from_secs(400), root.prompt(prompt)).await;
+    let outcome = tokio::time::timeout(Duration::from_secs(400), root.prompt(&prompt)).await;
     let outcome = match &outcome {
         Ok(Ok(value)) => json!({"stopReason": value["stopReason"]}),
         Ok(Err(error)) => json!({"error": error.to_string().chars().take(300).collect::<String>()}),
@@ -417,10 +482,8 @@ async fn goose_supervisor_trial() {
         "workers": workers,
         "auto_review_events": reviews,
         "phone_log": phone.await.unwrap(),
+        "host_view": watched.await.unwrap(),
     });
     manager.shutdown().await;
-    println!(
-        "TRIAL-REPORT {}",
-        serde_json::to_string_pretty(&report).unwrap()
-    );
+    println!("{label} {}", serde_json::to_string_pretty(&report).unwrap());
 }
