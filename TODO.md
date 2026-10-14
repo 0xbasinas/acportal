@@ -8,7 +8,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 
 - [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (draft PR #45), off by default.** Phases 0-3 and their closing items are implemented; Linux and Windows CI pass at `3f2dff3` (run 38520913814). Read [orchestrator design](docs/orchestrator-design.md) sections 16-23 first. Remaining:
   - [ ] Two-machine check with real TLS, and `goose serve` as a peer. macOS and the container/reproducibility jobs have not run on this branch.
-  - [ ] A real agent through supervisor approval; Windows shell lines always rate High.
+  - [ ] A real agent request that a supervisor approves (Goose's requests all rate High, so only the phone approved in the real trial; see design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Review the `tokio-tungstenite` dependency. The bridge's 256-frame outbox signal is not isolated from the 5 s send timeout in a test.
   - [ ] Phase 4 worktree isolation. Phase 5: Penpot boards first, then the Android task tree, supervisor outcomes, `delegate` status and peer sessions.
   - Decided against, revisit on request: client reconnect/reattach and a token budget ([design section 23](docs/orchestrator-design.md#23-closing-phases-1-to-3-branch-experimentorchestrator-14-october-2026)).

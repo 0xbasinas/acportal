@@ -726,10 +726,23 @@ What was done after section 22 to leave no known open item in phases 1 to 3 othe
 
 **Mutation check of the original tree and `mcp-delegate` tests.** `mut_orig.py` (disposable, like `mut_phase1.py`) broke 38 guards one at a time in `tree.rs` (admission codes, depth, fan-out, cycle, scope, each right, the state machine, `force`, `may_manage`, cascade, `remove_tree`) and `delegate.rs` (argument validation), running the library tests and `tests/orchestrator.rs`. 35 were caught on the first run. Three survived and each was a missing test: the `terminal` right was never checked on its own in admission, a `Failed` task moving back to `Working` was never tried (only `Canceled` was shown to be final), and `task_decide` without a `decision` field was not rejected. Tests `a_child_may_not_have_any_right_its_parent_lacks`, `every_finished_state_is_final` and `a_decision_without_its_decision_field_never_reaches_the_backend` now catch all three (each mutation re-applied and confirmed). The other 35 were not rerun after those tests were added; they only add tests.
 
+### Real Goose trials (14 October 2026, Windows, Goose 1.54.0 with DeepSeek `deepseek-flash`)
+
+Both are opt-in tests in `acpd/tests/real_goose.rs` (`#[ignore]`, real model requests, key passed as `OPENAI_API_KEY` in the environment only): `goose_phase_0` and `goose_supervisor_trial`. A few cents at most; each run leaves its root and worker sessions in the operator's Goose history.
+
+1. **Delegation, `goose_phase_0` rerun.** A root Goose listed its agents, delegated "reply with exactly PONG" to a second Goose in the `sub` workspace and reported the result: task `completed`, `stop_reason end_turn`, result `PONG` marked untrusted, 10.8 s. Only the two delegation tool calls needed the phone. `session/cancel` of the root's next turn ended it in 0.06 s with `cancelled`.
+2. **Supervisor, `goose_supervisor_trial`.** The root Goose was told to delegate "create `hello.txt` containing `hi`" and to `task_decide` anything decidable. The worker's write request arrived as `kind: other` with `rawInput {path, content}` and a `\\?\` verbatim path. The host rated it **High** (`risk_too_high`, not decidable), so the task went `input_required` with a `needs_decision` entry the root could see but not decide. The root did **not** call `task_decide` and said so. After the 20 s supervisor window it escalated; the test's phone allowed it once 30 s after it first appeared, the worker wrote `hello.txt` (`hi`), and the task completed (49 s total). The root also tried to verify with `type sub\hello.txt`; that was a host shell consent for the root session itself (not a child), rated by the phone path, and the test phone refused it.
+
+What this shows and does not show:
+- The escalation path works with a real agent: High is never decidable by the supervisor, the supervisor Goose respected that, and the phone's answer let the worker continue.
+- It is as the design predicted: Goose's own file tools declare no usable kind, so on this setup a Goose child's write is always High and only a person can approve it. **No real agent's request has yet been rated Low or Medium and approved by a supervisor**; that path is covered only by the mock agent. Rating a `write`-shaped `other` request Medium would mean trusting the agent's own `rawInput` to make approval easier, which the design deliberately avoids; that is a decision for the owner, not something to change quietly.
+- The root's summary of the outcome was partly wrong ("the request expired on its own"): a supervisor is not told when the phone later decides, only that the request is gone. Worth surfacing in the task view if this matters.
+- One run each, Windows only, one provider and model. Not a statistical claim.
+
 ### Still open
 
 - macOS, the container and cross-runner reproducibility jobs; two machines over real TLS; `goose serve` as a peer.
-- A real agent through supervisor approval (Windows shell lines always rate High).
+- A real agent request that a supervisor (not the phone) approves: Goose's requests all rate High (see the trials above). Windows shell lines always rate High.
 - Worktree isolation (phase 4); Android task tree, supervisor outcomes, `delegate` status and peer sessions (phase 5, Penpot first).
 - Review of the `tokio-tungstenite` dependency; the outbox overflow signal alone (see above).
 - Enabling the orchestrator by reload does not start the control channel.

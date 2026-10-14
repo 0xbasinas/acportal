@@ -262,3 +262,165 @@ async fn goose_phase_0() {
         serde_json::to_string_pretty(&report).unwrap()
     );
 }
+
+/// Phone for the supervisor trial. The root Goose's own delegation-tool permissions are allowed.
+/// A request from the worker is left alone so the supervisor gets its chance; it is recorded in
+/// full, and only if it is still unanswered `after` later (the supervisor window has closed and it
+/// has escalated) does the phone allow it once. The workspace is a temporary directory.
+async fn escalating_phone(
+    manager: Arc<SessionManager>,
+    done: Arc<std::sync::atomic::AtomicBool>,
+    after: Duration,
+) -> Vec<Value> {
+    let mut first_seen: BTreeMap<(uuid::Uuid, String), Instant> = BTreeMap::new();
+    let mut answered = HashSet::new();
+    let mut log: Vec<Value> = vec![];
+    while !done.load(std::sync::atomic::Ordering::Relaxed) {
+        for metadata in manager.list().await {
+            let Ok(session) = manager.get(metadata.id).await else {
+                continue;
+            };
+            for permission in session.replay(0).pending_permissions {
+                let key = (metadata.id, permission["id"].to_string());
+                let seen = *first_seen.entry(key.clone()).or_insert_with(|| {
+                    log.push(json!({
+                        "event": "request_seen", "agent": metadata.agent_id,
+                        "toolCall": permission["params"]["toolCall"],
+                        "meta": permission["params"]["_meta"],
+                        "options": permission["params"]["options"],
+                    }));
+                    Instant::now()
+                });
+                if answered.contains(&key) {
+                    continue;
+                }
+                let root = metadata.agent_id == "goose";
+                if !root && seen.elapsed() < after {
+                    continue;
+                }
+                let wanted = if root && !names_a_delegation_tool(&permission) {
+                    "reject_once"
+                } else {
+                    "allow_once"
+                };
+                let option = permission["params"]["options"]
+                    .as_array()
+                    .and_then(|options| options.iter().find(|o| o["kind"] == wanted))
+                    .and_then(|o| o["optionId"].as_str())
+                    .map(str::to_owned);
+                if let Some(option) = option {
+                    answered.insert(key);
+                    log.push(json!({
+                        "event": "phone_answered", "agent": metadata.agent_id, "decision": wanted,
+                        "title": permission["params"]["toolCall"]["title"],
+                        "seconds_after_first_seen": seen.elapsed().as_secs_f32(),
+                    }));
+                    let _ = session
+                        .connection
+                        .permission(
+                            permission["id"].clone(),
+                            json!({"outcome":"selected","optionId":option}),
+                        )
+                        .await;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    log
+}
+
+#[tokio::test]
+#[ignore = "uses a real Goose and real model requests; see the file comment"]
+async fn goose_supervisor_trial() {
+    assert!(
+        std::env::var_os("OPENAI_API_KEY").is_some(),
+        "set OPENAI_API_KEY in the environment for the provider (not in a file)"
+    );
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join("sub")).unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let config = Config {
+        workspace_roots: vec![workspace.path().into()],
+        runtime: RuntimeConfig {
+            request_timeout_seconds: 300,
+            max_sessions: 4,
+            ..Default::default()
+        },
+        orchestrator: OrchestratorConfig {
+            enabled: true,
+            orchestrate: vec!["goose".into()],
+            delegable: vec!["worker".into()],
+            default_deadline_seconds: 300,
+            idle_timeout_seconds: 240,
+            supervisor_timeout_seconds: 20,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let registry =
+        Registry::parse(&serde_json::to_string(&vec![agent("goose"), agent("worker")]).unwrap())
+            .unwrap();
+    let manager = Arc::new(SessionManager::new(config, registry).unwrap());
+    let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
+    orchestrator.set_delegate_executable(env!("CARGO_BIN_EXE_acpd").into());
+    manager.attach_orchestrator(orchestrator.clone());
+    let _endpoint = control::start(orchestrator, state.path()).unwrap();
+
+    let root = manager.create("goose", workspace.path()).await.unwrap();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let phone = tokio::spawn(escalating_phone(
+        manager.clone(),
+        done.clone(),
+        Duration::from_secs(30),
+    ));
+
+    let prompt = "You supervise a worker agent through the MCP server acpd-orchestrator. \
+        Call task_delegate with agent \"worker\", workspace \"sub\", wait_seconds 60 and prompt \
+        \"Create a file named hello.txt in your current directory containing exactly the word hi, \
+        using your file tools, then reply done.\" \
+        Whenever a result lists needs_decision entries: if an entry is decidable, call task_decide \
+        for it with decision allow_once, copying request_id and digest exactly and giving a short \
+        rationale; if it is not decidable, do not decide it. Keep calling task_status with \
+        wait_seconds 60 until the task is completed or failed. Finally say in two sentences what \
+        happened, including who or what allowed the worker's request.";
+    let begun = Instant::now();
+    let outcome = tokio::time::timeout(Duration::from_secs(400), root.prompt(prompt)).await;
+    let outcome = match &outcome {
+        Ok(Ok(value)) => json!({"stopReason": value["stopReason"]}),
+        Ok(Err(error)) => json!({"error": error.to_string().chars().take(300).collect::<String>()}),
+        Err(_) => json!({"error": "timed out after 400 s"}),
+    };
+    let mut workers = vec![];
+    let mut reviews = vec![];
+    for metadata in manager.list().await {
+        if metadata.agent_id == "worker"
+            && let Ok(child) = manager.get(metadata.id).await
+        {
+            workers.push(digest(&child));
+            for event in child.replay(0).events {
+                let text = event.message.to_string();
+                if text.contains("acpdAutoReview") {
+                    reviews.push(text.chars().take(500).collect::<String>());
+                }
+            }
+        }
+    }
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    let file = workspace.path().join("sub").join("hello.txt");
+    let report = json!({
+        "outcome": outcome,
+        "seconds": begun.elapsed().as_secs_f32(),
+        "file_exists": file.exists(),
+        "file_content": std::fs::read_to_string(&file).ok(),
+        "parent": digest(&root),
+        "workers": workers,
+        "auto_review_events": reviews,
+        "phone_log": phone.await.unwrap(),
+    });
+    manager.shutdown().await;
+    println!(
+        "TRIAL-REPORT {}",
+        serde_json::to_string_pretty(&report).unwrap()
+    );
+}
