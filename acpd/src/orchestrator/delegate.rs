@@ -580,6 +580,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_decision_without_its_decision_field_never_reaches_the_backend() {
+        let stub = Stub::ok(json!({"applied":true}));
+        let args = json!({"task_id":TASK,"request_id":"9","digest":"a".repeat(64),"rationale":"read-only"});
+        let out = exchange(&stub, &call(1, "task_decide", args)).await;
+        assert_eq!(out[0]["result"]["isError"], true);
+        assert!(stub.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn protocol_errors_use_json_rpc_codes_and_the_session_survives() {
         let stub = Stub::ok(json!({}));
         let input = concat!(

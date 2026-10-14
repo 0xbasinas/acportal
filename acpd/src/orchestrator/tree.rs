@@ -521,6 +521,81 @@ mod tests {
     }
 
     #[test]
+    fn every_finished_state_is_final() {
+        use TaskState::*;
+        for end in [Failed, Rejected, Canceled] {
+            let mut t = tree();
+            let r = root(&mut t);
+            assert!(t.transition(r, Working));
+            if end == Rejected {
+                // Rejected is reached from Submitted or Working alike.
+                assert!(t.transition(r, Rejected));
+            } else {
+                assert!(t.force(r, end));
+            }
+            for to in [
+                Submitted,
+                Working,
+                InputRequired,
+                Completed,
+                Failed,
+                Rejected,
+                Canceled,
+            ] {
+                assert!(!t.transition(r, to), "{end:?} must not move to {to:?}");
+            }
+            assert_eq!(t.get(r).unwrap().state, end);
+        }
+    }
+
+    #[test]
+    fn a_child_may_not_have_any_right_its_parent_lacks() {
+        let none = Rights {
+            read: false,
+            write: false,
+            terminal: false,
+        };
+        for (parent, asks) in [
+            (Rights { read: false, ..ALL }, "read"),
+            (
+                Rights {
+                    write: false,
+                    ..ALL
+                },
+                "write",
+            ),
+            (
+                Rights {
+                    terminal: false,
+                    ..ALL
+                },
+                "terminal",
+            ),
+        ] {
+            let mut t = tree();
+            let r = root_of(&mut t, "a", "/w", parent);
+            let wanted = match asks {
+                "read" => Rights { read: true, ..none },
+                "write" => Rights {
+                    write: true,
+                    ..none
+                },
+                _ => Rights {
+                    terminal: true,
+                    ..none
+                },
+            };
+            assert_eq!(
+                child(&mut t, r, "b", "/w", wanted),
+                Err(AdmissionError::RightsNotAllowed),
+                "asking for {asks}"
+            );
+            // Asking for nothing, or for what it has, is fine.
+            assert!(child(&mut t, r, "b", "/w", none).is_ok());
+        }
+    }
+
+    #[test]
     fn cascade_lists_open_descendants_deepest_first() {
         let mut t = tree();
         let r = root(&mut t);
