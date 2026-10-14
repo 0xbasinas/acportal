@@ -485,7 +485,7 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts, `acpd peer add|list|remove` |
 | Phase 1 gaps (section 22) | Task records survive restart (`tasks.json`), phone REST routes and `acpd tasks`, idle/deadline/cost limits, finished-child sweep, delegate hello, W3C trace, process-level cleanup tests |
 | Phase 1-3 closing items (section 23) | `GET /v1/peer/info`, bridge message-rate cap, turn budget, overflow/cut-off test, Linux CI green, mutation check of the original tree and delegate tests (38 guards, 3 survivors fixed) |
-| Not implemented | worktree isolation (`isolation_unsupported`), client reconnect/reattach (decided against, section 23), token budget (decided against), Android UI for task trees, supervisor outcomes and delegate status |
+| Not implemented | worktree isolation (`isolation_unsupported`), client reconnect/reattach (decided against, section 23), token budget (decided against). Android task views: section 24 |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
@@ -748,6 +748,21 @@ What this shows and does not show:
 
 - macOS, the container and cross-runner reproducibility jobs; two machines over real TLS; `goose serve` as a peer.
 - Goose's own tool gate for a write is always High, so the phone is always needed for that first request (trial 3). Only the host's consent that follows is supervisor-decidable. Windows shell lines always rate High.
-- Worktree isolation (phase 4); Android task tree, supervisor outcomes, `delegate` status and peer sessions (phase 5, Penpot first).
+- Worktree isolation (phase 4). Phase 5 Android views: see section 24.
 - Review of the `tokio-tungstenite` dependency; the outbox overflow signal alone (see above).
 - Enabling the orchestrator by reload does not start the control channel.
+
+## 24. Phase 5: Android task tree, supervisor outcomes, `delegate` status, peer sessions (14 October 2026)
+
+**Design.** Penpot boards 51-54, dark (y 0) and light (y 944), in file `7eed092c-bad6-802e-8008-bea06e03019c`, Page 1, to the right of the logo boards (x 14640 onwards; numbers 36-50 were already taken). 51 task tree, 52 task detail with supervisor outcomes, 53 root task with delegation tools not connected and the pause/resume and cancel actions, 54 connection details with the "Delegated tasks" entry and a peer session row. Added in one Penpot update (revision 52 to 53); no existing board was changed. All children were checked to sit inside their boards. Penpot could not export images through the connector, so the local previews in `.local/penpot-phase5/` are drawn from the same shape data (no text wrapping) and are not Penpot renders.
+
+**Off by default.** `GET /v1/status` lists the feature `orchestrator` only while `[orchestrator] enabled = true` (test `the_status_lists_the_orchestrator_feature_only_while_it_is_enabled`). The phone shows the "Delegated tasks" row on a connection only when the feature is listed, so nothing changes for a host with the orchestrator off or an older host.
+
+**What the phone shows** (`TaskScreens.kt`, models and pure logic in `core/protocol/.../Orchestration.kt`), from the existing `/v1/tasks` routes (section 22), no new host data:
+- Task tree: every tree, newest root first, sub-tasks indented under their parent (oldest first). A task whose parent was pruned becomes a root; a cycle in bad data is shown flat, never dropped or looped. Each row: state, number of requests waiting (badge), delegation-tool status and the host's fixed failure words.
+- Task detail: folder, rights, delegation tools (`connected` / `not_connected`, with what that means), outcome, reported cost, and each `needsDecision` entry with its risk and what the supervisor may do (`may decide`, or why not: `human_only`, `escalated`, `supervisor_disabled`, `paused`, `risk_too_high`, `expired`) and the supervisor window. Green when the supervisor may decide, amber when only a person can. Actions: open the task's session (to answer requests there), cancel (with the subtree), and for a root pause or resume supervision.
+- Peer sessions: a session whose agent runs on another host (`remotePeer` on the session) reads "agent · on peer NAME · status" in the connection's session list.
+
+**Limits.** The task views are read on open and on Refresh; there is no live push. The host does not report whether a tree is currently paused, so both Pause and Resume are offered. Past supervisor decisions are not listed in the task view (the host keeps no decision record for the phone); in the conversation they appear through the existing `acpdAutoReview` badge (layer `supervisor`). Inbound peer-attached sessions are not marked (the host does not report them; the phone sees `409` when it tries to control one). Not run on an emulator or device yet: see [runbook §9](emulator-runbook.md).
+
+**Tests.** JVM: `OrchestrationTest` (tree order and indentation, orphans and cycles, decoding the host's list and detail including unknown fields, outcome and state labels, `remotePeer`) and `TaskScreensTest` (row text, peer row text, task-id validation, task error messages). Gradle core and app unit tests, debug build and lint pass on Linux; Rust fmt, strict Clippy and `task_api` (7) pass.

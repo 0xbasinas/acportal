@@ -2,6 +2,8 @@
 
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
+- 14 October 2026: phase 5. Penpot boards 51-54 (dark and light) and the Android task tree, task detail with supervisor outcomes and delegation-tool status, peer session rows; shown only when the host lists the new `orchestrator` status feature. JVM tests, Gradle build and lint, Rust fmt/Clippy/`task_api` pass; no emulator run yet. See [section 24](docs/orchestrator-design.md#24-phase-5-android-task-tree-supervisor-outcomes-delegate-status-peer-sessions-14-october-2026).
+
 - PR #43 (cloud-init VPS provisioning) and PR #44 (orchestrator design) were squash-merged. The experiment then built, in order: the `mcp-delegate` MCP server and control channel, phase 0 checks with Goose 1.54.0, phase 2 supervisor approvals, a Goose transport check, phase 3 inbound bridge and outbound `ws` client plus `acpd peer`, then the phase-1 gaps (task records and restart semantics, phone routes and `acpd tasks`, idle/deadline/cost limits and child sweep, delegate hello, W3C trace, process-level cleanup tests). Design and status: [orchestrator design](docs/orchestrator-design.md) sections 16-22.
 - Verified locally on Windows only: strict Clippy, formatting and the whole workspace tests; new suites `task_records` 4, `task_api` 6, `task_limits` 8, `task_health` 6 alongside `orchestrator` 27, `bridge` 14, `peer_link` 15, `peer_cli` 7 and 119 lib tests. Earlier phases were also run through Linux CI on pushed commits; the phase-1 gap commits had not yet been pushed or run on Linux when this was written. Mutation results are in section 22.
 - Limits: no macOS, no two-machine TLS, no real agent through supervisor approval, no Android UI. See section 22 "Honest limits".

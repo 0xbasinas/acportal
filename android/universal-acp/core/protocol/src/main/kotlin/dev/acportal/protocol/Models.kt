@@ -44,6 +44,8 @@ data class SessionInfo(
     val workspaceAccess:WorkspaceAccess=WorkspaceAccess(),
     /** The host registry marks this agent with `ownTools` (see [OWN_TOOLS_WARNING]). */
     val ownTools:Boolean=false,
+    /** Set when the agent runs on another host reached through its `/acp` bridge (a peer session). */
+    val remotePeer:String?=null,
 )
 @Serializable
 data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList())

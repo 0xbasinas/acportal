@@ -10,7 +10,8 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
   - [ ] Two-machine check with real TLS, and `goose serve` as a peer. macOS and the container/reproducibility jobs have not run on this branch.
   - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (verified with a real Goose, design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Review the `tokio-tungstenite` dependency. The bridge's 256-frame outbox signal is not isolated from the 5 s send timeout in a test.
-  - [ ] Phase 4 worktree isolation. Phase 5: Penpot boards first, then the Android task tree, supervisor outcomes, `delegate` status and peer sessions.
+  - [ ] Phase 4 worktree isolation.
+  - [ ] Phase 5 on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested; boards 51-54 ([design section 24](docs/orchestrator-design.md#24-phase-5-android-task-tree-supervisor-outcomes-delegate-status-peer-sessions-14-october-2026)).
   - Decided against, revisit on request: client reconnect/reattach and a token budget ([design section 23](docs/orchestrator-design.md#23-closing-phases-1-to-3-branch-experimentorchestrator-14-october-2026)).
   - [ ] Before merge: take PR #45 out of draft after the above; ask the user whether to delete test sessions `20261013_2`-`_5` from their Goose history.
 

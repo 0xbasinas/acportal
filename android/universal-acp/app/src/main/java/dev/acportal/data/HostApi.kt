@@ -67,6 +67,10 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     },"POST"))
     suspend fun delete(host:HostProfile,id:String) { execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun revoke(host:HostProfile) { execute(host.address,"/v1/device",vault.read(host.credentialAlias),method="DELETE") }
+    suspend fun tasks(host:HostProfile): List<TaskSummary> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks",vault.read(host.credentialAlias)))
+    suspend fun task(host:HostProfile,id:String): TaskDetail = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}",vault.read(host.credentialAlias)))
+    suspend fun cancelTask(host:HostProfile,id:String) { execute(host.address,"/v1/tasks/${taskPath(id)}/cancel",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
+    suspend fun setTaskSupervision(host:HostProfile,id:String,paused:Boolean) { execute(host.address,"/v1/tasks/${taskPath(id)}/supervisor/${if(paused)"pause" else "resume"}",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
     fun token(host:HostProfile): String = vault.read(host.credentialAlias)
 }
 private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine { continuation ->
@@ -95,7 +99,13 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String):
     code=="unsupported_mcp_transport" -> "This agent does not support an enabled MCP server's transport. Disable that server or choose another transport."
     status==401 && method=="POST" && path=="/v1/pair" -> "Pairing code was rejected. It may have expired or already been used. Run acpd pair on the host for a new code."
     status==401 -> "Credentials expired or pairing failed. Pair this host again."
+    code=="task_not_open" -> "This task has already finished."
+    code=="not_a_root_task" -> "Supervision can be paused only for a whole tree, from its root task."
+    code=="task_not_found" -> "This task is no longer known to the host. Refresh the task list."
     status==409 -> "This session already has a controller."
     status==400 && method=="POST" && path=="/v1/sessions" -> "The host could not start this session. Choose an existing allowed folder and check the selected agent and MCP settings, then press Start session again."
     else -> "Host request failed ($status)."
 }
+
+/** Task ids are UUIDs from the host; anything else is refused before a request is built. */
+internal fun taskPath(id:String):String {require(Regex("[0-9a-fA-F-]{36}").matches(id)) {"Invalid task id"};return id}

@@ -43,6 +43,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class McpRoute(val hostId:String?=null):NavKey
 @Serializable data class WorkspaceAccessRoute(val hostId:String?=null,val path:String?=null,val sessionId:String?=null):NavKey
 @Serializable data class AddAgentRoute(val hostId:String):NavKey
+@Serializable data class TasksRoute(val hostId:String):NavKey
+@Serializable data class TaskRoute(val hostId:String,val id:String):NavKey
 @Serializable data class AgentRoute(val hostId:String?=null,val agentId:String?=null):NavKey
 
 @Composable fun PortalNavigation(vm:PortalViewModel) {
@@ -101,7 +103,18 @@ import kotlinx.serialization.Serializable
                         }
                         entry<HostRoute> { key ->
                             LaunchedEffect(key.id) { vm.details(key.id) }
-                            HostDetailsScreen(ui.details?.takeIf { it.host.id==key.id },onBack=back,onNew={stack.add(NewSessionRoute(key.id))},onSession={info->sessions.find { it.hostId==key.id && it.id==info.id }?.let(openSession)},onRefresh={vm.details(key.id)},onForget={vm.forget(key.id,back)},onAgent={stack.add(AgentRoute(key.id,it))},loading=ui.loading)
+                            HostDetailsScreen(ui.details?.takeIf { it.host.id==key.id },onBack=back,onNew={stack.add(NewSessionRoute(key.id))},onSession={info->sessions.find { it.hostId==key.id && it.id==info.id }?.let(openSession)},onRefresh={vm.details(key.id)},onForget={vm.forget(key.id,back)},onAgent={stack.add(AgentRoute(key.id,it))},loading=ui.loading,onTasks={stack.add(TasksRoute(key.id))})
+                        }
+                        entry<TasksRoute> {key->
+                            val tasks by vm.tasks.collectAsStateWithLifecycle()
+                            LaunchedEffect(key.hostId) {vm.loadTasks(key.hostId)}
+                            TasksScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),back,{vm.loadTasks(key.hostId)},{stack.add(TaskRoute(key.hostId,it))})
+                        }
+                        entry<TaskRoute> {key->
+                            val tasks by vm.tasks.collectAsStateWithLifecycle()
+                            LaunchedEffect(key.hostId,key.id) {vm.loadTasks(key.hostId,key.id)}
+                            TaskDetailScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),key.id,back,{vm.loadTasks(key.hostId,key.id)},{vm.cancelTask(key.hostId,key.id)},{vm.setTaskSupervision(key.hostId,key.id,it)},
+                                onSession={session->sessions.find {it.hostId==key.hostId && it.id==session}?.let(openSession)})
                         }
                         entry<NewSessionRoute> { key ->
                             LaunchedEffect(key.hostId) { if(key.fromSessions || ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }

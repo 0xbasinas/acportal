@@ -379,11 +379,17 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
     Ok(Json(serde_json::to_value(result).map_err(internal)?))
 }
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
+    // `orchestrator` is listed only while delegation is enabled, so the phone shows the task
+    // views only then.
+    let mut features = vec!["formElicitation"];
+    if host.config.orchestrator.enabled {
+        features.push("orchestrator");
+    }
     Ok(Json(
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
-        "features":["formElicitation"],"activeSessions":host.sessions.active_count().await}),
+        "features":features,"activeSessions":host.sessions.active_count().await}),
     ))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {

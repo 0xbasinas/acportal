@@ -485,3 +485,19 @@ async fn a_restarted_host_shows_its_old_tasks_to_the_phone_as_interrupted() {
     assert_eq!(off.json("/v1/tasks").await, json!([]));
     off.stop().await;
 }
+
+#[tokio::test]
+async fn the_status_lists_the_orchestrator_feature_only_while_it_is_enabled() {
+    for enabled in [true, false] {
+        let h = Harness::start_with(enabled, |_| {}).await;
+        let status = h.json("/v1/status").await;
+        let features = status["features"].as_array().unwrap();
+        assert!(features.contains(&json!("formElicitation")), "{status}");
+        assert_eq!(
+            features.contains(&json!("orchestrator")),
+            enabled,
+            "{status}"
+        );
+        h.stop().await;
+    }
+}

@@ -130,3 +130,14 @@ Agent-side changes: the conversation screen no longer compares the whole item li
 
    Expected: 3 tests pass — Back closes the prompt-history sheet without selecting, Back closes the Appearance dialog and keeps Settings, the first Back with the keyboard open hides it and keeps the typed address.
 3. By hand: with gesture navigation, drag the predictive Back gesture slowly on a pushed page, a sheet and a dialog; cancel halfway and complete once. Expected: preview follows the finger, cancel restores, completion follows the current short production transition. Then repeat 1–3 on your phone.
+
+## §9 Orchestrator task views (phase 5, experimental)
+
+Needs a host with `[orchestrator] enabled = true` (restart the host after changing it) and at least one agent in `orchestrate` and one in `delegable`. The mock agent is enough: no paid model is needed.
+
+1. Open the connection. Expected: a "Delegated tasks" row above "Active sessions". With the orchestrator off the row must not appear (compare boards 54).
+2. Start a session with the orchestrating agent and have it delegate (for the mock agent, call `task_delegate` through `acpd mcp-delegate` as in `acpd/tests/task_api.rs`). Open "Delegated tasks". Expected: the root and an indented child, the waiting-request badge, the delegation-tool status (board 51).
+3. Open the child. Expected: folder, rights, delegation tools, each waiting request with risk and the supervisor line, green or amber (board 52). "Open session" opens the child's conversation, where the request can be answered.
+4. Open the root. Pause, then Resume supervisor: no error. Cancel delegated work, confirm: the child becomes Cancelled after Refresh (board 53).
+5. With a `transport = "ws"` agent on a second host, start a session. Expected: its row reads "agent · on peer NAME · status".
+6. Repeat 2-4 in light theme, at font scale 2.0, and with TalkBack: rows announce "Root task" or "Sub-task level N", the agent and the row text.

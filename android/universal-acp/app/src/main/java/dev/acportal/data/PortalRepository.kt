@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>)
+data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>,val features:List<String> = emptyList())
 class LiveSession(val host:HostProfile,info:SessionInfo,val transport:AgentTransport,initial:SessionState) {
     val metadata = MutableStateFlow(info)
     val info:SessionInfo get() = metadata.value
@@ -102,10 +102,15 @@ class PortalRepository(
             require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
-            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId))
+            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features)
         } catch (cancelled:CancellationException) { throw cancelled }
         catch (failure:Exception) { dao.markHostOffline(host.id);throw failure }
     }
+    private suspend fun savedHost(hostId:String)=dao.host(hostId) ?: error("Host is no longer saved")
+    suspend fun tasks(hostId:String):List<TaskSummary> = withContext(Dispatchers.IO) {api.tasks(savedHost(hostId))}
+    suspend fun task(hostId:String,id:String):TaskDetail = withContext(Dispatchers.IO) {api.task(savedHost(hostId),id)}
+    suspend fun cancelTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.cancelTask(savedHost(hostId),id)}
+    suspend fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = withContext(Dispatchers.IO) {api.setTaskSupervision(savedHost(hostId),id,paused)}
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
     fun agentClient(host:HostProfile)=object:AgentClient {
