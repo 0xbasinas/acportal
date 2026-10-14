@@ -1067,3 +1067,49 @@ async fn peer_info_is_not_found_when_the_bridge_is_off() {
         .unwrap();
     assert_eq!(reply.status(), 404);
 }
+
+#[tokio::test]
+async fn a_peer_that_stops_reading_is_cut_off_and_can_reattach() {
+    let h = Harness::start().await;
+    let (token, _) = h.pair(Role::Peer, "Laptop").await;
+    let mut c = h.peer(&token).await;
+    let session = c.new_session().await;
+    let id = h.host.sessions.list().await[0].id;
+    let host_session = h.host.sessions.get(id).await.unwrap();
+    // The peer reads nothing while the agent streams far more (300 x 256 KiB) than the socket and
+    // the 256-frame outbox can hold. Two guards can end this: the full outbox (immediately) and a
+    // 5 s send timeout on the socket. In a debug build the flood is slower than 5 s, so this test
+    // cannot tell them apart (a mutation run showed it passes with the outbox signal removed); it
+    // pins the behavior: a peer that stops reading is cut off, not buffered for without bound.
+    let text = "z".repeat(256 * 1024);
+    for _ in 0..300 {
+        host_session
+            .connection
+            .request(
+                "_mock/emit_update",
+                json!({"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}),
+            )
+            .await
+            .unwrap();
+    }
+    // Reading now ends: the host closed the socket instead of buffering without bound, and the
+    // peer saw only part of the stream.
+    let mut received = 0;
+    while let Some(frame) = c.next_frame().await {
+        if frame["method"] == "session/update" {
+            received += 1;
+        }
+    }
+    assert!(received > 0 && received < 300, "received {received} of 300");
+    // The session is kept, and the peer may come back for it.
+    assert_eq!(h.host.sessions.active_count().await, 1);
+    let mut again = h.peer(&token).await;
+    let load = again
+        .call(
+            "session/load",
+            json!({"sessionId":session,"cwd":"/x","mcpServers":[]}),
+        )
+        .await;
+    assert!(load["result"].is_object(), "{load}");
+    h.stop().await;
+}
