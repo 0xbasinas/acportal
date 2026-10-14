@@ -64,7 +64,7 @@ impl Fixture {
         .await;
         eventually_named("child session in the worktree", || async {
             for metadata in self.manager.list().await {
-                if metadata.workspace == path {
+                if plain(metadata.workspace.clone()) == plain(path.clone()) {
                     return self.manager.get(metadata.id).await.ok();
                 }
             }
@@ -215,9 +215,22 @@ async fn outcome(agent: &Agent, task: &str, wanted: &str) -> Value {
         ),
     }
 }
+/// Windows cannot delete a folder an agent process still runs in, and a cancelled task's mock
+/// agent keeps running; end its session so the host's removal retry can finish.
+async fn end_on_windows(fx: &Fixture, child: &AcpSession) {
+    if cfg!(windows) {
+        let _ = fx.manager.remove(child.metadata().id).await;
+    }
+}
 /// The worktree folder as the host reports it (no `\\?\` prefix on Windows).
 fn plain(path: PathBuf) -> PathBuf {
-    let text = path.canonicalize().unwrap().to_string_lossy().into_owned();
+    let path = path.canonicalize().unwrap_or(path);
+    let text = path.to_string_lossy().replace('/', "\\");
+    let text = if cfg!(windows) {
+        text
+    } else {
+        path.to_string_lossy().into_owned()
+    };
     PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned())
 }
 /// Act as the phone: answer the child's pending request from the given source.
@@ -332,6 +345,7 @@ async fn two_workers_get_separate_worktrees_cannot_touch_each_other_and_are_clea
     // worktree folder goes. Nothing is lost and nothing reaches the parent's checkout.
     ok(&sup, "task_cancel", json!({"task_id": b})).await;
     reaches(&sup, &b, "canceled").await;
+    end_on_windows(&fx, &sb).await;
     outcome(&sup, &b, "snapshotted").await;
     assert!(!pb.exists());
     let branch_b = wb["branch"].as_str().unwrap();
@@ -385,7 +399,9 @@ async fn an_unused_worktree_and_its_branch_are_removed_when_the_task_fails_or_is
     )
     .await;
     assert_eq!(refusal.code, "fan_out_limit");
+    let child = fx.session_of_task(&sup, &task).await;
     ok(&sup, "task_cancel", json!({"task_id": task})).await;
+    end_on_windows(&fx, &child).await;
     outcome(&sup, &task, "removed").await;
     assert!(!path.exists());
     eventually(|| async {
