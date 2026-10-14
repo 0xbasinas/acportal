@@ -92,6 +92,8 @@ fn fixture(tweak: impl FnOnce(&mut Config)) -> Fixture {
     std::fs::create_dir_all(repo.join("src")).unwrap();
     std::fs::create_dir_all(base.path().join("work/plain")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
+    // Windows runners default to core.autocrlf=true, which rewrites "one\n" on checkout.
+    git(&repo, &["config", "core.autocrlf", "false"]);
     std::fs::write(repo.join("src/lib.rs"), "original\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "first"]);
@@ -470,6 +472,8 @@ async fn after_a_restart_worktrees_of_interrupted_tasks_are_released_and_unknown
     let repo = base.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
+    // Windows runners default to core.autocrlf=true, which rewrites "one\n" on checkout.
+    git(&repo, &["config", "core.autocrlf", "false"]);
     std::fs::write(repo.join("a.txt"), "a\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "first"]);

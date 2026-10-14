@@ -354,6 +354,8 @@ mod tests {
         let repo = base.path().join("repo");
         std::fs::create_dir_all(repo.join("src")).unwrap();
         run(&repo, &["init", "-q", "-b", "main"]);
+        // Windows runners default to core.autocrlf=true, which rewrites "one\n" on checkout.
+        run(&repo, &["config", "core.autocrlf", "false"]);
         std::fs::write(repo.join("src/lib.rs"), "one\n").unwrap();
         run(&repo, &["add", "."]);
         run(&repo, &["commit", "-q", "-m", "first"]);
@@ -441,6 +443,8 @@ mod tests {
         let empty = base.path().join("empty");
         std::fs::create_dir_all(&empty).unwrap();
         run(&empty, &["init", "-q"]);
+        // Windows runners default to core.autocrlf=true, which rewrites "one\n" on checkout.
+        run(&empty, &["config", "core.autocrlf", "false"]);
         assert_eq!(
             create(&root, &empty, &empty).unwrap_err(),
             Unavailable::NoCommits
