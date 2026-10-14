@@ -575,6 +575,90 @@ async fn after_a_restart_worktrees_of_interrupted_tasks_are_released_and_unknown
 }
 
 #[tokio::test]
+async fn a_worktree_that_will_not_go_does_not_hold_up_a_restart_and_is_tried_again_at_the_next() {
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(
+        repo.join("a.txt"),
+        "a
+",
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let state = base.path().join("state");
+    let root = state.join("worktrees");
+    // `git worktree remove` refuses a locked worktree on every platform, standing in for a
+    // folder a scanner or an editor holds open.
+    let stuck = worktree::create(&root, &repo, &repo).unwrap();
+    git(&repo, &["worktree", "lock", &stuck.path.to_string_lossy()]);
+    let task = Uuid::new_v4();
+    records::save(
+        &state,
+        &[TaskRecord {
+            id: task,
+            parent: Some(Uuid::new_v4()),
+            root: Uuid::new_v4(),
+            depth: 1,
+            agent: "worker".into(),
+            scope: stuck.task_folder(),
+            rights: RecordRights {
+                read: true,
+                write: true,
+                terminal: false,
+            },
+            state: "working".into(),
+            session: None,
+            created_at: 1,
+            updated_at: 1,
+            summary: None,
+            stop_reason: None,
+            trace_id: None,
+            cost_usd: None,
+            worktree: Some(stuck.clone()),
+        }],
+    )
+    .unwrap();
+    let outcome_saved = || {
+        records::load(&state).unwrap()[0]
+            .worktree
+            .as_ref()
+            .unwrap()
+            .outcome
+    };
+
+    // The first start: removal is tried for a few seconds, not the two minutes a running host
+    // would allow, then given up and recorded.
+    let manager =
+        Arc::new(SessionManager::new(Config::default(), Registry::parse("[]").unwrap()).unwrap());
+    let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
+    let began = std::time::Instant::now();
+    assert_eq!(orchestrator.restore(&state), 1);
+    let took = began.elapsed();
+    assert!(
+        took < Duration::from_secs(20),
+        "start-up waited {took:?} for a worktree that would not go"
+    );
+    assert!(stuck.path.exists());
+    assert_eq!(outcome_saved(), Outcome::CleanupFailed);
+
+    // Once it can go, the next start removes it (a failed cleanup is not forgotten).
+    git(
+        &repo,
+        &["worktree", "unlock", &stuck.path.to_string_lossy()],
+    );
+    let again = Orchestrator::new(Arc::downgrade(&manager));
+    assert_eq!(again.restore(&state), 1);
+    assert!(!stuck.path.exists());
+    assert_eq!(outcome_saved(), Outcome::Removed);
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
 async fn with_keep_a_cancelled_tasks_uncommitted_work_stays_in_its_worktree() {
     let fx = fixture(|config| {
         config.orchestrator.worktree_uncommitted = worktree::Uncommitted::Keep;

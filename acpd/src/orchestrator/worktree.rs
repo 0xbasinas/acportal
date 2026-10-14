@@ -7,8 +7,15 @@
 //! merge, an empty one is deleted. A worktree with uncommitted changes is kept and reported.
 //!
 //! Git runs with a literal argument list, no shell, no inherited `GIT_*` repository variables,
-//! hooks pointed at an empty folder and `core.fsmonitor` off, so a repository's own
-//! configuration cannot make the host run a program when a worktree is created or inspected.
+//! hooks pointed at an empty folder and `core.fsmonitor` and `core.sshCommand` off, so a
+//! repository's hooks and those two settings cannot make the host run a program.
+//!
+//! What this does not stop: programs the repository's own configuration names for content
+//! filters (`filter.*.clean`/`smudge`, e.g. Git LFS), merge drivers (`merge.*.driver`) and diff
+//! text converters. They run when a worktree is checked out, snapshotted or merged, as the host
+//! user. That is the operator's own configuration, and a delegated agent that could change it
+//! (by writing to `.git/config` with its own tools) can already run programs as that user, so
+//! this is not a new reach, but it is not blocked either.
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -316,7 +323,19 @@ pub enum Uncommitted {
 pub fn release(root: &Path, worktree: &Worktree) -> Outcome {
     release_with(root, worktree, Uncommitted::Commit)
 }
+/// How long removing a folder is retried (Windows keeps a folder locked while a process runs in it).
+pub const REMOVE_RETRY: std::time::Duration = std::time::Duration::from_secs(120);
 pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) -> Outcome {
+    release_within(root, worktree, uncommitted, REMOVE_RETRY)
+}
+/// As [`release_with`], but gives up removing the folder after `retry` (the caller may be
+/// holding something up, such as host start-up). A folder that stays is `CleanupFailed`.
+pub fn release_within(
+    root: &Path,
+    worktree: &Worktree,
+    uncommitted: Uncommitted,
+    retry: std::time::Duration,
+) -> Outcome {
     if worktree.outcome != Outcome::Active {
         return worktree.outcome;
     }
@@ -339,7 +358,7 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
         Ok(_) => {}
         Err(_) => return Outcome::CleanupFailed,
     }
-    if !remove_folder(root, worktree) {
+    if !remove_folder(root, worktree, retry) {
         return Outcome::CleanupFailed;
     }
     match branch_cleanup(root, worktree) {
@@ -348,14 +367,15 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
     }
 }
 /// `git worktree remove`, retried (see the comment inside); true once the folder is gone.
-fn remove_folder(root: &Path, worktree: &Worktree) -> bool {
+fn remove_folder(root: &Path, worktree: &Worktree, retry: std::time::Duration) -> bool {
     let target = worktree.path.to_string_lossy().into_owned();
     // Windows keeps a folder locked while an agent process still runs in it (a cancelled task's
     // process can outlive the cancel, and a removed session's process is stopped just after its
     // tree is released), and two git commands on one repository can collide on its lock files.
-    // Retry for up to two minutes, one release at a time per host, before calling it a failure.
+    // Retry for up to `retry` (two minutes unless a caller is waiting), one release at a time per
+    // host, before calling it a failure.
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let deadline = std::time::Instant::now() + retry;
     let mut removed = false;
     loop {
         let attempt = {
@@ -396,7 +416,7 @@ pub fn snapshot_if_dirty(root: &Path, worktree: &Worktree) -> bool {
 /// folder that cannot go yet (Windows, while the task's agent still runs in it) is retried and
 /// otherwise left to the startup sweep. True when both are gone.
 pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
-    let folder = !worktree.path.exists() || remove_folder(root, worktree);
+    let folder = !worktree.path.exists() || remove_folder(root, worktree, REMOVE_RETRY);
     let branch = git(
         root,
         &worktree.repository,
