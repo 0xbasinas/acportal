@@ -74,6 +74,8 @@ struct Runtime {
     limit: Option<Limit>,
     /// Cumulative USD cost the agent reported; `None` means unmetered.
     cost_usd: Option<f64>,
+    /// Prompts this task has been given: the first, plus each accepted follow-up.
+    turns: u32,
     /// The delegation tools were offered to this task's agent (a token was issued)...
     delegate_offered: bool,
     /// ...and its `mcp-delegate` process has since said hello over the control channel.
@@ -145,6 +147,7 @@ impl Runtime {
             cancel_requested: false,
             limit: None,
             cost_usd: None,
+            turns: 1,
             delegate_offered: false,
             delegate_connected: false,
             cancel: Arc::new(Notify::new()),
@@ -858,14 +861,23 @@ impl Orchestrator {
         let target = Self::task_id(arguments)?;
         let prompt = arguments["prompt"].as_str().unwrap_or_default().to_owned();
         let manager = self.manager()?;
-        let deadline = manager
-            .launch_settings()
-            .config
-            .orchestrator
-            .default_deadline_seconds;
+        let config = manager.launch_settings().config.orchestrator.clone();
+        let deadline = config.default_deadline_seconds;
         let session = {
             let mut state = self.lock();
             Self::manage(&state, caller, target)?;
+            // Checked before the claim, so a refused follow-up leaves the task completed.
+            if config.max_turns_per_task > 0
+                && state
+                    .runtime
+                    .get(&target)
+                    .is_some_and(|r| r.turns >= config.max_turns_per_task)
+            {
+                return Err(ToolFailure::new(
+                    "turn_limit",
+                    "that task has used all the prompts it is allowed",
+                ));
+            }
             let session = state.runtime.get(&target).and_then(|r| r.session);
             let Some(session) = session else {
                 return Err(ToolFailure::new(
@@ -887,6 +899,7 @@ impl Orchestrator {
             runtime.error = None;
             runtime.cancel_requested = false;
             runtime.limit = None;
+            runtime.turns += 1;
             session
         };
         self.bump();

@@ -42,6 +42,9 @@ pub struct OrchestratorConfig {
     /// 0 turns it off. An agent that reports no cost, or one in another currency, is unmetered
     /// and cannot be held to it.
     pub task_max_cost_usd: f64,
+    /// Prompts one task may be given: its first and every `task_send` follow-up. 0 turns it
+    /// off. A follow-up past the limit is refused and the task stays completed.
+    pub max_turns_per_task: u32,
     /// How long a finished child task's session is kept (so a follow-up can still be sent)
     /// before it is ended. 0 keeps it until its root session is removed.
     pub finished_child_keep_seconds: u64,
@@ -101,6 +104,7 @@ impl Default for OrchestratorConfig {
             default_deadline_seconds: 1800,
             idle_timeout_seconds: 300,
             task_max_cost_usd: 0.0,
+            max_turns_per_task: 0,
             finished_child_keep_seconds: 600,
             supervisor_max_risk: SupervisorRisk::default(),
             supervisor_timeout_seconds: 60,
@@ -123,6 +127,7 @@ impl OrchestratorConfig {
             || !self.task_max_cost_usd.is_finite()
             || self.task_max_cost_usd < 0.0
             || self.finished_child_keep_seconds > 86_400
+            || self.max_turns_per_task > 1000
             || !(1..=600).contains(&self.supervisor_timeout_seconds)
             || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
         {

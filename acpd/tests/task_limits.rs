@@ -399,6 +399,52 @@ async fn a_finished_child_with_open_work_below_it_is_not_ended_from_under_that_w
     life.manager.shutdown().await;
 }
 
+#[tokio::test]
+async fn a_task_may_be_given_only_so_many_prompts_and_a_refusal_leaves_it_usable() {
+    // Two turns: the first prompt and one follow-up.
+    let life = start(&[], |c| c.max_turns_per_task = 2);
+    let (_, agent) = root(&life).await;
+    let task = delegate(&agent, json!({})).await;
+    let child = worker_session(&life).await;
+    answer(&child).await;
+    reaches(&agent, &task, "completed").await;
+    call(
+        &agent,
+        "task_send",
+        json!({"task_id": task, "prompt": "more"}),
+    )
+    .await;
+    answer(&child).await;
+    reaches(&agent, &task, "completed").await;
+    // The third is refused with its own code, before anything is claimed or sent.
+    let refused = agent
+        .call("task_send", json!({"task_id": task, "prompt": "again"}))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, "turn_limit");
+    assert_eq!(view(&agent, &task).await["state"], "completed");
+    life.manager.shutdown().await;
+
+    // 0 is unlimited: the same three prompts all go through.
+    let life = start(&[], |_| {});
+    let (_, agent) = root(&life).await;
+    let task = delegate(&agent, json!({})).await;
+    let child = worker_session(&life).await;
+    answer(&child).await;
+    reaches(&agent, &task, "completed").await;
+    for _ in 0..2 {
+        call(
+            &agent,
+            "task_send",
+            json!({"task_id": task, "prompt": "more"}),
+        )
+        .await;
+        answer(&child).await;
+        reaches(&agent, &task, "completed").await;
+    }
+    life.manager.shutdown().await;
+}
+
 #[test]
 fn nonsense_limits_are_refused_when_the_configuration_is_checked() {
     let bad = |tweak: fn(&mut OrchestratorConfig)| {
@@ -417,6 +463,8 @@ fn nonsense_limits_are_refused_when_the_configuration_is_checked() {
     assert!(bad(|c| c.task_max_cost_usd = f64::NAN));
     assert!(bad(|c| c.task_max_cost_usd = f64::INFINITY));
     assert!(bad(|c| c.finished_child_keep_seconds = 86_401));
+    assert!(bad(|c| c.max_turns_per_task = 1001));
+    assert!(!bad(|c| c.max_turns_per_task = 1000));
     assert!(!bad(|c| c.idle_timeout_seconds = 1));
     assert!(!bad(|c| c.finished_child_keep_seconds = 0));
 }
