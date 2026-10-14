@@ -617,11 +617,36 @@ async fn goose_worktree_trial() {
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    // End the root: each worker's worktree is released (kept if it has uncommitted work).
+    // The phone merges the first completed worker (its uncommitted file is committed to its
+    // branch first); the other is released when the root ends (snapshotted to its branch).
+    let mut merge = json!(null);
+    if let Some(first) = seen
+        .iter()
+        .find(|t| t["agent"] == "worker" && t["state"] == "completed")
+        .and_then(|t| t["id"].as_str())
+        .and_then(|id| id.parse().ok())
+    {
+        merge = match orchestrator.merge_task(first).await {
+            Ok(merged) => merged,
+            Err(refusal) => json!({"refused": refusal.code()}),
+        };
+    }
+    let parent_after_merge = git(&repo, &["log", "--format=%h %an %s", "-3"]);
+    // End the root: the remaining worker's worktree is released: its uncommitted work is
+    // committed to its branch and the folder removed (`worktree_uncommitted = "commit"`).
     manager.remove(root.metadata().id).await.unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
     let after = git(&repo, &["worktree", "list", "--porcelain"]);
     let branches = git(&repo, &["branch", "--list", "acpd/*"]);
+    let branch_tips: Vec<Value> = branches
+        .lines()
+        .map(|line| line.trim_start_matches(['*', '+', ' ']).to_owned())
+        .filter(|b| !b.is_empty())
+        .map(|b| {
+            json!({"branch": b, "tip": git(&repo, &["log", "-1", "--format=%an: %s", &b]),
+                "files": git(&repo, &["show", "--name-only", "--format=", &b])})
+        })
+        .collect();
     let mut records = vec![];
     orchestrator.persist_now();
     for record in acpd::orchestrator::records::load(&state).unwrap_or_default() {
@@ -637,7 +662,10 @@ async fn goose_worktree_trial() {
         "rootText": digest(&root)["text"],
         "tasks": seen, "workerFolders": worktrees,
         "parentStatus": parent_status, "parentFiles": parent_files,
-        "worktreesAfterRootEnded": after, "branchesAfter": branches, "records": records,
+        "phoneMerge": merge, "parentLogAfterMerge": parent_after_merge,
+        "worktreesAfterRootEnded": after, "branchesAfter": branches, "branchTips": branch_tips,
+        "parentFilesAtEnd": std::fs::read_dir(&repo).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect::<Vec<_>>(),
+        "records": records,
         "phoneAnswers": phone_log.iter().filter(|e| e["event"] == "phone_answered").count(),
     });
     println!(

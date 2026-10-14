@@ -70,6 +70,7 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     suspend fun tasks(host:HostProfile): List<TaskSummary> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks",vault.read(host.credentialAlias)))
     suspend fun task(host:HostProfile,id:String): TaskDetail = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}",vault.read(host.credentialAlias)))
     suspend fun cancelTask(host:HostProfile,id:String) { execute(host.address,"/v1/tasks/${taskPath(id)}/cancel",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
+    suspend fun mergeTask(host:HostProfile,id:String): TaskMergeResult = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}/merge",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST"))
     suspend fun setTaskSupervision(host:HostProfile,id:String,paused:Boolean) { execute(host.address,"/v1/tasks/${taskPath(id)}/supervisor/${if(paused)"pause" else "resume"}",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
     fun token(host:HostProfile): String = vault.read(host.credentialAlias)
 }
@@ -96,6 +97,12 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
 }
 
 internal fun hostRequestError(status:Int,code:String,method:String,path:String):String = when {
+    path.endsWith("/merge") && code=="parent_dirty" -> "The parent's folder has uncommitted changes. Commit or stash them on the host, then merge again."
+    path.endsWith("/merge") && code=="merge_conflict" -> "The task's branch conflicts with the parent's folder. Nothing was changed; merge the branch by hand on the host."
+    path.endsWith("/merge") && code=="nothing_to_merge" -> "The task's branch has nothing the parent's folder lacks."
+    path.endsWith("/merge") && code=="worktree_dirty" -> "The task's worktree still has uncommitted work. Commit it there first."
+    path.endsWith("/merge") && code=="already_merged" -> "This task's branch was already merged."
+    path.endsWith("/merge") && (code=="task_not_finished" || code=="worktree_busy") -> "The task is not finished with its worktree yet. Try again shortly."
     code=="unsupported_mcp_transport" -> "This agent does not support an enabled MCP server's transport. Disable that server or choose another transport."
     status==401 && method=="POST" && path=="/v1/pair" -> "Pairing code was rejected. It may have expired or already been used. Run acpd pair on the host for a new code."
     status==401 -> "Credentials expired or pairing failed. Pair this host again."

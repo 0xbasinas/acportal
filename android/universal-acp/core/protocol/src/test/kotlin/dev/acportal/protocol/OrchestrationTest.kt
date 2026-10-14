@@ -48,4 +48,16 @@ class OrchestrationTest {
         assertEquals("acpd/task-abc · In use",worktreeLabel(w.copy(outcome="active",baseDirty=false)))
         assertNull(WireJson.decodeFromString<TaskDetail>("""{"id":"i","root":"r","agent":"w","state":"working"}""").worktree)
     }
+    @Test fun onlyFinishedTasksWithAnUnmergedBranchOfferAMerge() {
+        val w=TaskWorktree(branch="acpd/task-abc",outcome="snapshotted")
+        assertTrue(canMergeWorktree("completed",w))
+        assertTrue(canMergeWorktree("completed",w.copy(outcome="active")))
+        assertTrue(canMergeWorktree("canceled",w.copy(outcome="branch_kept")))
+        assertFalse(canMergeWorktree("working",w))
+        assertFalse(canMergeWorktree("input_required",w))
+        for(o in listOf("removed","merged","kept_dirty","releasing","cleanup_failed")) assertFalse(o,canMergeWorktree("completed",w.copy(outcome=o)))
+        assertFalse(canMergeWorktree("completed",null))
+        assertEquals("acpd/task-abc · Merged into the parent's folder (0123456)",worktreeLabel(w.copy(outcome="merged",merged="0123456789")))
+        assertEquals("abc",WireJson.decodeFromString<TaskMergeResult>("""{"merged":"abc","branch":"b","into":"/r"}""").merged)
+    }
 }

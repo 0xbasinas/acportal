@@ -28,7 +28,7 @@ use uuid::Uuid;
 type Agent = ControlBackend<Box<dyn Stream>>;
 struct Fixture {
     manager: Arc<SessionManager>,
-    _orchestrator: Arc<Orchestrator>,
+    orchestrator: Arc<Orchestrator>,
     _endpoint: Endpoint,
     base: TempDir,
 }
@@ -128,7 +128,7 @@ fn fixture(tweak: impl FnOnce(&mut Config)) -> Fixture {
     let endpoint = control::start(orchestrator.clone(), &state).unwrap();
     Fixture {
         manager,
-        _orchestrator: orchestrator,
+        orchestrator,
         _endpoint: endpoint,
         base,
     }
@@ -593,6 +593,171 @@ async fn with_keep_a_cancelled_tasks_uncommitted_work_stays_in_its_worktree() {
     assert_eq!(
         std::fs::read_to_string(path.join("draft.txt")).unwrap(),
         "wip"
+    );
+    fx.manager.shutdown().await;
+}
+
+/// A delegated writer in its own worktree writes `file` (uncommitted) and completes.
+async fn completed_writer(fx: &Fixture, sup: &Agent, file: &str, content: &str) -> String {
+    let task = delegate(sup, json!({"isolation":"worktree"})).await;
+    let session = fx.session_of_task(sup, &task).await;
+    let path = session.metadata().workspace;
+    let own = write(&session, &path.join(file), content);
+    answer(&session.connection, true, "acpd-write-allow").await;
+    own.await.unwrap().unwrap();
+    answer(&session.connection, false, "allow").await;
+    reaches(sup, &task, "completed").await;
+    task
+}
+fn refusal_code(result: Result<Value, acpd::orchestrator::views::MergeTaskRefusal>) -> String {
+    result
+        .expect_err("merge should be refused")
+        .code()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn the_phone_merges_a_finished_tasks_branch_into_the_parent_checkout() {
+    let fx = fixture(|_| {});
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    let task = completed_writer(&fx, &sup, "merged.txt", "from the child\n").await;
+    let id: Uuid = task.parse().unwrap();
+    let branch = status(&sup, &task).await["worktree"]["branch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let merged = fx.orchestrator.merge_task(id).await.unwrap();
+    let commit = merged["merged"].as_str().unwrap();
+    // The child's uncommitted work was committed to its branch, then merged as one commit.
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), commit);
+    assert_eq!(
+        std::fs::read_to_string(repo.join("merged.txt")).unwrap(),
+        "from the child\n"
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%an %p"])
+            .split(' ')
+            .count(),
+        3,
+        "a merge commit"
+    );
+    assert_eq!(git(&repo, &["log", "-1", "--format=%an"]), "acpd");
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    // The folder and branch go after the reply (on Windows once the agent process ends).
+    let child = fx.session_of_task(&sup, &task).await;
+    end_on_windows(&fx, &child).await;
+    eventually_named("merged worktree and branch removed", || async {
+        (git(&repo, &["branch", "--list", &branch]).is_empty()
+            && git(&repo, &["worktree", "list"]).lines().count() == 1)
+            .then_some(())
+    })
+    .await;
+    let view = status(&sup, &task).await;
+    assert_eq!(view["worktree"]["outcome"], "merged");
+    assert_eq!(view["worktree"]["merged"], commit);
+    // Once merged: not again, and no follow-up into a folder that is gone.
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(id).await),
+        "already_merged"
+    );
+    let follow = refused(
+        &sup,
+        "task_send",
+        json!({"task_id": task, "prompt": "more"}),
+    )
+    .await;
+    assert_eq!(follow.code, "invalid_state");
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_merge_is_refused_with_nothing_changed_when_the_parent_is_dirty_or_it_conflicts() {
+    let fx = fixture(|_| {});
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    let task = completed_writer(&fx, &sup, "src/lib.rs", "child version\n").await;
+    let id: Uuid = task.parse().unwrap();
+    let before = git(&repo, &["rev-parse", "HEAD"]);
+
+    // Dirty parent: refused; the parent's edit and the branch are untouched.
+    std::fs::write(repo.join("src/lib.rs"), "parent edit\n").unwrap();
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(id).await),
+        "parent_dirty"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/lib.rs")).unwrap(),
+        "parent edit\n"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), before);
+    let view = status(&sup, &task).await;
+    assert_eq!(
+        view["worktree"]["outcome"], "active",
+        "still on disk, nothing merged"
+    );
+
+    // The parent commits a conflicting change: refused, the merge is aborted, nothing changed.
+    git(&repo, &["commit", "-q", "-am", "parent change"]);
+    let parent_head = git(&repo, &["rev-parse", "HEAD"]);
+    match fx.orchestrator.merge_task(id).await {
+        Err(acpd::orchestrator::views::MergeTaskRefusal::Git(
+            acpd::orchestrator::worktree::MergeRefusal::Conflict(files),
+        )) => assert_eq!(files, vec!["src/lib.rs".to_owned()]),
+        other => panic!("expected a conflict, got {other:?}"),
+    }
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), parent_head);
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    assert!(!repo.join(".git/MERGE_HEAD").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/lib.rs")).unwrap(),
+        "parent edit\n"
+    );
+    let branch = view["worktree"]["branch"].as_str().unwrap();
+    assert_eq!(
+        git(&repo, &["show", &format!("{branch}:src/lib.rs")]),
+        "child version"
+    );
+    assert_eq!(status(&sup, &task).await["worktree"]["outcome"], "active");
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn only_finished_tasks_with_a_worktree_and_new_work_can_be_merged() {
+    let fx = fixture(|_| {});
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    // Still running.
+    let open = delegate(&sup, json!({"isolation":"worktree"})).await;
+    let open_id: Uuid = open.parse().unwrap();
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(open_id).await),
+        "task_not_finished"
+    );
+    // Finished with nothing new: its branch was deleted on release.
+    ok(&sup, "task_cancel", json!({"task_id": open})).await;
+    let child = fx.session_of_task(&sup, &open).await;
+    end_on_windows(&fx, &child).await;
+    outcome(&sup, &open, "removed").await;
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(open_id).await),
+        "nothing_to_merge"
+    );
+    // A read-only task shares the parent's folder: no worktree.
+    let shared = delegate(&sup, json!({"rights":{"read":true,"write":false}})).await;
+    ok(&sup, "task_cancel", json!({"task_id": shared})).await;
+    reaches(&sup, &shared, "canceled").await;
+    let shared_id: Uuid = shared.parse().unwrap();
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(shared_id).await),
+        "no_worktree"
+    );
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(Uuid::new_v4()).await),
+        "task_not_found"
     );
     fx.manager.shutdown().await;
 }

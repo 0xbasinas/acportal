@@ -113,7 +113,7 @@ import kotlinx.serialization.Serializable
                         entry<TaskRoute> {key->
                             val tasks by vm.tasks.collectAsStateWithLifecycle()
                             LaunchedEffect(key.hostId,key.id) {vm.loadTasks(key.hostId,key.id)}
-                            TaskDetailScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),key.id,back,{vm.loadTasks(key.hostId,key.id)},{vm.cancelTask(key.hostId,key.id)},{vm.setTaskSupervision(key.hostId,key.id,it)},
+                            TaskDetailScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),key.id,back,{vm.loadTasks(key.hostId,key.id)},{vm.cancelTask(key.hostId,key.id)},{vm.setTaskSupervision(key.hostId,key.id,it)},onMerge={vm.mergeTask(key.hostId,key.id)},
                                 onSession={session->sessions.find {it.hostId==key.hostId && it.id==session}?.let(openSession)})
                         }
                         entry<NewSessionRoute> { key ->

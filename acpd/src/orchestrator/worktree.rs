@@ -59,6 +59,8 @@ pub enum Outcome {
     KeptDirty,
     /// Cleanup failed; the worktree may still be on disk.
     CleanupFailed,
+    /// The owner merged its branch into the parent's checkout from the phone; the branch is gone.
+    Merged,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +78,9 @@ pub struct Worktree {
     /// The repository had uncommitted changes when the worktree was made; they are not in it.
     pub base_dirty: bool,
     pub outcome: Outcome,
+    /// The merge commit, once the owner merged the branch into the parent's checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged: Option<String>,
 }
 impl Worktree {
     /// The folder the task runs in.
@@ -147,6 +152,104 @@ fn canonical(path: &Path) -> PathBuf {
     }
 }
 
+/// Why a merge into the parent's checkout was refused. Nothing was changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeRefusal {
+    /// The branch is gone (deleted by hand, or already merged).
+    NoBranch,
+    /// The branch has nothing the parent's checkout lacks.
+    NothingToMerge,
+    /// The parent's checkout has uncommitted changes (or untracked files) a merge could clobber.
+    ParentDirty,
+    /// The branch conflicts with the parent's checkout; the merge was aborted. Conflicting files.
+    Conflict(Vec<String>),
+    GitFailed,
+}
+impl MergeRefusal {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NoBranch => "branch_missing",
+            Self::NothingToMerge => "nothing_to_merge",
+            Self::ParentDirty => "parent_dirty",
+            Self::Conflict(_) => "merge_conflict",
+            Self::GitFailed => "git_failed",
+        }
+    }
+}
+
+/// Merge a released worktree's branch into the checkout it was made from (the parent's folder,
+/// on whatever branch it has checked out), as one `--no-ff` merge commit by `acpd`, without
+/// hooks or signing. Refused, with nothing changed, when that checkout is dirty, when there is
+/// nothing to merge, or when the branch conflicts (the merge is aborted). The branch is deleted
+/// after a merge. Returns the merge commit.
+pub fn merge(root: &Path, worktree: &Worktree) -> Result<String, MergeRefusal> {
+    let repo = &worktree.repository;
+    let reference = format!("refs/heads/{}", worktree.branch);
+    if git(
+        root,
+        repo,
+        &["rev-parse", "--verify", "--quiet", &reference],
+    )
+    .is_err()
+    {
+        return Err(MergeRefusal::NoBranch);
+    }
+    let ahead = git(
+        root,
+        repo,
+        &["rev-list", "--count", &format!("HEAD..{reference}")],
+    )
+    .map_err(|_| MergeRefusal::GitFailed)?;
+    if ahead.trim() == "0" {
+        return Err(MergeRefusal::NothingToMerge);
+    }
+    let status = git(
+        root,
+        repo,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )
+    .map_err(|_| MergeRefusal::GitFailed)?;
+    if !status.is_empty() {
+        return Err(MergeRefusal::ParentDirty);
+    }
+    let message = format!("acpd: merge delegated task branch {}", worktree.branch);
+    let merged = git(
+        root,
+        repo,
+        &[
+            "-c",
+            "user.name=acpd",
+            "-c",
+            "user.email=acpd@localhost.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "merge",
+            "--no-ff",
+            "--no-edit",
+            "--no-verify",
+            "-m",
+            &message,
+            &reference,
+        ],
+    );
+    if merged.is_err() {
+        let files = git(root, repo, &["diff", "--name-only", "--diff-filter=U"])
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let _ = git(root, repo, &["merge", "--abort"]);
+        return Err(if files.is_empty() {
+            MergeRefusal::GitFailed
+        } else {
+            MergeRefusal::Conflict(files)
+        });
+    }
+    let commit = git(root, repo, &["rev-parse", "HEAD"]).map_err(|_| MergeRefusal::GitFailed)?;
+    let _ = git(root, repo, &["branch", "-D", &worktree.branch]);
+    Ok(commit)
+}
+
 /// Make a worktree for a task running in `folder` (inside the delegating task's `parent_scope`).
 pub fn create(root: &Path, folder: &Path, parent_scope: &Path) -> Result<Worktree, Unavailable> {
     let top = git(root, folder, &["rev-parse", "--show-toplevel"])
@@ -186,6 +289,7 @@ pub fn create(root: &Path, folder: &Path, parent_scope: &Path) -> Result<Worktre
         base,
         sub,
         base_dirty,
+        merged: None,
         outcome: Outcome::Active,
     };
     if !worktree.task_folder().is_dir() {
@@ -235,6 +339,16 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
         Ok(_) => {}
         Err(_) => return Outcome::CleanupFailed,
     }
+    if !remove_folder(root, worktree) {
+        return Outcome::CleanupFailed;
+    }
+    match branch_cleanup(root, worktree) {
+        Outcome::BranchKept if snapshot => Outcome::Snapshotted,
+        other => other,
+    }
+}
+/// `git worktree remove`, retried (see the comment inside); true once the folder is gone.
+fn remove_folder(root: &Path, worktree: &Worktree) -> bool {
     let target = worktree.path.to_string_lossy().into_owned();
     // Windows keeps a folder locked while an agent process still runs in it (a cancelled task's
     // process can outlive the cancel, and a removed session's process is stopped just after its
@@ -263,13 +377,33 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
             }
         }
     }
-    if !removed {
-        return Outcome::CleanupFailed;
+    removed
+}
+/// Commit the worktree's uncommitted work (if any) to its branch, as at release. False when
+/// git failed; the worktree is then as it was.
+pub fn snapshot_if_dirty(root: &Path, worktree: &Worktree) -> bool {
+    match git(
+        root,
+        &worktree.path,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    ) {
+        Ok(out) if out.is_empty() => true,
+        Ok(_) => commit_snapshot(root, worktree),
+        Err(_) => false,
     }
-    match branch_cleanup(root, worktree) {
-        Outcome::BranchKept if snapshot => Outcome::Snapshotted,
-        other => other,
-    }
+}
+/// After a merge: remove the (clean) worktree folder and the merged branch. Best effort; a
+/// folder that cannot go yet (Windows, while the task's agent still runs in it) is retried and
+/// otherwise left to the startup sweep. True when both are gone.
+pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
+    let folder = !worktree.path.exists() || remove_folder(root, worktree);
+    let branch = git(
+        root,
+        &worktree.repository,
+        &["branch", "-D", &worktree.branch],
+    )
+    .is_ok();
+    folder && branch
 }
 /// Commit everything git does not ignore to the task's branch, under the host's own identity,
 /// without hooks or signing. Ignored files (build output, `.env`) are not included.

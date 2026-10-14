@@ -24,4 +24,11 @@ class TaskScreensTest {
         assertEquals("This task has already finished.",hostRequestError(409,"task_not_open","POST","/v1/tasks/x/cancel"))
         assertEquals("This session already has a controller.",hostRequestError(409,"","GET","/v1/sessions/x/connect"))
     }
+    @Test fun mergeRefusalsSayWhatToDo() {
+        val path="/v1/tasks/11111111-1111-1111-1111-111111111111/merge"
+        assertTrue(hostRequestError(409,"parent_dirty","POST",path).startsWith("The parent's folder has uncommitted changes"))
+        assertTrue(hostRequestError(409,"merge_conflict","POST",path).contains("Nothing was changed"))
+        assertEquals("This task's branch was already merged.",hostRequestError(409,"already_merged","POST",path))
+        assertEquals("The task's branch has nothing the parent's folder lacks.",hostRequestError(409,"nothing_to_merge","POST",path))
+    }
 }

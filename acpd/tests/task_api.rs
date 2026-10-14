@@ -259,6 +259,7 @@ async fn only_the_phone_may_use_the_task_routes() {
         ("GET", "/v1/tasks".to_owned()),
         ("GET", format!("/v1/tasks/{child}")),
         ("POST", format!("/v1/tasks/{child}/cancel")),
+        ("POST", format!("/v1/tasks/{child}/merge")),
         ("POST", format!("/v1/tasks/{child}/supervisor/pause")),
         ("POST", format!("/v1/tasks/{child}/supervisor/resume")),
     ] {
@@ -292,6 +293,7 @@ async fn unknown_tasks_are_not_found_and_a_malformed_id_is_too() {
     }
     for path in [
         format!("/v1/tasks/{missing}/cancel"),
+        format!("/v1/tasks/{missing}/merge"),
         format!("/v1/tasks/{missing}/supervisor/pause"),
     ] {
         assert_eq!(h.post(&path, Some(&h.phone)).await.status(), 404, "{path}");

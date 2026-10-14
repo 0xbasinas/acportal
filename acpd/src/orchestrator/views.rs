@@ -14,6 +14,34 @@ pub enum CancelRefusal {
     /// The task has already ended; there is nothing to cancel.
     NotOpen,
 }
+/// Why a phone merge of a task's worktree branch was refused. Nothing was changed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MergeTaskRefusal {
+    Unknown,
+    /// Only a finished task (completed, failed, cancelled, refused) can be merged.
+    NotFinished,
+    /// The task did not run in a worktree.
+    NoWorktree,
+    /// The worktree is being released, or its cleanup failed; try again later.
+    Busy,
+    /// The worktree still has uncommitted work (kept with `worktree_uncommitted = "keep"`).
+    WorktreeDirty,
+    AlreadyMerged,
+    Git(super::worktree::MergeRefusal),
+}
+impl MergeTaskRefusal {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Unknown => "task_not_found",
+            Self::NotFinished => "task_not_finished",
+            Self::NoWorktree => "no_worktree",
+            Self::Busy => "worktree_busy",
+            Self::WorktreeDirty => "worktree_dirty",
+            Self::AlreadyMerged => "already_merged",
+            Self::Git(refusal) => refusal.code(),
+        }
+    }
+}
 /// Why a pause or resume was refused.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PauseRefusal {
@@ -135,6 +163,86 @@ impl Orchestrator {
         }
         self.bump();
         Ok(order)
+    }
+
+    /// Merge a finished task's worktree branch into the checkout it was made from (the parent's
+    /// folder). A completed task's worktree, still kept for follow-ups, is released first (its
+    /// uncommitted work is committed to the branch); after a merge the task takes no follow-ups.
+    pub async fn merge_task(&self, id: Uuid) -> Result<Value, MergeTaskRefusal> {
+        use super::worktree::{self, Outcome};
+        let (wt, release_first) = {
+            let mut state = self.lock();
+            let node = state.tree.get(id).ok_or(MergeTaskRefusal::Unknown)?;
+            if !node.state.is_terminal() {
+                return Err(MergeTaskRefusal::NotFinished);
+            }
+            let own = state
+                .runtime
+                .get(&id)
+                .and_then(|runtime| runtime.worktree.clone())
+                .ok_or(MergeTaskRefusal::NoWorktree)?;
+            match own.outcome {
+                Outcome::Active => (
+                    Self::take_worktree(&mut state, id).ok_or(MergeTaskRefusal::Busy)?,
+                    true,
+                ),
+                Outcome::BranchKept | Outcome::Snapshotted => {
+                    // Claimed while git runs, so two merges cannot race.
+                    Self::set_worktree_outcome(&mut state, id, Outcome::Releasing);
+                    (own, false)
+                }
+                Outcome::Merged => return Err(MergeTaskRefusal::AlreadyMerged),
+                Outcome::KeptDirty => return Err(MergeTaskRefusal::WorktreeDirty),
+                Outcome::Removed => {
+                    return Err(MergeTaskRefusal::Git(
+                        worktree::MergeRefusal::NothingToMerge,
+                    ));
+                }
+                Outcome::Releasing | Outcome::CleanupFailed => {
+                    return Err(MergeTaskRefusal::Busy);
+                }
+            }
+        };
+        let root = wt
+            .path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        // The worktree of a completed task is still on disk (and on Windows locked while its
+        // agent runs): commit its uncommitted work there, merge, and remove the folder after.
+        let job = wt.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            if release_first && !worktree::snapshot_if_dirty(&root, &job) {
+                return Err(worktree::MergeRefusal::GitFailed);
+            }
+            let merged = worktree::merge(&root, &job)?;
+            if release_first {
+                // Not waited for: on Windows the folder may stay locked until the task's agent
+                // process ends.
+                std::thread::spawn(move || worktree::discard_merged(&root, &job));
+            }
+            Ok(merged)
+        })
+        .await
+        .unwrap_or(Err(worktree::MergeRefusal::GitFailed));
+        let mut state = self.lock();
+        let answer = match result {
+            Ok(commit) => {
+                if let Some(own) = state.runtime.get_mut(&id).and_then(|r| r.worktree.as_mut()) {
+                    own.outcome = Outcome::Merged;
+                    own.merged = Some(commit.clone());
+                }
+                Ok(json!({"merged": commit, "branch": wt.branch, "into": wt.repository}))
+            }
+            Err(refusal) => {
+                // Nothing merged: the worktree (if still on disk) stays as it was.
+                Self::set_worktree_outcome(&mut state, id, wt.outcome);
+                Err(MergeTaskRefusal::Git(refusal))
+            }
+        };
+        drop(state);
+        self.bump();
+        answer
     }
 
     /// Stop or restore supervisor approvals for a tree, named by its root task.

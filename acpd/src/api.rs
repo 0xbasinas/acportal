@@ -206,6 +206,7 @@ impl Host {
             .route("/v1/tasks", get(list_tasks))
             .route("/v1/tasks/{id}", get(task_detail))
             .route("/v1/tasks/{id}/cancel", post(cancel_task))
+            .route("/v1/tasks/{id}/merge", post(merge_task))
             .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
             .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
             .route("/v1/device", delete(revoke_self))
@@ -889,6 +890,34 @@ async fn cancel_task(State(host): State<Host>, Path(id): Path<String>) -> ApiRes
         Ok(cancelled) => Ok(Json(json!({ "cancelled": cancelled }))),
         Err(CancelRefusal::Unknown) => Err(ApiError(StatusCode::NOT_FOUND, "task_not_found")),
         Err(CancelRefusal::NotOpen) => Err(ApiError(StatusCode::CONFLICT, "task_not_open")),
+    }
+}
+/// The phone merges a finished task's worktree branch into the parent's checkout. A refusal is
+/// 404 or 409 with a code; a conflict also lists the conflicting files.
+async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Response {
+    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
+    let id = match task_id(&id) {
+        Ok(id) => id,
+        Err(error) => return error.into_response(),
+    };
+    match host.orchestrator.merge_task(id).await {
+        Ok(merged) => Json(merged).into_response(),
+        Err(refusal) => {
+            let status = match refusal {
+                MergeTaskRefusal::Unknown => StatusCode::NOT_FOUND,
+                MergeTaskRefusal::Git(MergeRefusal::GitFailed) => StatusCode::INTERNAL_SERVER_ERROR,
+                _ => StatusCode::CONFLICT,
+            };
+            let files = match &refusal {
+                MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) => files.clone(),
+                _ => vec![],
+            };
+            let mut error = json!({"code": refusal.code()});
+            if !files.is_empty() {
+                error["files"] = json!(files);
+            }
+            (status, Json(json!({ "error": error }))).into_response()
+        }
     }
 }
 fn supervisor(host: &Host, id: &str, paused: bool) -> ApiResult<StatusCode> {

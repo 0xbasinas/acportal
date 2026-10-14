@@ -147,6 +147,7 @@ fn worktree_view(wt: &worktree::Worktree) -> Value {
         "path": wt.task_folder(),
         "base_dirty": wt.base_dirty,
         "outcome": wt.outcome,
+        "merged": wt.merged,
     })
 }
 impl Runtime {
@@ -714,6 +715,15 @@ impl Orchestrator {
             .unwrap_or_default()
     }
     /// Take the task's worktree for release if it is still in use.
+    fn set_worktree_outcome(state: &mut State, task: Uuid, outcome: worktree::Outcome) {
+        if let Some(own) = state
+            .runtime
+            .get_mut(&task)
+            .and_then(|runtime| runtime.worktree.as_mut())
+        {
+            own.outcome = outcome;
+        }
+    }
     fn take_worktree(state: &mut State, task: Uuid) -> Option<worktree::Worktree> {
         let own = state
             .runtime
@@ -1062,6 +1072,18 @@ impl Orchestrator {
                     "that task has no session",
                 ));
             };
+            // A completed task whose worktree was released (merged from the phone) has no folder.
+            if state
+                .runtime
+                .get(&target)
+                .and_then(|r| r.worktree.as_ref())
+                .is_some_and(|wt| wt.outcome != worktree::Outcome::Active)
+            {
+                return Err(ToolFailure::new(
+                    "invalid_state",
+                    "that task's worktree has been released; it takes no follow-ups",
+                ));
+            }
             // Completed -> Working is the single atomic claim, so two sends cannot both run.
             if !state.tree.transition(target, TaskState::Working) {
                 return Err(ToolFailure::new(
