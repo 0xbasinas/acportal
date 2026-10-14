@@ -234,7 +234,7 @@ impl Orchestrator {
         let Ok(policy) = self.policy() else { return };
         let pending = session.connection.pending_permissions();
         let metadata = session.metadata();
-        let own_tools = metadata.own_tools;
+        let overrides = super::overrides::SessionOverrides::from_registry(metadata.own_tools);
         let remote = metadata.remote_peer.is_some();
         let mut refuse: Vec<(Value, Classified)> = vec![];
         let mut changed = false;
@@ -270,7 +270,7 @@ impl Orchestrator {
                     &permission.message,
                     permission.host_origin,
                     &node.scope,
-                    own_tools,
+                    overrides.own_tools,
                     remote,
                     policy.max_edit,
                 );

@@ -24,11 +24,11 @@ history_bytes = 8388608
 # Optional, per agent id: automatic review of agent shell lines. Off unless present
 # with rules = true; otherwise every shell line waits for approval on the phone.
 # See docs/security.md ("Shell-line auto-review") for what this does and does not protect.
-# [shell_review.goose]
+# [shell_review.my-agent]
 # rules = true                       # deterministic allowlist + hard-deny list
 # inert_env = false                  # default true: inert env overrides (PAGER=cat, TERM, NO_COLOR,
 #                                    # LANG, ... see docs/security.md) don't force the phone; false opts out
-# [shell_review.goose.model]         # optional reviewer for lines the rules leave undecided
+# [shell_review.my-agent.model]         # optional reviewer for lines the rules leave undecided
 # base_url = "https://api.deepseek.com"
 # model = "deepseek-flash"
 # api_key_env = "DEEPSEEK_API_KEY"   # name of the env var; never put the key here

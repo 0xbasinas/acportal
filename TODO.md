@@ -7,6 +7,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 ## Proposed, not started
 
 - [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (draft PR #45), off by default.** Phases 0-5 are implemented, including worktree isolation with the researched defaults and the phone merge (design sections 16-27). Linux, Windows and macOS CI (plus container and Windows reproducibility) pass: [run 38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and, with the phone merge, [run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409`. Remaining:
+  - Protocol-uniform handling (design §28) is implemented on this branch: no Goose-specific production paths; override layer is `ownTools` / shell_review / orchestrate|delegable only.
   - [ ] Two-machine check with real TLS, and `goose serve` as a peer.
   - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Review the `tokio-tungstenite` dependency. The bridge's 256-frame outbox signal is not isolated from the 5 s send timeout in a test.

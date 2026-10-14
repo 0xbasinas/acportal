@@ -12,6 +12,7 @@ pub mod approvals;
 pub mod control;
 mod decisions;
 pub mod delegate;
+pub mod overrides;
 pub mod records;
 pub mod tree;
 pub mod views;
@@ -969,7 +970,7 @@ impl Orchestrator {
             })
         });
         // A request the caller may decide right now is something to act on, not to wait out:
-        // holding here would let its time run out (a real Goose supervisor lost a Medium write
+        // holding here would let its time run out (a supervisor once lost a Medium write
         // that way when its previous poll returned a moment before the request appeared).
         // Requests it cannot decide keep the hold, or a supervisor would spin on them.
         let actionable = current["tasks"].as_array().is_some_and(|tasks| {

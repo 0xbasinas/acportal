@@ -210,7 +210,7 @@ Rules: host session UUID and ACP session ID stay separate. A task's `rights` dec
 
 ### 6.1 Wiring
 
-On `session/new` for an agent that has `orchestrate = true` in config, `acpd` appends one MCP server to the request:
+On `session/new` for an agent whose id is listed in `[orchestrator].orchestrate`, `acpd` appends one MCP server to the request:
 
 ```json
 { "name": "acpd-orchestrator",
@@ -341,7 +341,7 @@ struct PendingRequest {
 | `shell_review` rules `Allow` (read-only/test commands inside scope) | Low |
 | `edit`, `move` inside scope and within `max_edit_bytes` | Medium |
 | `execute` through shell review `Ask` for non-sensitive lines | Medium |
-| `delete`, `fetch`/network, writes outside scope, large edits, anything marked sensitive by `shell_review`, `own_tools` agents, `other` | High |
+| `delete`, `fetch`/network, writes outside scope, large edits, anything marked sensitive by `shell_review`, agent-originated requests when registry `ownTools` is set, `other` | High |
 
 `switch_mode` and `other` kinds are treated by the strictest applicable row; unknown kinds are High.
 
@@ -357,7 +357,7 @@ struct PendingRequest {
 
 Elicitation requests (`elicitation/create`, form or URL) from a child are **never decidable by the supervisor**: they need a human's input, so the task becomes `InputRequired` and the card goes to the phone. The host advertises `elicitation` to a child only when a phone is attached to the root task, otherwise the capability is omitted so the agent does not ask.
 
-Additional rules: a decision is single-use; an agent cannot decide on its own requests or those of tasks outside its subtree; `supervisor_max_risk` cannot be raised by an agent; the user can pause supervisor approval for a root task, after which all pending requests go to the phone. Agents with `own_tools` never get supervisor approval (the host cannot see their edits).
+Additional rules: a decision is single-use; an agent cannot decide on its own requests or those of tasks outside its subtree; `supervisor_max_risk` cannot be raised by an agent; the user can pause supervisor approval for a root task, after which all pending requests go to the phone. Agents with registry `ownTools` never get supervisor approval for **agent-originated** requests (the host cannot see their own-tool edits); host-raised consents (`host-filesystem`, shell, terminal) stay on the protocol path. See section 28.
 
 ## 9. Configuration, API and CLI
 
@@ -379,9 +379,8 @@ max_edit_bytes = 262144              # medium ceiling for edits
 bridge_resume_seconds = 120          # 0..3600
 bridge_ping_seconds = 20             # 5..120
 
-[orchestrator.agents.goose]          # keyed by agent id
-orchestrate = true                   # agent receives the delegation tools
-delegable = true                     # may be a child
+orchestrate = ["supervisor"]         # agent ids that receive the MCP delegation tools
+delegable = ["worker", "supervisor"] # agent ids that may be children (and may also orchestrate)
 ```
 
 Validation follows `config.rs`: unknown keys rejected; values outside ranges fail startup/reload; `enabled = true` requires non-empty `workspace_roots`. Reload rules follow [daemon-and-reload](daemon-and-reload.md): existing sessions keep their snapshot; the listener, TLS and peer-role changes need a restart.
@@ -428,7 +427,7 @@ The existing consent answering path is unchanged; `acpd.v1` frames gain an optio
 | B | Accepts stdio MCP servers in `session/new` (mandatory in the spec) | Can also delegate (be a supervisor) |
 | C | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements |
 
-Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. `own_tools` agents run but are never auto-approved. Tier is stored per directory entry from real discovery, never from the agent name.
+Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. registry `ownTools` agents run but agent-originated requests are never auto-approved (host consents stay on the protocol path; section 28). Tier is stored per directory entry from real discovery, never from the agent name.
 
 Phase 0 builds a compatibility table from the registry index (section 2.1: all 41 listed agents) plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `sessionCapabilities` (`resume`, `close`, `list`) and `loadSession`; `authMethods` types; `promptCapabilities`; whether it reports `usage_update` with cost; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
 
@@ -814,3 +813,44 @@ Found by the CI run on Windows and macOS: Windows cannot delete a folder an agen
 Real Goose trial (`goose_worktree_trial`, Goose 1.53.0, DeepSeek `deepseek-flash`, scratch Goose home, about US$0.0005, 22 s): two workers wrote `a.txt` and `b.txt` uncommitted in their own worktrees. The phone-side merge of the first committed its file to its branch (`acpd: uncommitted work of delegated task`) and merged it (`acpd: merge delegated task branch`); the parent then had `b.txt`. Ending the root released the other: its `a.txt` was committed to its branch and the folder removed; `git worktree list` showed only the main checkout. The parent's checkout was never touched by either worker.
 
 Tests: `tests/worktrees.rs` 10 integration tests (3 for the merge: success and its refusals afterwards; dirty parent and conflict change nothing; unfinished, nothing to merge, no worktree, unknown), the merge route in the `task_api` phone-only and not-found checks, and Android `OrchestrationTest`/`TaskScreensTest`. Removing the dirty-parent check or the conflict abort fails the tests. [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) passes on Linux, Windows and macOS.
+
+## 28. Protocol-uniform handling
+
+Every ACP + MCP capable agent is handled the same way. Behaviour is driven by what the protocols declare; product names (Goose, OpenCode, …) appear only in opt-in tests and examples.
+
+### What the protocols drive
+
+| Signal | Where it comes from | Host behaviour |
+| --- | --- | --- |
+| Tool call kind | ACP `toolCall.kind` (10 spec kinds) | Risk table in §8.1; unknown → High |
+| Paths / bytes | ACP `rawInput` keys the host knows (`path`, `content`, …) | Scope check, edit size; never trust agent labels |
+| Permission options | ACP option `kind` (`allow_once`, `reject_once`, `reject_always`, …) | Allow uses `allow_once` only (never `allow_always`). Deny prefers `reject_once`, then `reject_always`. No allow option → phone only. No reject option → outcome `cancelled` |
+| Host origin | Connection flag on consents the host itself raised | Classified from the host's description, not the agent's |
+| Elicitation | ACP `elicitation/create`; capability advertised only when the phone opts in | Always human-only |
+| MCP tools | Stdio MCP server injected on `session/new` when the agent is in `orchestrate` | Tools are the same for every agent; version negotiated (2025-06-18 / 2025-03-26 / 2024-11-05) |
+| Usage / cost | ACP `usage_update` with USD | Cost limit enforced only when reported that way |
+| Cancel | ACP `session/cancel` | Cancel grace then force; same for every agent |
+| Capabilities | ACP `initialize` / session capabilities | Missing `loadSession` → not resumable; agent that ignores MCP → child-only (documented fallback) |
+
+### Documented fallbacks (capability missing)
+
+- **No usable MCP setup** (agent ignores `mcpServers`, or the delegate process never says hello): session runs, but `delegate` stays `not_connected`; the agent is child-only. The host does not invent another channel.
+- **No `allow_once` among options**: supervisor cannot allow; the phone decides (or the request times out to the phone).
+- **Only `reject_always` (no `reject_once`)**: deny still works via that option.
+- **Unknown tool kind / `other`**: High.
+- **No USD usage**: cost limit does not apply.
+- **Remote agent**: no MCP injection (`session.rs`); every request is human-only because paths cannot be checked here.
+- **Stdio MCP is mandatory for delegation**: there is no HTTP-MCP fallback for `mcp-delegate`.
+
+### Optional per-agent override layer
+
+Knowledge the protocols cannot express lives in one place: `acpd/src/orchestrator/overrides.rs` (`SessionOverrides`), plus the config/registry knobs it documents. Defaults are the protocol path above.
+
+| Override | Set where | Why the protocol cannot say this |
+| --- | --- | --- |
+| `ownTools` | registry agent entry | ACP has no flag for "this agent edits outside the host's fs/terminal tools". When set, **agent-originated** permissions are human-only; host-raised consents are unchanged so a supervisor can still decide a Medium host write. |
+| `[shell_review.<id>]` | config (opt-in) | Shell-line allow/deny is host policy, not ACP. Absent = every shell line waits for the phone. Rules are general (same lexer and lists for every agent id). |
+| `orchestrate` / `delegable` | `[orchestrator]` lists | Which local agent ids get delegation tools or may be children is an operator choice, not an ACP field. |
+
+Product-specific prompts, env vars, and trial fixtures stay in `acpd/tests/real_goose.rs` and commented examples only. Production classification, admission, MCP injection, and views do not branch on agent product names.
+

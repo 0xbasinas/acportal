@@ -152,10 +152,20 @@ fn options(params: &Value) -> Vec<(String, String)> {
         })
         .collect()
 }
-fn option_of(options: &[(String, String)], kind: &str) -> Option<String> {
+/// Option id for a one-time allow, from the kinds the ACP request offers.
+/// Prefers `allow_once`. Never picks `allow_always`: a supervisor decision is one request only.
+fn allow_option_id(options: &[(String, String)]) -> Option<String> {
     options
         .iter()
-        .find(|(_, k)| k == kind)
+        .find(|(_, k)| k.as_str() == "allow_once")
+        .map(|(id, _)| id.clone())
+}
+/// Option id for a refuse. Prefers `reject_once`, then `reject_always` (both end this request).
+fn reject_option_id(options: &[(String, String)]) -> Option<String> {
+    options
+        .iter()
+        .find(|(_, k)| k.as_str() == "reject_once")
+        .or_else(|| options.iter().find(|(_, k)| k.as_str() == "reject_always"))
         .map(|(id, _)| id.clone())
 }
 
@@ -181,8 +191,13 @@ fn declared_bytes(raw: &Value) -> usize {
         .sum()
 }
 
-/// Classify one pending request. `host_origin` comes from the connection (never from the
-/// message), `scope` is the task's workspace and `own_tools` the registry's declaration.
+/// Classify one pending request from ACP fields the request itself carries (tool kind, rawInput
+/// paths, option kinds) plus what the host knows about requests it raised (`host_origin`).
+///
+/// `own_tools` is the optional per-agent override (registry `ownTools`): the protocol cannot say
+/// "this agent edits outside the host's filesystem tools". When set, **agent-originated**
+/// requests are human-only; host-originated consents (`host-filesystem`, shell, terminal) are
+/// still classified from the host's own description so a supervisor can decide them.
 pub fn classify(
     request: &Value,
     host_origin: bool,
@@ -200,8 +215,8 @@ pub fn classify(
         denied: None,
         human_only: None,
         facts: json!({}),
-        allow_option: option_of(&offered, "allow_once"),
-        reject_option: option_of(&offered, "reject_once"),
+        allow_option: allow_option_id(&offered),
+        reject_option: reject_option_id(&offered),
     };
     if request["method"] == "elicitation/create" {
         class.source = "elicitation";
@@ -330,7 +345,8 @@ pub fn classify(
         class.risk = Risk::High;
         class.human_only =
             Some("this agent runs on another host, whose paths cannot be checked here");
-    } else if own_tools && class.denied.is_none() {
+    } else if own_tools && !host_origin && class.denied.is_none() {
+        // Override: only agent-declared requests. Host consents stay on the protocol path.
         class.risk = Risk::High;
         class.human_only = Some("this agent edits with its own tools, which the host cannot see");
     }
@@ -577,11 +593,26 @@ mod tests {
             json!({"jsonrpc":"2.0","id":9,"method":"elicitation/create","params":{"mode":"form"}});
         let class = run(&elicitation, false, false);
         assert!(class.human_only.is_some() && class.source == "elicitation");
-        let read = agent_request(Some("read"), json!({"path":"a.rs"}));
+        let read = agent_request(Some("read"), json!({"path": "a.rs"}));
         let class = run(&read, false, true);
         assert!(class.human_only.is_some());
         assert_eq!(class.risk, Risk::High);
         assert!(run(&read, false, false).human_only.is_none());
+        // Host-originated consents stay on the protocol path even when ownTools is set: the
+        // host can see them, so a supervisor may decide a Medium write.
+        let write = run(&host_fs(&abs("src/a.rs"), "tiny"), true, true);
+        assert!(
+            write.human_only.is_none() && write.risk == Risk::Medium,
+            "own_tools must not blanket host consents: {write:?}"
+        );
+        // Only reject_always offered: still usable as a deny.
+        let deny_only = agent_request(Some("edit"), json!({"path": "a.rs", "content": "x"}));
+        let mut deny_only = deny_only;
+        deny_only["params"]["options"] =
+            json!([{"optionId": "never", "name": "Never", "kind": "reject_always"}]);
+        let class = run(&deny_only, false, false);
+        assert_eq!(class.reject_option.as_deref(), Some("never"));
+        assert!(class.allow_option.is_none());
     }
 
     #[test]
