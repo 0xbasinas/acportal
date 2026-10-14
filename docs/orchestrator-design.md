@@ -437,7 +437,7 @@ Phase 0 builds a compatibility table from the registry index (section 2.1: all 4
 | --- | --- | --- |
 | 0 | Compatibility table (section 12); confirm RFD statuses | Table committed with exact versions and per-check results |
 | 1 | `tree`, `directory`, `control`, `delegate`, `mcp-delegate`, admission, cascade cancel, restart behavior, local agents, mock agent | Rust tests: each admission code; state transitions; cancel leaves no process (Linux group check as in `lifecycle.rs`); restart shows interrupted, no prompt resent; token rejection after session end; `mcp-delegate` MCP conformance (`initialize`, `tools/list`, `tools/call`, `isError`) |
-| 2 | `approvals`: classification, supervisor decision, digest, single-use, fail closed, escalation, pause | Tests: late/duplicate/malformed/mismatched decisions go to the phone; High and `own_tools` never supervisor-approved; no self-approval; first answer wins race between phone and supervisor; logs contain no secrets |
+| 2 | `approvals`: classification, supervisor decision, digest, single-use, fail closed, escalation, pause | Tests: late/duplicate/malformed/mismatched decisions go to the phone; High and an `own_tools` agent's own requests never supervisor-approved (its host-raised consents are, section 28); no self-approval; first answer wins race between phone and supervisor; logs contain no secrets |
 | 3 | `bridge` inbound WebSocket, outbound `ws` transport trait, `peer` role, `peers.json`, alias resolution | Two `acpd` instances: delegate to a remote mock agent; drop link and resume with `session/load`; `_meta.acpdGap` after loss; revoke peer ends subtree; TLS required; `501` on SSE routes; Actions on Linux and Windows |
 | 4 | Streamable HTTP when the RFD stabilizes; git worktree isolation; `subagent_update` | Interop test against a second implementation if available |
 | 5 | Real-agent trial: one supervisor CLI delegating to a second CLI; then Android task-tree UI (Penpot boards first per [AGENTS.md](../AGENTS.md)) | Same discipline as `scripts/real-agent-check.py`: exact costs, scope and limits recorded |
@@ -446,7 +446,7 @@ Phase 0 builds a compatibility table from the registry index (section 2.1: all 4
 
 1. Whether each CLI in 2.1 honors stdio MCP servers and prompts reliably enough to use `task_delegate` (phase 0).
 2. Exact `initialize` caching behavior for `/acp` when capabilities depend on credentials (phase 1 to measure).
-3. `own_tools` agents: delegable only when listed, never auto-approved; revisit after phase 5 evidence.
+3. `own_tools` agents: delegable only when listed; their own requests are never supervisor-approved. Changed in section 28: host-raised consents (write, shell, terminal) of an `own_tools` agent are classified from the host's own description and a supervisor may decide a Medium one. Phase 5 evidence has not changed anything else here.
 4. Peer pairing UX details (who displays the code) before phase 3.
 5. Whether Goose's reference `/acp` implementation matches the RFD closely enough to interoperate with our inbound bridge; test in phase 3.
 
@@ -540,7 +540,7 @@ Implemented as designed in section 8 unless listed under "Differences". Off when
 | Agent's own request: read, search or think, all declared paths inside | Low |
 | Agent's own request: edit or move, paths inside and confirmed, at most `max_edit_bytes` | Medium |
 | Agent's own request: delete, fetch, execute, switch_mode, other, an unknown or missing kind, a path outside the scope, or an edit with no confirmable path | High |
-| Elicitation, or any request of an agent registered `ownTools` | Only a person (`human_only`), shown as High |
+| Elicitation, or an agent-originated request of an agent registered `ownTools` | Only a person (`human_only`), shown as High. Host-raised consents of an `ownTools` agent follow the rows above (section 28) |
 
 High is never decidable by a supervisor; Low and Medium are decidable up to `supervisor_max_risk`.
 

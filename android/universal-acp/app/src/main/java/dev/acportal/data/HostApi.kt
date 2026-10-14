@@ -82,8 +82,11 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
             response.use {
                 try {
                     if (!response.isSuccessful) {
-                        val code=runCatching {WireJson.parseToJsonElement(response.peekBody(1024).string()).objectValue()["error"].objectValue()["code"].text()}.getOrDefault("")
-                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath))
+                        // Up to 8 KiB, so a merge conflict naming many files still parses and keeps its code.
+                        val failure=runCatching {WireJson.parseToJsonElement(response.peekBody(8192).string()).objectValue()["error"].objectValue()}.getOrNull()
+                        val code=failure?.let {runCatching {it["code"].text()}.getOrDefault("")} ?: ""
+                        val files=failure?.get("files")?.let {runCatching {it.jsonArray.map {file->file.text()}}.getOrDefault(emptyList())} ?: emptyList()
+                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath,files))
                     }
                     val source = (response.body ?: error("Host returned an empty response")).source()
                     if (source.request(8L*1024*1024+1)) error("Host response exceeds size limit")
@@ -96,7 +99,8 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
     })
 }
 
-internal fun hostRequestError(status:Int,code:String,method:String,path:String):String = when {
+internal fun hostRequestError(status:Int,code:String,method:String,path:String,files:List<String> = emptyList()):String = when {
+    path.endsWith("/merge") && code=="merge_conflict" && files.isNotEmpty() -> "The task's branch conflicts with the parent's folder in ${conflictFiles(files)}. Nothing was changed; merge the branch by hand on the host."
     path.endsWith("/merge") && code=="parent_dirty" -> "The parent's folder has uncommitted changes. Commit or stash them on the host, then merge again."
     path.endsWith("/merge") && code=="merge_conflict" -> "The task's branch conflicts with the parent's folder. Nothing was changed; merge the branch by hand on the host."
     path.endsWith("/merge") && code=="nothing_to_merge" -> "The task's branch has nothing the parent's folder lacks."
@@ -113,6 +117,9 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String):
     status==400 && method=="POST" && path=="/v1/sessions" -> "The host could not start this session. Choose an existing allowed folder and check the selected agent and MCP settings, then press Start session again."
     else -> "Host request failed ($status)."
 }
+
+/** The first few conflicting file names, then how many more there are. */
+internal fun conflictFiles(files:List<String>):String = files.take(5).joinToString(", ")+if(files.size>5)" and ${files.size-5} more" else ""
 
 /** Task ids are UUIDs from the host; anything else is refused before a request is built. */
 internal fun taskPath(id:String):String {require(Regex("[0-9a-fA-F-]{36}").matches(id)) {"Invalid task id"};return id}

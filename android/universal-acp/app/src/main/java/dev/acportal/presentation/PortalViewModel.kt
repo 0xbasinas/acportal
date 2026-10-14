@@ -123,7 +123,16 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         val detail=taskId?.let {repository.task(hostId,it)}
         tasks.update {it.copy(tasks=list,detail=detail)}
     }
-    fun mergeTask(hostId:String,id:String) = tasksWork(hostId) {val merged=repository.mergeTask(hostId,id);tasks.update {it.copy(tasks=repository.tasks(hostId),detail=repository.task(hostId,id),notice="Merged ${merged.branch} into the parent's folder (${merged.merged.take(7)}).")}}
+    fun mergeTask(hostId:String,id:String) = tasksWork(hostId) {
+        val merged=repository.mergeTask(hostId,id)
+        // The merge is done; say so before the refresh, so a refresh that fails cannot hide it.
+        tasks.update {it.copy(notice="Merged ${merged.branch} into the parent's folder (${merged.merged.take(7)}).")}
+        try {
+            val list=repository.tasks(hostId);val detail=repository.task(hostId,id)
+            tasks.update {it.copy(tasks=list,detail=detail)}
+        } catch(cancelled:CancellationException) {throw cancelled}
+        catch(failure:Exception) {tasks.update {it.copy(error="The merge is done, but the task list could not be refreshed. Refresh to see it.")}}
+    }
     fun cancelTask(hostId:String,id:String) = tasksWork(hostId) {repository.cancelTask(hostId,id);tasks.update {it.copy(tasks=repository.tasks(hostId),detail=repository.task(hostId,id))}}
     fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = tasksWork(hostId) {repository.setTaskSupervision(hostId,id,paused);tasks.update {it.copy(detail=repository.task(hostId,id))}}
     fun forget(hostId:String,onDone:()->Unit) = work { repository.forget(hostId);mcpEdits.remove(hostId)?.close();onDone() }

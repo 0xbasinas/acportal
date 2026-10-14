@@ -908,8 +908,11 @@ async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Respons
                 MergeTaskRefusal::Git(MergeRefusal::GitFailed) => StatusCode::INTERNAL_SERVER_ERROR,
                 _ => StatusCode::CONFLICT,
             };
+            // A conflict can touch hundreds of files; the phone shows a handful, so cap the list.
             let files = match &refusal {
-                MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) => files.clone(),
+                MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) => {
+                    files.iter().take(20).cloned().collect()
+                }
                 _ => vec![],
             };
             let mut error = json!({"code": refusal.code()});
