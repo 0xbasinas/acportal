@@ -274,7 +274,7 @@ Behavior on the socket, using the existing one-process-per-session model (`Sessi
 
 Because ACP v1 over HTTP/WebSocket does not replay missed messages, the host keeps the journal and the bridge adds one extension that is ignored by other implementations: after `session/load`, the host sends a `session/update` with `_meta.acpdGap = {missed: n}` (inside `_meta`, as the extensibility rules require; never a custom root field) when events were lost. Non-acpd clients simply do not see the extra field.
 
-Frame limits, rate limits, ping interval (default 20 s, close after 3 missed pongs) and the byte budgets in `connection.rs` apply per bridge connection.
+Frame limits, a message-rate cap (100 per second per connection, section 23), ping interval (default 20 s, close after 3 missed pongs) and the byte budgets in `connection.rs` apply per bridge connection.
 
 ### 7.2 Outbound client
 
@@ -369,6 +369,7 @@ enabled = false                      # off by default; restart or soft reload fo
 max_depth = 2                        # 1..8
 max_children_per_task = 4            # 1..16
 max_tasks_total = 16                 # 1..64, counted with [runtime].max_sessions
+max_turns_per_task = 0               # 0 = off; 0..1000; first prompt plus follow-ups (section 23)
 task_timeout_seconds = 1800          # 30..86400
 idle_timeout_seconds = 300           # 30..3600
 supervisor_max_risk = "medium"       # "low" | "medium"; "high" is not allowed
@@ -483,7 +484,8 @@ Experimental and **off by default** (`[orchestrator] enabled = false`). What exi
 | Phase 3, inbound half (section 20) | `peer` device role and `acpd pair --role peer`, `/acp/{agent_id}` WebSocket bridge with reattach |
 | Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts, `acpd peer add|list|remove` |
 | Phase 1 gaps (section 22) | Task records survive restart (`tasks.json`), phone REST routes and `acpd tasks`, idle/deadline/cost limits, finished-child sweep, delegate hello, W3C trace, process-level cleanup tests |
-| Not implemented | worktree isolation (`isolation_unsupported`), reconnect and reattach from the client, `GET /v1/peer/info`, Android UI for task trees, supervisor outcomes and delegate status, token and turn budgets |
+| Phase 1-3 closing items (section 23) | `GET /v1/peer/info`, bridge message-rate cap, turn budget, overflow/cut-off test, Linux CI green, mutation check of the original tree and delegate tests (38 guards, 3 survivors fixed) |
+| Not implemented | worktree isolation (`isolation_unsupported`), client reconnect/reattach (decided against, section 23), token budget (decided against), Android UI for task trees, supervisor outcomes and delegate status |
 
 Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`, 12 tests, stable over repeated runs on Windows): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
 
@@ -646,7 +648,7 @@ A registry entry with `transport = "ws"` is an agent that runs on another host, 
 
 **Not done or not verified.**
 - ~~No `acpd peer` commands~~: added; see "The peer commands" below.
-- **No reconnect or reattach from the client** (the bridge supports reattach, the client never uses it) and no `GET /v1/peer/info`.
+- **No reconnect or reattach from the client** (the bridge supports reattach, the client never uses it); the decision is recorded in section 23. `GET /v1/peer/info` now exists (section 23).
 - Linux and macOS, real TLS between two machines, `goose serve` as a peer, and the heartbeat's 70-second silence limit are untested.
 - A remote session is kept as interrupted metadata after a host restart but cannot be loaded.
 - The new dependency (`tokio-tungstenite` with rustls and the webpki roots) has not been reviewed; it adds no `aws-lc`.
@@ -703,3 +705,31 @@ Written 13 October 2026 for the next agent. Everything here is experimental and 
 2. Run: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`. For Linux evidence: `gh workflow run Rust --ref experiment/orchestrator` and read the result.
 3. Suggested order: Linux CI read and fixes; two-machine TLS check and `goose serve` peer test; decide client reconnect; `GET /v1/peer/info`; worktree isolation; Penpot boards then Android task tree; hardening (macOS, overflow/rate-limit tests, dependency review) before taking the PR out of draft.
 4. Keep invariants from `AGENTS.md`: literal argv, no secrets in logs, TLS never downgraded, record only verified scope.
+
+## 23. Closing phases 1 to 3 (branch `experiment/orchestrator`, 14 October 2026)
+
+What was done after section 22 to leave no known open item in phases 1 to 3 other than the ones listed under "Still open".
+
+**Linux CI.** [Rust run 38520913814](https://github.com/0xbasinas/acportal/actions/runs/38520913814) at `3f2dff3`: Linux stable (fmt, strict Clippy including the Windows target, tests), Linux Rust 1.88, Windows stable and the Linux testy job all pass; no test failed. This is the first Linux execution of the Unix control socket, the restart/limits/trace suites and the process-cleanup checks (`task_health` 6, `task_limits` 8, `task_records` 4, `task_api` 6, `orchestrator` 27, `bridge` 16, `peer_link` 15, `peer_cli` 7). The first dispatch ([run 38520451449](https://github.com/0xbasinas/acportal/actions/runs/38520451449)) failed on Linux only because the Unix branch of `Watch::gone` in `tests/task_health.rs` did not compile (a stray `&&`); Windows had never compiled that branch. It also now treats a zombie as stopped. macOS, the container job and the Windows reproducibility jobs are skipped by the workflow for pushes like this and were not run.
+
+**`GET /v1/peer/info`** (peer role only; a phone gets 403, no credential 401, orchestrator off 404). It returns `hostId`, `version`, `protocolVersion`, the shared `agents` (`id`, `name`; only ones that exist and are enabled), workspace `workspaces` aliases (never paths), the `rights` ceiling and `resumeSeconds`. It is smaller than the section 7.4 sketch (no `own_tools` or `delegable` per agent). Tests: `peer_info_tells_a_peer_what_it_may_use_and_nothing_more` (no path separator, no unshared agent, no token in the body) and `peer_info_is_not_found_when_the_bridge_is_off`.
+
+**Bridge message-rate cap.** Section 7 and 11 claimed the bridge had "the same rate limit as the existing WebSocket API", but that API has none. A peer connection is now closed with `1008` / `rate_limited` when it sends more than 100 text messages in a second (`MAX_MESSAGES_PER_SECOND` in `api/bridge.rs`; fixed window). Its sessions are kept for the resume window like any other drop. Test `a_peer_that_floods_messages_is_closed_with_rate_limited` (20 calls pass, a burst of 150 closes); disabling the check makes it fail.
+
+**Cut-off of a peer that stops reading.** `a_peer_that_stops_reading_is_cut_off_and_can_reattach` streams 300 x 256 KiB while the peer reads nothing, then checks the peer saw only part of it, the socket ended, the session was kept and `session/load` works. Two guards can end such a peer: the full 256-frame outbox (immediate, close `1013`) and a 5 s send timeout. In a debug build the flood is slower than 5 s, so the test cannot tell them apart; a mutation run removing the outbox signal in the journal forwarder passed. The behavior is pinned, the outbox signal alone is not.
+
+**Turn budget.** `[orchestrator] max_turns_per_task` (0 = off, 0..1000): a task's first prompt is turn 1 and each accepted `task_send` follow-up another. A follow-up over the limit is refused with `turn_limit` before anything is claimed, so the task stays `completed`. Test `a_task_may_be_given_only_so_many_prompts_and_a_refusal_leaves_it_usable` (also checks 0 = unlimited and the configuration bound); both the check and the counter were mutated and caught. Turn counts are in memory only and restart at 1 for a restored (already interrupted) task.
+
+**Token budget: decided against.** ACP `usage_update` reports `used` and `size`, the *context window* in use, not cumulative tokens spent, so a token budget built on it would end healthy tasks (a long context) and miss expensive ones (many short turns). Spend is bounded by `task_max_cost_usd` where the agent reports cost, and by the deadline, idle and turn limits where it does not. Section 10's wording about token budgets is superseded.
+
+**Client reconnect and reattach: decided against, for now.** A turn in flight never survives a lost link (section 19), so reconnecting could only help an idle remote session. That would need a replay shim in the pump that re-sends `initialize` and `session/load` and swallows their replies, new state between the actor and the socket, for a case the parent handles today by delegating again after the explicit `failed (link lost)`. The bridge side supports reattach, so a client can be added later without a protocol change. If you want it, it is a self-contained piece: `peer_link.rs` plus the session actor's `over_transport` path.
+
+**Mutation check of the original tree and `mcp-delegate` tests.** `mut_orig.py` (disposable, like `mut_phase1.py`) broke 38 guards one at a time in `tree.rs` (admission codes, depth, fan-out, cycle, scope, each right, the state machine, `force`, `may_manage`, cascade, `remove_tree`) and `delegate.rs` (argument validation), running the library tests and `tests/orchestrator.rs`. 35 were caught on the first run. Three survived and each was a missing test: the `terminal` right was never checked on its own in admission, a `Failed` task moving back to `Working` was never tried (only `Canceled` was shown to be final), and `task_decide` without a `decision` field was not rejected. Tests `a_child_may_not_have_any_right_its_parent_lacks`, `every_finished_state_is_final` and `a_decision_without_its_decision_field_never_reaches_the_backend` now catch all three (each mutation re-applied and confirmed). The other 35 were not rerun after those tests were added; they only add tests.
+
+### Still open
+
+- macOS, the container and cross-runner reproducibility jobs; two machines over real TLS; `goose serve` as a peer.
+- A real agent through supervisor approval (Windows shell lines always rate High).
+- Worktree isolation (phase 4); Android task tree, supervisor outcomes, `delegate` status and peer sessions (phase 5, Penpot first).
+- Review of the `tokio-tungstenite` dependency; the outbox overflow signal alone (see above).
+- Enabling the orchestrator by reload does not start the control channel.
