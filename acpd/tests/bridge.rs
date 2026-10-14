@@ -1113,3 +1113,30 @@ async fn a_peer_that_stops_reading_is_cut_off_and_can_reattach() {
     assert!(load["result"].is_object(), "{load}");
     h.stop().await;
 }
+
+#[tokio::test]
+async fn a_peer_that_floods_messages_is_closed_with_rate_limited() {
+    let h = Harness::start().await;
+    let (token, _) = h.pair(Role::Peer, "Laptop").await;
+    let mut c = h.peer(&token).await;
+    // A modest burst is fine.
+    for _ in 0..20 {
+        let reply = c.call("session/list", json!({})).await;
+        assert!(reply.get("error").is_some() || reply.get("result").is_some());
+    }
+    // 150 in a row, without reading any reply, is a loop, not a person.
+    for _ in 0..150 {
+        c.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"none"}}))
+            .await;
+    }
+    let mut closed = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while let Ok(Some(Ok(message))) = tokio::time::timeout_at(deadline, c.socket.next()).await {
+        if let Message::Close(frame) = message {
+            closed = frame.map(|f| (u16::from(f.code), f.reason.to_string()));
+            break;
+        }
+    }
+    assert_eq!(closed, Some((1008, "rate_limited".to_owned())));
+    h.stop().await;
+}

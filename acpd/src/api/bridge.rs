@@ -21,6 +21,9 @@ use tokio::sync::{Notify, mpsc};
 
 /// Frames queued for one peer socket. A peer that cannot keep up is disconnected, not buffered.
 const OUTBOX: usize = 256;
+/// Messages a peer may send per second on one connection. A legitimate peer sends a few
+/// (prompts, answers, cancels); this only stops a loop. Over it, the socket is closed with 1008.
+const MAX_MESSAGES_PER_SECOND: u32 = 100;
 static EPOCH: AtomicU64 = AtomicU64::new(1);
 
 /// Which bridge sessions exist, who owns them, and whether a socket is currently attached.
@@ -552,7 +555,10 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
     let mut last_received = tokio::time::Instant::now();
     let mut revoked = false;
     let mut ended = false;
+    let mut limited = false;
     let mut close_code = 1000u16;
+    let mut window_start = tokio::time::Instant::now();
+    let mut in_window = 0u32;
     loop {
         tokio::select! {
             frame = queued.recv() => {
@@ -569,6 +575,12 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
                 last_received = tokio::time::Instant::now();
                 match message {
                     Some(Ok(Message::Text(text))) => {
+                        if window_start.elapsed() >= Duration::from_secs(1) {
+                            window_start = tokio::time::Instant::now();
+                            in_window = 0;
+                        }
+                        in_window += 1;
+                        if in_window > MAX_MESSAGES_PER_SECOND { limited = true; break }
                         if !still_authorized(&host, &token).await { revoked = true; break }
                         if peer.handle(&text).await.is_err() { break }
                     }
@@ -595,9 +607,11 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
         }
     }
     let frame = CloseFrame {
-        code: if revoked { 1008 } else { close_code },
+        code: if revoked || limited { 1008 } else { close_code },
         reason: if revoked {
             "credentials_revoked_or_expired"
+        } else if limited {
+            "rate_limited"
         } else {
             ""
         }
