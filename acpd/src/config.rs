@@ -67,16 +67,19 @@ pub struct OrchestratorConfig {
     pub bridge_resume_seconds: u64,
     /// Interval between WebSocket pings and credential re-checks on a bridge connection.
     pub bridge_ping_seconds: u64,
-    /// Isolation of a delegated task that does not ask for one. `shared` (default) runs it in the
-    /// folder it names; `worktree` gives a task with the write right its own git worktree when
-    /// that folder is in a git repository (and falls back to shared when it is not).
+    /// Isolation of a delegated task that does not ask for one. `worktree` (default) gives a task
+    /// with the write right its own git worktree when its folder is in a git repository, and runs
+    /// it in the folder itself when it is not; `shared` always runs it in the folder.
     pub default_isolation: DefaultIsolation,
+    /// What happens to a finished worktree task's uncommitted changes: `commit` (default) commits
+    /// them to the task's branch and removes the worktree; `keep` leaves the worktree on disk.
+    pub worktree_uncommitted: crate::orchestrator::worktree::Uncommitted,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultIsolation {
-    #[default]
     Shared,
+    #[default]
     Worktree,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -126,6 +129,7 @@ impl Default for OrchestratorConfig {
             bridge_resume_seconds: 120,
             bridge_ping_seconds: 20,
             default_isolation: DefaultIsolation::default(),
+            worktree_uncommitted: Default::default(),
         }
     }
 }

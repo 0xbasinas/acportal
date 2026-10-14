@@ -823,7 +823,29 @@ impl Fixture {
         let config = (*host.config).clone();
         let registry = (*host.registry).clone();
         drop(host);
-        let host = Host::new(config, registry).unwrap();
+        // `axum::serve` runs each connection in its own task, and aborting the listener does not
+        // end them: a keep-alive connection from the client's pool keeps the old router, and so
+        // the old host and its session-catalog lock, alive. Close the pool, then wait for those
+        // tasks to see the socket close. (This was an intermittent failure under load.)
+        drop(client);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let mut attempts = 0;
+        let host = loop {
+            match Host::new(config.clone(), registry.clone()) {
+                Ok(host) => break host,
+                Err(error)
+                    if attempts < 100
+                        && format!("{error:#}").contains("owns the session catalog") =>
+                {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => panic!("{error:#}"),
+            }
+        };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = host.router();

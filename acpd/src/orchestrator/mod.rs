@@ -95,6 +95,8 @@ struct Runtime {
     trace_id: Option<String>,
     /// The task's own git worktree, when it was delegated with worktree isolation.
     worktree: Option<worktree::Worktree>,
+    /// Why a writer that would have had a worktree by default runs in the shared folder.
+    isolation_note: Option<&'static str>,
 }
 /// A bound a task went past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +173,7 @@ impl Runtime {
             updated_at: stamp,
             trace_id: None,
             worktree: None,
+            isolation_note: None,
         }
     }
 }
@@ -431,6 +434,7 @@ impl Orchestrator {
         // there (dirty ones are kept), then remove clean worktrees no record knows about.
         let mut released = false;
         let mut known = vec![];
+        let policy = self.uncommitted_policy();
         {
             let mut state = self.lock();
             for runtime in state.runtime.values_mut() {
@@ -443,7 +447,7 @@ impl Orchestrator {
                         let mut pending = wt.clone();
                         pending.outcome = worktree::Outcome::Active;
                         let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
-                        wt.outcome = worktree::release(&root, &pending);
+                        wt.outcome = worktree::release_with(&root, &pending, policy);
                         released = true;
                     }
                 }
@@ -656,10 +660,11 @@ impl Orchestrator {
             return;
         }
         let me = self.me.clone();
+        let policy = self.uncommitted_policy();
         let work = move || {
             for wt in worktrees {
                 let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
-                let outcome = worktree::release(&root, &wt);
+                let outcome = worktree::release_with(&root, &wt, policy);
                 tracing::info!(branch = %wt.branch, outcome = ?outcome, "task worktree released");
                 if let Some(me) = me.upgrade() {
                     let mut state = me.lock();
@@ -681,6 +686,18 @@ impl Orchestrator {
             }
             Err(_) => work(),
         }
+    }
+    fn uncommitted_policy(&self) -> worktree::Uncommitted {
+        self.manager
+            .upgrade()
+            .map(|manager| {
+                manager
+                    .launch_settings()
+                    .config
+                    .orchestrator
+                    .worktree_uncommitted
+            })
+            .unwrap_or_default()
     }
     /// Take the task's worktree for release if it is still in use.
     fn take_worktree(state: &mut State, task: Uuid) -> Option<worktree::Worktree> {
@@ -839,8 +856,15 @@ impl Orchestrator {
         if let Some(error) = state.runtime.get(&id).and_then(|r| r.error.as_deref()) {
             view["summary"] = json!(error);
         }
-        if let Some(wt) = state.runtime.get(&id).and_then(|r| r.worktree.as_ref()) {
+        let runtime = state.runtime.get(&id);
+        if let Some(wt) = runtime.and_then(|r| r.worktree.as_ref()) {
+            view["isolation"] = json!("worktree");
             view["worktree"] = worktree_view(wt);
+        } else if node.parent.is_some() {
+            view["isolation"] = json!("shared");
+        }
+        if let Some(note) = runtime.and_then(|r| r.isolation_note) {
+            view["isolation_note"] = json!(note);
         }
         view
     }
@@ -1154,6 +1178,7 @@ impl Orchestrator {
                     == crate::config::DefaultIsolation::Worktree);
         let mut run_in = scope.clone();
         let mut placed = None;
+        let mut note = None;
         if isolate {
             let root = settings.config.worktree_root();
             let (folder, within) = (scope.clone(), parent_scope.clone());
@@ -1173,8 +1198,9 @@ impl Orchestrator {
                 Err(why) if explicit => {
                     return Err(ToolFailure::new("isolation_unavailable", why.reason()));
                 }
-                // The default only: a folder that cannot have a worktree is shared, as before.
-                Err(_) => {}
+                // The default only: a folder that cannot have a worktree runs shared, and the
+                // task view says why.
+                Err(why) => note = Some(why.reason()),
             }
         }
         let opened = manager.open_task(agent, &run_in, access, caller).await;
@@ -1199,6 +1225,9 @@ impl Orchestrator {
             .get(&session_id)
             .copied()
             .ok_or_else(|| ToolFailure::new("launch_failed", "task was not registered"))?;
+        if let Some(runtime) = self.lock().runtime.get_mut(&task) {
+            runtime.isolation_note = note;
+        }
         tokio::spawn(self.clone().run_prompt(
             task,
             session_id,

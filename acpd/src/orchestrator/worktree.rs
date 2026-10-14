@@ -52,7 +52,10 @@ pub enum Outcome {
     Removed,
     /// Removed; its branch holds new commits and was kept.
     BranchKept,
-    /// Kept as it was, because it had uncommitted changes.
+    /// Its uncommitted changes were committed to its branch (a snapshot), then it was removed;
+    /// the branch was kept.
+    Snapshotted,
+    /// Kept as it was, because it had uncommitted changes (and they were not snapshotted).
     KeptDirty,
     /// Cleanup failed; the worktree may still be on disk.
     CleanupFailed,
@@ -108,6 +111,13 @@ fn git(root: &Path, directory: &Path, args: &[&str]) -> Result<String> {
         "GIT_CONFIG",
         "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG_COUNT",
+        // The snapshot commit is the host's own, whoever runs the host.
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_DATE",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_DATE",
     ] {
         command.env_remove(name);
     }
@@ -185,9 +195,24 @@ pub fn create(root: &Path, folder: &Path, parent_scope: &Path) -> Result<Worktre
     Ok(worktree)
 }
 
-/// Finish with a worktree: remove it unless it has uncommitted changes, keep its branch only if
-/// it holds new commits. Returns the outcome; an already finished worktree is left alone.
+/// What to do with a finished task's uncommitted changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Uncommitted {
+    /// Commit them to the task's branch (the default), then remove the worktree.
+    #[default]
+    Commit,
+    /// Leave the worktree on disk as it is.
+    Keep,
+}
+
+/// Finish with a worktree: snapshot (or keep) uncommitted changes, remove the worktree, and keep
+/// its branch only if it holds new commits. Returns the outcome; an already finished worktree is
+/// left alone.
 pub fn release(root: &Path, worktree: &Worktree) -> Outcome {
+    release_with(root, worktree, Uncommitted::Commit)
+}
+pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) -> Outcome {
     if worktree.outcome != Outcome::Active {
         return worktree.outcome;
     }
@@ -195,12 +220,18 @@ pub fn release(root: &Path, worktree: &Worktree) -> Outcome {
         let _ = git(root, &worktree.repository, &["worktree", "prune"]);
         return branch_cleanup(root, worktree);
     }
+    let mut snapshot = false;
     match git(
         root,
         &worktree.path,
         &["status", "--porcelain", "--untracked-files=normal"],
     ) {
-        Ok(out) if !out.is_empty() => return Outcome::KeptDirty,
+        Ok(out) if !out.is_empty() => {
+            if uncommitted == Uncommitted::Keep || !commit_snapshot(root, worktree) {
+                return Outcome::KeptDirty;
+            }
+            snapshot = true;
+        }
         Ok(_) => {}
         Err(_) => return Outcome::CleanupFailed,
     }
@@ -208,7 +239,37 @@ pub fn release(root: &Path, worktree: &Worktree) -> Outcome {
     if git(root, &worktree.repository, &["worktree", "remove", &target]).is_err() {
         return Outcome::CleanupFailed;
     }
-    branch_cleanup(root, worktree)
+    match branch_cleanup(root, worktree) {
+        Outcome::BranchKept if snapshot => Outcome::Snapshotted,
+        other => other,
+    }
+}
+/// Commit everything git does not ignore to the task's branch, under the host's own identity,
+/// without hooks or signing. Ignored files (build output, `.env`) are not included.
+fn commit_snapshot(root: &Path, worktree: &Worktree) -> bool {
+    let message = format!(
+        "acpd: uncommitted work of delegated task ({})",
+        worktree.branch
+    );
+    git(root, &worktree.path, &["add", "--all"]).is_ok()
+        && git(
+            root,
+            &worktree.path,
+            &[
+                "-c",
+                "user.name=acpd",
+                "-c",
+                "user.email=acpd@localhost.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "--no-verify",
+                "-m",
+                &message,
+            ],
+        )
+        .is_ok()
 }
 fn branch_cleanup(root: &Path, worktree: &Worktree) -> Outcome {
     let range = format!("{}..{}", worktree.base, worktree.branch);
@@ -335,8 +396,31 @@ mod tests {
 
         let dirty = create(&root, &repo, &repo).unwrap();
         std::fs::write(dirty.path.join("src/lib.rs"), "changed\n").unwrap();
-        assert_eq!(release(&root, &dirty), Outcome::KeptDirty);
+        assert_eq!(
+            release_with(&root, &dirty, Uncommitted::Keep),
+            Outcome::KeptDirty
+        );
         assert!(dirty.path.exists());
+        // The default snapshots the same work to the branch and frees the folder.
+        std::fs::write(dirty.path.join("untracked.txt"), "u\n").unwrap();
+        assert_eq!(release(&root, &dirty), Outcome::Snapshotted);
+        assert!(!dirty.path.exists());
+        let shown = git(
+            &root,
+            &repo,
+            &["show", &format!("{}:src/lib.rs", dirty.branch)],
+        )
+        .unwrap();
+        assert_eq!(shown, "changed");
+        let shown = git(
+            &root,
+            &repo,
+            &["show", &format!("{}:untracked.txt", dirty.branch)],
+        )
+        .unwrap();
+        assert_eq!(shown, "u");
+        let author = git(&root, &repo, &["log", "-1", "--format=%an", &dirty.branch]).unwrap();
+        assert_eq!(author, "acpd");
         // The parent's checkout never saw either child's work.
         assert_eq!(
             std::fs::read_to_string(repo.join("src/lib.rs")).unwrap(),

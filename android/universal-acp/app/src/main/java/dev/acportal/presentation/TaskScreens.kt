@@ -57,6 +57,7 @@ internal fun taskRowSupporting(task:TaskSummary):String = listOfNotNull(
             item {SectionLabel("Task")}
             item {ListItem(headlineContent={Text("Folder")},supportingContent={FolderPathText(detail.scope)})}
             item {ListItem(headlineContent={Text("Rights")},supportingContent={Text(taskRightsLabel(detail.rights))})}
+            detail.worktree?.let {w->item {ListItem(headlineContent={Text("Worktree")},supportingContent={Text(worktreeLabel(w))})}}
             delegateLabel(detail.delegate)?.let {label->item {ListItem(headlineContent={Text("Delegation tools")},supportingContent={Text(label+if(detail.delegate=="not_connected")". The agent may not have started them, so it cannot delegate further." else "")})}}
             (detail.summary ?: detail.stopReason)?.let {why->item {ListItem(headlineContent={Text("Outcome")},supportingContent={Text(why)})}}
             detail.costUsd?.let {cost->item {ListItem(headlineContent={Text("Reported cost")},supportingContent={Text("US$"+"%.4f".format(cost))})}}

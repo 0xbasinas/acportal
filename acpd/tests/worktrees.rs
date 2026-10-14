@@ -302,11 +302,19 @@ async fn two_workers_get_separate_worktrees_cannot_touch_each_other_and_are_clea
     // A commits its work (as an agent would with its terminal).
     git(&top_a, &["commit", "-q", "-am", "a's change"]);
 
-    // B is cancelled with uncommitted work: the worktree is kept, never deleted.
+    // B is cancelled with uncommitted work: it is committed to B's branch (a snapshot) and the
+    // worktree folder goes. Nothing is lost and nothing reaches the parent's checkout.
     ok(&sup, "task_cancel", json!({"task_id": b})).await;
     reaches(&sup, &b, "canceled").await;
-    outcome(&sup, &b, "kept_dirty").await;
-    assert!(pb.join("notes.txt").exists());
+    outcome(&sup, &b, "snapshotted").await;
+    assert!(!pb.exists());
+    let branch_b = wb["branch"].as_str().unwrap();
+    assert_eq!(
+        git(&repo, &["show", &format!("{branch_b}:notes.txt")]),
+        "from b"
+    );
+    assert_eq!(git(&repo, &["log", "-1", "--format=%an", branch_b]), "acpd");
+    assert!(!repo.join("notes.txt").exists());
 
     // Ending the root session ends A: the worktree goes, the branch with the commit stays.
     let branch_a = wa["branch"].as_str().unwrap().to_owned();
@@ -382,12 +390,23 @@ async fn folders_without_a_usable_repository_are_refused_or_shared_by_default() 
     assert_eq!(fx.manager.list().await.len(), 1, "no child was started");
     // The configured default falls back to the shared folder.
     let shared = delegate(&sup, json!({})).await;
-    assert!(status(&sup, &shared).await.get("worktree").is_none());
+    let view = status(&sup, &shared).await;
+    assert!(view.get("worktree").is_none());
+    assert_eq!(view["isolation"], "shared");
+    assert!(
+        view["isolation_note"]
+            .as_str()
+            .unwrap()
+            .contains("not in a git repository")
+    );
     // In a repository, the default gives a writer a worktree and a reader none.
     let root = fx.root(&fx.repo()).await;
     let sup = agent_of(&root).await;
     let writer = delegate(&sup, json!({})).await;
-    assert_eq!(status(&sup, &writer).await["worktree"]["outcome"], "active");
+    let view = status(&sup, &writer).await;
+    assert_eq!(view["worktree"]["outcome"], "active");
+    assert_eq!(view["isolation"], "worktree");
+    assert!(view.get("isolation_note").is_none());
     let reader = ok(
         &sup,
         "task_delegate",
@@ -492,17 +511,41 @@ async fn after_a_restart_worktrees_of_interrupted_tasks_are_released_and_unknown
     let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
     assert_eq!(orchestrator.restore(&state), 2);
     assert!(!clean.path.exists() && !orphan.path.exists());
-    assert!(dirty.path.join("wip.txt").exists());
+    // The interrupted task's uncommitted work is now a commit on its branch.
+    assert!(!dirty.path.exists());
+    assert_eq!(
+        git(&repo, &["show", &format!("{}:wip.txt", dirty.branch)]),
+        "x"
+    );
     let saved = records::load(&state).unwrap();
     let outcomes: Vec<Outcome> = saved
         .iter()
         .map(|r| r.worktree.as_ref().unwrap().outcome)
         .collect();
-    assert!(outcomes.contains(&Outcome::Removed) && outcomes.contains(&Outcome::KeptDirty));
+    assert!(outcomes.contains(&Outcome::Removed) && outcomes.contains(&Outcome::Snapshotted));
     assert!(saved.iter().all(|r| r.state == "failed"));
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
+async fn with_keep_a_cancelled_tasks_uncommitted_work_stays_in_its_worktree() {
+    let fx = fixture(|config| {
+        config.orchestrator.worktree_uncommitted = worktree::Uncommitted::Keep;
+    });
+    let root = fx.root(&fx.repo()).await;
+    let sup = agent_of(&root).await;
+    // No isolation given: the default puts a writer in a worktree.
+    let task = delegate(&sup, json!({})).await;
+    let session = fx.session_of_task(&sup, &task).await;
+    let path = session.metadata().workspace;
+    let own = write(&session, &path.join("draft.txt"), "wip");
+    answer(&session.connection, true, "acpd-write-allow").await;
+    own.await.unwrap().unwrap();
+    ok(&sup, "task_cancel", json!({"task_id": task})).await;
+    outcome(&sup, &task, "kept_dirty").await;
     assert_eq!(
-        git(&repo, &["worktree", "list"]).lines().count(),
-        2,
-        "main and the dirty one"
+        std::fs::read_to_string(path.join("draft.txt")).unwrap(),
+        "wip"
     );
+    fx.manager.shutdown().await;
 }

@@ -41,4 +41,11 @@ class OrchestrationTest {
         assertEquals("far",WireJson.decodeFromString<SessionInfo>("""{"id":"s","agentId":"a","acpSessionId":"x","workspace":"/w","remotePeer":"far"}""").remotePeer)
         assertNull(WireJson.decodeFromString<SessionInfo>("""{"id":"s","agentId":"a","acpSessionId":"x","workspace":"/w"}""").remotePeer)
     }
+    @Test fun worktreesDecodeFromTheHostRecordAndReadPlainly() {
+        val json="""{"id":"i","root":"r","agent":"w","state":"canceled","worktree":{"path":"/s/worktrees/x/src","repository":"/r","branch":"acpd/task-abc","base":"0123","sub":"src","baseDirty":true,"outcome":"snapshotted"}}"""
+        val w=WireJson.decodeFromString<TaskDetail>(json).worktree!!
+        assertEquals("acpd/task-abc · Removed; unsaved work committed to the branch · started without the parent's unsaved changes",worktreeLabel(w))
+        assertEquals("acpd/task-abc · In use",worktreeLabel(w.copy(outcome="active",baseDirty=false)))
+        assertNull(WireJson.decodeFromString<TaskDetail>("""{"id":"i","root":"r","agent":"w","state":"working"}""").worktree)
+    }
 }

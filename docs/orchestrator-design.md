@@ -770,7 +770,7 @@ What this shows and does not show:
 
 ## 25. Phase 4: worktree isolation (branch `experiment/orchestrator`, 14 October 2026)
 
-Off with the orchestrator, and per task: nothing changes unless a delegation asks for `isolation: "worktree"` or the owner sets `[orchestrator] default_isolation = "worktree"` (default `"shared"`).
+Off with the orchestrator. Updated by section 26: writing tasks in a git repo now get a worktree by default (`default_isolation`, default `"worktree"`).
 
 **Creation** (`orchestrator/worktree.rs`). `task_delegate` with `isolation: "worktree"` resolves the requested folder as before, then finds its repository (`git rev-parse --show-toplevel`) and runs `git worktree add -b acpd/task-<12 hex> <state_directory>/worktrees/<uuid> <HEAD commit>`. The task runs in the same relative folder inside the worktree (`workspace: "src"` runs in `<worktree>/src`). Admission checks the folder it was delegated in (scope, cycle, rights), then the task's scope is moved to the worktree, so supervisor classification, host file callbacks and nested delegation are all contained to it. Worktrees live under the state directory, never under a workspace root, so the parent cannot reach a child's worktree through its own folder; `Config::task_workspace` admits them for delegated tasks only (phone sessions still need a workspace root). `task_status`/`task_result` and the phone's task detail show `worktree {branch, base, path, base_dirty, outcome}`.
 
@@ -791,3 +791,14 @@ Off with the orchestrator, and per task: nothing changes unless a delegation ask
 - Non-git folders: an explicit worktree is refused; the design's "shared only after an explicit phone consent" is not built (the default falls back to shared silently, as phase 1-3 did).
 - Submodules are not initialized in a worktree; LFS files are whatever the checkout gives. Large repositories make a full checkout per task.
 - Untested on Windows and macOS (the Windows path normalization is written but unrun); Linux only.
+
+## 26. Phase 4 decisions, researched (14 October 2026)
+
+Survey: Claude Code ([worktrees](https://code.claude.com/docs/en/worktrees), [lost-work issue](https://github.com/anthropics/claude-code/issues/55724)), Cursor ([worktrees](https://cursor.com/docs/configuration/worktrees)), Codex ([worktrees](https://developers.openai.com/codex/app/worktrees)), Conductor ([git worktrees](https://www.conductor.build/docs/concepts/git-worktrees)), vibe-kanban ([managing workspaces](https://www.vibekanban.com/docs/workspaces/managing-workspaces)).
+
+1. **A finished child's uncommitted work** is committed as a snapshot on its `acpd/task-…` branch (author `acpd <acpd@localhost.invalid>`, no hooks, no signing), then the worktree folder is removed; outcome `snapshotted`. Reason: nothing is ever lost (the Claude Code issue above is the failure mode) and disk does not pile up; Codex does the same (snapshot before delete). `[orchestrator] worktree_uncommitted = "keep"` restores the old "keep dirty folder" behaviour.
+2. **Non-git folders** fall back to shared with the task view saying so (`isolation: "shared"`, `isolation_note`). Reason: Codex and Cursor run non-VCS projects in place; a phone consent per task would be friction for no extra safety (the scope and rights checks still apply). An explicit `isolation: "worktree"` request is still refused with `isolation_unavailable`.
+3. **Default isolation** is `worktree` for writing tasks in a git repo; read-only tasks stay shared. Reason: Cursor parallel agents, Codex, Conductor and vibe-kanban all isolate by default; read-only tasks gain nothing. Set `default_isolation = "shared"` to opt out.
+4. **CI**: the public repo's Rust workflow covers Linux, Windows and macOS on standard runners; one run on `experiment/orchestrator` validates `tests/worktrees.rs` there (see TODO_DONE for the run).
+
+The phone task detail shows the worktree branch and outcome in plain words. The flaky `phone_adds_lists_and_removes_folders` test was a restart race: the old Host stayed alive through reqwest keep-alive connections, so the new Host found the session catalog owned; the fixture now drops the client and retries briefly.
