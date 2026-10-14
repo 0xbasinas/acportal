@@ -201,6 +201,9 @@ pub struct Orchestrator {
     /// Where task records are kept, once `restore` has been called. Without it nothing is saved.
     state_dir: OnceLock<std::path::PathBuf>,
     persist_pending: AtomicBool,
+    /// Set by [`Orchestrator::close`]: the host is shutting down and a later host may already
+    /// own the records file, so no more writes.
+    closed: AtomicBool,
     write_lock: Mutex<()>,
     janitor_started: AtomicBool,
 }
@@ -280,6 +283,7 @@ impl Orchestrator {
             me: me.clone(),
             state_dir: OnceLock::new(),
             persist_pending: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
             write_lock: Mutex::new(()),
             janitor_started: AtomicBool::new(false),
             manager,
@@ -375,6 +379,9 @@ impl Orchestrator {
             return;
         };
         let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         let records = records::prune(self.tasks());
         if records.is_empty() && !records::path(directory).exists() {
             return; // no file for nothing
@@ -382,6 +389,13 @@ impl Orchestrator {
         if records::save(directory, &records).is_err() {
             tracing::warn!("task records could not be saved");
         }
+    }
+    /// Write the records one last time and stop writing: a delayed write from a host that has
+    /// shut down must never overwrite the file of the host that started after it.
+    pub fn close(&self) {
+        self.persist_now();
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        self.closed.store(true, Ordering::Release);
     }
     /// Remember where task records live, load what an earlier run left, and show every task that
     /// was still open as failed because the host restarted. Nothing is restarted and no prompt

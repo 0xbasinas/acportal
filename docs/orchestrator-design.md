@@ -802,3 +802,5 @@ Survey: Claude Code ([worktrees](https://code.claude.com/docs/en/worktrees), [lo
 4. **CI**: the public repo's Rust workflow covers Linux, Windows and macOS on standard runners; one run on `experiment/orchestrator` validates `tests/worktrees.rs` there (see TODO_DONE for the run).
 
 The phone task detail shows the worktree branch and outcome in plain words. The flaky `phone_adds_lists_and_removes_folders` test was a restart race: the old Host stayed alive through reqwest keep-alive connections, so the new Host found the session catalog owned; the fixture now drops the client and retries briefly.
+
+Found by the CI run on Windows and macOS: Windows cannot delete a folder an agent process still runs in, so removal is serialised and retried for up to two minutes (a cancelled child whose process lingers is removed once its session ends; otherwise the outcome is `cleanup_failed` and the startup sweep tries again). Test repositories turn off `core.autocrlf`. Separately, shutdown now writes the task records once and then stops writing, because a delayed write from a host that had shut down could overwrite a newer host's file (seen once on macOS).

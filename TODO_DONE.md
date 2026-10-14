@@ -2,6 +2,8 @@
 
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
+- 14 October 2026: phase 4 decisions researched and implemented (design section 26): snapshot-commit of a finished child's uncommitted work (`worktree_uncommitted`), shared fallback with a note for non-git folders, `default_isolation = "worktree"` for writers, phone worktree row, restart race fixes in `tests/network.rs` and records shutdown, Windows worktree removal retry. CI: see the PR for the final Rust run.
+
 - 14 October 2026: phase 4 worktree isolation: `isolation: "worktree"` and `default_isolation`, worktrees under the state directory on `acpd/task-*` branches, refusal of non-git/empty/above-scope repositories, cleanup on end, cancel, session end and restart (dirty kept, committed branches kept), git hooks and fsmonitor disabled. 7 unit and 6 integration tests with real repositories, 8/8 mutations caught, full workspace suite, fmt and strict Clippy (Linux and Windows target) pass on Linux; a real Goose supervisor/two-worker run kept the workers' edits in separate worktrees. See [section 25](docs/orchestrator-design.md#25-phase-4-worktree-isolation-branch-experimentorchestrator-14-october-2026).
 
 - 14 October 2026: phase 5. Penpot boards 51-54 (dark and light) and the Android task tree, task detail with supervisor outcomes and delegation-tool status, peer session rows; shown only when the host lists the new `orchestrator` status feature. JVM tests, Gradle build and lint, Rust fmt/Clippy/`task_api` pass; no emulator run yet. See [section 24](docs/orchestrator-design.md#24-phase-5-android-task-tree-supervisor-outcomes-delegate-status-peer-sessions-14-october-2026).
