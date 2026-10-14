@@ -142,6 +142,13 @@ impl TaskTree {
         debug_assert!(node.state.is_terminal());
         self.nodes.entry(node.id).or_insert(node);
     }
+    /// Point a just-admitted task at the folder it really runs in (its own worktree). Admission
+    /// checked the folder it was delegated in; this only moves it somewhere no other task uses.
+    pub fn set_scope(&mut self, id: Uuid, scope: PathBuf) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.scope = scope;
+        }
+    }
     pub fn get(&self, id: Uuid) -> Option<&TaskNode> {
         self.nodes.get(&id)
     }

@@ -477,7 +477,8 @@ async fn every_admission_code_is_reported_and_leaves_no_session_behind() {
             with(json!({"agent":"worker","isolation":"worktree"}))
         )
         .await,
-        "isolation_unsupported"
+        // The fixture's workspace is not a git repository.
+        "isolation_unavailable"
     );
     assert_eq!(code(&agent, "task_decide", json!({"task_id":"123e4567-e89b-42d3-a456-426614174000","request_id":"1","digest":"a".repeat(64),"decision":"deny","rationale":"r"})).await, "unknown_task");
     assert_eq!(

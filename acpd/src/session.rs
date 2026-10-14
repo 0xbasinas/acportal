@@ -395,7 +395,12 @@ impl SessionManager {
         if remote && (!mcp_servers.is_empty() || load.is_some()) {
             bail!("remote agents do not take MCP servers or load saved sessions yet")
         }
-        let workspace = config.workspace(workspace)?;
+        // A delegated task may run in its own worktree under the state directory.
+        let workspace = if parent.is_some() {
+            config.task_workspace(workspace)?
+        } else {
+            config.workspace(workspace)?
+        };
         let cwd = match &definition.working_directory {
             Some(path) => config.workspace(path)?,
             None => workspace.clone(),

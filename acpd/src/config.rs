@@ -67,6 +67,17 @@ pub struct OrchestratorConfig {
     pub bridge_resume_seconds: u64,
     /// Interval between WebSocket pings and credential re-checks on a bridge connection.
     pub bridge_ping_seconds: u64,
+    /// Isolation of a delegated task that does not ask for one. `shared` (default) runs it in the
+    /// folder it names; `worktree` gives a task with the write right its own git worktree when
+    /// that folder is in a git repository (and falls back to shared when it is not).
+    pub default_isolation: DefaultIsolation,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DefaultIsolation {
+    #[default]
+    Shared,
+    Worktree,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -114,6 +125,7 @@ impl Default for OrchestratorConfig {
             peer_rights: PeerRights::default(),
             bridge_resume_seconds: 120,
             bridge_ping_seconds: 20,
+            default_isolation: DefaultIsolation::default(),
         }
     }
 }
@@ -402,6 +414,27 @@ impl Config {
             if path.starts_with(root) {
                 return Ok(path);
             }
+        }
+        bail!("workspace is outside configured workspace_roots; configure an explicit root")
+    }
+    /// Where delegated tasks' git worktrees live: inside the host's state, never inside a
+    /// workspace root, so a parent agent cannot reach a child's worktree through its own folder.
+    pub fn worktree_root(&self) -> PathBuf {
+        self.state_directory.join("worktrees")
+    }
+    /// A folder a delegated task may run in: a workspace as for any session, or a folder inside
+    /// one of this host's task worktrees. Phone-started sessions never use this.
+    pub fn task_workspace(&self, requested: &Path) -> Result<PathBuf> {
+        if let Ok(path) = self.workspace(requested) {
+            return Ok(path);
+        }
+        let path = requested
+            .canonicalize()
+            .context("workspace does not exist or is inaccessible")?;
+        let root = self.worktree_root();
+        let root = root.canonicalize().unwrap_or(root);
+        if path.is_dir() && path.starts_with(&root) && path != root {
+            return Ok(path);
         }
         bail!("workspace is outside configured workspace_roots; configure an explicit root")
     }

@@ -5,6 +5,9 @@
 //!
 //!   OPENAI_API_KEY=... cargo test -p acpd --test real_goose -- --ignored --nocapture
 //!
+//! `ACPD_GOOSE_BIN` names the goose executable (default `goose` on PATH). `goose_worktree_trial`
+//! also needs `ACPD_GOOSE_HOME`, a scratch folder Goose uses as HOME and XDG folders.
+//!
 //! It measures and prints; the only assertions are that the sessions start. Nothing here is a
 //! claim about any other agent or version.
 use acpd::{
@@ -30,7 +33,8 @@ const TOOLS: [&str; 6] = [
 ];
 
 fn agent(id: &str) -> Value {
-    json!({"id":id,"name":format!("Goose ({id})"),"command":"goose","args":["acp"],
+    let command = std::env::var("ACPD_GOOSE_BIN").unwrap_or_else(|_| "goose".into());
+    json!({"id":id,"name":format!("Goose ({id})"),"command":command,"args":["acp"],
         "env":{"GOOSE_MODE":"approve","GOOSE_PROVIDER":"openai","GOOSE_MODEL":"deepseek-flash",
                "OPENAI_HOST":"https://api.deepseek.com"}})
 }
@@ -486,4 +490,159 @@ async fn supervisor_trial(rights_clause: &str, label: &str) {
     });
     manager.shutdown().await;
     println!("{label} {}", serde_json::to_string_pretty(&report).unwrap());
+}
+
+/// Phase 4 with a real Goose: a supervising Goose delegates two writers with worktree isolation.
+/// Each writes its own file in its own worktree; the parent checkout and the other worktree must
+/// not change. Goose's own config is kept away from the operator's by `ACPD_GOOSE_HOME` (a
+/// scratch folder used as HOME and XDG folders), so nothing in the user's Goose setup is read
+/// or written.
+#[tokio::test]
+#[ignore = "uses a real Goose and real model requests; see the file comment"]
+async fn goose_worktree_trial() {
+    assert!(
+        std::env::var_os("OPENAI_API_KEY").is_some(),
+        "set OPENAI_API_KEY in the environment"
+    );
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("work/repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?} {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("README.md"), "base\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let state = base.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let home = std::env::var("ACPD_GOOSE_HOME").expect("set ACPD_GOOSE_HOME to a scratch folder");
+    let mut agents = vec![agent("goose"), agent("worker")];
+    for entry in &mut agents {
+        let env = entry["env"].as_object_mut().unwrap();
+        for (name, sub) in [
+            ("HOME", ""),
+            ("XDG_CONFIG_HOME", "/config"),
+            ("XDG_DATA_HOME", "/data"),
+            ("XDG_STATE_HOME", "/state"),
+            ("XDG_CACHE_HOME", "/cache"),
+        ] {
+            env.insert(name.into(), json!(format!("{home}{sub}")));
+        }
+        env.insert("GOOSE_DISABLE_KEYRING".into(), json!("1"));
+    }
+    let config = Config {
+        workspace_roots: vec![base.path().join("work")],
+        state_directory: state.clone(),
+        runtime: RuntimeConfig {
+            request_timeout_seconds: 300,
+            max_sessions: 4,
+            ..Default::default()
+        },
+        orchestrator: OrchestratorConfig {
+            enabled: true,
+            orchestrate: vec!["goose".into()],
+            delegable: vec!["worker".into()],
+            default_deadline_seconds: 300,
+            idle_timeout_seconds: 240,
+            supervisor_timeout_seconds: 20,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let registry = Registry::parse(&serde_json::to_string(&agents).unwrap()).unwrap();
+    let manager = Arc::new(SessionManager::new(config, registry).unwrap());
+    let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
+    orchestrator.set_delegate_executable(env!("CARGO_BIN_EXE_acpd").into());
+    manager.attach_orchestrator(orchestrator.clone());
+    let _endpoint = control::start(orchestrator.clone(), &state).unwrap();
+    let all = acpd::connection::WorkspaceAccess {
+        read_files: true,
+        write_files: true,
+        terminal: false,
+        form_elicitation: false,
+    };
+    let root = manager
+        .open_configured("goose", &repo, None, vec![], all)
+        .await
+        .unwrap();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let phone = tokio::spawn(escalating_phone(
+        manager.clone(),
+        done.clone(),
+        Duration::from_secs(2),
+    ));
+    let prompt = "You supervise worker agents through the MCP server acpd-orchestrator. \
+        Call task_delegate twice, both with agent \"worker\", isolation \"worktree\", rights {\"read\": true, \"write\": true}, wait_seconds 0. \
+        First prompt: \"Create a file named a.txt in your current directory containing exactly the word alpha, using your file tools, then reply done.\" \
+        Second prompt: \"Create a file named b.txt in your current directory containing exactly the word beta, using your file tools, then reply done.\" \
+        Then call task_status with wait_seconds 60 until both tasks are completed or failed (do not call task_decide). \
+        Finally report each task's state and its worktree branch in one sentence each.";
+    let begun = Instant::now();
+    let outcome = tokio::time::timeout(Duration::from_secs(400), root.prompt(prompt)).await;
+    let tasks = orchestrator.task_list();
+    let mut seen = vec![];
+    for task in &tasks {
+        let Some(id) = task["id"].as_str().and_then(|id| id.parse().ok()) else {
+            continue;
+        };
+        let Some(detail) = orchestrator.task_detail(id) else {
+            continue;
+        };
+        seen.push(detail);
+    }
+    let worktrees: Vec<Value> = {
+        let mut out = vec![];
+        for metadata in manager.list().await {
+            if metadata.agent_id == "worker" {
+                let path = metadata.workspace.clone();
+                out.push(json!({"workspace": path, "files": std::fs::read_dir(&path).map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect::<Vec<_>>()).unwrap_or_default(),
+                    "a": std::fs::read_to_string(path.join("a.txt")).ok(), "b": std::fs::read_to_string(path.join("b.txt")).ok()}));
+            }
+        }
+        out
+    };
+    let parent_status = git(&repo, &["status", "--porcelain"]);
+    let parent_files: Vec<String> = std::fs::read_dir(&repo)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    // End the root: each worker's worktree is released (kept if it has uncommitted work).
+    manager.remove(root.metadata().id).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let after = git(&repo, &["worktree", "list", "--porcelain"]);
+    let branches = git(&repo, &["branch", "--list", "acpd/*"]);
+    let mut records = vec![];
+    orchestrator.persist_now();
+    for record in acpd::orchestrator::records::load(&state).unwrap_or_default() {
+        records.push(
+            json!({"agent": record.agent, "state": record.state, "worktree": record.worktree}),
+        );
+    }
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    let phone_log = phone.await.unwrap();
+    let report = json!({
+        "seconds": begun.elapsed().as_secs_f32(),
+        "outcome": match &outcome { Ok(Ok(v)) => json!(v["stopReason"]), Ok(Err(e)) => json!(e.to_string()), Err(_) => json!("timeout") },
+        "rootText": digest(&root)["text"],
+        "tasks": seen, "workerFolders": worktrees,
+        "parentStatus": parent_status, "parentFiles": parent_files,
+        "worktreesAfterRootEnded": after, "branchesAfter": branches, "records": records,
+        "phoneAnswers": phone_log.iter().filter(|e| e["event"] == "phone_answered").count(),
+    });
+    println!(
+        "TRIAL-REPORT-WORKTREE {}",
+        serde_json::to_string_pretty(&report).unwrap()
+    );
+    manager.shutdown().await;
 }

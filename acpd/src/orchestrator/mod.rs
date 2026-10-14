@@ -6,7 +6,7 @@
 //! exists and [`Orchestrator::release_subtree`] when a session is removed. Agents reach the
 //! orchestrator only through the control channel in [`control`], one task token per session.
 //!
-//! Not implemented yet: supervisor approvals (`task_decide`), worktree isolation, peers/bridge.
+//! Worktree isolation for delegated tasks is in `worktree.rs` (phase 4).
 //! Permission requests from a delegated child go to the phone like any other session's.
 pub mod approvals;
 pub mod control;
@@ -15,6 +15,7 @@ pub mod delegate;
 pub mod records;
 pub mod tree;
 pub mod views;
+pub mod worktree;
 
 use crate::{
     config::{OrchestratorConfig, SupervisorRisk},
@@ -92,6 +93,8 @@ struct Runtime {
     updated_at: u64,
     /// The W3C trace id the whole tree shares.
     trace_id: Option<String>,
+    /// The task's own git worktree, when it was delegated with worktree isolation.
+    worktree: Option<worktree::Worktree>,
 }
 /// A bound a task went past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,6 +137,16 @@ fn now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
 }
+/// What an agent and the phone are told about a task's worktree.
+fn worktree_view(wt: &worktree::Worktree) -> Value {
+    json!({
+        "branch": wt.branch,
+        "base": wt.base,
+        "path": wt.task_folder(),
+        "base_dirty": wt.base_dirty,
+        "outcome": wt.outcome,
+    })
+}
 impl Runtime {
     fn new() -> Self {
         let stamp = now();
@@ -157,6 +170,7 @@ impl Runtime {
             created_at: stamp,
             updated_at: stamp,
             trace_id: None,
+            worktree: None,
         }
     }
 }
@@ -167,6 +181,9 @@ struct State {
     /// SHA-256 of a task token to its task. Raw tokens are never stored.
     tokens: HashMap<String, Uuid>,
     by_session: HashMap<Uuid, Uuid>,
+    /// Worktrees made for a delegation whose session is starting, by the folder the task will
+    /// run in, with the folder it was delegated in (what admission checks).
+    placements: HashMap<std::path::PathBuf, (std::path::PathBuf, worktree::Worktree)>,
 }
 
 pub struct Orchestrator {
@@ -268,6 +285,7 @@ impl Orchestrator {
                 runtime: HashMap::new(),
                 tokens: HashMap::new(),
                 by_session: HashMap::new(),
+                placements: HashMap::new(),
             }),
             changed: watch::channel(0).0,
             control_path: OnceLock::new(),
@@ -318,6 +336,7 @@ impl Orchestrator {
                     stop_reason: runtime.and_then(|r| r.stop_reason.clone()),
                     trace_id: runtime.and_then(|r| r.trace_id.clone()),
                     cost_usd: runtime.and_then(|r| r.cost_usd),
+                    worktree: runtime.and_then(|r| r.worktree.clone()),
                 }
             })
             .collect();
@@ -404,10 +423,40 @@ impl Orchestrator {
                 runtime.stop_reason = record.stop_reason.clone();
                 runtime.trace_id = record.trace_id.clone();
                 runtime.cost_usd = record.cost_usd;
+                runtime.worktree = record.worktree.clone();
                 state.runtime.insert(record.id, runtime);
             }
         }
-        if interrupted > 0 {
+        // Every restored task is finished, so its worktree is done with: release what is still
+        // there (dirty ones are kept), then remove clean worktrees no record knows about.
+        let mut released = false;
+        let mut known = vec![];
+        {
+            let mut state = self.lock();
+            for runtime in state.runtime.values_mut() {
+                if let Some(wt) = runtime.worktree.as_mut() {
+                    known.push(wt.path.clone());
+                    if matches!(
+                        wt.outcome,
+                        worktree::Outcome::Active | worktree::Outcome::Releasing
+                    ) {
+                        let mut pending = wt.clone();
+                        pending.outcome = worktree::Outcome::Active;
+                        let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
+                        wt.outcome = worktree::release(&root, &pending);
+                        released = true;
+                    }
+                }
+            }
+        }
+        let root = directory.join("worktrees");
+        if root.is_dir() {
+            let left = worktree::sweep_unknown(&root, &known);
+            if left > 0 {
+                tracing::warn!(left, "task worktrees without a record were left in place");
+            }
+        }
+        if interrupted > 0 || released {
             self.persist_now();
         }
         loaded.len()
@@ -438,17 +487,31 @@ impl Orchestrator {
                 && settings.registry.get(agent).is_ok_and(|a| a.enabled));
         let mut state = self.lock();
         state.tree.configure(config.enabled, limits(config));
-        let task = state
-            .tree
-            .admit(NewTask {
-                parent,
-                agent,
-                scope,
-                rights: rights_of(access),
-                delegable,
-            })
-            .map_err(AdmissionFailure)?;
+        let placement = parent.and_then(|_| state.placements.remove(scope));
+        let task = state.tree.admit(NewTask {
+            parent,
+            agent,
+            scope: placement
+                .as_ref()
+                .map_or(scope, |(origin, _)| origin.as_path()),
+            rights: rights_of(access),
+            delegable,
+        });
+        let task = match task {
+            Ok(task) => task,
+            Err(refused) => {
+                drop(state);
+                if let Some((_, worktree)) = placement {
+                    self.release_worktrees(vec![worktree]);
+                }
+                return Err(AdmissionFailure(refused));
+            }
+        };
         let mut runtime = Runtime::new();
+        if let Some((_, worktree)) = placement {
+            state.tree.set_scope(task, scope.to_path_buf());
+            runtime.worktree = Some(worktree);
+        }
         let executable = match self.delegate_executable.get() {
             Some(path) => Ok(path.clone()),
             None => std::env::current_exe(),
@@ -526,7 +589,9 @@ impl Orchestrator {
                 runtime.updated_at = now();
             }
         }
+        let worktree = Self::take_worktree(&mut state, task);
         drop(state);
+        self.release_worktrees(worktree.into_iter().collect());
         self.bump();
     }
 
@@ -542,7 +607,9 @@ impl Orchestrator {
         };
         let ids = state.tree.subtree(task);
         let mut sessions = vec![];
+        let mut worktrees = vec![];
         for id in &ids {
+            worktrees.extend(Self::take_worktree(&mut state, *id));
             state.tree.force(*id, TaskState::Canceled);
             let (hash, child_session, cancel) = match state.runtime.get_mut(id) {
                 Some(runtime) => {
@@ -577,15 +644,70 @@ impl Orchestrator {
             }
         }
         drop(state);
+        self.release_worktrees(worktrees);
         self.bump();
         sessions
     }
 
+    /// Finish with worktrees off the caller's thread (git can take a moment) and record what
+    /// became of each. Removal never touches a worktree with uncommitted changes.
+    fn release_worktrees(&self, worktrees: Vec<worktree::Worktree>) {
+        if worktrees.is_empty() {
+            return;
+        }
+        let me = self.me.clone();
+        let work = move || {
+            for wt in worktrees {
+                let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
+                let outcome = worktree::release(&root, &wt);
+                tracing::info!(branch = %wt.branch, outcome = ?outcome, "task worktree released");
+                if let Some(me) = me.upgrade() {
+                    let mut state = me.lock();
+                    for runtime in state.runtime.values_mut() {
+                        if let Some(own) =
+                            runtime.worktree.as_mut().filter(|own| own.path == wt.path)
+                        {
+                            own.outcome = outcome;
+                        }
+                    }
+                    drop(state);
+                    me.bump();
+                }
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(work);
+            }
+            Err(_) => work(),
+        }
+    }
+    /// Take the task's worktree for release if it is still in use.
+    fn take_worktree(state: &mut State, task: Uuid) -> Option<worktree::Worktree> {
+        let own = state
+            .runtime
+            .get_mut(&task)
+            .and_then(|runtime| runtime.worktree.as_mut())
+            .filter(|wt| wt.outcome == worktree::Outcome::Active)?;
+        let taken = own.clone();
+        own.outcome = worktree::Outcome::Releasing;
+        Some(taken)
+    }
     fn set_state(&self, task: Uuid, to: TaskState) {
         let mut state = self.lock();
         if !state.tree.transition(task, to) && to.is_terminal() {
             state.tree.force(task, to);
         }
+        // A failed, cancelled or refused task takes no follow-up, so its worktree is done with.
+        // A completed one keeps it until its session ends (a follow-up may still come).
+        let finished = if matches!(
+            to,
+            TaskState::Failed | TaskState::Canceled | TaskState::Rejected
+        ) {
+            Self::take_worktree(&mut state, task)
+        } else {
+            None
+        };
         if let Some(runtime) = state.runtime.get_mut(&task) {
             runtime.updated_at = now();
             // Metadata only: the ids and the state's name, nothing the task said or did.
@@ -607,6 +729,7 @@ impl Orchestrator {
             state.tokens.remove(&hash);
         }
         drop(state);
+        self.release_worktrees(finished.into_iter().collect());
         self.bump();
     }
 
@@ -715,6 +838,9 @@ impl Orchestrator {
         });
         if let Some(error) = state.runtime.get(&id).and_then(|r| r.error.as_deref()) {
             view["summary"] = json!(error);
+        }
+        if let Some(wt) = state.runtime.get(&id).and_then(|r| r.worktree.as_ref()) {
+            view["worktree"] = worktree_view(wt);
         }
         view
     }
@@ -944,12 +1070,6 @@ impl Orchestrator {
         let settings = manager.launch_settings();
         let agent = arguments["agent"].as_str().unwrap_or_default();
         let prompt = arguments["prompt"].as_str().unwrap_or_default().to_owned();
-        if arguments.get("isolation").and_then(Value::as_str) == Some("worktree") {
-            return Err(ToolFailure::new(
-                "isolation_unsupported",
-                "worktree isolation is not implemented yet",
-            ));
-        }
         // Refuse before looking anything up, so an agent cannot probe which ids exist.
         let delegable = settings
             .config
@@ -985,7 +1105,7 @@ impl Orchestrator {
                 parent_scope.join(relative)
             }
         };
-        let scope = settings.config.workspace(&requested).map_err(|_| {
+        let scope = settings.config.task_workspace(&requested).map_err(|_| {
             ToolFailure::new(
                 "workspace_unavailable",
                 "workspace does not exist or is not allowed",
@@ -1025,16 +1145,53 @@ impl Orchestrator {
             .get("wait_seconds")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        let session = manager
-            .open_task(agent, &scope, access, caller)
-            .await
-            .map_err(|error| match error.downcast_ref::<AdmissionFailure>() {
-                Some(refused) => failure(refused.0),
-                None if error.to_string().contains("session limit reached") => {
-                    failure(AdmissionError::SessionLimit)
+        // Worktree isolation: asked for explicitly, or the configured default for a writer.
+        let explicit = arguments.get("isolation").and_then(Value::as_str) == Some("worktree");
+        let isolate = explicit
+            || (arguments.get("isolation").is_none()
+                && rights.write
+                && settings.config.orchestrator.default_isolation
+                    == crate::config::DefaultIsolation::Worktree);
+        let mut run_in = scope.clone();
+        let mut placed = None;
+        if isolate {
+            let root = settings.config.worktree_root();
+            let (folder, within) = (scope.clone(), parent_scope.clone());
+            let made =
+                tokio::task::spawn_blocking(move || worktree::create(&root, &folder, &within))
+                    .await
+                    .unwrap_or(Err(worktree::Unavailable::GitFailed));
+            match made {
+                Ok(wt) => {
+                    let folder = wt.task_folder();
+                    run_in = folder.canonicalize().unwrap_or(folder);
+                    self.lock()
+                        .placements
+                        .insert(run_in.clone(), (scope.clone(), wt.clone()));
+                    placed = Some(wt);
                 }
-                None => ToolFailure::new("launch_failed", "the agent could not be started"),
-            })?;
+                Err(why) if explicit => {
+                    return Err(ToolFailure::new("isolation_unavailable", why.reason()));
+                }
+                // The default only: a folder that cannot have a worktree is shared, as before.
+                Err(_) => {}
+            }
+        }
+        let opened = manager.open_task(agent, &run_in, access, caller).await;
+        if let (Err(_), Some(wt)) = (&opened, placed) {
+            // Refused or failed to start: the worktree was never used.
+            let unused = self.lock().placements.remove(&run_in).is_some();
+            if unused {
+                self.release_worktrees(vec![wt]);
+            }
+        }
+        let session = opened.map_err(|error| match error.downcast_ref::<AdmissionFailure>() {
+            Some(refused) => failure(refused.0),
+            None if error.to_string().contains("session limit reached") => {
+                failure(AdmissionError::SessionLimit)
+            }
+            None => ToolFailure::new("launch_failed", "the agent could not be started"),
+        })?;
         let session_id = session.metadata().id;
         let task = self
             .lock()

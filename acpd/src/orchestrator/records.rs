@@ -65,6 +65,9 @@ pub struct TaskRecord {
     /// Cumulative cost in USD, if the agent reported one. Absent means unmetered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    /// The task's own git worktree and what became of it, for worktree-isolated tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<super::worktree::Worktree>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -221,6 +224,7 @@ mod tests {
             stop_reason: None,
             trace_id: None,
             cost_usd: None,
+            worktree: None,
         }
     }
 

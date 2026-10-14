@@ -459,6 +459,7 @@ async fn a_restarted_host_shows_its_old_tasks_to_the_phone_as_interrupted() {
         stop_reason: None,
         trace_id: None,
         cost_usd: None,
+        worktree: None,
     };
     let h = Harness::start_with(true, |state| {
         records::save(
