@@ -6,12 +6,13 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 
 ## Proposed, not started
 
-- [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (draft PR #45), off by default.** Phases 0-3 and their closing items are implemented; Linux and Windows CI pass at `3f2dff3` (run 38520913814). Read [orchestrator design](docs/orchestrator-design.md) sections 16-23 first. Remaining:
-  - [ ] Two-machine check with real TLS, and `goose serve` as a peer. macOS and the container/reproducibility jobs have not run on this branch.
-  - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (verified with a real Goose, design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
+- [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (draft PR #45), off by default.** Phases 0-5 are implemented, including worktree isolation with the researched defaults and the phone merge (design sections 16-27). Linux, Windows and macOS CI (plus container and Windows reproducibility) pass: [run 38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and, with the phone merge, [run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409`. Remaining:
+  - [ ] Two-machine check with real TLS, and `goose serve` as a peer.
+  - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Review the `tokio-tungstenite` dependency. The bridge's 256-frame outbox signal is not isolated from the 5 s send timeout in a test.
-  - [ ] Worktree follow-ups: a cap on kept branches; merge from the phone has not run on Windows/macOS CI yet ([design section 26](docs/orchestrator-design.md#26-phase-4-decisions-researched-14-october-2026)).
-  - [ ] Phase 5 on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested; boards 51-54 ([design section 24](docs/orchestrator-design.md#24-phase-5-android-task-tree-supervisor-outcomes-delegate-status-peer-sessions-14-october-2026)).
+  - [ ] Worktrees: no cap on kept branches; merge conflicts are refused, not resolved (merge by hand on the host). Submodules are not initialised in a worktree.
+  - [ ] Phone task views on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, worktree row, merge button, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested only.
+  - [ ] Penpot boards 51-54 (design section 24) have two known flaws: board 53's note text overflows its box, and board 54's `</>` icon text wraps. Renders are at `/workspace/penpot/renders` on the build box (not in the repository).
   - Decided against, revisit on request: client reconnect/reattach and a token budget ([design section 23](docs/orchestrator-design.md#23-closing-phases-1-to-3-branch-experimentorchestrator-14-october-2026)).
   - [ ] Before merge: take PR #45 out of draft after the above; ask the user whether to delete test sessions `20261013_2`-`_5` from their Goose history.
 

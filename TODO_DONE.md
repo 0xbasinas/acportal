@@ -2,6 +2,7 @@
 
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
+- 14 October 2026: [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409` passes every job with the extras on: Linux stable and 1.88, Windows, macOS, container smoke and Windows reproducibility; this covers the phone merge on Windows and macOS. Docs synced the same day (TODO, HANDOFF, AGENTS, README, design sections 16-27, runbook §9, PR #45 description).
 - 14 October 2026: phone merge of a finished task's worktree branch (`POST /v1/tasks/{id}/merge`, confirmation, refusals for dirty parent and conflicts; design section 27), tests in `tests/worktrees.rs` and the Android unit tests; real Goose trial with DeepSeek verified commit-and-remove and the merge (about US$0.0005).
 - 14 October 2026: phase 4 decisions researched and implemented (design section 26): snapshot-commit of a finished child's uncommitted work (`worktree_uncommitted`), shared fallback with a note for non-git folders, `default_isolation = "worktree"` for writers, phone worktree row, restart race fixes in `tests/network.rs` and records shutdown, Windows worktree removal retry. CI: [Rust run 38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) passes Linux, Windows and macOS.
 

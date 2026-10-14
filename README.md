@@ -108,7 +108,7 @@ examples/              Example configuration and disabled agent templates
 - [Installation and TLS](docs/installation.md), [native setup and background mode](docs/native-cli-and-motion.md), [reload rules](docs/daemon-and-reload.md), [pairing](docs/pairing-and-markdown.md)
 - [Android app](docs/android.md), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
 - [Development and testing](docs/development.md), [real-agent testing](docs/real-agent-testing.md), [acceptance report](docs/acceptance-report.md)
-- [Orchestrator experiment (delegation, supervisor, peer bridge; off by default)](docs/orchestrator-design.md), [handoff](docs/orchestrator-design.md#22-phase-1-gaps-closed-and-handoff-branch-experimentorchestrator)
+- [Orchestrator experiment (delegation, supervisor, peer bridge, worktree isolation and phone merge; off by default, draft PR #45)](docs/orchestrator-design.md), [status](docs/orchestrator-design.md#16-implementation-status-branch-experimentorchestrator)
 - [Contributor context](AGENTS.md), [open work](TODO.md), [completed work and evidence](TODO_DONE.md), [user-reported issues](USER_ISSUES.md)
 
 ## Status
