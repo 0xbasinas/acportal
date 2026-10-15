@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { reduce, emptyTimeline, changedFiles, diffLines } from '../src/acp'
+import { reduce, emptyTimeline, changedFiles, diffLines, unifiedLines } from '../src/acp'
 import { validateAddress } from '../electron/host'
 
 const ev = (sequence: number, message: unknown, direction = 'agent') => ({ type: 'event', sequence, direction, message })
@@ -72,4 +72,9 @@ test('branches, compare and GitHub remotes', () => {
   assert.equal(githubRepo('https://github.com/a/b'), 'https://github.com/a/b')
   assert.equal(githubRepo('https://gitlab.com/a/b.git'), undefined)
   assert.equal(parseStatus('## release/v1.2...origin/release/v1.2 [behind 2]\n').branch, 'release/v1.2')
+})
+
+test('unified diffs from the host drop the trailing blank line', () => {
+  const lines = unifiedLines('diff --git a/h b/h\n--- /dev/null\n+++ b/h\n@@ -0,0 +1 @@\n+hi\n')
+  assert.deepEqual(lines, [{ kind: 'add', b: 1, text: 'hi' }])
 })

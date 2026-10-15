@@ -1,8 +1,10 @@
+import type React from 'react'
 import { useEffect, useState } from 'react'
 import type { AgentInfo, Host, HostStatus, Workspace } from './types'
 import { I, tildify } from './ui'
 
 export type Theme = 'dark' | 'light' | 'system'
+const ICONS: Record<string, React.ReactNode> = { General: I.gear, Agents: I.bot, 'MCP servers': I.server, Hosts: I.term, Workspaces: I.folder, 'Approvals & review': I.shield, Appearance: I.spark, Keyboard: I.cmd }
 const SECTIONS = ['General', 'Agents', 'MCP servers', 'Hosts', 'Workspaces', 'Approvals & review', 'Appearance', 'Keyboard'] as const
 export type Section = (typeof SECTIONS)[number]
 
@@ -27,13 +29,11 @@ export function Settings(props: {
   return (
     <div className="settings">
       <nav className="settings-nav">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px 18px' }}>
-          <button className="icon-btn" onClick={props.onBack} aria-label="Back">{I.back}</button>
-          <span style={{ fontSize: 18, fontWeight: 600 }}>Settings</span>
-        </div>
+        <button className="settings-back" onClick={props.onBack} aria-label="Back">{I.back}<span>Back to app</span></button>
+        <div className="settings-nav-title">Settings</div>
         {SECTIONS.map((s) => (
           <div key={s} className={'row' + (s === section ? ' active' : '')} onClick={() => props.setSection(s)}>
-            <span>{s}</span><span className="sub">{I.chev}</span>
+            <span className="nav-ic">{ICONS[s]}</span><span>{s}</span>
           </div>
         ))}
       </nav>

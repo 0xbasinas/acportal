@@ -49,7 +49,8 @@ env:
 jobs:
   linux:
     name: Linux stable (fmt, clippy incl. Windows target, tests)
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # Runs on draft PRs too so host changes are checked early; the 1.88 and Windows jobs
+    # still wait for ready-for-review to keep minutes low.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

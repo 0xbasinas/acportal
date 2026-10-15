@@ -51,7 +51,7 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| GET | `/v1/status` | Version, host identity, health and optional `features` (currently `formElicitation`) |
+| GET | `/v1/status` | Version, host identity, health and optional `features` (`formElicitation`, `git`, `sessionWorktree`, plus orchestrator features) |
 | GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools` |
 | GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
 | POST / DELETE | `/v1/workspaces` | Add (`{"path"}`) or remove a folder the phone added; saved in `user-settings.json`, applies to new sessions at once |
@@ -66,12 +66,40 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | POST | `/v1/pair` | Rate-limited one-use code exchange over TLS |
 | DELETE | `/v1/device` | Revoke the current device's credential |
 | WS | `/v1/sessions/:id/connect` | ACP messages and bounded reconnect replay |
+| POST | `/v1/git/{op}` | Run one git operation from a fixed list in a workspace folder or task worktree (feature `git`); see below |
 
 Creation input:
 
 ```json
 {"agentId":"goose","workspace":"/home/user/projects/app","loadSessionId":null}
 ```
+
+Session branch (feature `sessionWorktree`). Creation input may carry an optional `branch`:
+
+```json
+{"agentId":"goose","workspace":"/home/user/projects/app","branch":{"name":"acportal/fix-x","base":"main","create":true,"worktree":true}}
+```
+
+Without `worktree` the host runs `git switch [-c] <name> [<base>]` in the folder. With `worktree` it creates `<repo>-<slug>` beside the repository's top level on that branch and starts the session in the matching sub-folder there. Errors: `invalid_branch_name` and `not_a_repository` (400), `branch_failed` and `worktree_path_unavailable` (409), `path_not_allowed` (403). Older hosts reject the unknown field, so clients send it only when `features` lists `sessionWorktree`.
+
+### Git operations
+
+`POST /v1/git/{op}` takes `{"path": "<folder>", "params": {...}, "input": "<stdin, optional>"}` (unknown fields rejected; body up to 1 MiB plus overhead) and returns `{"code","out","err","args","readOnly"}`. A failing git command is still HTTP 200 with its exit `code`; `args` is the exact argument list, so clients can show it (the desktop's Learn mode does). `path` must be inside the workspace roots or the host's task worktrees (403 otherwise); an unknown `op` is 404; a parameter that is empty, starts with `-` or contains NUL, or a branch name that fails `git check-ref-format --branch`, is 400. Output is capped at 2 MiB and each run at 60 s (push 120 s). Git runs without a shell, with `core.quotepath=off` and `color.ui=never`.
+
+| Group | Operations (params) |
+| --- | --- |
+| Read | `status`, `diff` (`staged`, `file`), `log`, `worktree-list`, `stash-list`, `branch-list`, `conflicts`, `rev-parse`, `merging`, `show` (`rev`), `reflog`, `compare` (`base`: `log --left-right base...HEAD`), `remote-url` |
+| Index | `add` (`file`), `restore-staged` (`file`), `apply-cached` and `apply-cached-reverse` (patch in `input`) |
+| Commits | `commit` (`message`), `reset-soft` (`rev`, default `HEAD~1`) |
+| Stash | `stash-push` (`message`, optional), `stash-pop` (`ref`, optional), `stash-apply` and `stash-drop` (`ref`) |
+| Worktrees | `worktree-add` (`path`, `branch`, `base`; the target must be absolute, new and inside an allowed parent), `worktree-remove` (`path`) |
+| Conflicts | `checkout-ours`, `checkout-theirs` (`file`), `merge-abort` |
+| Branches | `checkout` (`branch`: `git switch`), `branch-create` (`branch`, `base`: `switch -c`), `branch-rename` (`from`, `to`), `branch-delete` (`branch`, `force=1` for `-D`) |
+| Remote | `push` (`git push --set-upstream origin <current branch>`, using the host account's own git credentials; no tokens pass through the API) |
+
+### Task worktree changes
+
+`GET /v1/tasks/{id}` adds `worktreeChanges` when the task ran in its own worktree: `[{"path","status","diff"}]` from `git diff <base>` of the worktree (status is the first letter of `--name-status`; `diff` is unified and capped at 256 KiB), plus untracked files as `{"path","status":"A","newText"}` (text up to 256 KiB, otherwise null). Edits made with shell commands therefore appear, not only those reported through ACP. Once the worktree is removed the list comes from `git diff <base> <branch>` in the main repository, without untracked files.
 
 The host UUID in these paths identifies a managed process/session record. It is distinct from the agent's ACP session ID. Management errors use an HTTP status and stable machine-readable code. Raw registry env, authorization headers, and process arguments must never appear in discovery or error responses.
 

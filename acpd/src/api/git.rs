@@ -340,7 +340,9 @@ pub(super) async fn run(
 
 /// Files a task's worktree changed against the commit it started from, including edits made by
 /// shell commands and new untracked files: `[{"path","status","diff"}]`. Empty when git fails.
-pub(super) fn worktree_changes(folder: &FsPath, base: &str) -> Vec<Value> {
+/// Files changed from `base` to the working tree, or to `branch` when one is given (the worktree
+/// is gone and only its branch is left).
+pub(super) fn worktree_changes(folder: &FsPath, base: &str, branch: Option<&str>) -> Vec<Value> {
     let git = |a: &[&str]| -> Option<String> {
         let o = std::process::Command::new("git")
             .args(["-c", "core.quotepath=off"])
@@ -356,15 +358,26 @@ pub(super) fn worktree_changes(folder: &FsPath, base: &str) -> Vec<Value> {
     };
     // Untracked files join the diff through an intent-to-add-free path: list them separately.
     let mut files = vec![];
-    if let Some(names) = git(&["diff", "--name-status", base, "--"]) {
+    let mut range = vec![base];
+    range.extend(branch);
+    let mut names_args = vec!["diff", "--name-status"];
+    names_args.extend(&range);
+    names_args.push("--");
+    if let Some(names) = git(&names_args) {
         for line in names.lines().take(200) {
             let mut parts = line.splitn(2, '\t');
             let (Some(status), Some(path)) = (parts.next(), parts.next()) else {
                 continue;
             };
-            let diff = git(&["diff", base, "--", path]).unwrap_or_default();
+            let mut a = vec!["diff"];
+            a.extend(&range);
+            a.extend(["--", path]);
+            let diff = git(&a).unwrap_or_default();
             files.push(json!({"path":path,"status":&status[..1],"diff":truncate(diff)}));
         }
+    }
+    if branch.is_some() {
+        return files;
     }
     if let Some(names) = git(&["ls-files", "--others", "--exclude-standard"]) {
         for path in names.lines().take(200) {
@@ -392,6 +405,38 @@ fn truncate(mut s: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changes_come_from_the_branch_once_the_worktree_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        let g = |a: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(a)
+                .current_dir(r)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "{a:?}");
+        };
+        g(&["init", "-q", "-b", "main"]);
+        std::fs::write(r.join("a"), "1\n").unwrap();
+        g(&["add", "a"]);
+        g(&["commit", "-qm", "one"]);
+        g(&["switch", "-qc", "task"]);
+        std::fs::write(r.join("b"), "hi\n").unwrap();
+        g(&["add", "b"]);
+        g(&["commit", "-qm", "two"]);
+        g(&["switch", "-q", "main"]);
+        std::fs::write(r.join("loose"), "x").unwrap();
+        let files = worktree_changes(r, "main", Some("task"));
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(files[0]["path"], "b");
+        assert!(files[0]["diff"].as_str().unwrap().contains("+hi"));
+        assert_eq!(worktree_changes(r, "main", None).len(), 1, "untracked only");
+    }
     #[test]
     fn options_cannot_be_injected() {
         let mut p = HashMap::new();

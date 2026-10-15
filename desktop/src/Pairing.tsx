@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Host } from './types'
+import { I } from './ui'
 
 export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; onCancel?: () => void }) {
   const [address, setAddress] = useState('')
@@ -26,8 +27,8 @@ export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; o
   return (
     <div className="pair-wrap">
       <div className="pair-left">
-        <div className="logo">ac</div>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600 }}>Pair with a host</h1>
+        <div className="logo">{I.term}</div>
+        <h1 className="pair-title">Pair with a host</h1>
         <p className="sub2" style={{ marginTop: 8 }}>
           acportal desktop drives the agents on a machine running <span className="mono">acpd</span>, the same way the Android app does.
         </p>
@@ -50,10 +51,10 @@ export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; o
           </button>
           {onCancel && <button className="btn-wide ghost" style={{ width: 140 }} onClick={onCancel}>Cancel</button>}
         </div>
-        <p className="sub" style={{ marginTop: 16 }}>Remote hosts need HTTPS with a certificate your system trusts. Plain HTTP is only allowed for this computer (localhost).</p>
+        <p className="sub pair-note">{I.shield}<span>Remote hosts need HTTPS with a certificate your system trusts. Plain HTTP is only allowed for this computer (localhost).</span></p>
       </div>
       <div className="pair-right">
-        <div className="sub2" style={{ fontWeight: 600, color: 'var(--text)' }}>On the host</div>
+        <div className="pair-card"><div className="pair-card-head">{I.server}<span>On the host</span></div>
         {[
           ['Start the host', 'acpd --config config.toml start'],
           ['Create a one-use code', 'acpd --config config.toml pair'],
@@ -63,11 +64,12 @@ export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; o
             <div className="n">{i + 1}</div>
             <div>
               <div>{t}</div>
-              <div className={i < 2 ? 'mono sub2' : 'sub2'}>{d}</div>
+              {i < 2 ? <div className="cmd-block mono">$ {d}</div> : <div className="sub2">{d}</div>}
             </div>
           </div>
         ))}
-        <div className="sub" style={{ marginTop: 10 }}>You can also paste an <span className="mono">acpd://pair?address=…&amp;code=…</span> link into the address field.</div>
+        </div>
+        <div className="sub" style={{ marginTop: 4 }}>You can also paste an <span className="mono">acpd://pair?address=…&amp;code=…</span> link into the address field.</div>
       </div>
     </div>
   )

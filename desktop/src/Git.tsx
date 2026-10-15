@@ -25,6 +25,9 @@ function GraphGlyphs({ g }: { g: string }) {
   return <span className="graph">{[...g].map((ch, i) => <span key={i} style={{ color: ch === '*' ? 'var(--text)' : GRAPH_COLORS[Math.floor(i / 2) % GRAPH_COLORS.length] }}>{ch === '*' ? '●' : ch}</span>)}</span>
 }
 
+// GitHub compare URLs keep the slashes of a branch name.
+const refPath = (r: string) => r.split("/").map(encodeURIComponent).join("/")
+
 export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession, confirmDanger }: {
   hostId: string; repos: { path: string; label: string }[]; onBack: () => void
   suggest: (diff: string) => Promise<string | undefined>; askAgent: (prompt: string) => void; openSession: (path: string) => void
@@ -416,7 +419,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
     if (out !== undefined) setCmp({ branch: current, base, c: parseCompare(out) }); else onCompareError(undefined)
   }
   const published = Boolean(status?.upstream)
-  const prUrl = gh && current && base && current !== base ? `${gh}/compare/${encodeURIComponent(base)}...${encodeURIComponent(current)}?expand=1` : undefined
+  const prUrl = gh && current && base && current !== base ? `${gh}/compare/${refPath(base.replace(/^origin\//, ''))}...${refPath(current)}?expand=1` : undefined
   return (
     <div className="narrow">
       <div className="card" style={{ marginBottom: 16 }}>

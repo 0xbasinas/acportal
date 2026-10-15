@@ -894,15 +894,24 @@ async fn task_detail(State(host): State<Host>, Path(id): Path<String>) -> ApiRes
         .orchestrator
         .task_detail(task_id(&id)?)
         .ok_or(ApiError(StatusCode::NOT_FOUND, "task_not_found"))?;
-    // What the task's worktree changed, shell-made edits included, while it is still on disk.
-    let folder = view["worktree"]["path"].as_str().map(PathBuf::from);
-    let base = view["worktree"]["base"].as_str().map(str::to_owned);
-    if let (Some(folder), Some(base)) = (folder, base)
-        && folder.is_dir()
-    {
-        let changes = tokio::task::spawn_blocking(move || git::worktree_changes(&folder, &base))
-            .await
-            .unwrap_or_default();
+    // What the task's worktree changed, shell-made edits included. While the worktree is on disk
+    // that is base..working tree; once it is removed, base..branch in the main repository.
+    let w = &view["worktree"];
+    let path = w["path"].as_str().map(PathBuf::from);
+    let repo = w["repository"].as_str().map(PathBuf::from);
+    let base = w["base"].as_str().map(str::to_owned);
+    let branch = w["branch"].as_str().map(str::to_owned);
+    let target = match (path, repo, branch) {
+        (Some(p), _, _) if p.is_dir() => Some((p, None)),
+        (_, Some(r), Some(b)) if r.is_dir() => Some((r, Some(b))),
+        _ => None,
+    };
+    if let (Some((folder, branch)), Some(base)) = (target, base) {
+        let changes = tokio::task::spawn_blocking(move || {
+            git::worktree_changes(&folder, &base, branch.as_deref())
+        })
+        .await
+        .unwrap_or_default();
         view["worktreeChanges"] = json!(changes);
     }
     Ok(Json(view))

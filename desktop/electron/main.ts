@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, safeStorage, nativeTheme, Menu } from 'electron'
 import { join } from 'node:path'
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { request, validateAddress, SessionSocket, HostError } from './host'
@@ -177,6 +177,7 @@ function registerIpc(): void {
   ipcMain.handle('prefs:set', wrap((p: Record<string, unknown>) => {
     mkdirSync(app.getPath('userData'), { recursive: true })
     writeFileSync(prefsFile(), JSON.stringify(mcpSecrets(p, true)), { mode: 0o600 })
+    chmodSync(prefsFile(), 0o600) // the mode above only applies when the file is created
     if (typeof p.theme === 'string') nativeTheme.themeSource = p.theme as 'dark' | 'light' | 'system'
   }))
   ipcMain.handle('app:secure-storage', () => (storageKind() === 'keychain' ? `keychain:${process.platform === 'linux' ? safeStorage.getSelectedStorageBackend?.() : process.platform}` : 'file'))
