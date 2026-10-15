@@ -1248,10 +1248,12 @@ impl Orchestrator {
         if isolate {
             let root = settings.config.worktree_root();
             let (folder, within) = (scope.clone(), parent_scope.clone());
-            let made =
-                tokio::task::spawn_blocking(move || worktree::create(&root, &folder, &within))
-                    .await
-                    .unwrap_or(Err(worktree::Unavailable::GitFailed));
+            let cap = settings.config.orchestrator.max_task_branches as usize;
+            let made = tokio::task::spawn_blocking(move || {
+                worktree::create_limited(&root, &folder, &within, cap)
+            })
+            .await
+            .unwrap_or(Err(worktree::Unavailable::GitFailed));
             match made {
                 Ok(wt) => {
                     let folder = wt.task_folder();

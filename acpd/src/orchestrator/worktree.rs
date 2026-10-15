@@ -32,6 +32,11 @@ pub enum Unavailable {
     /// The repository's top folder is above the delegating task's folder: a worktree would give
     /// the child files its parent cannot see.
     RepositoryOutsideScope,
+    /// The repository uses submodules, which a worktree would leave empty (git does not fill
+    /// them in, and fetching them would reach the network).
+    HasSubmodules,
+    /// The repository already holds as many unmerged task branches as the host allows.
+    TooManyBranches,
     GitFailed,
 }
 impl Unavailable {
@@ -41,6 +46,12 @@ impl Unavailable {
             Self::NoCommits => "the repository has no commits yet",
             Self::RepositoryOutsideScope => {
                 "the repository's top folder is outside the delegating task's folder"
+            }
+            Self::HasSubmodules => {
+                "the repository uses submodules, which a worktree would leave empty"
+            }
+            Self::TooManyBranches => {
+                "the repository already has too many unmerged task branches; merge or discard some"
             }
             Self::GitFailed => "git could not create the worktree",
         }
@@ -68,6 +79,8 @@ pub enum Outcome {
     CleanupFailed,
     /// The owner merged its branch into the parent's checkout from the phone; the branch is gone.
     Merged,
+    /// The owner threw its work away from the phone; the worktree and the branch are gone.
+    Discarded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,14 +270,44 @@ pub fn merge(root: &Path, worktree: &Worktree) -> Result<String, MergeRefusal> {
     Ok(commit)
 }
 
-/// Make a worktree for a task running in `folder` (inside the delegating task's `parent_scope`).
+/// Make a worktree for a task running in `folder` (inside the delegating task's `parent_scope`),
+/// with no limit on how many task branches the repository may hold.
 pub fn create(root: &Path, folder: &Path, parent_scope: &Path) -> Result<Worktree, Unavailable> {
+    create_limited(root, folder, parent_scope, 0)
+}
+
+/// How many `acpd/task-*` branches (kept, or in use) the repository holds.
+pub fn task_branches(root: &Path, repository: &Path) -> usize {
+    git(
+        root,
+        repository,
+        &["for-each-ref", "--format=%(refname)", "refs/heads/acpd/"],
+    )
+    .map(|out| out.lines().filter(|line| !line.trim().is_empty()).count())
+    .unwrap_or(0)
+}
+
+/// As [`create`], but refused with [`Unavailable::TooManyBranches`] when the repository already
+/// holds `max_branches` task branches (0 means no limit). Unmerged agent work is never deleted
+/// to make room: it is merged or discarded by its owner.
+pub fn create_limited(
+    root: &Path,
+    folder: &Path,
+    parent_scope: &Path,
+    max_branches: usize,
+) -> Result<Worktree, Unavailable> {
     let top = git(root, folder, &["rev-parse", "--show-toplevel"])
         .map_err(|_| Unavailable::NotARepository)?;
     let top = canonical(Path::new(&top));
     let folder = canonical(folder);
     if !top.starts_with(canonical(parent_scope)) {
         return Err(Unavailable::RepositoryOutsideScope);
+    }
+    if top.join(".gitmodules").is_file() {
+        return Err(Unavailable::HasSubmodules);
+    }
+    if max_branches > 0 && task_branches(root, &top) >= max_branches {
+        return Err(Unavailable::TooManyBranches);
     }
     let base = git(root, &top, &["rev-parse", "--verify", "HEAD^{commit}"])
         .map_err(|_| Unavailable::NoCommits)?;
@@ -358,7 +401,7 @@ pub fn release_within(
         Ok(_) => {}
         Err(_) => return Outcome::CleanupFailed,
     }
-    if !remove_folder(root, worktree, retry) {
+    if !remove_folder(root, worktree, retry, false) {
         return Outcome::CleanupFailed;
     }
     match branch_cleanup(root, worktree) {
@@ -367,7 +410,12 @@ pub fn release_within(
     }
 }
 /// `git worktree remove`, retried (see the comment inside); true once the folder is gone.
-fn remove_folder(root: &Path, worktree: &Worktree, retry: std::time::Duration) -> bool {
+fn remove_folder(
+    root: &Path,
+    worktree: &Worktree,
+    retry: std::time::Duration,
+    force: bool,
+) -> bool {
     let target = worktree.path.to_string_lossy().into_owned();
     // Windows keeps a folder locked while an agent process still runs in it (a cancelled task's
     // process can outlive the cancel, and a removed session's process is stopped just after its
@@ -380,7 +428,15 @@ fn remove_folder(root: &Path, worktree: &Worktree, retry: std::time::Duration) -
     loop {
         let attempt = {
             let _one = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
-            git(root, &worktree.repository, &["worktree", "remove", &target])
+            if force {
+                git(
+                    root,
+                    &worktree.repository,
+                    &["worktree", "remove", "--force", &target],
+                )
+            } else {
+                git(root, &worktree.repository, &["worktree", "remove", &target])
+            }
         };
         match attempt {
             Ok(_) => {
@@ -416,7 +472,7 @@ pub fn snapshot_if_dirty(root: &Path, worktree: &Worktree) -> bool {
 /// folder that cannot go yet (Windows, while the task's agent still runs in it) is retried and
 /// otherwise left to the startup sweep. True when both are gone.
 pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
-    let folder = !worktree.path.exists() || remove_folder(root, worktree, REMOVE_RETRY);
+    let folder = !worktree.path.exists() || remove_folder(root, worktree, REMOVE_RETRY, false);
     let branch = git(
         root,
         &worktree.repository,
@@ -424,6 +480,31 @@ pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
     )
     .is_ok();
     folder && branch
+}
+/// Throw a finished task's work away: remove its worktree folder if it is still there (even with
+/// uncommitted changes) and delete its branch. True when both are gone. Never touches the parent's
+/// checkout. A branch that is already gone counts as deleted.
+pub fn discard(root: &Path, worktree: &Worktree) -> bool {
+    let folder = if worktree.path.exists() {
+        remove_folder(root, worktree, REMOVE_RETRY, true)
+    } else {
+        let _ = git(root, &worktree.repository, &["worktree", "prune"]);
+        true
+    };
+    let reference = format!("refs/heads/{}", worktree.branch);
+    let gone = git(
+        root,
+        &worktree.repository,
+        &["rev-parse", "--verify", "--quiet", &reference],
+    )
+    .is_err()
+        || git(
+            root,
+            &worktree.repository,
+            &["branch", "-D", &worktree.branch],
+        )
+        .is_ok();
+    folder && gone
 }
 /// Commit everything git does not ignore to the task's branch, under the host's own identity,
 /// without hooks or signing. Ignored files (build output, `.env`) are not included.

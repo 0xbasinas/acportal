@@ -207,6 +207,7 @@ impl Host {
             .route("/v1/tasks/{id}", get(task_detail))
             .route("/v1/tasks/{id}/cancel", post(cancel_task))
             .route("/v1/tasks/{id}/merge", post(merge_task))
+            .route("/v1/tasks/{id}/discard", post(discard_task))
             .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
             .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
             .route("/v1/device", delete(revoke_self))
@@ -907,6 +908,20 @@ async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Respons
         }
     }
 }
+/// The phone throws a finished task's work away (its worktree and branch). Refusals as for a merge.
+async fn discard_task(State(host): State<Host>, Path(id): Path<String>) -> Response {
+    let id = match task_id(&id) {
+        Ok(id) => id,
+        Err(error) => return error.into_response(),
+    };
+    match host.orchestrator.discard_task(id).await {
+        Ok(done) => Json(done).into_response(),
+        Err(refusal) => {
+            let (status, body) = merge_refusal_response(&refusal);
+            (status, Json(body)).into_response()
+        }
+    }
+}
 /// The most conflicting files a refused merge names. A conflict can touch hundreds; the phone
 /// shows a handful, and the body stays small enough for its error reader.
 const MERGE_CONFLICT_FILES: usize = 20;
@@ -921,10 +936,18 @@ fn merge_refusal_response(
         _ => StatusCode::CONFLICT,
     };
     let mut error = json!({"code": refusal.code()});
-    if let MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) = refusal
-        && !files.is_empty()
+    if let MergeTaskRefusal::Conflict {
+        files,
+        branch,
+        repository,
+    } = refusal
     {
-        error["files"] = json!(files.iter().take(MERGE_CONFLICT_FILES).collect::<Vec<_>>());
+        if !files.is_empty() {
+            error["files"] = json!(files.iter().take(MERGE_CONFLICT_FILES).collect::<Vec<_>>());
+        }
+        // What the owner needs to merge by hand on the host.
+        error["branch"] = json!(branch);
+        error["repository"] = json!(repository);
     }
     (status, json!({ "error": error }))
 }
@@ -1303,9 +1326,11 @@ mod merge_response_tests {
     use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
 
     fn conflict(count: usize) -> MergeTaskRefusal {
-        MergeTaskRefusal::Git(MergeRefusal::Conflict(
-            (0..count).map(|n| format!("src/file{n}.rs")).collect(),
-        ))
+        MergeTaskRefusal::Conflict {
+            files: (0..count).map(|n| format!("src/file{n}.rs")).collect(),
+            branch: "acpd/task-0123456789ab".into(),
+            repository: "/home/me/project".into(),
+        }
     }
 
     #[test]
@@ -1328,11 +1353,13 @@ mod merge_response_tests {
             assert_eq!(files[19], "src/file19.rs");
         }
         // The body a phone reads stays far under the 8 KiB it reads, even with long paths.
-        let long = MergeTaskRefusal::Git(MergeRefusal::Conflict(
-            (0..500)
+        let long = MergeTaskRefusal::Conflict {
+            files: (0..500)
                 .map(|n| format!("{}/{n}.rs", "d".repeat(200)))
                 .collect(),
-        ));
+            branch: "acpd/task-0123456789ab".into(),
+            repository: "/home/me/project".into(),
+        };
         assert!(merge_refusal_response(&long).1.to_string().len() < 8192);
     }
 
@@ -1359,14 +1386,27 @@ mod merge_response_tests {
                 StatusCode::CONFLICT,
                 "already_merged",
             ),
+            (
+                MergeTaskRefusal::AlreadyDiscarded,
+                StatusCode::CONFLICT,
+                "already_discarded",
+            ),
+            (
+                MergeTaskRefusal::NothingKept,
+                StatusCode::CONFLICT,
+                "nothing_to_discard",
+            ),
         ] {
             let (got, body) = merge_refusal_response(&refusal);
             assert_eq!(got, status, "{code}");
             assert_eq!(body["error"]["code"], code);
             assert!(body["error"].get("files").is_none(), "{code}");
         }
-        // A conflict git reported no names for has no list at all (not an empty one).
+        // A conflict git reported no names for has no list at all (not an empty one), but still
+        // says which branch and repository to merge by hand.
         let (_, body) = merge_refusal_response(&conflict(0));
         assert!(body["error"].get("files").is_none());
+        assert_eq!(body["error"]["branch"], "acpd/task-0123456789ab");
+        assert_eq!(body["error"]["repository"], "/home/me/project");
     }
 }

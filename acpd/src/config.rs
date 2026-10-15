@@ -75,6 +75,10 @@ pub struct OrchestratorConfig {
     /// with the write right its own git worktree when its folder is in a git repository, and runs
     /// it in the folder itself when it is not; `shared` always runs it in the folder.
     pub default_isolation: DefaultIsolation,
+    /// The most unmerged `acpd/task-*` branches one repository may hold (kept ones and ones in
+    /// use). At the limit a task that wants a worktree is refused (the default isolation falls
+    /// back to the shared folder with a note); nothing is deleted to make room. 0 means no limit.
+    pub max_task_branches: u32,
     /// What happens to a finished worktree task's uncommitted changes: `commit` (default) commits
     /// them to the task's branch and removes the worktree; `keep` leaves the worktree on disk.
     pub worktree_uncommitted: crate::orchestrator::worktree::Uncommitted,
@@ -134,6 +138,7 @@ impl Default for OrchestratorConfig {
             bridge_ping_seconds: 20,
             bridge_send_timeout_seconds: 5,
             default_isolation: DefaultIsolation::default(),
+            max_task_branches: 50,
             worktree_uncommitted: Default::default(),
         }
     }
@@ -149,6 +154,7 @@ impl OrchestratorConfig {
             || self.task_max_cost_usd < 0.0
             || self.finished_child_keep_seconds > 86_400
             || self.max_turns_per_task > 1000
+            || self.max_task_branches > 10_000
             || !(1..=600).contains(&self.supervisor_timeout_seconds)
             || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
         {
