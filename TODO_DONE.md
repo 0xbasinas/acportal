@@ -1,5 +1,10 @@
 # Completed work and verification history
 
+## 15 October 2026 dependency review, outbox test, two untested bits
+
+- `tokio-tungstenite`/TLS review ([design section 30](docs/orchestrator-design.md#30-dependency-review-of-the-websocket-stack-and-the-outbox-guard-15-october-2026)): RustSec checked for every crate on the path; `rustls` 0.23.45 was in the range of four advisories published 14 October (none applies here); `Cargo.lock` now has 0.23.46. New `bridge_send_timeout_seconds`; the bridge cut-off test now fails when the outbox-full signal is removed (the lag signal beside it is still untested).
+- Merge-conflict response (20-file cap) and the phone's merge-then-refresh are now functions with tests; mutation-checked. CI at `a58256e`: Rust (Linux stable, 1.88, Windows, testy) and Android debug build + JVM tests pass. Penpot boards 53 and 54 not touched: Penpot was not connected.
+
 ## 14 October 2026 review fixes for orchestrator phases 4-5
 
 - Reviewed `d1d52b3`..`f123159`. Local Windows: fmt, strict Clippy, whole-workspace Rust tests, Android build, 76 core + 95 app JVM tests and lint all pass at `f123159`. Fixed and tested (mutation-checked): start-up stall on a stuck worktree, supervisor refusal using `reject_always`, merge-conflict file list and notice on the phone, `ownTools` documentation, worktree safety comment. See [design section 29](docs/orchestrator-design.md#29-review-fixes-14-october-2026). Not run: a device, instrumented tests, Linux/macOS CI for `f123159` and later.
