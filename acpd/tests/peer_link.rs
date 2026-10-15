@@ -1387,6 +1387,39 @@ async fn a_credential_revoked_while_the_link_is_down_ends_it_without_more_tries(
 }
 
 #[tokio::test]
+async fn a_cancel_written_as_the_link_died_still_stops_the_turn_after_the_link_is_back() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    let prompting = session.clone();
+    let prompt = tokio::spawn(async move { prompting.prompt("go").await });
+    first_pending(&session).await;
+
+    // The cancel goes into a link that is already dead: the far host never gets it. A notification
+    // has no id, so only the rule "send it again while the turn is still running" saves it.
+    proxy.swallow(true);
+    session.cancel().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    proxy.swallow(false);
+    proxy.sever();
+    let done = tokio::time::timeout(Duration::from_secs(15), prompt)
+        .await
+        .expect("the cancel reached the far host, so the turn ended")
+        .unwrap()
+        .expect("the turn answered");
+    assert_eq!(done["stopReason"], "cancelled");
+    far.stop().await;
+}
+
+#[tokio::test]
 async fn a_prompt_written_as_the_link_died_is_sent_again_exactly_once_when_it_never_arrived() {
     let far = Far::start().await;
     let (token, _) = far.pair_peer().await;

@@ -257,6 +257,12 @@ struct Tracker {
     /// the agent's requests. When the link comes back, the far host says which of these keys it
     /// received; only the ones it did not are sent again, so nothing is ever done twice.
     outstanding: VecDeque<(String, String)>,
+    /// Ids of the actor's `session/prompt` requests that have no answer yet.
+    prompts: HashSet<String>,
+    /// The actor's last `session/cancel`. It has no id, so the far host cannot confirm it got it;
+    /// but cancelling twice is harmless, so while a prompt is unanswered it is sent again after
+    /// a reattach. The answer to that prompt (even a replayed one) forgets it.
+    cancel: Option<String>,
 }
 /// How many unanswered lines are remembered.
 const REMEMBERED_LINES: usize = 1024;
@@ -288,6 +294,14 @@ impl Tracker {
             }
             return text;
         };
+        if method == "session/cancel" {
+            self.cancel = Some(text.clone());
+        }
+        if method == "session/prompt"
+            && let Some(id) = &id_key
+        {
+            self.prompts.insert(id.clone());
+        }
         let key = id_key.clone();
         if let Some(id) = &id_key
             && !matches!(
@@ -360,6 +374,9 @@ impl Tracker {
         {
             let key = format!("q:{id}");
             self.outstanding.retain(|(k, _)| *k != key);
+            if self.prompts.remove(&id.to_string()) {
+                self.cancel = None;
+            }
         }
         if value.get("method").is_none()
             && let Some(id) = value.get("id")
@@ -724,6 +741,17 @@ async fn attempt(
             return Attempt::Retry; // still known to the tracker: decided again on the next try
         }
     }
+    // A cancel the far host may not have received matters only while its turn is still running
+    // (an answer replayed above would have forgotten it).
+    if !tracker.prompts.is_empty()
+        && let Some(cancel) = tracker.cancel.clone()
+        && !matches!(
+            tokio::time::timeout(SEND_TIMEOUT, sink.send(Message::Text(cancel.into()))).await,
+            Ok(Ok(()))
+        )
+    {
+        return Attempt::Retry;
+    }
     // What the actor wrote while the link was down goes out now, once each.
     while let Some(line) = held.pop_front() {
         let text = tracker.outgoing(line);
@@ -974,6 +1002,38 @@ mod tests {
         let all: HashSet<&str> = ["q:1", "p:9", "q:2", "q:3"].into_iter().collect();
         assert!(lines_to_resend(&outstanding, &all).is_empty());
         assert_eq!(lines_to_resend(&outstanding, &HashSet::new()).len(), 4);
+    }
+
+    #[test]
+    fn a_cancel_is_remembered_only_until_its_prompt_is_answered() {
+        let mut tracker = started();
+        tracker.outgoing(
+            json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{}}).to_string(),
+        );
+        assert!(tracker.cancel.is_none() && tracker.prompts.len() == 1);
+        let cancel =
+            json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s-1"}})
+                .to_string();
+        tracker.outgoing(cancel.clone());
+        assert_eq!(tracker.cancel.as_deref(), Some(cancel.as_str()));
+        // The prompt's answer (live, or replayed after a reattach) means there is nothing to cancel.
+        incoming(
+            &mut tracker,
+            json!({"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}),
+            true,
+        );
+        assert!(tracker.cancel.is_none() && tracker.prompts.is_empty());
+        // An answer to some other request does not forget it.
+        tracker.outgoing(
+            json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{}}).to_string(),
+        );
+        tracker.outgoing(cancel.clone());
+        incoming(
+            &mut tracker,
+            json!({"jsonrpc":"2.0","id":99,"result":{}}),
+            false,
+        );
+        assert!(tracker.cancel.is_some());
     }
 
     #[test]
