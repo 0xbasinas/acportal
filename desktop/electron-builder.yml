@@ -1,0 +1,12 @@
+appId: dev.acportal.desktop
+productName: acportal
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+asar: true
+linux:
+  target: [AppImage]
+  category: Development
+# Windows (nsis) and macOS (dmg) targets are added when installer builds are approved.
