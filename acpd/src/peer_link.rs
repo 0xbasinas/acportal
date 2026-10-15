@@ -90,10 +90,49 @@ impl Resume {
     }
 }
 
-/// The two ends handed to `AcpConnection::over_transport`.
+/// The two ends handed to `AcpConnection::over_transport`, and what happens to the socket
+/// behind them.
 pub struct Link {
     pub reader: DuplexStream,
     pub writer: DuplexStream,
+    pub events: mpsc::Receiver<LinkEvent>,
+}
+
+/// A change in the socket that the person using the session should be told about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEvent {
+    /// The socket was lost and the link is being dialled again, for up to this many seconds.
+    Lost { within_seconds: u64 },
+    /// The session is attached again and nothing was lost.
+    Back,
+}
+
+/// Show the link's changes in the session, as notices only the host can publish. Holds the
+/// session weakly, so it does not keep one alive; it ends with the link.
+pub fn report_to(
+    session: &std::sync::Arc<crate::session::AcpSession>,
+    mut events: mpsc::Receiver<LinkEvent>,
+) {
+    let session = std::sync::Arc::downgrade(session);
+    tokio::spawn(async move {
+        while let Some(event) = events.recv().await {
+            let Some(session) = session.upgrade() else {
+                return;
+            };
+            let text = match event {
+                LinkEvent::Lost { within_seconds } => format!(
+                    "The link to the other host was lost. Reconnecting for up to {within_seconds} seconds; nothing will be sent twice."
+                ),
+                LinkEvent::Back => "The link to the other host is back.".to_owned(),
+            };
+            session.connection.record(
+                json!({"jsonrpc":"2.0","method":"session/update","params":{
+                    "sessionId": session.metadata().acp_session_id,
+                    "update": {"sessionUpdate":"acpd_notice","text":text}}}),
+                "host",
+            );
+        }
+    });
 }
 
 type Socket =
@@ -195,10 +234,12 @@ pub async fn connect(
         max_frame,
         resume,
     };
-    tokio::spawn(pump(socket, from_actor, to_actor, target));
+    let (events_tx, events) = mpsc::channel(16);
+    tokio::spawn(pump(socket, from_actor, to_actor, target, events_tx));
     Ok(Link {
         reader: from_peer,
         writer: to_peer,
+        events,
     })
 }
 
@@ -464,6 +505,7 @@ async fn pump(
     from_actor: DuplexStream,
     mut to_actor: DuplexStream,
     target: Target,
+    events: mpsc::Sender<LinkEvent>,
 ) {
     let (mut sink, mut stream) = socket.split();
     let (line_tx, mut lines) = mpsc::channel::<Vec<u8>>(16);
@@ -494,10 +536,14 @@ async fn pump(
                 if !target.resume.enabled() || !tracker.can_resume() {
                     break;
                 }
+                let _ = events.try_send(LinkEvent::Lost {
+                    within_seconds: target.resume.window.as_secs().max(1),
+                });
                 match resume(&target, &mut tracker, &mut lines, &mut held, &mut to_actor).await {
                     Resumed::Back(new_sink, new_stream) => {
                         sink = new_sink;
                         stream = new_stream;
+                        let _ = events.try_send(LinkEvent::Back);
                     }
                     Resumed::ActorGone => {
                         end_sessions = true;

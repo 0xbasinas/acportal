@@ -1465,3 +1465,89 @@ async fn a_prompt_written_as_the_link_died_is_sent_again_exactly_once_when_it_ne
     assert_eq!(event_count(&remote, "session/prompt"), 1);
     far.stop().await;
 }
+
+/// The notices the host published in a session (only the host can: they carry its direction).
+fn notices(session: &AcpSession) -> Vec<String> {
+    session
+        .replay(0)
+        .events
+        .iter()
+        .filter(|event| event.direction == "host")
+        .filter(|event| event.message["params"]["update"]["sessionUpdate"] == "acpd_notice")
+        .filter_map(|event| event.message["params"]["update"]["text"].as_str())
+        .map(str::to_owned)
+        .collect()
+}
+
+#[tokio::test]
+async fn the_person_is_told_when_the_link_is_lost_and_when_it_is_back() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    assert!(
+        notices(&session).is_empty(),
+        "nothing to say while the link is fine"
+    );
+    proxy.sever();
+    let told = eventually(|| async {
+        let told = notices(&session);
+        (told.len() == 2).then_some(told)
+    })
+    .await;
+    assert!(
+        told[0].contains("was lost") && told[0].contains("30 seconds"),
+        "{told:?}"
+    );
+    assert!(told[1].contains("is back"), "{told:?}");
+    assert_ne!(session.metadata().status, "exited");
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn a_link_that_is_given_up_on_says_it_was_lost_and_never_says_it_is_back() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        |config| config.orchestrator.peer_reconnect_seconds = 2,
+    );
+    let session = near.open_remote().await.unwrap();
+    proxy.refuse(true);
+    proxy.sever();
+    eventually(|| async { session.connection.closed_reason() }).await;
+    let told = notices(&session);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].contains("was lost"));
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn with_reconnecting_off_no_notice_is_published() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        |config| config.orchestrator.peer_reconnect_seconds = 0,
+    );
+    let session = near.open_remote().await.unwrap();
+    proxy.sever();
+    eventually(|| async { session.connection.closed_reason() }).await;
+    assert!(notices(&session).is_empty());
+    far.stop().await;
+}
