@@ -29,6 +29,25 @@ class HostRequestErrorTest {
         // A conflict code only means this on the merge route.
         assertEquals("This session already has a controller.",hostRequestError(409,"merge_conflict","POST","/v1/sessions",listOf("a.rs")))
     }
+    @Test fun aConflictGivesTheCommandToMergeByHandAndNeverOneThatCouldBeMisread() {
+        val path="/v1/tasks/1/merge"
+        val message=hostRequestError(409,"merge_conflict","POST",path,listOf("a.rs"),"acpd/task-0123456789ab","C:\\work\\repo")
+        assertTrue(message,message.endsWith("Command: git -C \"C:\\work\\repo\" merge acpd/task-0123456789ab"))
+        // Only the branch known: still says it conflicts, with no half-built command.
+        val branchOnly=hostRequestError(409,"merge_conflict","POST",path,emptyList(),"acpd/task-1","")
+        assertTrue(branchOnly.contains("merge the branch by hand"))
+        assertFalse(branchOnly.contains("Command:"))
+        // A name with a space or a quote is never put into a command line.
+        assertFalse(hostRequestError(409,"merge_conflict","POST",path,listOf("a.rs"),"bad branch","/r").contains("Command:"))
+        assertFalse(hostRequestError(409,"merge_conflict","POST",path,listOf("a.rs"),"b","/r\"; rm -rf /").contains("Command:"))
+    }
+    @Test fun discardRefusalsSayWhatHappened() {
+        val path="/v1/tasks/1/discard"
+        assertEquals("This task's work was already thrown away.",hostRequestError(409,"already_discarded","POST",path))
+        assertTrue(hostRequestError(409,"nothing_to_discard","POST",path).contains("nothing left to discard"))
+        assertTrue(hostRequestError(500,"git_failed","POST",path).contains("Try again"))
+        assertTrue(hostRequestError(409,"already_discarded","POST","/v1/tasks/1/merge").contains("nothing to merge"))
+    }
     @Test fun rejectedPairingOffersANewCodeWithoutClaimingCredentialExpiry() {
         val message=hostRequestError(401,"pairing_failed","POST","/v1/pair")
         assertTrue(message.contains("Pairing code was rejected"))
