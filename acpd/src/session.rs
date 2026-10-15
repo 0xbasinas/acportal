@@ -586,6 +586,7 @@ impl SessionManager {
             guard.armed = false;
             guard.orchestrator.bind(guard.task, session.metadata().id);
         }
+        crate::auto_approve::spawn(&session, config);
         tracing::info!(session_id = %session.metadata().id, "session created");
         Ok(session)
     }

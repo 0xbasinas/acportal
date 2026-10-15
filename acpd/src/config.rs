@@ -1,4 +1,4 @@
-use crate::shell_review::ShellReviewConfig;
+use crate::{auto_approve::AutoApproveConfig, shell_review::ShellReviewConfig};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,6 +16,8 @@ pub struct Config {
     /// Opt-in automatic review of agent shell lines, keyed by agent id. Absent = off:
     /// every shell line needs explicit phone approval.
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
+    /// Per-agent host-side auto-approval of permission requests (off for an agent not listed).
+    pub auto_approve: BTreeMap<String, AutoApproveConfig>,
     /// Experimental agent-to-agent delegation. Off by default.
     pub orchestrator: OrchestratorConfig,
 }
@@ -270,6 +272,7 @@ impl Default for Config {
             state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
+            auto_approve: BTreeMap::new(),
             orchestrator: OrchestratorConfig::default(),
         }
     }
@@ -421,6 +424,19 @@ impl Config {
             review
                 .validate()
                 .with_context(|| format!("shell_review.{agent}"))?;
+        }
+        for (agent, policy) in &self.auto_approve {
+            if agent.is_empty()
+                || agent.len() > 64
+                || !agent
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                bail!("auto_approve keys must be agent ids")
+            }
+            policy
+                .validate()
+                .with_context(|| format!("auto_approve.{agent}"))?;
         }
         Ok(())
     }

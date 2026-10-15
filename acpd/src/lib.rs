@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auto_approve;
 pub mod config;
 pub mod connection;
 pub mod daemon;

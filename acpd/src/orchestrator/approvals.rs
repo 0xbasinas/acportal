@@ -64,7 +64,7 @@ const KINDS: [&str; 10] = [
     "switch_mode",
     "other",
 ];
-const PATH_KEYS: [&str; 7] = [
+pub(crate) const PATH_KEYS: [&str; 7] = [
     "path",
     "file_path",
     "filePath",
@@ -73,7 +73,7 @@ const PATH_KEYS: [&str; 7] = [
     "files",
     "target",
 ];
-const CONTENT_KEYS: [&str; 5] = ["content", "new_string", "newText", "text", "contents"];
+pub(crate) const CONTENT_KEYS: [&str; 5] = ["content", "new_string", "newText", "text", "contents"];
 
 /// Replace control characters and cut to `max` characters, so agent text is safe to show.
 pub fn clean(text: &str, max: usize) -> String {

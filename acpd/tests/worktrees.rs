@@ -1038,3 +1038,51 @@ async fn a_kept_dirty_worktree_can_be_discarded_and_an_open_or_empty_task_cannot
     );
     fx.manager.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_delegated_task_in_a_worktree_is_auto_approved_but_a_shared_one_is_not() {
+    // The default policy applies only to sessions in a task worktree: the host knows that from
+    // where the folder is, not from anything the agent says.
+    let fx = fixture(|config| {
+        config.auto_approve.insert(
+            "worker".into(),
+            acpd::auto_approve::AutoApproveConfig {
+                max_risk: acpd::auto_approve::AutoRisk::Medium,
+                ..Default::default()
+            },
+        );
+    });
+    let root = fx.root(&fx.repo()).await;
+    let sup = agent_of(&root).await;
+
+    // In its own worktree: the mock agent's edit request is answered by the host; no person and
+    // no supervisor is involved, and the task simply completes.
+    let isolated = delegate(&sup, json!({"isolation":"worktree"})).await;
+    reaches(&sup, &isolated, "completed").await;
+    let view = status(&sup, &isolated).await;
+    assert_eq!(view["needs_decision"], json!([]));
+    let child = fx.session_of_task(&sup, &isolated).await;
+    let reviews: Vec<Value> = child
+        .replay(0)
+        .events
+        .iter()
+        .filter_map(|event| {
+            let review = &event.message["params"]["update"]["_meta"]["acpdAutoReview"];
+            review.is_object().then(|| review.clone())
+        })
+        .collect();
+    assert_eq!(reviews.len(), 1, "{reviews:?}");
+    assert_eq!(reviews[0]["layer"], "rules");
+    assert_eq!(reviews[0]["decision"], "allow_once");
+
+    // In the shared folder with the same policy: left for the supervisor or the phone.
+    let shared = delegate(&sup, json!({"isolation":"shared"})).await;
+    reaches(&sup, &shared, "input_required").await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(status(&sup, &shared).await["state"], "input_required");
+    let waiting = status(&sup, &shared).await["needs_decision"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(waiting, 1, "the request is still there for a decision");
+    fx.manager.shutdown().await;
+}
