@@ -381,6 +381,7 @@ bridge_ping_seconds = 20             # 5..120
 bridge_send_timeout_seconds = 5      # 1..600; one frame or ping to a peer may take this long to write
 peer_reconnect_seconds = 60           # 0..600; how long a lost link to another host is retried (0 = off), section 31
 max_task_branches = 50               # 0..10000; unmerged acpd/task-* branches per repository (0 = no limit), section 31
+# [auto_approve.<agent id>]            # per agent, off unless listed: max_risk, only_in_worktree, own_edit_shape, model (section 32)
 
 orchestrate = ["supervisor"]         # agent ids that receive the MCP delegation tools
 delegable = ["worker", "supervisor"] # agent ids that may be children (and may also orchestrate)
@@ -919,3 +920,45 @@ It stops and ends the link the old way (the actor sees the agent exit, the turn 
 Tests (`peer_link.rs`, with a TCP proxy that can sever connections, refuse new ones, and swallow what the dialler sends): the turn in flight finishes after a cut with one pending permission, no duplicated text and one far prompt; lines written during the outage are held and sent once; a prompt written into the dead socket is sent again exactly once (and not at all when the far host had it); the window running out ends the session; a lost journal range ends it; an unnumbered far host is never redialled; a revoked credential ends it with no further tries; plus eight unit tests of the tracker. Mutations (sequence dedupe, counter advance, replayed-request dedupe, gap check and its original wrong order, resend everything, resend nothing, resume an unnumbered host, drop the held lines) were each caught; two weak spots found by that run (a resend-everything duplicate that was invisible to integration tests, and a held-lines test that took the resend path) were fixed with a pure filter function and a deterministic outage.
 
 **Limits.** Linux and macOS not run for this; one run each of two hosts over loopback with a mock agent, not over a real network or TLS; the far host must be an acpd with this change (`session/load` reattach already existed, the numbering did not); the phone is not told "link lost, retrying" (the session just pauses, then catches up); frames sent without an id (notifications other than `session/cancel` semantics) are not tracked, so a `session/cancel` written into a dying socket may be lost (the turn then ends by its deadline).
+
+## 32. Host-side auto-approve (15 October 2026)
+
+The answer to "Goose's own write gate always needs the phone" (sections 23 and 29) and to "an intelligent auto-approve for Goose and the other agents". It is a new, general layer, not a Goose special case: `acpd/src/auto_approve.rs`, configured per agent id, **off for every agent until you turn it on**.
+
+### What it does
+
+A watcher on each qualifying session looks at every pending permission request once. If the request is safe by rule, the host answers *allow once* itself and tells the phone (the existing automatic-review mark, `_meta.acpdAutoReview`, layer `rules` or `model`, with a short reason built from facts such as `edit of src/lib.rs (120 bytes) inside the session's folder; medium risk`). **It never refuses anything.** A request it will not allow is not its to answer: the phone, or a supervising agent, decides exactly as before, and a model's objection is shown to the person as the reason it was not approved.
+
+The rules are the supervisor's classifier (`orchestrator::approvals::classify`, section 18): the request must be rated at or below the ceiling, must not be on the deny list (credential and configuration paths, anything outside the session's folder), must not be human-only (forms; an agent registered `ownTools`), and must offer an allow-once option (`allow_always` is never used). So reads and searches inside the folder (Low) and edits and renames inside it up to `max_edit_bytes` (Medium) qualify; deletes, fetches, commands, an unrecognized kind and anything over the size limit never do, at any setting. Host-raised shell and terminal consents keep their own review (`shell_review`); the host's own write consent for the file tools it offers is answered by the host's description of it.
+
+### Configuration
+
+```toml
+[auto_approve.goose]            # the agent's id in the registry
+max_risk = "medium"             # "none" (default, off) | "low" (reads) | "medium" (reads and in-folder edits)
+own_edit_shape = true           # see below
+only_in_worktree = true         # the default: only sessions in a task worktree
+# model_sees_content = false    # the model sees the relative path, size and title, not the file
+# [auto_approve.goose.model]    # optional; same settings as [shell_review.<id>.model]
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-flash"
+# api_key_env = "DEEPSEEK_API_KEY"
+```
+
+* **`only_in_worktree`** (default true) is the containment: the policy applies only when the session's folder is under the host's `worktrees` folder, which is the host's own knowledge of where it put the task, not an agent's claim. Work done there reaches the real folder only when a person merges it from the phone. Set it to false to cover ordinary phone sessions too; then an approved edit lands in the folder the session runs in.
+* **`own_edit_shape`** (default false). Some agents (Goose among them) ask permission for their own file tool with an unspecific kind (`other`) and the path and content in `rawInput`. With this on, such a request is rated as the edit it says it is. **That shape is what the agent declares, and the host cannot verify it.** An approved request does not constrain what the agent's own tool then does: a lying agent could name one path and write another. The deny list and the folder check apply to the declared path only. This is why the default is a worktree and why the switch is off until you choose it. If the agent also gets write rights, the host's own write consent follows (Medium, verified by the host) and is answered by the same layer.
+* **`model`** can only make a decision stricter: it must say `allow` for the request to be answered; anything else (ask, deny, an error, a timeout, the per-minute limit, a missing key) leaves the request to a person with the model's reason on the phone. By default it is sent the agent id, the relative path, the size and the title; `model_sees_content = true` adds the first `max_command_bytes` of the content, which then leaves this machine, so it is off unless you say so. It is never asked about a request the rules would not allow.
+* A session on another host (`transport = "ws"`) is never covered.
+
+### Checked
+
+- 12 unit tests of the pure rules (`evaluate`, `in_worktree`, `should_watch`, configuration) and 9 integration tests with the real session manager and the mock agent (`tests/auto_approve.rs`), including a fake model server that records what it is sent; 1 test through the orchestrator (`worktrees.rs`): a delegated task in a worktree is auto-approved, a shared one with the same policy is left for a person.
+- 14 guards were broken one at a time (shape without its switch, the deny rules, human-only, shell consents, the Low ceiling, the worktree check, the worktree folder itself counting, anything counting as a worktree, a model objection allowing, content always sent, the rate limit, the missing note, remote sessions, and the watcher rule) and a test failed each time. Two weak spots found that way were fixed: the remote-session rule had no test (now `should_watch`, a pure function with one), and my first "content always sent" mutant did not compile.
+- **Real Goose 1.54.0** (`goose_auto_approve_trial`, one run, Windows, DeepSeek `deepseek-flash`): the root delegated "create `hello.txt` containing `hi`" with write rights to a worker in a task worktree. Both requests the worker raised, its own write gate (`write · ...`, kind `other`, rated Medium from its declared shape) and the host's write consent (Medium), were answered by the rules; the phone was never asked about the worker, no supervisor decision was needed, the file was written (`hi`, in the task's worktree) and the whole task took 17 s, against 55 to 80 s with the phone in the loop.
+
+### Limits
+
+- The supervisor's own view (`task_status`) still rates the agent's own gate High, because the shape rule belongs to this layer; for the second or so before the host answers, a supervising agent may see it as not decidable (in the trial the root said so, and was right that it did not decide it).
+- The declared-shape trust above. The deny list and size limit are lexical on the declared path; symlinks are not followed.
+- A model reviewer sends data off the machine only as described; it was exercised only against a local fake server, not a real provider.
+- Windows only; the Android phone shows the existing automatic-review mark and was not run on a device with this change.

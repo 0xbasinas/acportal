@@ -1,5 +1,9 @@
 # Completed work and verification history
 
+## 15 October 2026 host-side auto-approve
+
+- New `[auto_approve.<agent>]` ([design section 32](docs/orchestrator-design.md#32-host-side-auto-approve-15-october-2026)): the host answers allow-once to safe permission requests (reads, in-folder edits within the size limit) by the supervisor's classifier, never refuses, applies by default only to sessions in a task worktree, optional model that can only make it stricter; own-tool write requests qualify with `own_edit_shape`. 12 unit + 9 integration + 1 orchestrator tests, 14 guards mutation-checked. A real Goose in a worktree: both its write gate and the host's write consent answered by the rules, no phone entry for the worker, 17 s (was 55-80 s). One run, Windows.
+
 ## 15 October 2026 worktree gaps and peer-link reconnect
 
 - Worktree gaps ([design section 31](docs/orchestrator-design.md#31-worktree-gaps-closed-and-a-lost-peer-link-is-resumed-15-october-2026)): `max_task_branches` cap counted from git, discard from the phone (forced, ends the agent), merge-conflict command on the phone, submodule repositories refused. Host tests, phone JVM tests (106 app, 76 core) and lint pass; every guard mutation-checked.
