@@ -614,6 +614,14 @@ fn a_branch_that_cannot_be_counted_is_never_reported_removed_while_it_exists() {
     git(&repo, &["branch", "-D", &gone.branch]);
     gone.base = "0000000000000000000000000000000000000001".into();
     assert_eq!(worktree::release(&root, &gone), Outcome::Removed);
+
+    // And when git cannot answer at all (here: the repository is not there), whether the branch
+    // exists is unknown, which is not "gone" either.
+    let mut lost = gone.clone();
+    lost.repository = base.path().join("no-such-repository");
+    lost.path = base.path().join("no-such-worktree");
+    lost.outcome = Outcome::Active;
+    assert_eq!(worktree::release(&root, &lost), Outcome::CleanupFailed);
 }
 
 #[tokio::test]
