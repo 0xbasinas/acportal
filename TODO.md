@@ -14,7 +14,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
   - [ ] Run Linux and macOS CI (and an Android run) for `f123159` and the review fixes (design section 29); neither has run on them. Repository-configured filters, merge drivers and textconv are not blocked in worktree git calls (documented; refuse-when-configured is the next step if wanted).
   - [ ] Worktrees: no cap on kept branches; merge conflicts are refused, not resolved (merge by hand on the host). Submodules are not initialised in a worktree.
   - [ ] Phone task views on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, worktree row, merge button, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested only.
-  - [ ] Penpot boards 51-54 (design section 24) have two known flaws: board 53's note text overflows its box, and board 54's `</>` icon text wraps. Renders are at `/workspace/penpot/renders` on the build box (not in the repository).
+  - [ ] Look at Penpot boards 53 and 54 (both themes) once image export works again: their two text flaws were fixed on 15 October and checked by measured geometry only.
   - Decided against, revisit on request: client reconnect/reattach and a token budget ([design section 23](docs/orchestrator-design.md#23-closing-phases-1-to-3-branch-experimentorchestrator-14-october-2026)).
   - [ ] Before merge: take PR #45 out of draft after the above; ask the user whether to delete test sessions `20261013_2`-`_5` from their Goose history.
 
