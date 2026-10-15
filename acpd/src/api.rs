@@ -895,7 +895,6 @@ async fn cancel_task(State(host): State<Host>, Path(id): Path<String>) -> ApiRes
 /// The phone merges a finished task's worktree branch into the parent's checkout. A refusal is
 /// 404 or 409 with a code; a conflict also lists the conflicting files.
 async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Response {
-    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
     let id = match task_id(&id) {
         Ok(id) => id,
         Err(error) => return error.into_response(),
@@ -903,25 +902,31 @@ async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Respons
     match host.orchestrator.merge_task(id).await {
         Ok(merged) => Json(merged).into_response(),
         Err(refusal) => {
-            let status = match refusal {
-                MergeTaskRefusal::Unknown => StatusCode::NOT_FOUND,
-                MergeTaskRefusal::Git(MergeRefusal::GitFailed) => StatusCode::INTERNAL_SERVER_ERROR,
-                _ => StatusCode::CONFLICT,
-            };
-            // A conflict can touch hundreds of files; the phone shows a handful, so cap the list.
-            let files = match &refusal {
-                MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) => {
-                    files.iter().take(20).cloned().collect()
-                }
-                _ => vec![],
-            };
-            let mut error = json!({"code": refusal.code()});
-            if !files.is_empty() {
-                error["files"] = json!(files);
-            }
-            (status, Json(json!({ "error": error }))).into_response()
+            let (status, body) = merge_refusal_response(&refusal);
+            (status, Json(body)).into_response()
         }
     }
+}
+/// The most conflicting files a refused merge names. A conflict can touch hundreds; the phone
+/// shows a handful, and the body stays small enough for its error reader.
+const MERGE_CONFLICT_FILES: usize = 20;
+/// HTTP status and JSON body for a refused merge.
+fn merge_refusal_response(
+    refusal: &crate::orchestrator::views::MergeTaskRefusal,
+) -> (StatusCode, Value) {
+    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
+    let status = match refusal {
+        MergeTaskRefusal::Unknown => StatusCode::NOT_FOUND,
+        MergeTaskRefusal::Git(MergeRefusal::GitFailed) => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::CONFLICT,
+    };
+    let mut error = json!({"code": refusal.code()});
+    if let MergeTaskRefusal::Git(MergeRefusal::Conflict(files)) = refusal
+        && !files.is_empty()
+    {
+        error["files"] = json!(files.iter().take(MERGE_CONFLICT_FILES).collect::<Vec<_>>());
+    }
+    (status, json!({ "error": error }))
 }
 fn supervisor(host: &Host, id: &str, paused: bool) -> ApiResult<StatusCode> {
     use crate::orchestrator::views::PauseRefusal;
@@ -1290,4 +1295,78 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             let _ = session.cancel().await;
         }
     });
+}
+
+#[cfg(test)]
+mod merge_response_tests {
+    use super::*;
+    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
+
+    fn conflict(count: usize) -> MergeTaskRefusal {
+        MergeTaskRefusal::Git(MergeRefusal::Conflict(
+            (0..count).map(|n| format!("src/file{n}.rs")).collect(),
+        ))
+    }
+
+    #[test]
+    fn a_conflict_names_its_files_but_never_more_than_twenty() {
+        let (status, body) = merge_refusal_response(&conflict(3));
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"]["code"], "merge_conflict");
+        assert_eq!(
+            body["error"]["files"],
+            json!(["src/file0.rs", "src/file1.rs", "src/file2.rs"])
+        );
+        // Exactly at the cap: all of them. One over, and far over: the first twenty, in order.
+        let at = merge_refusal_response(&conflict(20)).1;
+        assert_eq!(at["error"]["files"].as_array().unwrap().len(), 20);
+        for count in [21, 500] {
+            let body = merge_refusal_response(&conflict(count)).1;
+            let files = body["error"]["files"].as_array().unwrap();
+            assert_eq!(files.len(), 20, "{count} conflicting files");
+            assert_eq!(files[0], "src/file0.rs");
+            assert_eq!(files[19], "src/file19.rs");
+        }
+        // The body a phone reads stays far under the 8 KiB it reads, even with long paths.
+        let long = MergeTaskRefusal::Git(MergeRefusal::Conflict(
+            (0..500)
+                .map(|n| format!("{}/{n}.rs", "d".repeat(200)))
+                .collect(),
+        ));
+        assert!(merge_refusal_response(&long).1.to_string().len() < 8192);
+    }
+
+    #[test]
+    fn other_refusals_carry_a_code_and_the_right_status_and_no_file_list() {
+        for (refusal, status, code) in [
+            (
+                MergeTaskRefusal::Unknown,
+                StatusCode::NOT_FOUND,
+                "task_not_found",
+            ),
+            (
+                MergeTaskRefusal::Git(MergeRefusal::GitFailed),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git_failed",
+            ),
+            (
+                MergeTaskRefusal::Git(MergeRefusal::ParentDirty),
+                StatusCode::CONFLICT,
+                "parent_dirty",
+            ),
+            (
+                MergeTaskRefusal::AlreadyMerged,
+                StatusCode::CONFLICT,
+                "already_merged",
+            ),
+        ] {
+            let (got, body) = merge_refusal_response(&refusal);
+            assert_eq!(got, status, "{code}");
+            assert_eq!(body["error"]["code"], code);
+            assert!(body["error"].get("files").is_none(), "{code}");
+        }
+        // A conflict git reported no names for has no list at all (not an empty one).
+        let (_, body) = merge_refusal_response(&conflict(0));
+        assert!(body["error"].get("files").is_none());
+    }
 }
