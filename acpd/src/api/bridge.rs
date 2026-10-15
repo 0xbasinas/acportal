@@ -125,7 +125,11 @@ fn swap_session_id(value: &mut Value, from: &str, to: &str) {
 /// What a journal event looks like on the wire to a peer, or `None` if the peer never sees it.
 /// Agent messages (notifications, requests and the responses the host synthesizes) go through;
 /// host-published updates go through; echoes of what a client sent do not.
-fn outbound(event: &Event, acp_id: &str, bridge_id: &str) -> Option<Value> {
+///
+/// With `tag` (a client that asked for reattach support in `initialize`), the frame carries the
+/// journal sequence number as a top-level `acpdSeq`, so a client that reattaches can tell the
+/// frames it already has from the ones it missed. Other clients never see the field.
+fn outbound(event: &Event, acp_id: &str, bridge_id: &str, tag: bool) -> Option<Value> {
     let forward = match event.direction {
         "agent" => true,
         "host" => event.message.get("method").is_some(),
@@ -136,6 +140,9 @@ fn outbound(event: &Event, acp_id: &str, bridge_id: &str) -> Option<Value> {
     }
     let mut message = event.message.clone();
     swap_session_id(&mut message, acp_id, bridge_id);
+    if tag {
+        message["acpdSeq"] = json!(event.sequence);
+    }
     Some(message)
 }
 
@@ -151,6 +158,8 @@ struct Peer {
     auth: Authorized,
     agent_id: String,
     initialized: bool,
+    /// The client asked, in `initialize`, for journal sequence numbers on forwarded frames.
+    seq_tags: bool,
     owned: HashMap<String, Owned>,
     outbox: mpsc::Sender<Value>,
     overflow: Arc<Notify>,
@@ -181,12 +190,13 @@ impl Peer {
         let (acp_id, bridge_id) = (acp_id.to_owned(), bridge_id.to_owned());
         let outbox = self.outbox.clone();
         let overflow = self.overflow.clone();
+        let tag = self.seq_tags;
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) if event.sequence > cursor => {
                         cursor = event.sequence;
-                        if let Some(frame) = outbound(&event, &acp_id, &bridge_id)
+                        if let Some(frame) = outbound(&event, &acp_id, &bridge_id, tag)
                             && outbox.try_send(frame).is_err()
                         {
                             overflow.notify_one();
@@ -247,19 +257,20 @@ impl Peer {
                         .await;
                 } else {
                     self.initialized = true;
+                    self.seq_tags = params["_meta"]["acpdReattach"] == true;
                     // Version 1 only. A different version asked for gets 1 back, as the spec
                     // says, and the peer decides whether to continue.
-                    self.queue(response(
-                        id,
-                        json!({"protocolVersion": 1,
-                            "agentCapabilities": {
-                                "loadSession": true,
-                                "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
-                                "mcpCapabilities": {"http": false, "sse": false}},
-                            "agentInfo": {"name": "acpd", "version": env!("CARGO_PKG_VERSION")},
-                            "authMethods": []}),
-                    ))
-                    .await;
+                    let mut result = json!({"protocolVersion": 1,
+                        "agentCapabilities": {
+                            "loadSession": true,
+                            "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
+                            "mcpCapabilities": {"http": false, "sse": false}},
+                        "agentInfo": {"name": "acpd", "version": env!("CARGO_PKG_VERSION")},
+                        "authMethods": []});
+                    if self.seq_tags {
+                        result["_meta"] = json!({"acpdReattach": true});
+                    }
+                    self.queue(response(id, result)).await;
                 }
             }
             _ if !self.initialized => {
@@ -418,6 +429,14 @@ impl Peer {
         let mut result = metadata.setup.clone();
         swap_session_id(&mut result, &metadata.acp_session_id, &bridge_id);
         result["sessionId"] = json!(bridge_id);
+        if self.seq_tags {
+            // Forwarding starts after this position; a reattach replays from the start, and the
+            // client must know the earlier events are ones it was never meant to get.
+            if !result["_meta"].is_object() {
+                result["_meta"] = json!({});
+            }
+            result["_meta"]["acpdSeq"] = json!(cursor);
+        }
         response(id, result)
     }
 
@@ -465,7 +484,7 @@ impl Peer {
         let first = replay.events.first().map_or(0, |event| event.sequence);
         let mut sent_ids = HashSet::new();
         for event in &replay.events {
-            if let Some(frame) = outbound(event, &acp_id, bridge_id) {
+            if let Some(frame) = outbound(event, &acp_id, bridge_id, self.seq_tags) {
                 if frame.get("method").is_some()
                     && let Some(request_id) = frame.get("id")
                 {
@@ -563,6 +582,7 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
         auth,
         agent_id,
         initialized: false,
+        seq_tags: false,
         owned: HashMap::new(),
         outbox,
         overflow: overflow.clone(),
