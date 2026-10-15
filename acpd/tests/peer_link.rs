@@ -258,6 +258,9 @@ struct Proxy {
     accept: JoinHandle<()>,
     /// While set, a new connection is accepted (and counted) and dropped at once.
     refusing: Arc<std::sync::atomic::AtomicBool>,
+    /// While set, what the dialer sends is swallowed (the dialer's writes still succeed) but what
+    /// the far side sends still comes through: a line written just as a link dies.
+    swallowing: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Proxy {
     async fn start(target: String) -> Self {
@@ -266,7 +269,13 @@ impl Proxy {
         let accepted = Arc::new(AtomicUsize::new(0));
         let tasks: Arc<Mutex<Vec<AbortHandle>>> = Arc::default();
         let refusing: Arc<std::sync::atomic::AtomicBool> = Arc::default();
-        let (count, handles, refuse) = (accepted.clone(), tasks.clone(), refusing.clone());
+        let swallowing: Arc<std::sync::atomic::AtomicBool> = Arc::default();
+        let (count, handles, refuse, swallow) = (
+            accepted.clone(),
+            tasks.clone(),
+            refusing.clone(),
+            swallowing.clone(),
+        );
         let accept = tokio::spawn(async move {
             while let Ok((mut inbound, _)) = listener.accept().await {
                 count.fetch_add(1, Ordering::SeqCst);
@@ -274,9 +283,26 @@ impl Proxy {
                     continue; // dropped: the dialer sees a connection that ends at once
                 }
                 let target = target.clone();
+                let swallow = swallow.clone();
                 let task = tokio::spawn(async move {
                     if let Ok(mut outbound) = TcpStream::connect(&target).await {
-                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                        use tokio::io::AsyncWriteExt;
+                        let (mut from_dialer, mut to_dialer) = inbound.split();
+                        let (mut from_far, mut to_far) = outbound.split();
+                        let up = async {
+                            let mut buffer = [0u8; 8192];
+                            loop {
+                                let n = from_dialer.read(&mut buffer).await?;
+                                if n == 0 {
+                                    return Ok::<(), std::io::Error>(());
+                                }
+                                if !swallow.load(Ordering::SeqCst) {
+                                    to_far.write_all(&buffer[..n]).await?;
+                                }
+                            }
+                        };
+                        let down = tokio::io::copy(&mut from_far, &mut to_dialer);
+                        tokio::select! { _ = up => {}, _ = down => {} }
                     }
                 });
                 handles.lock().unwrap().push(task.abort_handle());
@@ -288,7 +314,11 @@ impl Proxy {
             tasks,
             accept,
             refusing,
+            swallowing,
         }
+    }
+    fn swallow(&self, on: bool) {
+        self.swallowing.store(on, Ordering::SeqCst);
     }
     /// Cut every connection now; new ones still get through (unless refused).
     fn sever(&self) {
@@ -1198,14 +1228,12 @@ async fn what_the_actor_writes_while_the_link_is_down_is_held_and_sent_once_when
 
     proxy.refuse(true);
     proxy.sever();
+    // Wait until a try has been made and refused: the pump is now in its retry wait, so what the
+    // actor writes next is held (not written to a dying socket).
+    eventually(|| async { (proxy.accepted.load(Ordering::SeqCst) >= 2).then_some(()) }).await;
     let second = session.clone();
     let two = tokio::spawn(async move { second.prompt("two").await });
-    // Down for a while: the tries are refused, and the prompt is held, not sent and not lost.
-    tokio::time::sleep(Duration::from_millis(2500)).await;
-    assert!(
-        proxy.accepted.load(Ordering::SeqCst) >= 2,
-        "tries were made"
-    );
+    tokio::time::sleep(Duration::from_millis(800)).await;
     let remote = far_session(&far, &session).await;
     assert_eq!(event_count(&remote, "session/prompt"), 1, "nothing got out");
     proxy.refuse(false);
@@ -1355,5 +1383,44 @@ async fn a_credential_revoked_while_the_link_is_down_ends_it_without_more_tries(
         "{} connections",
         proxy.accepted.load(Ordering::SeqCst)
     );
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn a_prompt_written_as_the_link_died_is_sent_again_exactly_once_when_it_never_arrived() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    let remote = far_session(&far, &session).await;
+
+    // From here what this side writes succeeds locally but goes nowhere: the prompt is "sent"
+    // into a link that is already dead.
+    proxy.swallow(true);
+    let prompting = session.clone();
+    let prompt = tokio::spawn(async move { prompting.prompt("go").await });
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        event_count(&remote, "session/prompt"),
+        0,
+        "it never arrived"
+    );
+
+    // The link goes. The far host's list of what it received lacks the prompt, so it is sent
+    // again over the new socket, once.
+    proxy.swallow(false);
+    proxy.sever();
+    let request = first_pending(&session).await;
+    allow(&session, &request.message).await;
+    let done = prompt.await.unwrap().expect("the prompt ran");
+    assert_eq!(done["stopReason"], "end_turn");
+    assert_eq!(event_count(&remote, "session/prompt"), 1);
     far.stop().await;
 }

@@ -716,13 +716,7 @@ async fn attempt(
         .as_array()
         .map(|ids| ids.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let never_arrived: Vec<String> = tracker
-        .outstanding
-        .iter()
-        .filter(|(key, _)| !received.contains(key.as_str()))
-        .map(|(_, line)| line.clone())
-        .collect();
-    for line in never_arrived {
+    for line in lines_to_resend(&tracker.outstanding, &received) {
         if !matches!(
             tokio::time::timeout(SEND_TIMEOUT, sink.send(Message::Text(line.into()))).await,
             Ok(Ok(()))
@@ -743,6 +737,18 @@ async fn attempt(
         }
     }
     Attempt::Back(sink, stream)
+}
+
+/// The unanswered lines the far host did not receive, oldest first: the only ones sent again.
+fn lines_to_resend(
+    outstanding: &VecDeque<(String, String)>,
+    received: &HashSet<&str>,
+) -> Vec<String> {
+    outstanding
+        .iter()
+        .filter(|(key, _)| !received.contains(key.as_str()))
+        .map(|(_, line)| line.clone())
+        .collect()
 }
 
 async fn send(sink: &mut Sink, value: Value) -> bool {
@@ -946,6 +952,28 @@ mod tests {
         assert_eq!(keys, vec!["p:77"]);
         // The three requests that open a session are never in the list.
         assert!(started().outstanding.is_empty());
+    }
+
+    #[test]
+    fn only_what_the_far_host_did_not_receive_is_sent_again_and_in_order() {
+        let outstanding: VecDeque<(String, String)> = [
+            ("q:1", "prompt one"),
+            ("p:9", "answer nine"),
+            ("q:2", "prompt two"),
+            ("q:3", "prompt three"),
+        ]
+        .into_iter()
+        .map(|(k, l)| (k.to_owned(), l.to_owned()))
+        .collect();
+        let received: HashSet<&str> = ["q:1", "q:3"].into_iter().collect();
+        assert_eq!(
+            lines_to_resend(&outstanding, &received),
+            vec!["answer nine".to_owned(), "prompt two".to_owned()]
+        );
+        // Everything received: nothing is sent; nothing received: all of it, in order.
+        let all: HashSet<&str> = ["q:1", "p:9", "q:2", "q:3"].into_iter().collect();
+        assert!(lines_to_resend(&outstanding, &all).is_empty());
+        assert_eq!(lines_to_resend(&outstanding, &HashSet::new()).len(), 4);
     }
 
     #[test]
