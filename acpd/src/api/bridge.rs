@@ -36,7 +36,13 @@ struct Retained {
     attached: bool,
     /// Bumped on every attach and detach, so a stale removal timer does nothing.
     epoch: u64,
+    /// The ids of the requests (`q:<id>`) and answers (`p:<id>`) this host received from the peer
+    /// for the session, newest last. A peer that reattaches reads them to learn which of the
+    /// things it wrote just before the socket died never arrived, and sends only those again.
+    received: std::collections::VecDeque<String>,
 }
+/// How many received ids are kept per session.
+const RECEIVED_KEPT: usize = 1024;
 
 /// What a paired peer may use here, so it can check before it opens a session: the agents shared
 /// with peers (only ones that exist and are enabled), workspace aliases (never their paths), the
@@ -304,6 +310,7 @@ impl Peer {
         for owned in self.owned.values() {
             let pending = owned.session.connection.pending_permissions();
             if pending.iter().any(|p| p.message["id"] == id) {
+                self.note_received(owned.session.metadata().id, format!("p:{id}"));
                 let gateway = gateway_for(&self.host, owned.session.metadata().id).await;
                 dispatch(owned.session.clone(), gateway, value);
                 return Ok(());
@@ -329,8 +336,21 @@ impl Peer {
             return;
         };
         swap_session_id(&mut message, bridge_id, &owned.acp_id);
+        if let Some(id) = &id {
+            self.note_received(owned.session.metadata().id, format!("q:{id}"));
+        }
         let gateway = gateway_for(&self.host, owned.session.metadata().id).await;
         dispatch(owned.session.clone(), gateway, message);
+    }
+
+    /// Remember that `key` arrived for this session (see [`Retained::received`]).
+    fn note_received(&self, host_id: Uuid, key: String) {
+        if let Some(entry) = self.host.bridge.sessions.lock().unwrap().get_mut(&host_id) {
+            entry.received.push_back(key);
+            while entry.received.len() > RECEIVED_KEPT {
+                entry.received.pop_front();
+            }
+        }
     }
 
     async fn session_new(&mut self, id: Value, params: &Value) -> Value {
@@ -414,6 +434,7 @@ impl Peer {
                 peer: self.auth.device.id,
                 attached: true,
                 epoch: EPOCH.fetch_add(1, Ordering::Relaxed),
+                received: Default::default(),
             },
         );
         self.owned.insert(
@@ -515,6 +536,23 @@ impl Peer {
         if replay.gap {
             // Events were evicted from the bounded journal: say how many, in `_meta` only.
             result["_meta"] = json!({"acpdGap": {"missed": first.saturating_sub(1)}});
+        }
+        if self.seq_tags {
+            // What this host received from the peer for the session, so the peer can tell what
+            // it wrote just before the socket died never got here (and send only that again).
+            let received: Vec<String> = self
+                .host
+                .bridge
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&host_id)
+                .map(|entry| entry.received.iter().cloned().collect())
+                .unwrap_or_default();
+            if !result["_meta"].is_object() {
+                result["_meta"] = json!({});
+            }
+            result["_meta"]["acpdReceived"] = json!(received);
         }
         response(id, result)
     }

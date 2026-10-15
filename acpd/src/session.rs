@@ -459,9 +459,16 @@ impl SessionManager {
                     .as_deref()
                     .context("remote agent has no url")?;
                 let store = crate::peers::PeerStore::open(&config.state_directory);
-                let link =
-                    crate::peer_link::connect(&store, peer, url, config.runtime.max_frame_bytes)
-                        .await?;
+                let link = crate::peer_link::connect(
+                    &store,
+                    peer,
+                    url,
+                    config.runtime.max_frame_bytes,
+                    crate::peer_link::Resume::within_seconds(
+                        config.orchestrator.peer_reconnect_seconds,
+                    ),
+                )
+                .await?;
                 AcpConnection::over_transport(
                     link.reader,
                     link.writer,

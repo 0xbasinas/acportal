@@ -256,6 +256,8 @@ struct Proxy {
     accepted: Arc<AtomicUsize>,
     tasks: Arc<Mutex<Vec<AbortHandle>>>,
     accept: JoinHandle<()>,
+    /// While set, a new connection is accepted (and counted) and dropped at once.
+    refusing: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Proxy {
     async fn start(target: String) -> Self {
@@ -263,10 +265,14 @@ impl Proxy {
         let port = listener.local_addr().unwrap().port();
         let accepted = Arc::new(AtomicUsize::new(0));
         let tasks: Arc<Mutex<Vec<AbortHandle>>> = Arc::default();
-        let (count, handles) = (accepted.clone(), tasks.clone());
+        let refusing: Arc<std::sync::atomic::AtomicBool> = Arc::default();
+        let (count, handles, refuse) = (accepted.clone(), tasks.clone(), refusing.clone());
         let accept = tokio::spawn(async move {
             while let Ok((mut inbound, _)) = listener.accept().await {
                 count.fetch_add(1, Ordering::SeqCst);
+                if refuse.load(Ordering::SeqCst) {
+                    continue; // dropped: the dialer sees a connection that ends at once
+                }
                 let target = target.clone();
                 let task = tokio::spawn(async move {
                     if let Ok(mut outbound) = TcpStream::connect(&target).await {
@@ -281,7 +287,17 @@ impl Proxy {
             accepted,
             tasks,
             accept,
+            refusing,
         }
+    }
+    /// Cut every connection now; new ones still get through (unless refused).
+    fn sever(&self) {
+        for task in self.tasks.lock().unwrap().drain(..) {
+            task.abort();
+        }
+    }
+    fn refuse(&self, on: bool) {
+        self.refusing.store(on, Ordering::SeqCst);
     }
     fn kill(&self) {
         self.accept.abort();
@@ -411,6 +427,7 @@ async fn an_encrypted_peer_is_never_downgraded_to_plaintext() {
         "b",
         &format!("wss://localhost:{port}/acp/mock"),
         1 << 20,
+        acpd::peer_link::Resume::OFF,
     )
     .await;
     assert!(
@@ -480,12 +497,19 @@ async fn the_other_hosts_rights_are_a_ceiling_and_this_host_may_ask_for_less() {
 }
 
 #[tokio::test]
-async fn losing_the_link_ends_the_session_here_and_nothing_is_resent() {
+async fn with_reconnecting_off_losing_the_link_ends_the_session_and_nothing_is_resent() {
     let far = Far::start().await;
     let (token, _) = far.pair_peer().await;
     let proxy = Proxy::start(far.addr.clone()).await;
     let through = format!("127.0.0.1:{}", proxy.port);
-    let near = Near::start(&bridge_url(&through), &origin_of(&through), &token, |_| {});
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        |config| {
+            config.orchestrator.peer_reconnect_seconds = 0;
+        },
+    );
     let session = near.open_remote().await.unwrap();
     let prompting = session.clone();
     let prompt = tokio::spawn(async move { prompting.prompt("go").await });
@@ -982,12 +1006,19 @@ async fn cancelling_a_delegated_remote_task_reaches_the_other_host() {
 }
 
 #[tokio::test]
-async fn a_delegated_remote_task_whose_link_drops_fails_and_says_why() {
+async fn a_delegated_remote_task_whose_link_drops_fails_and_says_why_when_reconnecting_is_off() {
     let far = Far::start().await;
     let (token, _) = far.pair_peer().await;
     let proxy = Proxy::start(far.addr.clone()).await;
     let through = format!("127.0.0.1:{}", proxy.port);
-    let near = Near::start(&bridge_url(&through), &origin_of(&through), &token, |_| {});
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        |config| {
+            config.orchestrator.peer_reconnect_seconds = 0;
+        },
+    );
     let root = near
         .manager
         .open_configured(
@@ -1081,4 +1112,248 @@ async fn a_delegated_remote_task_carries_its_trace_next_to_the_alias_and_rights(
     assert_eq!(frames[2]["method"], "session/prompt");
     assert_eq!(frames[2]["params"]["_meta"]["traceparent"], trace);
     peer.task.abort();
+}
+
+fn event_count(session: &AcpSession, method: &str) -> usize {
+    session
+        .replay(0)
+        .events
+        .iter()
+        .filter(|event| event.message["method"] == method)
+        .count()
+}
+async fn far_session(far: &Far, near_session: &AcpSession) -> Arc<AcpSession> {
+    far.host
+        .sessions
+        .get(near_session.metadata().acp_session_id.parse().unwrap())
+        .await
+        .unwrap()
+}
+fn reconnecting(config: &mut Config) {
+    config.orchestrator.peer_reconnect_seconds = 30;
+}
+
+#[tokio::test]
+async fn a_lost_link_is_replaced_and_the_turn_in_flight_finishes_with_nothing_sent_twice() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    let prompting = session.clone();
+    let prompt = tokio::spawn(async move { prompting.prompt("go").await });
+    let request = first_pending(&session).await;
+    let streamed = agent_text(&session);
+    assert!(!streamed.is_empty(), "streaming began before the cut");
+
+    proxy.sever();
+    // The link comes back by itself (the first new try is about a second later).
+    eventually(|| async { (proxy.accepted.load(Ordering::SeqCst) >= 2).then_some(()) }).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The far host replayed its whole journal; none of it reached the session a second time.
+    let pending = session.connection.pending_permissions();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].message["id"], request.message["id"]);
+    assert_eq!(event_count(&session, "session/request_permission"), 1);
+    assert_eq!(agent_text(&session), streamed);
+    assert_ne!(session.metadata().status, "exited");
+
+    // The person answers on this side; the answer reaches the far side over the new socket and the
+    // turn the first socket started finishes.
+    allow(&session, &request.message).await;
+    let done = prompt.await.unwrap().expect("the turn finishes");
+    assert_eq!(done["stopReason"], "end_turn");
+    let text = agent_text(&session);
+    assert_eq!(text.matches("Mock lifecycle complete").count(), 1, "{text}");
+    // Nothing was sent twice: the far host got one prompt.
+    let remote = far_session(&far, &session).await;
+    assert_eq!(event_count(&remote, "session/prompt"), 1);
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn what_the_actor_writes_while_the_link_is_down_is_held_and_sent_once_when_it_is_back() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    let first = session.clone();
+    let one = tokio::spawn(async move { first.prompt("one").await });
+    let request = first_pending(&session).await;
+    allow(&session, &request.message).await;
+    one.await.unwrap().expect("the first turn finishes");
+
+    proxy.refuse(true);
+    proxy.sever();
+    let second = session.clone();
+    let two = tokio::spawn(async move { second.prompt("two").await });
+    // Down for a while: the tries are refused, and the prompt is held, not sent and not lost.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert!(
+        proxy.accepted.load(Ordering::SeqCst) >= 2,
+        "tries were made"
+    );
+    let remote = far_session(&far, &session).await;
+    assert_eq!(event_count(&remote, "session/prompt"), 1, "nothing got out");
+    proxy.refuse(false);
+
+    let request = first_pending(&session).await;
+    allow(&session, &request.message).await;
+    two.await
+        .unwrap()
+        .expect("the held prompt ran once the link was back");
+    assert_eq!(
+        event_count(&remote, "session/prompt"),
+        2,
+        "once each, never twice"
+    );
+    assert_eq!(
+        agent_text(&session)
+            .matches("Mock lifecycle complete")
+            .count(),
+        2
+    );
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn a_link_that_stays_down_ends_the_session_when_the_window_runs_out() {
+    let far = Far::start().await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        |config| {
+            config.orchestrator.peer_reconnect_seconds = 2;
+        },
+    );
+    let session = near.open_remote().await.unwrap();
+    let prompting = session.clone();
+    let prompt = tokio::spawn(async move { prompting.prompt("go").await });
+    first_pending(&session).await;
+    proxy.refuse(true);
+    proxy.sever();
+    eventually(|| async { session.connection.closed_reason() }).await;
+    assert!(
+        prompt.await.unwrap().is_err(),
+        "the turn fails, as it always did"
+    );
+    assert_eq!(session.metadata().status, "exited");
+    assert!(
+        proxy.accepted.load(Ordering::SeqCst) >= 2,
+        "it tried before giving up"
+    );
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn journal_events_the_far_host_evicted_before_this_host_saw_them_end_the_link() {
+    // A far host that keeps eight journal events: while the link is down far more happen, so
+    // some this host never saw are gone and a replay could not be complete.
+    let far = Far::start_with(|config| config.runtime.history_events = 8).await;
+    let (token, _) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    let prompting = session.clone();
+    let prompt = tokio::spawn(async move { prompting.prompt("go").await });
+    first_pending(&session).await;
+    proxy.refuse(true);
+    proxy.sever();
+    let remote = far_session(&far, &session).await;
+    for n in 0..30 {
+        remote
+            .connection
+            .request(
+                "_mock/emit_update",
+                json!({"update":{"sessionUpdate":"agent_message_chunk",
+                    "content":{"type":"text","text":format!("while away {n}")}}}),
+            )
+            .await
+            .unwrap();
+    }
+    proxy.refuse(false);
+    eventually(|| async { session.connection.closed_reason() }).await;
+    assert!(prompt.await.unwrap().is_err());
+    assert_eq!(session.metadata().status, "exited");
+    far.stop().await;
+}
+
+#[tokio::test]
+async fn a_far_host_that_does_not_number_its_frames_is_never_redialled() {
+    let peer = FakePeer::start(|frame| match frame["method"].as_str() {
+        Some("initialize") => vec![initialize_reply(&frame["id"])],
+        Some("session/new") => vec![session_reply(&frame["id"])],
+        _ => vec![],
+    })
+    .await;
+    let proxy = Proxy::start(peer.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        "any-token",
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    proxy.sever();
+    eventually(|| async { session.connection.closed_reason() }).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(
+        proxy.accepted.load(Ordering::SeqCst),
+        1,
+        "without frame numbers a replay cannot be told from news, so there is no second try"
+    );
+    peer.task.abort();
+}
+
+#[tokio::test]
+async fn a_credential_revoked_while_the_link_is_down_ends_it_without_more_tries() {
+    let far = Far::start().await;
+    let (token, device) = far.pair_peer().await;
+    let proxy = Proxy::start(far.addr.clone()).await;
+    let through = format!("127.0.0.1:{}", proxy.port);
+    let near = Near::start(
+        &bridge_url(&through),
+        &origin_of(&through),
+        &token,
+        reconnecting,
+    );
+    let session = near.open_remote().await.unwrap();
+    proxy.refuse(true);
+    proxy.sever();
+    far.host.security.revoke(device).unwrap();
+    proxy.refuse(false);
+    eventually(|| async { session.connection.closed_reason() }).await;
+    assert_eq!(session.metadata().status, "exited");
+    // One connection to open the session, one try that the far host refused: no more.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert!(
+        proxy.accepted.load(Ordering::SeqCst) <= 3,
+        "{} connections",
+        proxy.accepted.load(Ordering::SeqCst)
+    );
+    far.stop().await;
 }

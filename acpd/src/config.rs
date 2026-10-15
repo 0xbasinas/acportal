@@ -71,6 +71,10 @@ pub struct OrchestratorConfig {
     /// is closed. A peer that has stopped reading is also cut off as soon as its 256-frame
     /// outbox is full, whichever comes first.
     pub bridge_send_timeout_seconds: u64,
+    /// How long a lost link to another host (a `transport = "ws"` agent) is retried before its
+    /// session ends. The far host must keep the session that long too (its `bridge_resume_seconds`)
+    /// and must number its journal frames (an acpd 0.1.x with reattach support). 0 turns it off.
+    pub peer_reconnect_seconds: u64,
     /// Isolation of a delegated task that does not ask for one. `worktree` (default) gives a task
     /// with the write right its own git worktree when its folder is in a git repository, and runs
     /// it in the folder itself when it is not; `shared` always runs it in the folder.
@@ -137,6 +141,7 @@ impl Default for OrchestratorConfig {
             bridge_resume_seconds: 120,
             bridge_ping_seconds: 20,
             bridge_send_timeout_seconds: 5,
+            peer_reconnect_seconds: 60,
             default_isolation: DefaultIsolation::default(),
             max_task_branches: 50,
             worktree_uncommitted: Default::default(),
@@ -166,6 +171,7 @@ impl OrchestratorConfig {
         if self.bridge_resume_seconds > 3600
             || !(5..=120).contains(&self.bridge_ping_seconds)
             || !(1..=600).contains(&self.bridge_send_timeout_seconds)
+            || self.peer_reconnect_seconds > 600
         {
             bail!("invalid bridge timers")
         }
