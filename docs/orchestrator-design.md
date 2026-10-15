@@ -379,6 +379,8 @@ max_edit_bytes = 262144              # medium ceiling for edits
 bridge_resume_seconds = 120          # 0..3600
 bridge_ping_seconds = 20             # 5..120
 bridge_send_timeout_seconds = 5      # 1..600; one frame or ping to a peer may take this long to write
+peer_reconnect_seconds = 60           # 0..600; how long a lost link to another host is retried (0 = off), section 31
+max_task_branches = 50               # 0..10000; unmerged acpd/task-* branches per repository (0 = no limit), section 31
 
 orchestrate = ["supervisor"]         # agent ids that receive the MCP delegation tools
 delegable = ["worker", "supervisor"] # agent ids that may be children (and may also orchestrate)
@@ -886,3 +888,34 @@ Phone: a merge conflict now lists up to five conflicting files and how many more
 - Add `cargo audit` or `cargo deny` to CI so the next advisory is caught on the day (a decision for you, section "Decisions" in the review answer).
 - Private-CA peers (above).
 - The journal-lag cut-off and the reply-queue overflow are untested.
+
+## 31. Worktree gaps closed, and a lost peer link is resumed (15 October 2026)
+
+Decisions recorded from the review (section 29 and 30): the Goose write-gate question is handled by the auto-approve setup (section 32); repository-configured programs in worktree git calls stay documented, not blocked; **no token budget** (decided, section 23); client reconnect is now built (below); the worktree gaps are patched as follows.
+
+### Worktree gaps
+
+| Gap | What it does now |
+| --- | --- |
+| Kept branches had no cap | `[orchestrator] max_task_branches` (default 50, 0 = no limit, 0..10000). `worktree::task_branches` counts the repository's `acpd/task-*` branches **from git itself**, so it survives the task-record pruning. At the limit, a task that wants a worktree is refused (`isolation_unavailable`, "too many unmerged task branches; merge or discard some"); the default isolation falls back to the shared folder with that note. Nothing is ever deleted to make room: unmerged agent work is the owner's to merge or discard. |
+| No way to drop kept work from the phone | `POST /v1/tasks/{id}/discard` (phone credential only) removes a finished task's worktree (forced, so uncommitted work goes too), deletes its branch and ends the task's agent. It works on a kept branch, a kept dirty worktree, a failed cleanup, or a completed task's live worktree; it refuses an open task (`task_not_finished`), a merged or discarded one, and one with nothing left (`nothing_to_discard`). The parent's checkout is never touched. New outcome `discarded`. The phone shows "Throw this work away" with a confirmation. |
+| Merge conflicts were refused with no help | The refusal now carries `branch` and `repository` (plus up to 20 conflicting files). The phone shows the exact command to run on the host: `git -C "<repository>" merge <branch>` (never built from a name containing a space or a quote). Conflicts are still refused, not resolved: nothing changes in the parent's folder. |
+| Submodules | A repository with `.gitmodules` gets no worktree (a worktree would leave them empty, and filling them would reach the network): an explicit worktree is refused with the reason; the default runs shared with a note. |
+
+Tests (all mutation-checked): `repositories_with_submodules_and_too_many_task_branches_get_no_worktree`, `the_branch_limit_counts_only_task_branches_and_zero_means_no_limit`, `the_phone_throws_a_finished_tasks_work_away_without_touching_the_parent_checkout`, `a_kept_dirty_worktree_can_be_discarded_and_an_open_or_empty_task_cannot`, the response tests in `api.rs`, and on the phone `TaskDiscardTest` and the conflict-command tests in `HostRequestErrorTest`. Each guard was broken in turn (submodule check, cap comparison, zero meaning no limit, counting every branch, forced removal, branch deletion, the open-task refusal, the command-safety check) and a test failed.
+
+### A lost peer link is resumed
+
+Before, losing the socket to another host ended the session. Now, for a `transport = "ws"` agent, the link is dialled again behind the actor's back (`peer_reconnect_seconds`, default 60, 0 = off; waits of 1, 2, 4, then 8 s). It rests on three small additions to the protocol, all opt-in so other ACP peers see nothing different:
+
+1. A client that sets `_meta.acpdReattach` in `initialize` gets `_meta.acpdReattach: true` back and a top-level **`acpdSeq`** (the journal sequence number) on every forwarded frame. The answer to `session/new` carries `_meta.acpdSeq`, the position forwarding starts from.
+2. `session/load` on a bridge session answers with `_meta.acpdReceived`: the ids of the requests (`q:<id>`) and answers (`p:<id>`) the far host received for that session (the last 1024). `_meta.acpdGap.missed` is as before.
+3. Frames the far host re-queues without a sequence number (a request still waiting, outside the replay window) are told apart by their id.
+
+How the pump uses them (`peer_link.rs`): it remembers the session id, the actor's own `initialize` parameters, the highest sequence delivered, the agent requests already delivered, and every line the actor wrote that is still unanswered. On a lost socket it holds what the actor writes (up to 256 lines), dials, repeats `initialize` and `session/load`, drops replayed frames it already delivered, delivers the ones it missed, **sends again only the unanswered lines the far host did not receive** (once), then sends the held lines. The actor sees one continuous stream. A turn that was running when the socket died carries on and its result arrives.
+
+It stops and ends the link the old way (the actor sees the agent exit, the turn fails with the same message) when: the far host does not number its frames (`initialize` without the mark: an older acpd or another ACP server); it refuses the credential (HTTP 401/403/404 while dialling, or a close with 1008, e.g. revoked or rate limited); the session is gone; the far journal evicted events the actor never saw (`missed` larger than the sequence the actor had before the replay); more than 256 lines are held; or the window runs out. A protocol violation (a frame with a newline, an oversize line) is never retried.
+
+Tests (`peer_link.rs`, with a TCP proxy that can sever connections, refuse new ones, and swallow what the dialler sends): the turn in flight finishes after a cut with one pending permission, no duplicated text and one far prompt; lines written during the outage are held and sent once; a prompt written into the dead socket is sent again exactly once (and not at all when the far host had it); the window running out ends the session; a lost journal range ends it; an unnumbered far host is never redialled; a revoked credential ends it with no further tries; plus eight unit tests of the tracker. Mutations (sequence dedupe, counter advance, replayed-request dedupe, gap check and its original wrong order, resend everything, resend nothing, resume an unnumbered host, drop the held lines) were each caught; two weak spots found by that run (a resend-everything duplicate that was invisible to integration tests, and a held-lines test that took the resend path) were fixed with a pure filter function and a deterministic outage.
+
+**Limits.** Linux and macOS not run for this; one run each of two hosts over loopback with a mock agent, not over a real network or TLS; the far host must be an acpd with this change (`session/load` reattach already existed, the numbering did not); the phone is not told "link lost, retrying" (the session just pauses, then catches up); frames sent without an id (notifications other than `session/cancel` semantics) are not tracked, so a `session/cancel` written into a dying socket may be lost (the turn then ends by its deadline).

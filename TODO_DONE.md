@@ -1,5 +1,10 @@
 # Completed work and verification history
 
+## 15 October 2026 worktree gaps and peer-link reconnect
+
+- Worktree gaps ([design section 31](docs/orchestrator-design.md#31-worktree-gaps-closed-and-a-lost-peer-link-is-resumed-15-october-2026)): `max_task_branches` cap counted from git, discard from the phone (forced, ends the agent), merge-conflict command on the phone, submodule repositories refused. Host tests, phone JVM tests (106 app, 76 core) and lint pass; every guard mutation-checked.
+- Peer-link reconnect: a lost socket is replaced behind the actor with reattach, deduplicated replay and exactly-once resend (opt-in `acpdSeq`/`acpdReceived`); 22 integration and 9 unit tests, nine mutations caught. Windows only, loopback only.
+
 ## 15 October 2026 dependency review, outbox test, two untested bits
 
 - `tokio-tungstenite`/TLS review ([design section 30](docs/orchestrator-design.md#30-dependency-review-of-the-websocket-stack-and-the-outbox-guard-15-october-2026)): RustSec checked for every crate on the path; `rustls` 0.23.45 was in the range of four advisories published 14 October (none applies here); `Cargo.lock` now has 0.23.46. New `bridge_send_timeout_seconds`; the bridge cut-off test now fails when the outbox-full signal is removed (the lag signal beside it is still untested).

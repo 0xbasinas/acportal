@@ -12,10 +12,10 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
   - [ ] Goose's own tool gate for a write is always High, so a supervisor cannot replace the phone for it; only the host's consent that follows is supervisor-decidable (design section 23). Decide whether any agent-declared shape may rate Medium. Windows shell lines always rate High.
   - [ ] Dependency follow-ups from the `tokio-tungstenite` review (design section 30): add `cargo audit`/`cargo deny` to CI; decide whether private-CA peers must be reachable (trust roots are the bundled web set only); the journal-lag cut-off and the reply-queue overflow in the bridge are untested.
   - [ ] Run Linux and macOS CI (and an Android run) for `f123159` and the review fixes (design section 29); neither has run on them. Repository-configured filters, merge drivers and textconv are not blocked in worktree git calls (documented; refuse-when-configured is the next step if wanted).
-  - [ ] Worktrees: no cap on kept branches; merge conflicts are refused, not resolved (merge by hand on the host). Submodules are not initialised in a worktree.
+  - [ ] Worktrees: merge conflicts are refused (the phone shows the command to merge by hand), not resolved; submodule repositories get no worktree (section 31).
   - [ ] Phone task views on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, worktree row, merge button, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested only.
   - [ ] Look at Penpot boards 53 and 54 (both themes) once image export works again: their two text flaws were fixed on 15 October and checked by measured geometry only.
-  - Decided against, revisit on request: client reconnect/reattach and a token budget ([design section 23](docs/orchestrator-design.md#23-closing-phases-1-to-3-branch-experimentorchestrator-14-october-2026)).
+  - Decided against: a token budget (design section 23). Client reconnect is now built (section 31); not yet run on Linux/macOS or over real TLS between two machines.
   - [ ] Before merge: take PR #45 out of draft after the above; ask the user whether to delete test sessions `20261013_2`-`_5` from their Goose history.
 
 ## Host limits requiring further verification or a containment decision
