@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 
 export type Command = { id: string; group: string; label: string; hint?: string; run: () => void }
 
-export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+export function Palette({ commands, onClose, onNew }: { commands: Command[]; onClose: () => void; onNew?: (q: string) => void }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const list = useMemo(() => {
     const t = q.toLowerCase().trim()
-    return commands.filter((c) => !t || (c.label + ' ' + c.group).toLowerCase().includes(t))
+    const hits = commands.filter((c) => !t || (c.label + ' ' + c.group).toLowerCase().includes(t))
+    return q.trim().length > 3 && onNew ? [{ id: 'quick', group: 'New session', label: `New session: ${q.trim()}`, hint: 'Enter', run: () => onNew(q.trim()) }, ...hits] : hits
   }, [q, commands])
   useEffect(() => setSel(0), [q])
   const run = (c?: Command): void => {

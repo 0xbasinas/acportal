@@ -4,6 +4,11 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { request, validateAddress, SessionSocket, HostError } from './host'
+import { sealWithFileKey, openWithFileKey } from './secrets'
+import { registerGit } from './git'
+import { dialog } from 'electron'
+import { readFile, stat } from 'node:fs/promises'
+import { basename, extname } from 'node:path'
 
 type StoredHost = { id: string; hostId: string; name: string; address: string; deviceId: string; secret: string; expiresAt: number; addedAt: number }
 type PublicHost = Omit<StoredHost, 'secret'>
@@ -12,15 +17,28 @@ let win: BrowserWindow | null = null
 const storeFile = (): string => join(app.getPath('userData'), 'hosts.json')
 const prefsFile = (): string => join(app.getPath('userData'), 'prefs.json')
 
+/** OS keychain via safeStorage when a real backend exists; otherwise AES-256-GCM with a
+ *  random key in an owner-only file (weaker: anyone who can read this user's files can decrypt). */
+function keychainUsable(): boolean {
+  if (!safeStorage.isEncryptionAvailable()) return false
+  if (process.platform !== 'linux') return true
+  const backend = safeStorage.getSelectedStorageBackend?.()
+  return backend !== 'basic_text' && backend !== 'unknown'
+}
 function seal(token: string): string {
-  return safeStorage.isEncryptionAvailable() ? 'enc:' + safeStorage.encryptString(token).toString('base64') : 'mem:'
+  if (keychainUsable()) return 'enc:' + safeStorage.encryptString(token).toString('base64')
+  return 'file:' + sealWithFileKey(token, app.getPath('userData'))
 }
 const memoryTokens = new Map<string, string>()
 function unseal(h: StoredHost): string {
   if (h.secret.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(h.secret.slice(4), 'base64'))
+  if (h.secret.startsWith('file:')) return openWithFileKey(h.secret.slice(5), app.getPath('userData'))
   const t = memoryTokens.get(h.id)
   if (!t) throw new HostError(401, 'locked', 'Pair this host again (no secure storage on this system)')
   return t
+}
+export function storageKind(): 'keychain' | 'file' {
+  return keychainUsable() ? 'keychain' : 'file'
 }
 function loadHosts(): StoredHost[] {
   try {
@@ -150,7 +168,31 @@ function registerIpc(): void {
     writeFileSync(prefsFile(), JSON.stringify(p))
     if (typeof p.theme === 'string') nativeTheme.themeSource = p.theme as 'dark' | 'light' | 'system'
   }))
-  ipcMain.handle('app:secure-storage', () => safeStorage.isEncryptionAvailable() ? (process.platform === 'linux' ? safeStorage.getSelectedStorageBackend?.() ?? 'available' : 'available') : 'unavailable')
+  ipcMain.handle('app:secure-storage', () => (storageKind() === 'keychain' ? `keychain:${process.platform === 'linux' ? safeStorage.getSelectedStorageBackend?.() : process.platform}` : 'file'))
+  ipcMain.handle('hosts:storage-of', wrap((id: string) => host(id).secret.split(':')[0]))
+  ipcMain.handle('files:pick', wrap(async () => {
+    if (!win) return []
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
+    const out: { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[] = []
+    for (const p of r.filePaths) {
+      const st = await stat(p)
+      if (st.size > 512 * 1024) throw new Error(`${basename(p)} is larger than 512 KB (the host frame limit is 1 MiB)`)
+      const buf = await readFile(p)
+      const ext = extname(p).toLowerCase()
+      const img = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' } as Record<string, string>)[ext]
+      if (img) out.push({ name: basename(p), mimeType: img, size: st.size, data: buf.toString('base64'), path: p })
+      else if (!buf.subarray(0, 4096).includes(0)) out.push({ name: basename(p), mimeType: 'text/plain', size: st.size, text: buf.toString('utf8'), path: p })
+      else throw new Error(`${basename(p)} is binary; only images and text files can be attached`)
+    }
+    return out
+  }))
+  registerGit(ipcMain, wrap as never, () => win, (h: string) => host(h).address, async (h: string) => {
+    const x = host(h)
+    const token = unseal(x)
+    const ws = ((await request(x.address, '/v1/workspaces', { token })) as { path: string }[]).map((w) => w.path)
+    const tasks = ((await request(x.address, '/v1/tasks', { token }).catch(() => [])) as { worktree?: { path?: string } }[]).map((t) => t.worktree?.path).filter((p): p is string => Boolean(p))
+    return [...ws, ...tasks]
+  })
   // Screenshot hook for local verification only; inert unless ACPORTAL_SHOT_DIR is set.
   ipcMain.handle('debug:capture', wrap(async (name: string) => {
     const dir = process.env.ACPORTAL_SHOT_DIR

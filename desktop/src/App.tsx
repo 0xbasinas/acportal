@@ -3,12 +3,13 @@ import type { AgentInfo, Host, HostStatus, SessionInfo, Task, Workspace } from '
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
-import { Composer, Conversation } from './Session'
+import { Attachment, Composer, Conversation, Permission } from './Session'
+import { GitView } from './Git'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
-import { Section, Settings, Theme } from './Settings'
+import { McpServer, Section, Settings, Theme, mcpWire } from './Settings'
 import { I, baseName, stateDot, stateWord, tildify } from './ui'
 
-type View = { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair' }
+type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair' }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
@@ -34,6 +35,10 @@ export default function App() {
   const [toast, setToast] = useState<string>()
   const [merging, setMerging] = useState(false)
   const [confirmMerge, setConfirmMerge] = useState<Task>()
+  const [mcp, setMcpState] = useState<McpServer[]>([])
+  const [draft, setDraft] = useState<{ text: string; n: number }>()
+  const [newSessionPrompt, setNewSessionPrompt] = useState<string>()
+  const pendingSuggest = useRef<{ sid: string; id: number; resolve: (s: string | undefined) => void } | undefined>(undefined)
   const attached = useRef<string | undefined>(undefined)
   const taskAttached = useRef<string | undefined>(undefined)
   const nextId = useRef(Date.now() % 1_000_000)
@@ -42,7 +47,7 @@ export default function App() {
 
   // theme
   useEffect(() => {
-    void window.api.prefs.get().then((r) => { if (r.ok && r.value.theme) setThemeState(r.value.theme as Theme); if (r.ok && r.value.host) setHostId(r.value.host as string) })
+    void window.api.prefs.get().then((r) => { if (r.ok && r.value.theme) setThemeState(r.value.theme as Theme); if (r.ok && r.value.host) setHostId(r.value.host as string); if (r.ok && Array.isArray(r.value.mcp)) setMcpState(r.value.mcp as McpServer[]) })
   }, [])
   const [systemDark, setSystemDark] = useState(matchMedia('(prefers-color-scheme: dark)').matches)
   useEffect(() => {
@@ -54,6 +59,7 @@ export default function App() {
   useEffect(() => { document.documentElement.dataset.theme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme }, [theme, systemDark])
   const savePrefs = (p: Record<string, unknown>): void => void window.api.prefs.get().then((r) => window.api.prefs.set({ ...(r.ok ? r.value : {}), ...p }))
   const setTheme = (t: Theme): void => { setThemeState(t); savePrefs({ theme: t }) }
+  const setMcp = (m: McpServer[]): void => { setMcpState(m); savePrefs({ mcp: m }) }
 
   // hosts
   const loadHosts = useCallback(async () => {
@@ -92,7 +98,18 @@ export default function App() {
   useEffect(() => {
     const off1 = window.api.session.onEnvelope((key, env) => {
       const sid = key.split('/')[1]
-      setTimelines((all) => ({ ...all, [sid]: reduce(all[sid] ?? emptyTimeline(), env as Record<string, unknown>) }))
+      setTimelines((all) => {
+        const before = all[sid]
+        const next = reduce(before ?? emptyTimeline(), env as Record<string, unknown>)
+        if (next.title && next.title !== before?.title) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: next.title }))
+        const ps = pendingSuggest.current
+        if (ps && ps.sid === sid && before?.busy && !next.busy) {
+          pendingSuggest.current = undefined
+          const last = [...next.items].reverse().find((i) => i.kind === 'agent')
+          ps.resolve(last && last.kind === 'agent' ? last.text.trim().replace(/^```\w*\n?|```$/g, '').trim() : undefined)
+        }
+        return { ...all, [sid]: next }
+      })
     })
     const off2 = window.api.session.onState((key, s) => setConn((c) => ({ ...c, [key.split('/')[1]]: s as ConnState })))
     return () => { off1(); off2() }
@@ -115,31 +132,65 @@ export default function App() {
   const title = (s: SessionInfo): string => timelines[s.id]?.title ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
   const pendingIn = (sid: string): number => (timelines[sid]?.items ?? []).filter((i) => i.kind === 'permission' && i.answered === undefined).length
 
-  async function sendPrompt(text: string): Promise<void> {
+  const histKey = (ws?: string): string => `acportal.history.${hostId}.${ws ?? ''}`
+  const history = (ws?: string): string[] => JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
+  async function sendPrompt(text: string, atts: Attachment[] = [], silent = false): Promise<number | undefined> {
     if (!session || !attached.current) return
     const id = ++nextId.current
+    if (text.trim() && !silent) localStorage.setItem(histKey(session.workspace), JSON.stringify([text, ...history(session.workspace).filter((h) => h !== text)].slice(0, 50)))
+    const blocks: unknown[] = [{ type: 'text', text }]
+    for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
     if (!titles()[session.id]) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: text.split('\n')[0].slice(0, 60) }))
     setTimelines((all) => ({ ...all, [session.id]: { ...(all[session.id] ?? emptyTimeline()), promptId: id, busy: true } }))
-    const r = await window.api.session.send(attached.current, { jsonrpc: '2.0', id, method: 'session/prompt', params: { sessionId: session.acpSessionId, prompt: [{ type: 'text', text }] } })
-    if (!r.ok) { flash(r.error); setTimelines((all) => ({ ...all, [session.id]: { ...all[session.id], busy: false } })) }
+    const r = await window.api.session.send(attached.current, { jsonrpc: '2.0', id, method: 'session/prompt', params: { sessionId: session.acpSessionId, prompt: blocks } })
+    if (!r.ok) { flash(r.error); setTimelines((all) => ({ ...all, [session.id]: { ...all[session.id], busy: false } })); return }
+    return id
+  }
+  async function elicit(id: string | number, result: unknown, ref = attached, sid = selected): Promise<void> {
+    if (!ref.current || !sid) return
+    const r = await window.api.session.send(ref.current, { jsonrpc: '2.0', id, result })
+    if (!r.ok) return flash(r.error)
+    setTimelines((all) => ({ ...all, [sid]: { ...all[sid], items: all[sid].items.map((i) => (i.kind === 'elicitation' && i.id === id ? { ...i, answered: (result as { action: string }).action } : i)) } }))
+  }
+  async function suggestCommit(diff: string): Promise<string | undefined> {
+    if (!session || !attached.current || tl?.busy) { flash('Open an idle session to ask its agent'); return undefined }
+    return new Promise((resolve) => {
+      pendingSuggest.current = { sid: session.id, id: 0, resolve }
+      void sendPrompt(`Write a git commit message for this staged diff. Conventional style, imperative summary line of at most 72 characters, then an optional short body. Reply with only the message, no tools, no code fences.\n\n${diff}`, [], true)
+      setTimeout(() => { if (pendingSuggest.current?.resolve === resolve) { pendingSuggest.current = undefined; resolve(undefined) } }, 120_000)
+    })
   }
   async function cancelTurn(): Promise<void> {
     if (!session || !attached.current) return
     await window.api.session.send(attached.current, { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: session.acpSessionId } })
   }
-  async function answer(id: string | number, optionId: string | null): Promise<void> {
-    if (!attached.current || !selected) return
+  async function answer(id: string | number, optionId: string | null, ref = attached, sid = selected): Promise<void> {
+    if (!ref.current || !sid) return
     const outcome = optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
-    const r = await window.api.session.send(attached.current, { jsonrpc: '2.0', id, result: { outcome } })
+    const r = await window.api.session.send(ref.current, { jsonrpc: '2.0', id, result: { outcome } })
     if (!r.ok) return flash(r.error)
     setTimelines((all) => {
-      const t = all[selected]
-      return { ...all, [selected]: { ...t, items: t.items.map((i) => (i.kind === 'permission' && i.id === id ? { ...i, answered: optionId ?? 'cancelled' } : i)) } }
+      const t = all[sid]
+      return { ...all, [sid]: { ...t, items: t.items.map((i) => (i.kind === 'permission' && i.id === id ? { ...i, answered: optionId ?? 'cancelled' } : i)) } }
     })
+    if (ref === taskAttached) setTimeout(() => void refresh(), 800)
   }
-  async function createSession(agentId: string, workspace: string): Promise<string | undefined> {
-    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace, loadSessionId: null })
-    if (!r.ok) return r.error
+  async function createSession(agentId: string, workspace: string, opts: NewOpts = defaultOpts): Promise<string | undefined> {
+    let target = workspace
+    if (opts.worktree) {
+      const branch = 'acportal/' + (opts.branch || `session-${Date.now().toString(36)}`)
+      const top = await window.api.git.run(hostId!, workspace, 'rev-parse')
+      if (!top.ok) return `Own worktree needs a git repository: ${top.error}`
+      const root = top.value.out.split('\n')[0]
+      const path = root.replace(/[\\/][^\\/]+$/, '') + '/' + baseName(root) + '-' + branch.split('/').pop()
+      const w = await window.api.git.run(hostId!, root, 'worktree-add', { branch, path })
+      if (!w.ok) return `Could not create the worktree: ${w.error}`
+      target = path + workspace.slice(root.length)
+    }
+    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
+    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire) })
+    if (!r.ok) return r.code === 'unsupported_mcp_transport' ? 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers' : r.error
+    if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
     setSessions((s) => [...s, r.value])
     setSelected(r.value.id)
     setView({ kind: 'workspace' })
@@ -170,13 +221,14 @@ export default function App() {
   // task view attaches read-only to the task's own session for its diffs
   const viewTask = view.kind === 'task' ? tasks.find((t) => t.id === view.taskId) : undefined
   useEffect(() => {
-    if (viewTask?.session && viewTask.session !== selected) void attach(viewTask.session, taskAttached, true)
+    if (viewTask?.session && viewTask.session !== selected) void attach(viewTask.session, taskAttached, ['completed', 'failed', 'canceled', 'rejected'].includes(viewTask.state))
     if (!viewTask && taskAttached.current) { void window.api.session.detach(taskAttached.current); taskAttached.current = undefined }
   }, [viewTask?.session])
 
   const commands: Command[] = useMemo(() => {
     const c: Command[] = [
       { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => setNewSession(true) },
+      { id: 'git', group: 'Actions', label: 'Open Git (changes, history, worktrees, stash)', hint: 'Ctrl G', run: () => setView({ kind: 'git' }) },
       { id: 'review', group: 'Actions', label: 'Review changes in this session', hint: 'Ctrl D', run: () => setView({ kind: 'review' }) },
       { id: 'stop', group: 'Actions', label: 'Stop the current turn', hint: 'Esc', run: () => void cancelTurn() },
       { id: 'settings', group: 'Actions', label: 'Open settings', hint: 'Ctrl ,', run: () => setView({ kind: 'settings', section: 'General' }) },
@@ -189,6 +241,7 @@ export default function App() {
     for (const h of hosts ?? []) if (h.id !== hostId) c.push({ id: 'h' + h.id, group: 'Hosts', label: `Switch to ${h.name}`, run: () => setHostId(h.id) })
     return c
   }, [sessions, tasks, hosts, hostId, theme, timelines])
+  const paletteNew = (q: string): void => { setNewSessionPrompt(q); setNewSession(true) }
 
   useEffect(() => {
     const k = (e: KeyboardEvent): void => {
@@ -197,6 +250,7 @@ export default function App() {
       else if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); setNewSession(true) }
       else if (mod && e.key === ',') { e.preventDefault(); setView({ kind: 'settings', section: 'General' }) }
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); setView({ kind: 'review' }) }
+      else if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); setView({ kind: 'git' }) }
       else if (e.key === 'Escape' && !palette && view.kind !== 'workspace') setView({ kind: 'workspace' })
       else if (e.key === 'Escape' && tl?.busy) void cancelTurn()
     }
@@ -213,8 +267,8 @@ export default function App() {
 
   const overlays = (
     <>
-      {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
-      {newSession && <NewSession agents={agents} workspaces={workspaces} onClose={() => setNewSession(false)} onCreate={createSession} />}
+      {palette && <Palette commands={commands} onClose={() => setPalette(false)} onNew={paletteNew} />}
+      {newSession && <NewSession agents={agents} workspaces={workspaces} mcp={mcp} local={Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))} firstPrompt={newSessionPrompt} onClose={() => { setNewSession(false); setNewSessionPrompt(undefined) }} onCreate={async (a, w, o) => { const e = await createSession(a, w, o); if (!e) setNewSessionPrompt(undefined); return e }} />}
       {confirmMerge && (
         <div className="overlay" onMouseDown={() => setConfirmMerge(undefined)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -239,7 +293,8 @@ export default function App() {
           onPairNew={() => setView({ kind: 'pair' })} onSwitch={(h) => setHostId(h.id)}
           onForget={async (h, revoke) => { if (!confirm(`Unpair ${h.name}? This device's token is revoked on the host.`)) return; await window.api.hosts.forget(h.id, revoke); await loadHosts() }}
           onAddWorkspace={async (p) => { const r = await api('POST', '/v1/workspaces', { path: p }); if (!r.ok) return r.error; void refresh() }}
-          onRemoveWorkspace={async (p) => { await api('DELETE', '/v1/workspaces', { path: p }); void refresh() }} />
+          onRemoveWorkspace={async (p) => { await api('DELETE', '/v1/workspaces', { path: p }); void refresh() }}
+          api={api} onAgentsChanged={() => void refresh()} mcp={mcp} setMcp={setMcp} />
         {overlays}
       </>
     )
@@ -288,6 +343,7 @@ export default function App() {
       <div className="side-foot">
         <span className="sub2">{host?.name}</span>
         <div style={{ display: 'flex', gap: 2 }}>
+          <button className="icon-btn" onClick={() => setView({ kind: 'git' })} title="Git (Ctrl G)">{I.branch}</button>
           <button className="icon-btn" onClick={() => setPalette(true)} title="Command palette (Ctrl K)">⌘</button>
           <button className="icon-btn" onClick={() => setView({ kind: 'settings', section: 'General' })} title="Settings">{I.gear}</button>
         </div>
@@ -296,7 +352,16 @@ export default function App() {
   )
 
   let center
-  if (view.kind === 'review') {
+  if (view.kind === 'git' && hostId) {
+    const repos = [
+      ...(session ? [{ path: session.workspace, label: baseName(session.workspace) + ' · session' }] : []),
+      ...workspaces.filter((w) => w.path !== session?.workspace).map((w) => ({ path: w.path, label: baseName(w.path) })),
+      ...tasks.filter((t) => t.worktree?.path && t.worktree.outcome !== 'merged').map((t) => ({ path: t.worktree!.path!, label: t.worktree!.branch + ' · task' }))
+    ]
+    center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })} suggest={suggestCommit}
+      askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
+      openSession={(path) => { setNewSessionPrompt(undefined); setNewSession(true); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
+  } else if (view.kind === 'review') {
     center = <DiffReview title={session ? `Review: ${title(session)}` : 'Review changes'} subtitle={session ? `${session.agentId} · ${tildify(session.workspace)}` : ''} diffs={tl ? changedFiles(tl).map((f) => f.diff) : []} focus={view.focus} root={session?.workspace} onBack={() => setView({ kind: 'workspace' })} task={rootTask?.worktree ? rootTask : undefined} onMerge={setConfirmMerge} merging={merging} />
   } else if (view.kind === 'task' && viewTask) {
     const ttl = viewTask.session ? timelines[viewTask.session] : undefined
@@ -305,6 +370,12 @@ export default function App() {
       <div className="main">
         <DiffReview title={viewTask.worktree?.branch ?? `Task ${viewTask.id.slice(0, 8)}`} subtitle={`${viewTask.agent} · ${stateWord(viewTask.state)}${viewTask.summary ? ` (${viewTask.summary})` : ''} · ${viewTask.worktree ? 'own worktree of ' + tildify((viewTask.worktree as { repository?: string }).repository ?? viewTask.scope) : tildify(viewTask.scope)}${waiting ? ` · ${waiting} waiting for a decision` : ''}${viewTask.costUsd ? ` · US$${viewTask.costUsd.toFixed(4)}` : ''}`}
           root={viewTask.worktree?.path ?? viewTask.scope} diffs={ttl ? changedFiles(ttl).map((f) => f.diff) : []} onBack={() => setView({ kind: 'workspace' })} task={viewTask} onMerge={setConfirmMerge} merging={merging} />
+        {ttl && ttl.items.some((i) => (i.kind === 'permission' || i.kind === 'elicitation') && i.answered === undefined) && (
+          <div className="decisions">
+            <div className="section-label" style={{ padding: '0 0 8px' }}>Waiting for your decision · your answer wins over the supervisor's</div>
+            {ttl.items.filter((i) => i.kind === 'permission' && i.answered === undefined).map((i) => i.kind === 'permission' && <Permission key={String(i.id)} p={i} onAnswer={(o) => void answer(i.id, o, taskAttached, viewTask.session!)} />)}
+          </div>
+        )}
         {!['completed', 'failed', 'canceled', 'rejected'].includes(viewTask.state) && (
           <div style={{ padding: '10px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
             {viewTask.session && <button className="pill" onClick={() => { setSelected(viewTask.session!); setView({ kind: 'workspace' }) }}>Open its session</button>}
@@ -339,6 +410,7 @@ export default function App() {
       if (attached.current) void window.api.session.send(attached.current, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } }).then((r) => { if (!r.ok) flash(r.error) })
     }
     const interrupted = session.status === 'interrupted'
+    const pc = ((session.initialization?.agentCapabilities as Record<string, unknown> | undefined)?.promptCapabilities ?? {}) as { image?: boolean; embeddedContext?: boolean }
     center = (
       <div className="main">
         <div className="topbar">
@@ -358,6 +430,7 @@ export default function App() {
             </select>
           ) : modelValue ? <span className="chip">{modelValue}</span> : null}
           {rootTask?.worktree && <span className="chip mono">{I.branch} {rootTask.worktree.branch}</span>}
+          <button className="icon-btn" title="Git: changes, history, worktrees (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
           <button className="icon-btn" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
         {c && c.kind !== 'connected' && (
@@ -366,8 +439,9 @@ export default function App() {
           </div>
         )}
         {interrupted && <div className="banner">The host restarted and this session's process ended. Start a new session in the same folder to continue.</div>}
-        <Conversation t={tl ?? emptyTimeline()} agent={session.agentId} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} />
-        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t) => void sendPrompt(t)} onCancel={() => void cancelTurn()} />
+        <Conversation t={tl ?? emptyTimeline()} agent={session.agentId} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
+          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} />
       </div>
     )
   }
@@ -386,35 +460,60 @@ export default function App() {
   )
 }
 
-function NewSession({ agents, workspaces, onClose, onCreate }: { agents: AgentInfo[]; workspaces: Workspace[]; onClose: () => void; onCreate: (a: string, w: string) => Promise<string | undefined> }) {
+type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; mcp: boolean; firstPrompt?: string }
+const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, mcp: true }
+function NewSession({ agents, workspaces, mcp, local, firstPrompt, onClose, onCreate }: { agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; local: boolean; firstPrompt?: string; onClose: () => void; onCreate: (a: string, w: string, o: NewOpts) => Promise<string | undefined> }) {
   const usable = agents.filter((a) => a.enabled !== false)
-  const [agent, setAgent] = useState(usable[0]?.id ?? '')
+  const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
   const [ws, setWs] = useState(workspaces[0]?.path ?? '')
   const [sub, setSub] = useState('')
+  const [o, setO] = useState<NewOpts>({ ...defaultOpts, firstPrompt, branch: firstPrompt ? firstPrompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/-$/, '') : '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   const go = async (): Promise<void> => {
     setBusy(true); setErr(undefined)
+    localStorage.setItem('acportal.lastAgent', agent)
     const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
-    const e = await onCreate(agent, target)
+    const e = await onCreate(agent, target, o)
     setBusy(false)
     if (e) setErr(e)
   }
+  const Check = ({ k, label, title, disabled }: { k: 'read' | 'write' | 'terminal' | 'worktree' | 'mcp'; label: string; title?: string; disabled?: boolean }) => (
+    <button className={'check' + (o[k] ? ' on' : '')} title={title} disabled={disabled} onClick={() => setO({ ...o, [k]: !o[k] })}>{o[k] ? '✓' : '○'} {label}</button>
+  )
+  const enabledMcp = mcp.filter((m) => m.enabled)
   return (
     <div className="overlay" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ width: 600 }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0, fontSize: 18 }}>New session</h3>
-        <div className="sub">The agent starts on the host in the folder you pick.</div>
-        <div className="field"><label>Agent</label>
-          <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
-        </div>
-        <div className="field"><label>Folder</label>
-          <select className="input mono" value={ws} onChange={(e) => setWs(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tildify(w.path)}</option>)}</select>
+        <div className="sub">{firstPrompt ? <>Task: <span style={{ color: 'var(--text)' }}>{firstPrompt}</span></> : 'The agent starts on the host in the folder you pick.'}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="field"><label>Agent</label>
+            <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
+          </div>
+          <div className="field"><label>Folder</label>
+            <select className="input mono" value={ws} onChange={(e) => setWs(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tildify(w.path)}</option>)}</select>
+          </div>
         </div>
         <div className="field"><label>Sub-folder (optional)</label><input className="input mono" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} /></div>
+        <div className="field"><label>Rights for this session</label>
+          <div className="checks"><Check k="read" label="Read files" /><Check k="write" label="Write files" /><Check k="terminal" label="Run commands" /></div>
+        </div>
+        <div className="field"><label>Isolation</label>
+          <div className="checks">
+            <button className={'check' + (!o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: false })}>{!o.worktree ? '✓' : '○'} Shared folder</button>
+            <Check k="worktree" label="Own worktree" disabled={!local} title={local ? 'git worktree add -b acportal/<name> next to the repository' : 'Needs a host on this computer: acpd has no worktree option for phone sessions yet'} />
+            {o.worktree && <input className="input mono" style={{ height: 32, flex: 1 }} placeholder="branch name" value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value.replace(/[^\w./-]/g, '-') })} />}
+          </div>
+          {o.worktree && <div className="sub" style={{ marginTop: 4 }}>$ git worktree add -b acportal/{o.branch || '<name>'} ../{'<repo>'}-{o.branch || '<name>'}</div>}
+        </div>
+        <div className="field"><label>Tools</label>
+          <div className="checks"><Check k="mcp" label={`MCP servers (${enabledMcp.length})`} title={enabledMcp.map((m) => m.name).join(', ') || 'Add servers in Settings → MCP servers'} disabled={!enabledMcp.length} />
+            <span className="sub" title="Delegation is enabled per agent in the host config ([orchestrator] orchestrate)">Delegation: set on the host</span></div>
+        </div>
         {err && <div className="error">{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          <button className="btn-wide" disabled={!agent || !ws || busy} onClick={() => void go()}>{busy ? 'Starting agent…' : 'Start session'}</button>
+          <button className="btn-wide" disabled={!agent || !ws || busy || (!o.read && !o.write && !o.terminal && false)} onClick={() => void go()}>{busy ? 'Starting agent…' : 'Start session'}</button>
           <button className="btn-wide ghost" style={{ width: 120 }} onClick={onClose}>Cancel</button>
         </div>
       </div>

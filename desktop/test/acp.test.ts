@@ -47,3 +47,19 @@ test('address rules match the Android app', () => {
   assert.throws(() => validateAddress('https://u:p@host.example'), /path or credentials/)
   assert.throws(() => validateAddress('https://host.example/v1'), /path or credentials/)
 })
+
+import { parseStatus, parseDiff, parseGraph, parseWorktrees } from '../src/gitparse'
+test('git porcelain parsers', () => {
+  const s = parseStatus('## main...origin/main [ahead 2, behind 1]\nM  a.py\n M b.py\nMM c.py\n?? new.txt\nUU d.py\nR  old.py -> new.py\n')
+  assert.equal(s.branch, 'main'); assert.equal(s.ahead, 2); assert.equal(s.behind, 1)
+  assert.deepEqual(s.files.filter((f) => f.staged).map((f) => f.path), ['a.py', 'c.py', 'new.py'])
+  assert.deepEqual(s.files.filter((f) => f.unstaged).map((f) => f.path), ['b.py', 'c.py', 'new.txt'])
+  assert.deepEqual(s.files.filter((f) => f.conflict).map((f) => f.path), ['d.py'])
+  const d = parseDiff('diff --git a/x.py b/x.py\nindex 1..2 100644\n--- a/x.py\n+++ b/x.py\n@@ -1,2 +1,2 @@\n-a\n+b\n c\n@@ -10,1 +10,2 @@\n z\n+y\n')
+  assert.equal(d[0].path, 'x.py'); assert.equal(d[0].hunks.length, 2)
+  assert.ok(d[0].hunks[1].patch.startsWith('diff --git a/x.py b/x.py\n') && d[0].hunks[1].patch.endsWith('+y\n'))
+  const g = parseGraph('* abc1234\u001f (HEAD -> main)\u001ffix\u001fme\u001f2m ago\n|\\  \n')
+  assert.equal(g[0].hash, 'abc1234'); assert.equal(g[0].refs, 'HEAD -> main'); assert.equal(g[1].graph, '|\\  ')
+  const w = parseWorktrees('worktree /r\nHEAD 0123456789\nbranch refs/heads/main\n\nworktree /r-wt\nHEAD abcdef0123\ndetached\n')
+  assert.equal(w.length, 2); assert.equal(w[0].branch, 'main'); assert.ok(w[1].detached)
+})

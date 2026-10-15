@@ -23,8 +23,10 @@ export type Item =
   | ToolItem
   | PermissionItem
   | { kind: 'notice'; id: string; text: string; tone?: 'warn' | 'error' }
-  | { kind: 'elicitation'; id: string | number; message: string }
+  | { kind: 'elicitation'; id: string | number; message: string; schema?: ElicitSchema; mode?: string; url?: string; answered?: string }
 
+export type ElicitField = { type?: string; title?: string; description?: string; enum?: string[]; enumNames?: string[]; oneOf?: { const: string; title?: string }[]; default?: unknown; minimum?: number; maximum?: number; format?: string }
+export type ElicitSchema = { properties?: Record<string, ElicitField>; required?: string[] }
 export type Usage = { used?: number; size?: number; cost?: { amount: number; currency: string } }
 export type Timeline = { items: Item[]; seen: Set<number>; lastSeq: number; busy: boolean; promptId?: number; usage?: Usage; title?: string; gap?: boolean; currentMode?: string; config?: Record<string, string> }
 
@@ -78,7 +80,9 @@ export function reduce(t: Timeline, env: Json): Timeline {
   const method = m.method as string | undefined
   const params = (m.params ?? {}) as Json
   if (dir === 'client' && method === 'session/prompt') {
-    const txt = ((params.prompt as unknown[]) ?? []).map(text).join('')
+    const blocks = (params.prompt as Json[]) ?? []
+    const atts = blocks.filter((b) => b.type !== 'text').map((b) => (b.type === 'image' ? '🖼 image' : b.type === 'resource' ? '📄 ' + String(((b.resource as Json)?.uri as string) ?? '').split('/').pop() : '📎'))
+    const txt = blocks.filter((b) => b.type === 'text').map(text).join('') + (atts.length ? '\n' + atts.join('  ') : '')
     next.items.push({ kind: 'user', id: `u${seq ?? Math.random()}`, text: txt })
     next.busy = true
     next.promptId = m.id as number
@@ -86,6 +90,11 @@ export function reduce(t: Timeline, env: Json): Timeline {
   }
   if (dir === 'client' && 'result' in m) {
     // the user's own permission answer, journaled
+    const ei = next.items.findIndex((i) => i.kind === 'elicitation' && i.id === m.id)
+    if (ei >= 0) {
+      next.items[ei] = { ...(next.items[ei] as Extract<Item, { kind: 'elicitation' }>), answered: String(((m.result as Json)?.action as string) ?? 'answered') }
+      return next
+    }
     const idx = next.items.findIndex((i) => i.kind === 'permission' && i.id === m.id)
     if (idx >= 0) {
       const o = ((m.result as Json)?.outcome ?? {}) as Json
@@ -162,7 +171,8 @@ export function reduce(t: Timeline, env: Json): Timeline {
     return next
   }
   if (method === 'elicitation/create') {
-    next.items.push({ kind: 'elicitation', id: m.id as number, message: String(params.message ?? 'The agent asks for input') })
+    if (next.items.some((i) => i.kind === 'elicitation' && i.id === m.id)) return next
+    next.items.push({ kind: 'elicitation', id: m.id as number, message: String(params.message ?? 'The agent asks for input'), schema: params.requestedSchema as ElicitSchema, mode: params.mode as string, url: params.url as string })
     return next
   }
   if (dir === 'agent' && m.id !== undefined && m.id === t.promptId && !method) {

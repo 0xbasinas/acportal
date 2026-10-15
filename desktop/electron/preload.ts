@@ -33,6 +33,18 @@ const api = {
     set: (p: Record<string, unknown>): Promise<Result<void>> => ipcRenderer.invoke('prefs:set', p)
   },
   secureStorage: (): Promise<string> => ipcRenderer.invoke('app:secure-storage'),
+  files: { pick: (): Promise<Result<{ name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[]>> => ipcRenderer.invoke('files:pick') },
+  storageOf: (id: string): Promise<Result<string>> => ipcRenderer.invoke('hosts:storage-of', id),
+  git: {
+    available: (hostId: string): Promise<Result<boolean>> => ipcRenderer.invoke('git:available', hostId),
+    explain: (): Promise<Result<Record<string, string>>> => ipcRenderer.invoke('git:explain'),
+    run: (hostId: string, cwd: string, op: string, params?: Record<string, string>, input?: string): Promise<Result<{ out: string; args: string[] }>> => ipcRenderer.invoke('git:run', hostId, cwd, op, params ?? {}, input),
+    onLog: (cb: (e: { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, entry: { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }): void => cb(entry)
+      ipcRenderer.on('git:log', l)
+      return () => ipcRenderer.removeListener('git:log', l)
+    }
+  },
   capture: (name: string): Promise<Result<string>> => ipcRenderer.invoke('debug:capture', name)
 }
 
