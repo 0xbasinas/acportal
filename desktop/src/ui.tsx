@@ -1,8 +1,35 @@
 import { ReactNode } from 'react'
+import {
+  ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal,
+  GitCompareArrows, GitMerge, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
+  Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network
+} from 'lucide-react'
 import { DiffBlock, diffLines, lineStats } from './acp'
 
+const ic = { size: 15, strokeWidth: 1.75, 'aria-hidden': true } as const
+/** One icon set (Lucide), one size and stroke, everywhere. */
 export const I = {
-  back: '←', refresh: '↻', plus: '+', gear: '⚙', chev: '›', branch: '⎇', tool: '⚒', sub: '↳', tree: '⌥', send: '↑', clock: '◷', close: '×'
+  back: <ArrowLeft {...ic} />, refresh: <RotateCw {...ic} />, plus: <Plus {...ic} />, gear: <Gear {...ic} />, chev: <ChevronRight {...ic} />, down: <ChevronDown {...ic} size={13} />,
+  branch: <GitBranch {...ic} />, tool: <Wrench {...ic} size={13} />, sub: <CornerDownRight {...ic} size={13} />, tree: <Network {...ic} size={13} />, send: <ArrowUp {...ic} size={16} strokeWidth={2.25} />,
+  clock: <History {...ic} />, close: <X {...ic} />, check: <Check {...ic} size={13} />, alert: <CircleAlert {...ic} />, shield: <ShieldAlert {...ic} size={16} />, attach: <Paperclip {...ic} />,
+  term: <Terminal {...ic} size={13} />, file: <FileCode2 {...ic} size={13} />, newfile: <FilePlus2 {...ic} size={13} />, folder: <FolderOpen {...ic} />, repo: <FolderGit2 {...ic} />, commit: <GitCommitHorizontal {...ic} />,
+  compare: <GitCompareArrows {...ic} />, merge: <GitMerge {...ic} />, pr: <GitPullRequest {...ic} />, undo: <Undo2 {...ic} />, redo: <Redo2 {...ic} />, upload: <Upload {...ic} />, pencil: <Pencil {...ic} size={13} />,
+  trash: <Trash2 {...ic} size={13} />, search: <Search {...ic} />, server: <Server {...ic} />, spark: <Sparkles {...ic} />, stop: <Square {...ic} size={12} fill="currentColor" />, inbox: <Inbox {...ic} size={28} strokeWidth={1.25} />,
+  cmd: <Command {...ic} />, flow: <Workflow {...ic} />, stash: <Archive {...ic} />, learn: <GraduationCap {...ic} />, chat: <MessageSquare {...ic} size={28} strokeWidth={1.25} />, bot: <Bot {...ic} size={13} />
+}
+
+/** Empty state: icon, title, one line of help, actions. */
+export function Empty({ icon, title, children, actions }: { icon?: ReactNode; title: string; children?: ReactNode; actions?: ReactNode }): ReactNode {
+  return (
+    <div className="empty">
+      <div className="empty-in">
+        {icon && <div className="empty-ic">{icon}</div>}
+        <h2>{title}</h2>
+        {children && <div className="empty-sub">{children}</div>}
+        {actions && <div className="empty-act">{actions}</div>}
+      </div>
+    </div>
+  )
 }
 
 export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: number; onMore?: () => void }): ReactNode {
@@ -12,9 +39,10 @@ export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: num
   return (
     <div className="diff">
       <div className="diff-head">
-        <span className="mono">{d.path}</span>
-        <span className="sub mono">
-          <span className="green">+{s.added}</span> <span className="red">−{s.removed}</span>
+        <span className="diff-path">{d.oldText ? I.file : I.newfile}<span className="mono">{d.path}</span></span>
+        <span className="diff-stat mono">
+          <span className="green">+{s.added}</span><span className="red">−{s.removed}</span>
+          <span className="bar">{Array.from({ length: 5 }, (_, i) => { const t = s.added + s.removed || 1; const g = Math.round((s.added / t) * 5); return <i key={i} className={i < g ? 'g' : 'r'} /> })}</span>
         </span>
       </div>
       <div className="diff-body mono">
@@ -22,12 +50,13 @@ export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: num
           <tbody>
             {shown.map((l, k) =>
               l.kind === 'skip' ? (
-                <tr key={k} className="skip"><td colSpan={3}>⋯</td></tr>
+                <tr key={k} className="skip"><td colSpan={4}>⋯</td></tr>
               ) : (
                 <tr key={k} className={l.kind}>
                   <td className="n">{l.a ?? ''}</td>
                   <td className="n">{l.b ?? ''}</td>
-                  <td className="t">{(l.kind === 'add' ? '+ ' : l.kind === 'del' ? '- ' : '  ') + l.text}</td>
+                  <td className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</td>
+                  <td className="t">{l.text}</td>
                 </tr>
               )
             )}
@@ -35,8 +64,8 @@ export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: num
         </table>
       </div>
       {maxLines && lines.length > maxLines && (
-        <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line)' }}>
-          <button className="sub2" onClick={onMore}>Show {lines.length - maxLines} more lines</button>
+        <div className="diff-more">
+          <button className="link" onClick={onMore}>Show {lines.length - maxLines} more lines</button>
         </div>
       )}
     </div>

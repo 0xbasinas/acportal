@@ -1,7 +1,8 @@
-// Local git for hosts on this computer (loopback address). acpd exposes no git routes, so for a
-// remote host the app never runs git (it would bypass the host); the Git view says so instead.
-// Every command is run without a shell, inside a folder the host itself allows (workspace roots
-// or a task worktree it reported), and is reported to the renderer for the "Learn git" log.
+// Git for the Git view. Hosts that list the "git" feature run it themselves (POST /v1/git/{op},
+// scoped to their workspace roots and task worktrees). For an older host on this computer
+// (loopback) the app runs the same fixed operations locally; for an older remote host it never
+// runs git (that would bypass the host). Every command is reported to the renderer for the
+// "Learn git" log.
 import { execFile } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, sep } from 'node:path'
@@ -11,7 +12,8 @@ type Wrap = <A extends unknown[], R>(fn: (...a: A) => Promise<R> | R) => (e: unk
 export type GitLogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
 
 const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
-const READ_ONLY = new Set(['status', 'diff', 'log', 'worktree-list', 'stash-list', 'rev-parse', 'show', 'branch-list', 'conflicts', 'reflog', 'merging'])
+const READ_ONLY = new Set(['status', 'diff', 'log', 'worktree-list', 'stash-list', 'rev-parse', 'show', 'branch-list', 'conflicts', 'reflog', 'merging', 'compare', 'remote-url'])
+const QUIET = new Set(['remote-url', 'rev-parse', 'merging'])
 
 function run(cwd: string, args: string[], input?: string): Promise<{ out: string; err: string; code: number }> {
   return new Promise((resolve) => {
@@ -47,7 +49,14 @@ const WHY: Record<string, string> = {
   conflicts: 'List files with merge conflicts',
   'branch-list': 'List branches with their latest commit',
   merging: 'Check whether a merge is in progress',
-  reflog: 'Show where HEAD has been: the safety net for undo'
+  reflog: 'Show where HEAD has been: the safety net for undo',
+  compare: 'List commits only on this branch (>) and only on the base (<)',
+  'remote-url': 'Show where origin points (used to build a pull request link)',
+  checkout: 'Switch the folder to another branch',
+  'branch-create': 'Make a new branch from a base and switch to it',
+  'branch-rename': 'Give a branch a new name',
+  'branch-delete': 'Delete a branch (-d refuses if it is not merged; -D forces)',
+  push: 'Publish the branch to origin and remember it as upstream'
 }
 
 const OPS: Record<string, (p: Record<string, string>) => string[]> = {
@@ -56,7 +65,7 @@ const OPS: Record<string, (p: Record<string, string>) => string[]> = {
   log: () => ['log', '--graph', '--all', '--date-order', '-n', '120', '--pretty=format:%h\u001f%d\u001f%s\u001f%an\u001f%cr'],
   'worktree-list': () => ['worktree', 'list', '--porcelain'],
   'stash-list': () => ['stash', 'list', '--pretty=format:%gd\u001f%s\u001f%cr'],
-  'branch-list': () => ['branch', '--all', '--format=%(refname:short)\u001f%(objectname:short)\u001f%(HEAD)\u001f%(upstream:track)'],
+  'branch-list': () => ['branch', '--all', '--format=%(refname:short)\u001f%(objectname:short)\u001f%(HEAD)\u001f%(upstream:track)\u001f%(committerdate:relative)'],
   merging: () => ['rev-parse', '--git-path', 'MERGE_HEAD'],
   conflicts: () => ['diff', '--name-only', '--diff-filter=U'],
   'rev-parse': () => ['rev-parse', '--show-toplevel', 'HEAD', '--abbrev-ref', 'HEAD'],
@@ -72,11 +81,18 @@ const OPS: Record<string, (p: Record<string, string>) => string[]> = {
   'stash-pop': (p) => ['stash', 'pop', ...(p.ref ? [p.ref] : [])],
   'stash-apply': (p) => ['stash', 'apply', p.ref],
   'stash-drop': (p) => ['stash', 'drop', p.ref],
-  'worktree-add': (p) => ['worktree', 'add', '-b', p.branch, p.path],
+  'worktree-add': (p) => ['worktree', 'add', '-b', p.branch, p.path, ...(p.base ? [p.base] : [])],
   'worktree-remove': (p) => ['worktree', 'remove', p.path],
   'checkout-ours': (p) => ['checkout', '--ours', '--', p.file],
   'checkout-theirs': (p) => ['checkout', '--theirs', '--', p.file],
-  'merge-abort': () => ['merge', '--abort']
+  'merge-abort': () => ['merge', '--abort'],
+  compare: (p) => ['log', '--left-right', '--pretty=format:%m\u001f%h\u001f%s\u001f%cr', `${p.base}...HEAD`],
+  'remote-url': () => ['remote', 'get-url', 'origin'],
+  checkout: (p) => ['switch', p.branch],
+  'branch-create': (p) => ['switch', '-c', p.branch, ...(p.base ? [p.base] : [])],
+  'branch-rename': (p) => ['branch', '-m', p.from, p.to],
+  'branch-delete': (p) => ['branch', p.force === '1' ? '-D' : '-d', p.branch],
+  push: (p) => ['push', '--set-upstream', 'origin', p.branch]
 }
 
 function inside(path: string, roots: string[]): boolean {
@@ -96,24 +112,43 @@ function inside(path: string, roots: string[]): boolean {
   })
 }
 
-export function registerGit(ipc: IpcMain, wrap: Wrap, win: () => BrowserWindow | null, address: (hostRef: string) => string, roots?: (hostRef: string) => Promise<string[]>): void {
+type Remote = (op: string, cwd: string, params: Record<string, string>, input?: string) => Promise<{ code: number; out: string; err: string; args: string[] }>
+export function registerGit(ipc: IpcMain, wrap: Wrap, win: () => BrowserWindow | null, address: (hostRef: string) => string, roots?: (hostRef: string) => Promise<string[]>, remoteOf?: (hostRef: string) => Promise<Remote | null>): void {
   const rootsOf = roots
-  ipc.handle('git:available', wrap((hostRef: string) => LOOPBACK.test(address(hostRef))))
+  const cache = new Map<string, { at: number; r: Remote | null }>()
+  const remote = async (h: string): Promise<Remote | null> => {
+    const c = cache.get(h)
+    if (c && Date.now() - c.at < 60_000) return c.r
+    const r = remoteOf ? await remoteOf(h).catch(() => null) : null
+    cache.set(h, { at: Date.now(), r })
+    return r
+  }
+  ipc.handle('git:available', wrap(async (hostRef: string) => ((await remote(hostRef)) ? 'host' : LOOPBACK.test(address(hostRef)) ? 'local' : false)))
   ipc.handle('git:explain', wrap(() => WHY))
   ipc.handle(
     'git:run',
     wrap(async (hostRef: string, cwd: string, op: string, params: Record<string, string> = {}, input?: string) => {
-      if (!LOOPBACK.test(address(hostRef))) throw new Error('Git runs only for a host on this computer; acpd has no git routes for remote hosts yet')
+      const viaHost = await remote(hostRef)
+      if (viaHost) {
+        const t = Date.now()
+        const r = await viaHost(op, cwd, params, input)
+        const entry: GitLogEntry = { at: t, cwd, args: r.args.map((a) => (op === 'commit' && a === params.message ? JSON.stringify(a.length > 60 ? a.slice(0, 57) + '…' : a) : a)), why: WHY[op] ?? '', ok: r.code === 0, ms: Date.now() - t }
+        if (!READ_ONLY.has(op) || (r.code !== 0 && !QUIET.has(op))) win()?.webContents.send('git:log', entry)
+        if (r.code !== 0) throw new Error((r.err || r.out).trim().split('\n').slice(-3).join(' ') || `git exited ${r.code}`)
+        return { out: r.out, args: entry.args }
+      }
+      if (!LOOPBACK.test(address(hostRef))) throw new Error('This host does not run git for the app (update acpd for /v1/git)')
       const build = OPS[op]
       if (!build) throw new Error('Unknown git action')
       const allowed = rootsOf ? await rootsOf(hostRef) : []
       if (!inside(cwd, allowed)) throw new Error('That folder is not one the host allows')
+      if (Object.values(params).some((v) => typeof v === 'string' && v.startsWith('-')) && op !== 'commit' && op !== 'stash-push') throw new Error('Invalid git argument')
       if (op === 'worktree-add' && !inside(params.path.replace(/[\\/][^\\/]+$/, ''), allowed)) throw new Error('New worktrees must be inside a host workspace root')
       const args = build(params)
       const t = Date.now()
       const r = await run(cwd, args, input)
       const entry: GitLogEntry = { at: t, cwd, args: ['git', ...args.map((a) => (op === 'commit' && a === params.message ? JSON.stringify(a.length > 60 ? a.slice(0, 57) + '…' : a) : a))], why: WHY[op] ?? '', ok: r.code === 0, ms: Date.now() - t }
-      if (!READ_ONLY.has(op) || r.code !== 0) win()?.webContents.send('git:log', entry)
+      if (!READ_ONLY.has(op) || (r.code !== 0 && !QUIET.has(op))) win()?.webContents.send('git:log', entry)
       if (r.code !== 0) throw new Error((r.err || r.out).trim().split('\n').slice(-3).join(' ') || `git exited ${r.code}`)
       if (op === 'merging') { const f = r.out.trim(); return { out: existsSync(isAbsolute(f) ? f : join(cwd, f)) ? 'yes' : '', args: entry.args } }
       return { out: r.out, args: entry.args }

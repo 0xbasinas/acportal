@@ -1,6 +1,6 @@
 // Turns acpd delivery envelopes into a conversation timeline (same ACP semantics as the
 // Android reducers: dedupe by sequence, permission id and tool-call id).
-export type DiffBlock = { path: string; oldText?: string | null; newText: string }
+export type DiffBlock = { path: string; oldText?: string | null; newText: string; unified?: string }
 export type ToolItem = { kind: 'tool'; id: string; title: string; toolKind?: string; status?: string; diffs: DiffBlock[]; terminal?: string; host: boolean; autoReview?: { decision: string; layer?: string; reason?: string } }
 export type PermissionItem = {
   kind: 'permission'
@@ -204,6 +204,7 @@ export function changedFiles(t: Timeline): { path: string; added: number; remove
 export type DiffLine = { kind: 'ctx' | 'add' | 'del' | 'skip'; a?: number; b?: number; text: string }
 /** Line diff (LCS, bounded) with 3 lines of context. */
 export function diffLines(d: DiffBlock): DiffLine[] {
+  if (d.unified !== undefined) return unifiedLines(d.unified)
   const a = (d.oldText ?? '').split('\n')
   const b = d.newText.split('\n')
   if (d.oldText == null || d.oldText === '') return b.map((text, i) => ({ kind: 'add', b: i + 1, text }))
@@ -233,4 +234,19 @@ export function lineStats(d: DiffBlock): { added: number; removed: number } {
     if (l.kind === 'del') removed++
   }
   return { added, removed }
+}
+
+/** Lines of a unified diff (from git, e.g. the host's task worktree changes). */
+export function unifiedLines(u: string): DiffLine[] {
+  const out: DiffLine[] = []
+  let a = 0, b = 0, started = false
+  for (const l of u.split('\n')) {
+    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (h) { if (started) out.push({ kind: 'skip', text: '' } as DiffLine); a = +h[1]; b = +h[2]; started = true; continue }
+    if (!started || l.startsWith('\\')) continue
+    if (l.startsWith('+')) out.push({ kind: 'add', b: b++, text: l.slice(1) })
+    else if (l.startsWith('-')) out.push({ kind: 'del', a: a++, text: l.slice(1) })
+    else out.push({ kind: 'ctx', a: a++, b: b++, text: l.slice(1) })
+  }
+  return out
 }

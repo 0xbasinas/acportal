@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Task } from './types'
 import { changedFiles, DiffBlock, Timeline } from './acp'
-import { DiffView, I, ago, stateDot, stateWord, tildify } from './ui'
+import { DiffView, Empty, I, ago, stateWord, tildify } from './ui'
 
 /** Trees: roots newest first, children oldest first; orphaned tasks become roots, cycles shown flat. */
 export function flattenTree(tasks: Task[], rootFilter?: string): { task: Task; depth: number }[] {
@@ -32,17 +32,17 @@ export function TaskRows({ rows, selected, onOpen }: { rows: { task: Task; depth
         const waiting = task.pendingDecisions ?? task.needsDecision?.length ?? 0
         const word = waiting ? 'Needs a decision' : stateWord(task.state)
         return (
-          <div key={task.id} className={'tree-row' + (selected === task.id ? ' active' : '')} style={{ paddingLeft: 4 + depth * 16, background: selected === task.id ? 'var(--surface-2)' : undefined }} onClick={() => onOpen(task)}>
-            <span className="sub">{depth === 0 ? I.tree : I.sub}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.worktree?.branch ?? (depth === 0 ? 'Root session' : `Task ${task.id.slice(0, 6)}`)}</div>
+          <div key={task.id} className={'tree-row' + (selected === task.id ? ' active' : '')} style={{ paddingLeft: 6 + depth * 16 }} onClick={() => onOpen(task)}>
+            <span className="tree-ic">{depth === 0 ? I.tree : I.sub}</span>
+            <div className="grow">
+              <div className="title">{task.worktree?.branch ?? (depth === 0 ? 'Root session' : `Task ${task.id.slice(0, 6)}`)}</div>
               <div className="sub">
                 {task.agent} · <span className={waiting ? 'amber' : task.state === 'failed' ? 'red' : ''}>{word}</span>
                 {task.summary ? ` (${task.summary})` : ''} · {ago(task.updatedAt)}
               </div>
             </div>
             {waiting > 0 && <span className="badge">{waiting}</span>}
-            <span className="sub">{I.chev}</span>
+            <span className="chev">{I.chev}</span>
           </div>
         )
       })}
@@ -79,47 +79,50 @@ export function RightPanel({ tasks, rootTask, timeline, onOpenTask, onReview, on
   const usage = timeline?.usage
   return (
     <aside className="right">
-      <div className="section-label" style={{ paddingTop: 0 }}>Task tree</div>
-      {!orchestrator && <div className="sub">Delegation is off on this host ([orchestrator] enabled = false).</div>}
-      {orchestrator && rows.length === 0 && <div className="sub">No delegated tasks in this session yet.</div>}
-      <TaskRows rows={rows} onOpen={onOpenTask} />
-      <div className="section-label">
-        <span>Changed files</span>
-        {files.length > 0 && <span className="mono"><span className="green">+{add}</span> <span className="red">−{del}</span></span>}
-      </div>
-      {files.length === 0 && <div className="sub">No edits reported by the agent yet.</div>}
-      {files.map((f) => (
-        <div className="file-row" key={f.path} onClick={() => onReview(f.path)}>
-          <span className="st mono">{f.diff.oldText ? 'M' : 'A'}</span>
-          <span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rel(f.path, workspace)}</span>
+      <section className="panel">
+        <div className="panel-h">{I.flow}<span>Task tree</span>{rows.length > 0 && <span className="count">{rows.length}</span>}</div>
+        {!orchestrator && <div className="hint">Delegation is off on this host.</div>}
+        {orchestrator && rows.length === 0 && <div className="hint">No delegated tasks in this session yet.</div>}
+        <TaskRows rows={rows} onOpen={onOpenTask} />
+      </section>
+      <section className="panel">
+        <div className="panel-h">{I.file}<span>Changed files</span>
+          {files.length > 0 && <span className="diff-stat mono"><span className="green">+{add}</span><span className="red">−{del}</span></span>}
         </div>
-      ))}
+        {files.length === 0 && <div className="hint">No edits reported by the agent yet.</div>}
+        {files.map((f) => (
+          <div className="file-row" key={f.path} onClick={() => onReview(f.path)} title={f.path}>
+            <span className={'st mono ' + (f.diff.oldText ? 'm' : 'a')}>{f.diff.oldText ? 'M' : 'A'}</span>
+            <span className="mono grow ell">{rel(f.path, workspace)}</span>
+            <span className="mono sub"><span className="green">+{f.added}</span> <span className="red">−{f.removed}</span></span>
+          </div>
+        ))}
+        {files.length > 0 && withWorktree.length === 0 && (
+          <button className="btn full" style={{ marginTop: 10 }} onClick={() => onReview()}>{I.compare}Review all changes</button>
+        )}
+      </section>
       {withWorktree.map((t) => (
-        <div key={t.id}>
-          <div className="section-label">Worktree</div>
-          <div className="mono">{t.worktree!.branch}</div>
-          <div className="sub">Own worktree{t.worktree!.base ? ` · from ${t.worktree!.base.slice(0, 10)}` : ''}</div>
-          <div style={{ marginTop: 10 }}>{t.worktree!.outcome ? `Outcome: ${t.worktree!.outcome}` : stateWord(t.state)}</div>
-          <div className="sub">{t.worktree!.outcome === 'merged' ? 'Merged into the parent folder' : 'Uncommitted work is saved to the branch when it ends'}</div>
+        <section className="panel" key={t.id}>
+          <div className="panel-h">{I.branch}<span>Worktree</span><span className={'tag ' + (t.worktree!.outcome === 'merged' ? 'green' : 'grey')}>{t.worktree!.outcome ?? stateWord(t.state)}</span></div>
+          <div className="branch-pill mono">{I.branch}{t.worktree!.branch}</div>
+          <div className="hint" style={{ marginTop: 6 }}>Own worktree{t.worktree!.base ? <> · from <span className="mono">{t.worktree!.base.slice(0, 8)}</span></> : ''}. {t.worktree!.outcome === 'merged' ? 'Merged into the parent folder.' : 'Uncommitted work is saved to the branch when it ends.'}</div>
           {t.worktree!.outcome !== 'merged' && (
-            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <button className="btn-wide" disabled={!['completed', 'failed', 'canceled'].includes(t.state)} onClick={() => onMerge(t)}>Merge into parent</button>
-              <button className="btn-wide ghost" onClick={() => onOpenTask(t)}>Review change</button>
+            <div className="stack">
+              <button className="btn primary full" disabled={!['completed', 'failed', 'canceled'].includes(t.state)} onClick={() => onMerge(t)}>{I.merge}Merge into parent</button>
+              <button className="btn full" onClick={() => onOpenTask(t)}>{I.compare}Review change</button>
             </div>
           )}
-        </div>
+        </section>
       ))}
-      {files.length > 0 && withWorktree.length === 0 && (
-        <button className="btn-wide ghost" style={{ marginTop: 12 }} onClick={() => onReview()}>Review all changes</button>
-      )}
       {usage && (
-        <>
-          <div className="section-label">Usage</div>
-          <div className="sub2">
+        <section className="panel">
+          <div className="panel-h">{I.server}<span>Usage</span></div>
+          {usage.used !== undefined && usage.size ? <div className="meter"><i style={{ width: `${Math.min(100, (usage.used / usage.size) * 100)}%` }} /></div> : null}
+          <div className="hint">
             {usage.used !== undefined && `${Math.round(usage.used / 1000)}k of ${Math.round((usage.size ?? 0) / 1000)}k context`}
             {usage.cost && ` · ${usage.cost.currency === 'USD' ? 'US$' : usage.cost.currency + ' '}${usage.cost.amount.toFixed(4)}`}
           </div>
-        </>
+        </section>
       )}
     </aside>
   )
@@ -135,33 +138,34 @@ export function DiffReview({ title, subtitle, diffs: raw, focus, onBack, task, o
   return (
     <div className="main">
       <div className="topbar">
-        <button className="icon-btn" onClick={onBack} aria-label="Back">{I.back}</button>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <button className="icon-btn" onClick={onBack} aria-label="Back" title="Back (Esc)">{I.back}</button>
+        <div className="topbar-title">
           <h1>{title}</h1>
           <div className="sub">{subtitle}</div>
         </div>
-        {task?.worktree && <span className="chip mono">{I.branch} {task.worktree.branch}</span>}
+        {task?.worktree && <span className="branch-pill mono">{I.branch}{task.worktree.branch}</span>}
         {task?.worktree && task.worktree.outcome !== 'merged' && onMerge && (
-          <button className="pill primary" disabled={merging || !['completed', 'failed', 'canceled'].includes(task.state)} onClick={() => onMerge(task)}>
+          <button className="btn primary" disabled={merging || !['completed', 'failed', 'canceled'].includes(task.state)} onClick={() => onMerge(task)}>
             {merging ? 'Merging…' : 'Merge into parent'}
           </button>
         )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', flex: 1, minHeight: 0 }}>
-        <div style={{ borderRight: '1px solid var(--line)', overflowY: 'auto', padding: 12 }}>
-          <div className={'row' + (!sel ? ' active' : '')} onClick={() => setSel(undefined)}><span className="grow">All files</span><span className="sub">{diffs.length}</span></div>
+      <div className="review-grid">
+        <div className="review-files">
+          <div className={'row' + (!sel ? ' active' : '')} onClick={() => setSel(undefined)}><span className="grow">All files</span><span className="count">{diffs.length}</span></div>
           {files.map(({ d, s }) => (
-            <div key={d.path} className={'row' + (sel === d.path ? ' active' : '')} onClick={() => setSel(d.path)}>
-              <span className="mono grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.path.split('/').pop()}</span>
-              <span className="mono sub"><span className="green">+{s.added}</span> <span className="red">−{s.removed}</span></span>
+            <div key={d.path} className={'row' + (sel === d.path ? ' active' : '')} onClick={() => setSel(d.path)} title={d.path}>
+              <span className="row-ic">{d.oldText || d.unified ? I.file : I.newfile}</span>
+              <div className="grow"><div className="mono ell">{d.path.split('/').pop()}</div>{d.path.includes('/') && <div className="sub mono ell">{d.path.split('/').slice(0, -1).join('/')}</div>}</div>
+              <span className="mono sub"><span className="green">+{s?.added ?? 0}</span> <span className="red">−{s?.removed ?? 0}</span></span>
             </div>
           ))}
         </div>
         <div className="scroll">
           {diffs.length === 0 ? (
-            <div className="empty"><div><h2>No file changes</h2><div>The agent has not reported any edits in this {task ? 'task' : 'session'}.</div></div></div>
+            <Empty icon={I.inbox} title="No file changes">Nothing changed in this {task ? 'task' : 'session'} yet{task ? ', including edits made by shell commands' : ''}.</Empty>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 980, margin: '0 auto' }}>
+            <div className="review-list">
               {shown.map((d) => <DiffView key={d.path} d={d} />)}
             </div>
           )}

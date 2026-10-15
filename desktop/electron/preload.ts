@@ -36,7 +36,7 @@ const api = {
   files: { pick: (): Promise<Result<{ name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[]>> => ipcRenderer.invoke('files:pick') },
   storageOf: (id: string): Promise<Result<string>> => ipcRenderer.invoke('hosts:storage-of', id),
   git: {
-    available: (hostId: string): Promise<Result<boolean>> => ipcRenderer.invoke('git:available', hostId),
+    available: (hostId: string): Promise<Result<'host' | 'local' | false>> => ipcRenderer.invoke('git:available', hostId),
     explain: (): Promise<Result<Record<string, string>>> => ipcRenderer.invoke('git:explain'),
     run: (hostId: string, cwd: string, op: string, params?: Record<string, string>, input?: string): Promise<Result<{ out: string; args: string[] }>> => ipcRenderer.invoke('git:run', hostId, cwd, op, params ?? {}, input),
     onLog: (cb: (e: { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }) => void): (() => void) => {

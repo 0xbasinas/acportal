@@ -7,7 +7,8 @@ import { Attachment, Composer, Conversation, Permission } from './Session'
 import { GitView } from './Git'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
 import { McpServer, Section, Settings, Theme, mcpWire } from './Settings'
-import { I, baseName, stateDot, stateWord, tildify } from './ui'
+import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
+import { parseBranches } from './gitparse'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair' }
 type ConnState = { kind: string; attempt?: number; reason?: string }
@@ -38,6 +39,8 @@ export default function App() {
   const [mcp, setMcpState] = useState<McpServer[]>([])
   const [draft, setDraft] = useState<{ text: string; n: number }>()
   const [newSessionPrompt, setNewSessionPrompt] = useState<string>()
+  const [branchOf, setBranchOf] = useState<Record<string, string>>({})
+  const [taskDetail, setTaskDetail] = useState<Task>()
   const pendingSuggest = useRef<{ sid: string; id: number; resolve: (s: string | undefined) => void } | undefined>(undefined)
   const attached = useRef<string | undefined>(undefined)
   const taskAttached = useRef<string | undefined>(undefined)
@@ -93,6 +96,24 @@ export default function App() {
     const t = setInterval(() => void refresh(), 4000)
     return () => clearInterval(t)
   }, [refresh])
+
+  // current branch of every session folder (host git), for the sidebar and headers
+  const wsKey = [...new Set(sessions.map((x) => x.workspace))].sort().join('|')
+  useEffect(() => {
+    if (!hostId || !online || !wsKey) return
+    let stop = false
+    const load = async (): Promise<void> => {
+      const next: Record<string, string> = {}
+      for (const ws of wsKey.split('|')) {
+        const r = await window.api.git.run(hostId, ws, 'rev-parse')
+        if (r.ok) next[ws] = r.value.out.split('\n')[2] ?? ''
+      }
+      if (!stop) setBranchOf(next)
+    }
+    void load()
+    const t = setInterval(() => void load(), 15000)
+    return () => { stop = true; clearInterval(t) }
+  }, [hostId, online, wsKey, view.kind])
 
   // socket events
   useEffect(() => {
@@ -177,19 +198,27 @@ export default function App() {
   }
   async function createSession(agentId: string, workspace: string, opts: NewOpts = defaultOpts): Promise<string | undefined> {
     let target = workspace
-    if (opts.worktree) {
-      const branch = 'acportal/' + (opts.branch || `session-${Date.now().toString(36)}`)
-      const top = await window.api.git.run(hostId!, workspace, 'rev-parse')
-      if (!top.ok) return `Own worktree needs a git repository: ${top.error}`
-      const root = top.value.out.split('\n')[0]
-      const path = root.replace(/[\\/][^\\/]+$/, '') + '/' + baseName(root) + '-' + branch.split('/').pop()
-      const w = await window.api.git.run(hostId!, root, 'worktree-add', { branch, path })
-      if (!w.ok) return `Could not create the worktree: ${w.error}`
-      target = path + workspace.slice(root.length)
+    const branch = opts.branch?.trim()
+    let branchOpt: { name: string; base?: string; create: boolean; worktree: boolean } | undefined
+    if (branch) {
+      if (status?.features?.includes('sessionWorktree')) branchOpt = { name: branch, create: opts.newBranch, worktree: opts.worktree, ...(opts.newBranch && opts.base ? { base: opts.base } : {}) }
+      else if (opts.worktree) {
+        // Older host on this computer: make the worktree locally, then start in it.
+        const top = await window.api.git.run(hostId!, workspace, 'rev-parse')
+        if (!top.ok) return `Own worktree needs a git repository: ${top.error}`
+        const root = top.value.out.split('\n')[0]
+        const path = root.replace(/[\\/][^\\/]+$/, '') + '/' + baseName(root) + '-' + branch.replace(/[^\w-]/g, '-')
+        const w = await window.api.git.run(hostId!, root, 'worktree-add', { branch, path, ...(opts.base ? { base: opts.base } : {}) })
+        if (!w.ok) return `Could not create the worktree: ${w.error}`
+        target = path + workspace.slice(root.length)
+      } else {
+        const w = await window.api.git.run(hostId!, workspace, opts.newBranch ? 'branch-create' : 'checkout', { branch, ...(opts.newBranch && opts.base ? { base: opts.base } : {}) })
+        if (!w.ok) return `Could not switch branch: ${w.error}`
+      }
     }
     const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
-    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire) })
-    if (!r.ok) return r.code === 'unsupported_mcp_transport' ? 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers' : r.error
+    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
+    if (!r.ok) return ({ unsupported_mcp_transport: 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers', branch_failed: 'Git could not make or switch to that branch (uncommitted changes in the way, or the branch is checked out elsewhere).', worktree_path_unavailable: 'The worktree folder already exists or is outside the host folders.', invalid_branch_name: 'That is not a valid branch name.', not_a_repository: 'This folder is not a git repository.' } as Record<string, string>)[r.code ?? ''] ?? r.error
     if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
     setSessions((s) => [...s, r.value])
     setSelected(r.value.id)
@@ -224,6 +253,15 @@ export default function App() {
     if (viewTask?.session && viewTask.session !== selected) void attach(viewTask.session, taskAttached, ['completed', 'failed', 'canceled', 'rejected'].includes(viewTask.state))
     if (!viewTask && taskAttached.current) { void window.api.session.detach(taskAttached.current); taskAttached.current = undefined }
   }, [viewTask?.session])
+
+  useEffect(() => {
+    if (!viewTask) { setTaskDetail(undefined); return }
+    let stop = false
+    const load = async (): Promise<void> => { const r = await api<Task>('GET', `/v1/tasks/${viewTask.id}`); if (!stop && r.ok) setTaskDetail(r.value) }
+    void load()
+    const t = setInterval(() => void load(), 4000)
+    return () => { stop = true; clearInterval(t) }
+  }, [viewTask?.id, viewTask?.state])
 
   const commands: Command[] = useMemo(() => {
     const c: Command[] = [
@@ -268,7 +306,7 @@ export default function App() {
   const overlays = (
     <>
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} onNew={paletteNew} />}
-      {newSession && <NewSession agents={agents} workspaces={workspaces} mcp={mcp} local={Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))} firstPrompt={newSessionPrompt} onClose={() => { setNewSession(false); setNewSessionPrompt(undefined) }} onCreate={async (a, w, o) => { const e = await createSession(a, w, o); if (!e) setNewSessionPrompt(undefined); return e }} />}
+      {newSession && hostId && <NewSession hostId={hostId} agents={agents} workspaces={workspaces} mcp={mcp} hostBranches={Boolean(status?.features?.includes('git'))} local={Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))} firstPrompt={newSessionPrompt} onClose={() => { setNewSession(false); setNewSessionPrompt(undefined) }} onCreate={async (a, w, o) => { const e = await createSession(a, w, o); if (!e) setNewSessionPrompt(undefined); return e }} />}
       {confirmMerge && (
         <div className="overlay" onMouseDown={() => setConfirmMerge(undefined)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -303,50 +341,50 @@ export default function App() {
   const sidebar = (
     <aside className="side">
       <div className="host-head">
-        <div style={{ minWidth: 0 }}>
-          <div className="host-name">{status?.name ?? host?.name}</div>
-          <div className="sub mono" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className={'dot ' + (online ? 'green' : 'red')} />{host?.address.replace(/^https?:\/\//, '')}</div>
-        </div>
+        <button className="host-switch" onClick={() => setView({ kind: 'settings', section: 'Hosts' })} title="Hosts">
+          <span className={'dot ' + (online ? 'green' : 'red')} />
+          <span className="grow"><span className="host-name">{status?.name ?? host?.name}</span><span className="sub mono">{host?.address.replace(/^https?:\/\//, '')}</span></span>
+        </button>
         <button className="icon-btn" onClick={() => void refresh()} title="Refresh">{I.refresh}</button>
       </div>
-      <div style={{ padding: '4px 16px 6px' }}>
-        <button className="pill" onClick={() => setNewSession(true)} disabled={!online}>{I.plus} New session</button>
+      <div className="side-actions">
+        <button className="btn full new-btn" onClick={() => setNewSession(true)} disabled={!online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
+        <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow">Search or run a command</span><span className="kbd">Ctrl K</span></button>
       </div>
-      <div className="section-label">Projects</div>
-      <div style={{ padding: '0 8px' }}>
-        {projects.length === 0 && <div className="sub" style={{ padding: '0 8px' }}>No folders are allowed on this host yet.</div>}
+      <div className="list">
+        <div className="section-label">Projects</div>
+        {projects.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>No folders are allowed on this host yet.</div>}
         {projects.slice(0, 6).map((w) => (
-          <div className="row" key={w.path} style={{ padding: '5px 8px' }} onClick={() => setNewSession(true)} title={w.path}>
-            <span className="sub">▸</span><span className="grow">{w.name}</span>
-            <span className="sub mono">{sessions.filter((s) => s.workspace.startsWith(w.path)).length || ''}</span>
+          <div className="row compact" key={w.path} onClick={() => setNewSession(true)} title={`New session in ${w.path}`}>
+            <span className="row-ic">{I.folder}</span><span className="grow ell">{w.name}</span>
+            <span className="count">{sessions.filter((s) => s.workspace.startsWith(w.path)).length || ''}</span>
           </div>
         ))}
-      </div>
-      <div className="section-label">Active sessions</div>
-      <div className="list">
-        {sessions.length === 0 && <div className="sub" style={{ padding: '0 8px' }}>No sessions on this host.</div>}
+        <div className="section-label">Sessions</div>
+        {sessions.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>No sessions on this host.</div>}
         {[...sessions].reverse().map((s) => {
           const t = timelines[s.id]
           const waiting = pendingIn(s.id)
           const st = waiting ? 'waiting' : t?.busy ? 'running' : s.status
+          const br = branchOf[s.workspace]
           return (
-            <div key={s.id} className={'row' + (s.id === selected ? ' active' : '')} onClick={() => { setSelected(s.id); setView({ kind: 'workspace' }) }}>
+            <div key={s.id} className={'row session' + (s.id === selected ? ' active' : '')} onClick={() => { setSelected(s.id); setView({ kind: 'workspace' }) }}>
+              <span className={'dot ' + stateDot(st) + (st === 'running' ? ' live' : '')} />
               <div className="grow">
                 <div className="title">{title(s)}</div>
-                <div className={'sub' + (waiting ? ' amber' : s.status === 'interrupted' ? ' red' : '')}>{s.agentId} · {waiting ? `${waiting} request${waiting > 1 ? 's' : ''} waiting` : stateWord(st)}</div>
+                <div className={'sub row-meta' + (waiting ? ' amber' : s.status === 'interrupted' ? ' red' : '')}>
+                  <span>{waiting ? `${waiting} waiting` : stateWord(st)}</span>
+                  {br && <span className="mono ell" title={`On ${br}`}>{I.branch}{br}</span>}
+                </div>
               </div>
-              <span className={'dot ' + stateDot(st)} />
+              {waiting > 0 && <span className="badge">{waiting}</span>}
             </div>
           )
         })}
       </div>
       <div className="side-foot">
-        <span className="sub2">{host?.name}</span>
-        <div style={{ display: 'flex', gap: 2 }}>
-          <button className="icon-btn" onClick={() => setView({ kind: 'git' })} title="Git (Ctrl G)">{I.branch}</button>
-          <button className="icon-btn" onClick={() => setPalette(true)} title="Command palette (Ctrl K)">⌘</button>
-          <button className="icon-btn" onClick={() => setView({ kind: 'settings', section: 'General' })} title="Settings">{I.gear}</button>
-        </div>
+        <button className="foot-btn" onClick={() => setView({ kind: 'git' })} title="Git (Ctrl G)">{I.branch}Git</button>
+        <button className="foot-btn" onClick={() => setView({ kind: 'settings', section: 'General' })} title="Settings (Ctrl ,)">{I.gear}Settings</button>
       </div>
     </aside>
   )
@@ -362,42 +400,44 @@ export default function App() {
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
       openSession={(path) => { setNewSessionPrompt(undefined); setNewSession(true); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
   } else if (view.kind === 'review') {
-    center = <DiffReview title={session ? `Review: ${title(session)}` : 'Review changes'} subtitle={session ? `${session.agentId} · ${tildify(session.workspace)}` : ''} diffs={tl ? changedFiles(tl).map((f) => f.diff) : []} focus={view.focus} root={session?.workspace} onBack={() => setView({ kind: 'workspace' })} task={rootTask?.worktree ? rootTask : undefined} onMerge={setConfirmMerge} merging={merging} />
+    center = <DiffReview title={session ? `Review · ${title(session)}` : 'Review changes'} subtitle={session ? `${agentName(session.agentId)} · ${tildify(session.workspace)}` : ''} diffs={tl ? changedFiles(tl).map((f) => f.diff) : []} focus={view.focus} root={session?.workspace} onBack={() => setView({ kind: 'workspace' })} task={rootTask?.worktree ? rootTask : undefined} onMerge={setConfirmMerge} merging={merging} />
   } else if (view.kind === 'task' && viewTask) {
     const ttl = viewTask.session ? timelines[viewTask.session] : undefined
-    const waiting = viewTask.needsDecision?.length ?? viewTask.pendingDecisions ?? 0
+    const detail = taskDetail?.id === viewTask.id ? taskDetail : undefined
+    const waiting = detail?.needsDecision?.length ?? viewTask.pendingDecisions ?? 0
+    // The host's view of the worktree (shell-made edits included) wins over the agent's reports.
+    const hostDiffs = detail?.worktreeChanges?.map((c) => ({ path: c.path, oldText: c.status === 'A' ? null : '', newText: c.newText ?? '', ...(c.diff !== undefined ? { unified: c.diff } : {}) }))
+    const diffs = hostDiffs?.length ? hostDiffs : ttl ? changedFiles(ttl).map((f) => f.diff) : []
     center = (
       <div className="main">
         <DiffReview title={viewTask.worktree?.branch ?? `Task ${viewTask.id.slice(0, 8)}`} subtitle={`${viewTask.agent} · ${stateWord(viewTask.state)}${viewTask.summary ? ` (${viewTask.summary})` : ''} · ${viewTask.worktree ? 'own worktree of ' + tildify((viewTask.worktree as { repository?: string }).repository ?? viewTask.scope) : tildify(viewTask.scope)}${waiting ? ` · ${waiting} waiting for a decision` : ''}${viewTask.costUsd ? ` · US$${viewTask.costUsd.toFixed(4)}` : ''}`}
-          root={viewTask.worktree?.path ?? viewTask.scope} diffs={ttl ? changedFiles(ttl).map((f) => f.diff) : []} onBack={() => setView({ kind: 'workspace' })} task={viewTask} onMerge={setConfirmMerge} merging={merging} />
+          root={viewTask.worktree?.path ?? viewTask.scope} diffs={diffs} onBack={() => setView({ kind: 'workspace' })} task={viewTask} onMerge={setConfirmMerge} merging={merging} />
         {ttl && ttl.items.some((i) => (i.kind === 'permission' || i.kind === 'elicitation') && i.answered === undefined) && (
           <div className="decisions">
-            <div className="section-label" style={{ padding: '0 0 8px' }}>Waiting for your decision · your answer wins over the supervisor's</div>
+            <div className="group-h" style={{ marginTop: 0 }}><span>Waiting for your decision</span><span className="sub">your answer wins over the supervisor's</span></div>
             {ttl.items.filter((i) => i.kind === 'permission' && i.answered === undefined).map((i) => i.kind === 'permission' && <Permission key={String(i.id)} p={i} onAnswer={(o) => void answer(i.id, o, taskAttached, viewTask.session!)} />)}
           </div>
         )}
         {!['completed', 'failed', 'canceled', 'rejected'].includes(viewTask.state) && (
-          <div style={{ padding: '10px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
-            {viewTask.session && <button className="pill" onClick={() => { setSelected(viewTask.session!); setView({ kind: 'workspace' }) }}>Open its session</button>}
-            <button className="pill" onClick={() => void cancelTask(viewTask)}>Cancel task</button>
+          <div className="action-bar">
+            {viewTask.session && <button className="btn" onClick={() => { setSelected(viewTask.session!); setView({ kind: 'workspace' }) }}>Open its session</button>}
+            <button className="btn danger" onClick={() => void cancelTask(viewTask)}>Cancel task</button>
           </div>
         )}
       </div>
     )
   } else if (!session) {
+    const repair = !online && hostError && /[Pp]air again/.test(hostError)
     center = (
       <div className="main">
-        {hostError && <div className="banner red">{hostError}</div>}
-        <div className="empty">
-          <div>
-            <h2>{online ? 'Pick a session or start one' : hostError && /[Pp]air again/.test(hostError) ? 'Pair this host again' : 'Host offline'}</h2>
-            <div>{online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${status?.name ?? 'this host'} · ${agents.filter((a) => a.enabled !== false).length} agents` : hostError && /[Pp]air again/.test(hostError) ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}</div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18 }}>
-              {!online && hostError && /[Pp]air again/.test(hostError) ? <button className="pill primary" onClick={() => setView({ kind: 'pair' })}>Pair again</button> : <button className="pill primary" onClick={() => setNewSession(true)} disabled={!online}>{I.plus} New session</button>}
-              <button className="pill" onClick={() => setPalette(true)}>Commands <span className="kbd">Ctrl K</span></button>
-            </div>
-          </div>
-        </div>
+        {hostError && <div className="banner red">{I.alert}<span>{hostError}</span></div>}
+        <Empty icon={online ? I.chat : I.server} title={online ? 'Pick a session or start one' : repair ? 'Pair this host again' : 'Host offline'}
+          actions={<>
+            {repair ? <button className="btn primary" onClick={() => setView({ kind: 'pair' })}>Pair again</button> : <button className="btn primary" onClick={() => setNewSession(true)} disabled={!online}>{I.plus}New session</button>}
+            <button className="btn" onClick={() => setPalette(true)}>{I.cmd}Commands <span className="kbd">Ctrl K</span></button>
+          </>}>
+          {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${status?.name ?? 'this host'} · ${agents.filter((a) => a.enabled !== false).length} agents ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
+        </Empty>
       </div>
     )
   } else {
@@ -411,35 +451,37 @@ export default function App() {
     }
     const interrupted = session.status === 'interrupted'
     const pc = ((session.initialization?.agentCapabilities as Record<string, unknown> | undefined)?.promptCapabilities ?? {}) as { image?: boolean; embeddedContext?: boolean }
+    const br = rootTask?.worktree?.branch ?? branchOf[session.workspace]
     center = (
       <div className="main">
         <div className="topbar">
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="topbar-title">
             <h1>{title(session)}</h1>
-            <div className="sub">{session.agentId} · {tl?.busy ? 'Running' : stateWord(session.status)} · {tildify(session.workspace)}</div>
+            <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{tildify(session.workspace)}</span></div>
           </div>
-          <span className="chip">{agentName(session.agentId)}</span>
+          {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
           {setup.modes?.availableModes?.length ? (
-            <select className="mode-select" title="Agent mode" value={modeValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: v } })); configure('session/set_mode', { modeId: v }) }}>
+            <select className="select-btn" title="Agent mode" value={modeValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: v } })); configure('session/set_mode', { modeId: v }) }}>
               {setup.modes.availableModes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           ) : null}
           {modelOpt?.options?.length ? (
-            <select className="mode-select" title="Model" value={modelValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [modelOpt.id]: v } } })); configure('session/set_config_option', { configId: modelOpt.id, value: v }) }}>
+            <select className="select-btn" title="Model" value={modelValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [modelOpt.id]: v } } })); configure('session/set_config_option', { configId: modelOpt.id, value: v }) }}>
               {modelOpt.options.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
             </select>
-          ) : modelValue ? <span className="chip">{modelValue}</span> : null}
-          {rootTask?.worktree && <span className="chip mono">{I.branch} {rootTask.worktree.branch}</span>}
-          <button className="icon-btn" title="Git: changes, history, worktrees (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
-          <button className="icon-btn" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
+          ) : modelValue ? <span className="select-btn">{modelValue}</span> : null}
+          <span className="vsep" />
+          <button className="icon-btn" title="Git: changes, branches, history (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
+          <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
+          <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
         {c && c.kind !== 'connected' && (
           <div className={'banner' + (c.kind === 'failed' ? ' red' : '')}>
-            {c.kind === 'reconnecting' ? `Reconnecting (attempt ${c.attempt})… the turn keeps running on the host.` : c.kind === 'failed' ? c.reason : c.kind === 'connecting' ? 'Connecting…' : 'Disconnected'}
+            {I.alert}<span>{c.kind === 'reconnecting' ? `Reconnecting (attempt ${c.attempt})… the turn keeps running on the host.` : c.kind === 'failed' ? c.reason : c.kind === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
           </div>
         )}
-        {interrupted && <div className="banner">The host restarted and this session's process ended. Start a new session in the same folder to continue.</div>}
-        <Conversation t={tl ?? emptyTimeline()} agent={session.agentId} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
+        <Conversation t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
         <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
           history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} />
       </div>
@@ -460,34 +502,60 @@ export default function App() {
   )
 }
 
-type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; mcp: boolean; firstPrompt?: string }
-const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, mcp: true }
-function NewSession({ agents, workspaces, mcp, local, firstPrompt, onClose, onCreate }: { agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; local: boolean; firstPrompt?: string; onClose: () => void; onCreate: (a: string, w: string, o: NewOpts) => Promise<string | undefined> }) {
+type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
+const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }
+const slug = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/^-|-$/g, '')
+function NewSession({ hostId, agents, workspaces, mcp, hostBranches, local, firstPrompt, onClose, onCreate }: { hostId: string; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; hostBranches: boolean; local: boolean; firstPrompt?: string; onClose: () => void; onCreate: (a: string, w: string, o: NewOpts) => Promise<string | undefined> }) {
   const usable = agents.filter((a) => a.enabled !== false)
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
   const [ws, setWs] = useState(workspaces[0]?.path ?? '')
   const [sub, setSub] = useState('')
-  const [o, setO] = useState<NewOpts>({ ...defaultOpts, firstPrompt, branch: firstPrompt ? firstPrompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/-$/, '') : '' })
+  const [o, setO] = useState<NewOpts>({ ...defaultOpts, firstPrompt, newBranch: Boolean(firstPrompt), branch: firstPrompt ? 'acportal/' + slug(firstPrompt) : '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
+  const [branches, setBranches] = useState<string[]>()
+  const [current, setCurrent] = useState<string>()
+  const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
+  const canBranch = hostBranches || local
+  useEffect(() => {
+    let stop = false
+    setBranches(undefined)
+    if (!canBranch || !target) return
+    const t = setTimeout(async () => {
+      const r = await window.api.git.run(hostId, target, 'branch-list')
+      if (stop) return
+      if (!r.ok) { setBranches([]); return }
+      const list = parseBranches(r.value.out)
+      setBranches(list.filter((b) => !b.remote).map((b) => b.name))
+      const cur = list.find((b) => b.current)?.name
+      setCurrent(cur)
+      setO((x) => ({ ...x, base: x.base && list.some((b) => b.name === x.base) ? x.base : cur }))
+    }, 250)
+    return () => { stop = true; clearTimeout(t) }
+  }, [target, canBranch])
   const go = async (): Promise<void> => {
     setBusy(true); setErr(undefined)
     localStorage.setItem('acportal.lastAgent', agent)
-    const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
     const e = await onCreate(agent, target, o)
     setBusy(false)
     if (e) setErr(e)
   }
-  const Check = ({ k, label, title, disabled }: { k: 'read' | 'write' | 'terminal' | 'worktree' | 'mcp'; label: string; title?: string; disabled?: boolean }) => (
-    <button className={'check' + (o[k] ? ' on' : '')} title={title} disabled={disabled} onClick={() => setO({ ...o, [k]: !o[k] })}>{o[k] ? '✓' : '○'} {label}</button>
+  const Check = ({ k, label, title, disabled }: { k: 'read' | 'write' | 'terminal' | 'mcp'; label: string; title?: string; disabled?: boolean }) => (
+    <button className={'check' + (o[k] ? ' on' : '')} title={title} disabled={disabled} onClick={() => setO({ ...o, [k]: !o[k] })}><span className="box">{o[k] ? I.check : null}</span>{label}</button>
   )
   const enabledMcp = mcp.filter((m) => m.enabled)
+  const isRepo = Boolean(branches && branches.length)
+  const branchName = o.branch?.trim() ?? ''
+  const exists = Boolean(branches?.includes(branchName))
+  const cmd = !o.newBranch && !o.worktree ? '' : o.worktree
+    ? `git worktree add ${o.newBranch ? `-b ${branchName || '<branch>'} ` : ''}../${baseName(target)}-${(branchName || '<branch>').replace(/[^\w-]/g, '-')}${o.newBranch ? ` ${o.base ?? ''}` : ` ${branchName}`}`
+    : `git switch ${o.newBranch ? `-c ${branchName || '<branch>'} ${o.base ?? ''}` : branchName}`
   return (
     <div className="overlay" onMouseDown={onClose}>
-      <div className="modal" style={{ width: 600 }} onMouseDown={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: 0, fontSize: 18 }}>New session</h3>
-        <div className="sub">{firstPrompt ? <>Task: <span style={{ color: 'var(--text)' }}>{firstPrompt}</span></> : 'The agent starts on the host in the folder you pick.'}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div className="modal" style={{ width: 620 }} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT' && !busy && agent && ws && !(o.newBranch && (!branchName || exists))) void go() }}>
+        <div className="modal-h"><h3>New session</h3><button className="icon-btn" onClick={onClose} aria-label="Close">{I.close}</button></div>
+        <div className="sub2">{firstPrompt ? <>Task: <span style={{ color: 'var(--text)' }}>{firstPrompt}</span></> : 'The agent starts on the host in the folder you pick.'}</div>
+        <div className="grid2">
           <div className="field"><label>Agent</label>
             <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
           </div>
@@ -495,26 +563,47 @@ function NewSession({ agents, workspaces, mcp, local, firstPrompt, onClose, onCr
             <select className="input mono" value={ws} onChange={(e) => setWs(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tildify(w.path)}</option>)}</select>
           </div>
         </div>
-        <div className="field"><label>Sub-folder (optional)</label><input className="input mono" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} /></div>
+        <div className="field"><label>Sub-folder <span className="sub">optional</span></label><input className="input mono" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} /></div>
+        <div className="field"><label>Branch</label>
+          {!canBranch ? <div className="hint">This host does not run git for the app; the session starts on whatever branch the folder is on.</div>
+            : branches === undefined ? <div className="hint">Reading branches…</div>
+            : !isRepo ? <div className="hint">Not a git repository; the session starts in the folder as it is.</div>
+            : (
+              <>
+                <div className="seg">
+                  <button className={!o.newBranch && !o.worktree ? 'on' : ''} onClick={() => setO({ ...o, newBranch: false, worktree: false, branch: '' })}>Current <span className="mono">{current}</span></button>
+                  <button className={o.newBranch ? 'on' : ''} onClick={() => setO({ ...o, newBranch: true, branch: o.branch || 'acportal/' + (firstPrompt ? slug(firstPrompt) : 'session-' + Date.now().toString(36)) })}>New branch</button>
+                  <button className={!o.newBranch && (o.worktree || Boolean(o.branch)) ? 'on' : ''} onClick={() => setO({ ...o, newBranch: false, branch: branches?.find((b) => b !== current) ?? '' })}>Existing branch</button>
+                </div>
+                {o.newBranch && (
+                  <div className="grid2" style={{ marginTop: 8 }}>
+                    <input className="input mono" placeholder="acportal/my-change" value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value.replace(/\s+/g, '-') })} />
+                    <div className="inline"><span className="sub">from</span><select className="input mono" value={o.base} onChange={(e) => setO({ ...o, base: e.target.value })}>{branches!.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
+                  </div>
+                )}
+                {!o.newBranch && (o.worktree || Boolean(o.branch)) && (
+                  <select className="input mono" style={{ marginTop: 8 }} value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value })}>{branches!.filter((b) => b !== current || o.worktree).map((b) => <option key={b} value={b}>{b}</option>)}</select>
+                )}
+                {(o.newBranch || Boolean(o.branch)) && (
+                  <div className="where">
+                    <button className={'where-card' + (!o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: false })}><b>Switch this folder</b><span className="sub">Edits land in {tildify(target)}</span></button>
+                    <button className={'where-card' + (o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: true })}><b>Own worktree</b><span className="sub">A new folder beside the repo; nothing else changes</span></button>
+                  </div>
+                )}
+                {o.newBranch && exists && <div className="error">A branch named {branchName} already exists.</div>}
+                {cmd && <code className="learn-cmd" style={{ marginTop: 8, display: 'inline-block' }}>$ {cmd}</code>}
+              </>
+            )}
+        </div>
         <div className="field"><label>Rights for this session</label>
-          <div className="checks"><Check k="read" label="Read files" /><Check k="write" label="Write files" /><Check k="terminal" label="Run commands" /></div>
-        </div>
-        <div className="field"><label>Isolation</label>
-          <div className="checks">
-            <button className={'check' + (!o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: false })}>{!o.worktree ? '✓' : '○'} Shared folder</button>
-            <Check k="worktree" label="Own worktree" disabled={!local} title={local ? 'git worktree add -b acportal/<name> next to the repository' : 'Needs a host on this computer: acpd has no worktree option for phone sessions yet'} />
-            {o.worktree && <input className="input mono" style={{ height: 32, flex: 1 }} placeholder="branch name" value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value.replace(/[^\w./-]/g, '-') })} />}
-          </div>
-          {o.worktree && <div className="sub" style={{ marginTop: 4 }}>$ git worktree add -b acportal/{o.branch || '<name>'} ../{'<repo>'}-{o.branch || '<name>'}</div>}
-        </div>
-        <div className="field"><label>Tools</label>
-          <div className="checks"><Check k="mcp" label={`MCP servers (${enabledMcp.length})`} title={enabledMcp.map((m) => m.name).join(', ') || 'Add servers in Settings → MCP servers'} disabled={!enabledMcp.length} />
-            <span className="sub" title="Delegation is enabled per agent in the host config ([orchestrator] orchestrate)">Delegation: set on the host</span></div>
+          <div className="checks"><Check k="read" label="Read files" /><Check k="write" label="Write files" /><Check k="terminal" label="Run commands" />
+            <Check k="mcp" label={`MCP servers (${enabledMcp.length})`} title={enabledMcp.map((m) => m.name).join(', ') || 'Add servers in Settings → MCP servers'} disabled={!enabledMcp.length} /></div>
+          <div className="hint" title="Delegation is enabled per agent in the host config ([orchestrator] orchestrate)">Delegation to other agents is set on the host.</div>
         </div>
         {err && <div className="error">{err}</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          <button className="btn-wide" disabled={!agent || !ws || busy || (!o.read && !o.write && !o.terminal && false)} onClick={() => void go()}>{busy ? 'Starting agent…' : 'Start session'}</button>
-          <button className="btn-wide ghost" style={{ width: 120 }} onClick={onClose}>Cancel</button>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={!agent || !ws || busy || (o.newBranch && (!branchName || exists))} onClick={() => void go()}>{busy ? 'Starting agent…' : 'Start session'}<span className="kbd on-primary">Enter</span></button>
         </div>
       </div>
     </div>

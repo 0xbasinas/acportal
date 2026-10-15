@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ElicitSchema, Item, PermissionItem, Timeline } from './acp'
-import { DiffView, I } from './ui'
+import { DiffView, Empty, I } from './ui'
 import { Markdown } from './Markdown'
 
 const nice = (n: string): string => (/^[a-z]+(_[a-z]+)+$/.test(n) ? n.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : n)
@@ -18,48 +18,42 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
     const rejected = p.answered === 'cancelled' || chosen?.kind?.startsWith('reject')
     return (
       <div className="answered">
-        <span className={rejected ? 'red' : 'green'}>{rejected ? '✕' : '✓'}</span>
-        <span className="mono tool-title" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.lines[0] ?? p.title}</span>
+        <span className={'ans-ic ' + (rejected ? 'red' : 'green')}>{rejected ? I.close : I.check}</span>
+        <span className="mono tool-title">{p.lines[0] ?? p.title}</span>
         <span className="sub">{p.source === 'agent' ? 'agent' : 'host'} · {p.answered === 'cancelled' ? 'Cancelled' : nice(chosen?.name ?? p.answered ?? '')}</span>
       </div>
     )
   }
   return (
-    <div className="card" style={{ opacity: done ? 0.6 : 1 }}>
-      <h3>{isShell ? `Run ${n > 1 ? `${n} shell commands` : 'a shell command'}` : p.title}</h3>
-      {isShell && p.title && <div className="sub2">{p.title}</div>}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
-        <span className={'tag ' + (isShell ? 'red' : 'grey')}>{isShell ? 'Shell command' : p.toolKind ?? 'Permission'}</span>
-        <span className="sub">{p.source === 'agent' ? 'Asked by the agent' : `Host consent · ${p.source}`}{p.cwd ? ` · in ${p.cwd}` : ''}</span>
-      </div>
-      {p.lines.map((l, i) => (
-        <div className="codeline" key={i}>
-          <code>{l}</code>
-          {n > 1 && <span className="sub">Line {i + 1}</span>}
+    <div className={'card approval' + (isShell ? ' danger' : '')}>
+      <div className="card-h">
+        <span className="approval-ic">{isShell ? I.term : I.shield}</span>
+        <div className="grow">
+          <h3>{isShell ? `Run ${n > 1 ? `${n} shell commands` : 'a shell command'}` : p.title}</h3>
+          <div className="sub">{p.source === 'agent' ? 'Asked by the agent' : `Host consent · ${p.source}`}{p.cwd ? <> · in <span className="mono">{p.cwd}</span></> : ''}</div>
         </div>
-      ))}
+        <span className={'tag ' + (isShell ? 'red' : 'grey')}>{isShell ? 'Shell' : p.toolKind ?? 'Permission'}</span>
+      </div>
+      {isShell && p.title && p.title !== p.lines[0] && <div className="sub2" style={{ marginTop: 8 }}>{p.title}</div>}
+      {p.lines.length > 0 && (
+        <pre className="cmd-block mono">{p.lines.map((l, i) => <div key={i}><span className="prompt">$</span>{l}</div>)}</pre>
+      )}
       {p.diffs.map((d) => (
         <div style={{ marginTop: 10 }} key={d.path}><DiffView d={d} maxLines={14} /></div>
       ))}
       {ar && (
-        <div className="sub2" style={{ marginTop: 10 }}>
-          {ar.decision === 'ask' ? 'Not auto-approved' : `Auto-review: ${ar.decision}`}
+        <div className="review-note">
+          {I.spark}<span>{ar.decision === 'ask' ? 'Not auto-approved' : `Auto-review: ${ar.decision}`}
           {ar.layer ? ` — ${ar.layer === 'model' ? 'smart review' : 'rules'}` : ''}
-          {ar.reason ? `: ${ar.reason}` : ''}
+          {ar.reason ? `: ${ar.reason}` : ''}</span>
         </div>
       )}
-      {done ? (
-        <div className="sub2" style={{ marginTop: 12 }}>{p.answered === 'cancelled' ? 'Cancelled' : `Answered: ${p.options.find((o) => o.optionId === p.answered)?.name ?? p.answered}`}</div>
-      ) : (
-        <>
-          <div style={{ color: 'var(--text)', marginTop: 10, fontSize: 12 }}>{isShell ? 'Approve only if you want these exact lines to run once on your host.' : 'The agent waits for your answer.'}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
-            {allow && <button className="btn-wide" onClick={() => onAnswer(allow.optionId)}>{nice(allow.name || 'Allow once')}</button>}
-            {always && !isShell && <button className="btn-wide ghost" onClick={() => onAnswer(always.optionId)}>{nice(always.name)}</button>}
-            {reject ? <button className="btn-wide ghost" onClick={() => onAnswer(reject.optionId)}>{nice(reject.name || 'Reject')}</button> : <button className="btn-wide ghost" onClick={() => onAnswer(null)}>Cancel</button>}
-          </div>
-        </>
-      )}
+      <div className="approval-foot">
+        <span className="sub grow">{isShell ? 'Runs these exact lines once on the host.' : 'The agent waits for your answer.'}</span>
+        {reject ? <button className="btn ghost" onClick={() => onAnswer(reject.optionId)}>{nice(reject.name || 'Reject')}</button> : <button className="btn ghost" onClick={() => onAnswer(null)}>Cancel</button>}
+        {always && !isShell && <button className="btn" onClick={() => onAnswer(always.optionId)}>{nice(always.name)}</button>}
+        {allow && <button className="btn primary" autoFocus onClick={() => onAnswer(allow.optionId)}>{nice(allow.name || 'Allow once')}</button>}
+      </div>
     </div>
   )
 }
@@ -71,20 +65,20 @@ function Row({ item, agent, onAnswer, onReview, onElicit }: { item: Item; agent:
       return <div className="bubble-user">{item.text}</div>
     case 'agent':
       return (
-        <div>
-          <div className="agent-name">{agent}</div>
+        <div className="agent-msg">
+          <div className="agent-name">{I.bot}{agent}</div>
           <div className="agent-text"><Markdown text={item.text} /></div>
         </div>
       )
     case 'thought':
-      return <div className="thought">{item.text.length > 600 && !open ? item.text.slice(0, 600) + '…' : item.text}</div>
+      return <div className={'thought' + (open ? ' open' : '')} onClick={() => setOpen(!open)} title={open ? 'Collapse' : 'Show all'}>{item.text.length > 280 && !open ? item.text.slice(0, 280) + '…' : item.text}</div>
     case 'plan':
       return (
-        <div className="card" style={{ padding: '12px 16px' }}>
-          <div className="sub2" style={{ marginBottom: 6 }}>Plan</div>
+        <div className="card plan">
+          <div className="group-h" style={{ marginTop: 0 }}><span>Plan</span><span className="count">{item.entries.filter((e) => e.status === 'completed').length}/{item.entries.length}</span></div>
           {item.entries.map((e, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8 }}>
-              <span className={e.status === 'completed' ? 'green' : 'sub'}>{e.status === 'completed' ? '✓' : e.status === 'in_progress' ? '•' : '○'}</span>
+            <div key={i} className={'plan-row ' + (e.status ?? '')}>
+              <span className="plan-ic">{e.status === 'completed' ? I.check : e.status === 'in_progress' ? <span className="spin-dot" /> : <span className="ring" />}</span>
               <span>{e.content}</span>
             </div>
           ))}
@@ -93,12 +87,12 @@ function Row({ item, agent, onAnswer, onReview, onElicit }: { item: Item; agent:
     case 'tool':
       return (
         <div>
-          <div className="tool" onClick={() => setOpen(!open)} style={{ cursor: item.terminal ? 'pointer' : undefined }}>
-            <span className="sub">{I.tool}</span>
-            <span className="mono tool-title">{item.title}</span>
-            <span className={'status' + (item.status === 'failed' ? ' red' : '')}>
-              {item.autoReview ? `auto-review ${item.autoReview.decision} · ` : ''}
-              {item.status === 'completed' ? 'Completed' : item.status === 'failed' ? 'Failed' : item.status === 'in_progress' ? 'Running…' : 'Pending'}
+          <div className={'tool' + (item.terminal ? ' clickable' : '')} onClick={() => setOpen(!open)}>
+            <span className="tool-ic">{item.toolKind === 'execute' || item.terminal ? I.term : item.diffs.length || item.toolKind === 'edit' ? I.file : I.tool}</span>
+            <span className="tool-title">{item.title}</span>
+            {item.autoReview && <span className="tag grey">auto-review {item.autoReview.decision}</span>}
+            <span className={'status ' + (item.status ?? 'pending')}>
+              <span className="st-dot" />{item.status === 'completed' ? 'Done' : item.status === 'failed' ? 'Failed' : item.status === 'in_progress' ? 'Running' : 'Pending'}
             </span>
           </div>
           {item.diffs.map((d) => (
@@ -127,9 +121,9 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit 
     <div className="scroll" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
       <div className="convo">
         {t.gap && <div className="sub amber">Older history was trimmed by the host; this view starts later.</div>}
-        {t.items.length === 0 && <div className="empty" style={{ minHeight: 300 }}><div><h2>{readOnly ? 'Nothing here yet' : 'Start the conversation'}</h2><div>{readOnly ? 'This task has not produced output.' : `Ask ${agent} to change, explain or test something in this folder.`}</div></div></div>}
+        {t.items.length === 0 && <div style={{ minHeight: 320, display: 'flex' }}><Empty icon={I.chat} title={readOnly ? 'Nothing here yet' : 'Start the conversation'}>{readOnly ? 'This task has not produced output.' : `Ask ${agent} to change, explain or test something in this folder.`}</Empty></div>}
         {t.items.map((i) => <Row key={String(i.id)} item={i} agent={agent} onAnswer={onAnswer} onReview={onReview} onElicit={onElicit} />)}
-        {t.busy && <div className="sub">{agent} is working…</div>}
+        {t.busy && <div className="working"><span className="pulse" />{agent} is working…</div>}
       </div>
     </div>
   )
@@ -141,11 +135,10 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
   const required = new Set(item.schema?.required ?? [])
   const [vals, setVals] = useState<Record<string, unknown>>(() => Object.fromEntries(Object.entries(props).filter(([, f]) => f.default !== undefined).map(([k, f]) => [k, f.default])))
   const missing = [...required].filter((k) => vals[k] === undefined || vals[k] === '')
-  if (item.answered) return <div className="answered"><span className={item.answered === 'accept' ? 'green' : 'red'}>{item.answered === 'accept' ? '✓' : '✕'}</span><span className="tool-title">{item.message}</span><span className="sub">form · {item.answered === 'accept' ? 'Sent' : item.answered === 'decline' ? 'Declined' : 'Cancelled'}</span></div>
+  if (item.answered) return <div className="answered"><span className={'ans-ic ' + (item.answered === 'accept' ? 'green' : 'red')}>{item.answered === 'accept' ? I.check : I.close}</span><span className="tool-title">{item.message}</span><span className="sub">form · {item.answered === 'accept' ? 'Sent' : item.answered === 'decline' ? 'Declined' : 'Cancelled'}</span></div>
   return (
-    <div className="card">
-      <h3>The agent asks for input</h3>
-      <div className="sub2">{item.message}</div>
+    <div className="card approval">
+      <div className="card-h"><span className="approval-ic">{I.pencil}</span><div className="grow"><h3>{item.message}</h3><div className="sub">The agent asks for input · form</div></div></div>
       {item.mode === 'url' && <div className="sub" style={{ marginTop: 8 }}>This request wants a web page opened ({item.url}). The app never opens agent links on its own.</div>}
       {Object.entries(props).map(([k, f]) => {
         const label = (f.title ?? k) + (required.has(k) ? ' *' : '')
@@ -157,7 +150,7 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
               <span className={'toggle' + (vals[k] ? ' on' : '')} style={{ cursor: 'pointer' }} onClick={() => setVals((v) => ({ ...v, [k]: !v[k] }))} />
             ) : options ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {options.map((o) => <button key={o.v} className={'pill' + (vals[k] === o.v ? ' primary' : '')} onClick={() => setVals((v) => ({ ...v, [k]: o.v }))}>{o.l}</button>)}
+                {options.map((o) => <button key={o.v} className={'seg-btn' + (vals[k] === o.v ? ' on' : '')} onClick={() => setVals((v) => ({ ...v, [k]: o.v }))}>{o.l}</button>)}
               </div>
             ) : (
               <input className="input" type={f.type === 'number' || f.type === 'integer' ? 'number' : f.format === 'email' ? 'email' : 'text'} min={f.minimum} max={f.maximum} value={String(vals[k] ?? '')}
@@ -166,10 +159,11 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
           </div>
         )
       })}
-      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button className="btn-wide" disabled={missing.length > 0 || item.mode === 'url'} onClick={() => onElicit(item.id, { action: 'accept', content: vals })}>Send</button>
-        <button className="btn-wide ghost" style={{ width: 120 }} onClick={() => onElicit(item.id, { action: 'decline' })}>Decline</button>
-        <button className="btn-wide ghost" style={{ width: 120 }} onClick={() => onElicit(item.id, { action: 'cancel' })}>Cancel</button>
+      <div className="approval-foot">
+        <span className="sub grow">{missing.length ? `${missing.length} required field${missing.length > 1 ? 's' : ''} left` : 'Your answer goes to the agent through the host.'}</span>
+        <button className="btn ghost" onClick={() => onElicit(item.id, { action: 'cancel' })}>Cancel</button>
+        <button className="btn" onClick={() => onElicit(item.id, { action: 'decline' })}>Decline</button>
+        <button className="btn primary" disabled={missing.length > 0 || item.mode === 'url'} onClick={() => onElicit(item.id, { action: 'accept', content: vals })}>Send</button>
       </div>
     </div>
   )
@@ -218,15 +212,15 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
       {atts.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           {atts.map((a, i) => (
-            <span key={i} className="chip">{a.data ? '🖼' : '📄'} {a.name} <span className="sub">{Math.ceil(a.size / 1024)} KB</span>
-              <button className="sub" onClick={() => setAtts(atts.filter((_, j) => j !== i))}>{I.close}</button></span>
+            <span key={i} className="att-chip">{a.data ? <img src={`data:${a.mimeType};base64,${a.data}`} alt="" /> : I.file}<span>{a.name}</span><span className="sub">{a.size < 1024 ? `${a.size} B` : `${Math.ceil(a.size / 1024)} KB`}</span>
+              <button className="x" aria-label={`Remove ${a.name}`} onClick={() => setAtts(atts.filter((_, j) => j !== i))}>{I.close}</button></span>
           ))}
         </div>
       )}
       <textarea
         ref={ref}
         rows={1}
-        placeholder={disabled ?? 'Message, @files  ·  ↑ for history'}
+        placeholder={disabled ?? `Message ${agent}…`}
         disabled={Boolean(disabled)}
         value={text}
         onChange={(e) => { setText(e.target.value); setHIdx(-1) }}
@@ -238,12 +232,12 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
       />
       {err && <div className="error" style={{ marginTop: 0, marginBottom: 6 }}>{err}</div>}
       <div className="bar">
-        <button className="icon-btn" title={canImage || canResource ? 'Attach images or text files' : `${agent} does not accept attachments`} disabled={!canImage && !canResource} onClick={() => void pick()}>{I.plus}</button>
-        <button className="icon-btn" title="Prompt history" onClick={() => setShowHist(!showHist)}>{I.clock}</button>
-        <span className="sub2">{agent}</span>
+        <button className="icon-btn" title={canImage || canResource ? 'Attach images or text files' : `${agent} does not accept attachments`} disabled={!canImage && !canResource} onClick={() => void pick()}>{I.attach}</button>
+        <button className={'icon-btn' + (showHist ? ' on' : '')} title="Prompt history (↑ in an empty box)" onClick={() => setShowHist(!showHist)}>{I.clock}</button>
         <span style={{ flex: 1 }} />
+        <span className="hint-keys"><span className="kbd">Enter</span> send · <span className="kbd">Shift Enter</span> new line</span>
         {busy ? (
-          <button className="pill" onClick={onCancel} title="Cancel this turn (Esc)">Stop</button>
+          <button className="btn stop" onClick={onCancel} title="Cancel this turn (Esc)">{I.stop}Stop</button>
         ) : (
           <button className="send" disabled={(!text.trim() && !atts.length) || Boolean(disabled)} onClick={send} aria-label="Send">{I.send}</button>
         )}

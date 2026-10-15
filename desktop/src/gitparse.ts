@@ -8,7 +8,7 @@ export function parseStatus(out: string): Status {
   for (const line of out.split('\n')) {
     if (!line) continue
     if (line.startsWith('## ')) {
-      const m = /^## (?:No commits yet on )?([^.\s]+)(?:\.\.\.(\S+))?(?: \[(.*)\])?/.exec(line)
+      const m = /^## (?:No commits yet on )?(\S+?)(?:\.\.\.(\S+))?(?: \[(.*)\])?$/.exec(line)
       st.branch = m?.[1] ?? line.slice(3)
       st.upstream = m?.[2]
       const a = /ahead (\d+)/.exec(m?.[3] ?? ''), b = /behind (\d+)/.exec(m?.[3] ?? '')
@@ -79,4 +79,28 @@ export function parseWorktrees(out: string): Worktree[] {
     }
     return w
   })
+}
+
+export type Branch = { name: string; hash: string; current: boolean; remote: boolean; track: string; when: string }
+/** `git branch --all --format=%(refname:short)<US>%(objectname:short)<US>%(HEAD)<US>%(upstream:track)<US>%(committerdate:relative)` */
+export function parseBranches(out: string): Branch[] {
+  return out.split('\n').filter(Boolean).map((l) => {
+    const [name, hash, head, track, when] = l.split('\u001f')
+    return { name, hash, current: head === '*', remote: /^(remotes\/|origin\/)/.test(name) || name.includes('/HEAD'), track: (track ?? '').replace(/^\[|\]$/g, ''), when: when ?? '' }
+  }).filter((b) => !b.name.endsWith('/HEAD') && b.name !== 'origin' && !b.name.startsWith('(HEAD detached'))
+}
+export type Compare = { ahead: { hash: string; subject: string; when: string }[]; behind: { hash: string; subject: string; when: string }[] }
+/** `git log --left-right --pretty=%m<US>%h<US>%s<US>%cr base...HEAD`: '<' only on base, '>' only on HEAD. */
+export function parseCompare(out: string): Compare {
+  const c: Compare = { ahead: [], behind: [] }
+  for (const l of out.split('\n').filter(Boolean)) {
+    const [m, hash, subject, when] = l.split('\u001f')
+    ;(m === '>' ? c.ahead : c.behind).push({ hash, subject, when })
+  }
+  return c
+}
+/** The https page of a GitHub origin, from an https or ssh remote URL; undefined otherwise. */
+export function githubRepo(remote: string): string | undefined {
+  const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())
+  return m ? `https://github.com/${m[1]}/${m[2]}` : undefined
 }

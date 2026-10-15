@@ -48,7 +48,7 @@ test('address rules match the Android app', () => {
   assert.throws(() => validateAddress('https://host.example/v1'), /path or credentials/)
 })
 
-import { parseStatus, parseDiff, parseGraph, parseWorktrees } from '../src/gitparse'
+import { parseStatus, parseDiff, parseGraph, parseWorktrees, parseBranches, parseCompare, githubRepo } from '../src/gitparse'
 test('git porcelain parsers', () => {
   const s = parseStatus('## main...origin/main [ahead 2, behind 1]\nM  a.py\n M b.py\nMM c.py\n?? new.txt\nUU d.py\nR  old.py -> new.py\n')
   assert.equal(s.branch, 'main'); assert.equal(s.ahead, 2); assert.equal(s.behind, 1)
@@ -62,4 +62,14 @@ test('git porcelain parsers', () => {
   assert.equal(g[0].hash, 'abc1234'); assert.equal(g[0].refs, 'HEAD -> main'); assert.equal(g[1].graph, '|\\  ')
   const w = parseWorktrees('worktree /r\nHEAD 0123456789\nbranch refs/heads/main\n\nworktree /r-wt\nHEAD abcdef0123\ndetached\n')
   assert.equal(w.length, 2); assert.equal(w[0].branch, 'main'); assert.ok(w[1].detached)
+})
+test('branches, compare and GitHub remotes', () => {
+  const b = parseBranches('main\u001fabc1234\u001f*\u001f[ahead 1]\u001f2 hours ago\nfeat/x\u001fdef5678\u001f \u001f\u001f3 days ago\norigin/HEAD\u001fabc\u001f \u001f\u001f\norigin/main\u001fabc1234\u001f \u001f\u001f2 hours ago\n')
+  assert.deepEqual(b.map((x) => [x.name, x.current, x.remote, x.track]), [['main', true, false, 'ahead 1'], ['feat/x', false, false, ''], ['origin/main', false, true, '']])
+  const c = parseCompare('>\u001fa1\u001fmine\u001f1m\n<\u001fb2\u001ftheirs\u001f2m\n')
+  assert.equal(c.ahead[0].subject, 'mine'); assert.equal(c.behind[0].hash, 'b2')
+  assert.equal(githubRepo('git@github.com:0xbasinas/acportal.git'), 'https://github.com/0xbasinas/acportal')
+  assert.equal(githubRepo('https://github.com/a/b'), 'https://github.com/a/b')
+  assert.equal(githubRepo('https://gitlab.com/a/b.git'), undefined)
+  assert.equal(parseStatus('## release/v1.2...origin/release/v1.2 [behind 2]\n').branch, 'release/v1.2')
 })

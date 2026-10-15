@@ -30,6 +30,17 @@ function seal(token: string): string {
   return 'file:' + sealWithFileKey(token, app.getPath('userData'))
 }
 const memoryTokens = new Map<string, string>()
+/** MCP env and header values are sealed at rest like tokens ("sealed:" + enc:/file: form). */
+function mcpSecrets(p: Record<string, unknown>, sealing: boolean): Record<string, unknown> {
+  if (!Array.isArray(p.mcp)) return p
+  const map = (o?: Record<string, string>): Record<string, string> | undefined =>
+    o && Object.fromEntries(Object.entries(o).map(([k, v]) => {
+      if (sealing) return [k, v.startsWith('sealed:') ? v : 'sealed:' + seal(v)]
+      if (!v.startsWith('sealed:')) return [k, v]
+      try { return [k, unseal({ id: '', secret: v.slice(7) } as StoredHost)] } catch { return [k, ''] }
+    }))
+  return { ...p, mcp: (p.mcp as { env?: Record<string, string>; headers?: Record<string, string> }[]).map((m) => ({ ...m, env: map(m.env), headers: map(m.headers) })) }
+}
 function unseal(h: StoredHost): string {
   if (h.secret.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(h.secret.slice(4), 'base64'))
   if (h.secret.startsWith('file:')) return openWithFileKey(h.secret.slice(5), app.getPath('userData'))
@@ -158,14 +169,14 @@ function registerIpc(): void {
   }))
   ipcMain.handle('prefs:get', wrap(() => {
     try {
-      return JSON.parse(readFileSync(prefsFile(), 'utf8')) as Record<string, unknown>
+      return mcpSecrets(JSON.parse(readFileSync(prefsFile(), 'utf8')) as Record<string, unknown>, false)
     } catch {
       return {}
     }
   }))
   ipcMain.handle('prefs:set', wrap((p: Record<string, unknown>) => {
     mkdirSync(app.getPath('userData'), { recursive: true })
-    writeFileSync(prefsFile(), JSON.stringify(p))
+    writeFileSync(prefsFile(), JSON.stringify(mcpSecrets(p, true)), { mode: 0o600 })
     if (typeof p.theme === 'string') nativeTheme.themeSource = p.theme as 'dark' | 'light' | 'system'
   }))
   ipcMain.handle('app:secure-storage', () => (storageKind() === 'keychain' ? `keychain:${process.platform === 'linux' ? safeStorage.getSelectedStorageBackend?.() : process.platform}` : 'file'))
@@ -192,6 +203,14 @@ function registerIpc(): void {
     const ws = ((await request(x.address, '/v1/workspaces', { token })) as { path: string }[]).map((w) => w.path)
     const tasks = ((await request(x.address, '/v1/tasks', { token }).catch(() => [])) as { worktree?: { path?: string } }[]).map((t) => t.worktree?.path).filter((p): p is string => Boolean(p))
     return [...ws, ...tasks]
+  }, async (h: string) => {
+    // Hosts that list the "git" feature run git themselves (/v1/git/{op}); older ones do not.
+    const x = host(h)
+    const token = unseal(x)
+    const st = (await request(x.address, '/v1/status', { token }).catch(() => ({}))) as { features?: string[] }
+    if (!st.features?.includes('git')) return null
+    return async (op: string, cwd: string, params: Record<string, string>, input?: string) =>
+      (await request(x.address, `/v1/git/${op}`, { token, method: 'POST', body: { path: cwd, params, ...(input !== undefined ? { input } : {}) } })) as { code: number; out: string; err: string; args: string[] }
   })
   // Screenshot hook for local verification only; inert unless ACPORTAL_SHOT_DIR is set.
   ipcMain.handle('debug:capture', wrap(async (name: string) => {

@@ -39,6 +39,8 @@ export type Task = {
   worktree?: Worktree
   pendingDecisions?: number
   needsDecision?: Decision[]
+  /** Host-computed changes of the task worktree, shell-made edits included (task detail only). */
+  worktreeChanges?: { path: string; status: string; diff?: string; newText?: string | null }[]
   delegate?: string
 }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; code?: string; status?: number }
