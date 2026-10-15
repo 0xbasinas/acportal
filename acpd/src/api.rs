@@ -34,6 +34,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 mod bridge;
+mod git;
 
 #[derive(Clone)]
 pub struct Host {
@@ -209,6 +210,10 @@ impl Host {
             .route("/v1/tasks/{id}/merge", post(merge_task))
             .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
             .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
+            .route(
+                "/v1/git/{op}",
+                post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
+            )
             .route("/v1/device", delete(revoke_self))
             .route_layer(middleware::from_fn(phones_only))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
@@ -382,7 +387,7 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     // `orchestrator` is listed only while delegation is enabled, so the phone shows the task
     // views only then.
-    let mut features = vec!["formElicitation"];
+    let mut features = vec!["formElicitation", "git", "sessionWorktree"];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
     }
@@ -812,16 +817,23 @@ struct CreateInput {
     mcp_servers: Vec<Value>,
     #[serde(default)]
     workspace_access: crate::connection::WorkspaceAccess,
+    /// Start on a branch, optionally in its own worktree (feature `sessionWorktree`).
+    #[serde(default)]
+    branch: Option<git::SessionBranch>,
 }
 async fn create_session(
     State(host): State<Host>,
     Json(input): Json<CreateInput>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let workspace = match &input.branch {
+        Some(branch) => git::prepare_session(&host, &input.workspace, branch).await?,
+        None => input.workspace.clone(),
+    };
     let session = host
         .sessions
         .open_configured(
             &input.agent_id,
-            &input.workspace,
+            &workspace,
             input.load_session_id.as_deref(),
             input.mcp_servers,
             input.workspace_access,
@@ -878,10 +890,22 @@ fn task_id(id: &str) -> ApiResult<Uuid> {
     Uuid::parse_str(id).map_err(|_| ApiError(StatusCode::NOT_FOUND, "task_not_found"))
 }
 async fn task_detail(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    host.orchestrator
+    let mut view = host
+        .orchestrator
         .task_detail(task_id(&id)?)
-        .map(Json)
-        .ok_or(ApiError(StatusCode::NOT_FOUND, "task_not_found"))
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "task_not_found"))?;
+    // What the task's worktree changed, shell-made edits included, while it is still on disk.
+    let folder = view["worktree"]["path"].as_str().map(PathBuf::from);
+    let base = view["worktree"]["base"].as_str().map(str::to_owned);
+    if let (Some(folder), Some(base)) = (folder, base)
+        && folder.is_dir()
+    {
+        let changes = tokio::task::spawn_blocking(move || git::worktree_changes(&folder, &base))
+            .await
+            .unwrap_or_default();
+        view["worktreeChanges"] = json!(changes);
+    }
+    Ok(Json(view))
 }
 /// Cancel a task and what is still running below it.
 async fn cancel_task(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
