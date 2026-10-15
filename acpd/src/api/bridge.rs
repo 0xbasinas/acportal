@@ -532,10 +532,28 @@ async fn end_peer_sessions(host: &Host, peer: Uuid) {
     }
 }
 
+/// Write one JSON frame, giving up (and so closing the connection) after `timeout`.
+async fn send_frame(
+    socket: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    value: Value,
+    timeout: Duration,
+) -> bool {
+    matches!(
+        tokio::time::timeout(
+            timeout,
+            socket.send(Message::Text(value.to_string().into()))
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
+
 async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String) {
     let settings = host.sessions.launch_settings();
     let resume = Duration::from_secs(settings.config.orchestrator.bridge_resume_seconds);
     let ping = Duration::from_secs(settings.config.orchestrator.bridge_ping_seconds);
+    let send_timeout =
+        Duration::from_secs(settings.config.orchestrator.bridge_send_timeout_seconds);
     let (outbox, mut queued) = mpsc::channel::<Value>(OUTBOX);
     let overflow = Arc::new(Notify::new());
     let peer_id = auth.device.id;
@@ -563,7 +581,7 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
         tokio::select! {
             frame = queued.recv() => {
                 let Some(frame) = frame else { break };
-                if !send_json(&mut outgoing, frame).await { break }
+                if !send_frame(&mut outgoing, frame, send_timeout).await { break }
             }
             _ = overflow.notified() => {
                 // The peer is not keeping up (or the journal outran it). It reconnects and
@@ -600,7 +618,7 @@ async fn serve(socket: WebSocket, host: Host, auth: Authorized, agent_id: String
                 if !still_authorized(&host, &token).await { revoked = true; break }
                 if last_received.elapsed() > ping * 3 { break }
                 if !matches!(
-                    tokio::time::timeout(Duration::from_secs(5), outgoing.send(Message::Ping(vec![].into()))).await,
+                    tokio::time::timeout(send_timeout, outgoing.send(Message::Ping(vec![].into()))).await,
                     Ok(Ok(()))
                 ) { break }
             }

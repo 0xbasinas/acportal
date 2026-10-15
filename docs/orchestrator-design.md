@@ -378,6 +378,7 @@ task_max_cost_usd = 0                # 0 = off; enforced only when the agent rep
 max_edit_bytes = 262144              # medium ceiling for edits
 bridge_resume_seconds = 120          # 0..3600
 bridge_ping_seconds = 20             # 5..120
+bridge_send_timeout_seconds = 5      # 1..600; one frame or ping to a peer may take this long to write
 
 orchestrate = ["supervisor"]         # agent ids that receive the MCP delegation tools
 delegable = ["worker", "supervisor"] # agent ids that may be children (and may also orchestrate)

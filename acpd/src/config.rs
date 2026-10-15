@@ -67,6 +67,10 @@ pub struct OrchestratorConfig {
     pub bridge_resume_seconds: u64,
     /// Interval between WebSocket pings and credential re-checks on a bridge connection.
     pub bridge_ping_seconds: u64,
+    /// How long one frame or ping may take to be written to a bridge peer before the connection
+    /// is closed. A peer that has stopped reading is also cut off as soon as its 256-frame
+    /// outbox is full, whichever comes first.
+    pub bridge_send_timeout_seconds: u64,
     /// Isolation of a delegated task that does not ask for one. `worktree` (default) gives a task
     /// with the write right its own git worktree when its folder is in a git repository, and runs
     /// it in the folder itself when it is not; `shared` always runs it in the folder.
@@ -128,6 +132,7 @@ impl Default for OrchestratorConfig {
             peer_rights: PeerRights::default(),
             bridge_resume_seconds: 120,
             bridge_ping_seconds: 20,
+            bridge_send_timeout_seconds: 5,
             default_isolation: DefaultIsolation::default(),
             worktree_uncommitted: Default::default(),
         }
@@ -152,7 +157,10 @@ impl OrchestratorConfig {
         if self.orchestrate.len() > 64 || self.delegable.len() > 64 || self.peer_agents.len() > 64 {
             bail!("too many orchestrator agents")
         }
-        if self.bridge_resume_seconds > 3600 || !(5..=120).contains(&self.bridge_ping_seconds) {
+        if self.bridge_resume_seconds > 3600
+            || !(5..=120).contains(&self.bridge_ping_seconds)
+            || !(1..=600).contains(&self.bridge_send_timeout_seconds)
+        {
             bail!("invalid bridge timers")
         }
         if self.peer_workspaces.len() > 32

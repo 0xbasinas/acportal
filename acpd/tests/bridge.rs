@@ -1070,17 +1070,22 @@ async fn peer_info_is_not_found_when_the_bridge_is_off() {
 
 #[tokio::test]
 async fn a_peer_that_stops_reading_is_cut_off_and_can_reattach() {
-    let h = Harness::start().await;
+    // Everything else that could end this connection is set out of reach: a 10-minute send
+    // timeout and a 2-minute ping (so six minutes of silence). What is left is the full outbox.
+    let h = Harness::start_with(|config| {
+        config.orchestrator.bridge_send_timeout_seconds = 600;
+        config.orchestrator.bridge_ping_seconds = 120;
+    })
+    .await;
     let (token, _) = h.pair(Role::Peer, "Laptop").await;
     let mut c = h.peer(&token).await;
     let session = c.new_session().await;
     let id = h.host.sessions.list().await[0].id;
     let host_session = h.host.sessions.get(id).await.unwrap();
-    // The peer reads nothing while the agent streams far more (300 x 256 KiB) than the socket and
-    // the 256-frame outbox can hold. Two guards can end this: the full outbox (immediately) and a
-    // 5 s send timeout on the socket. In a debug build the flood is slower than 5 s, so this test
-    // cannot tell them apart (a mutation run showed it passes with the outbox signal removed); it
-    // pins the behavior: a peer that stops reading is cut off, not buffered for without bound.
+    // The peer reads nothing while the agent streams far more (300 x 256 KiB) than the socket
+    // buffers and the 256-frame outbox can hold. With the other limits out of reach, only the
+    // outbox filling can cut it off (a mutation run removing that signal makes this test fail:
+    // the socket then stays open and the read below waits out its deadline).
     let text = "z".repeat(256 * 1024);
     for _ in 0..300 {
         host_session
