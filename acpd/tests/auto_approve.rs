@@ -293,7 +293,7 @@ fn with_model(base_url: &str, sees_content: bool) -> AutoApproveConfig {
     }
 }
 const SECRET_BODY: &str = "SECRET-FILE-CONTENT-12345";
-fn write_args<'a>(path: &'a str) -> [&'a str; 6] {
+fn write_args(path: &str) -> [&str; 6] {
     [
         "--permission-kind",
         "other",

@@ -461,18 +461,22 @@ fn annotate(
     );
 }
 
+/// Whether a session gets a watcher: auto-approval is on for its agent, it does not run on
+/// another host (whose paths cannot be checked here), and, unless the operator turned that
+/// off, it runs in a task worktree.
+pub fn should_watch(policy: &AutoApproveConfig, remote: bool, in_worktree: bool) -> bool {
+    policy.max_risk != AutoRisk::None && !remote && (in_worktree || !policy.only_in_worktree)
+}
+
 /// Start the watcher for a new session if its agent has auto-approval on and the session
 /// qualifies. Never fails the session: a problem only means nothing is auto-approved.
 pub fn spawn(session: &Arc<AcpSession>, config: &crate::config::Config) {
     let metadata = session.metadata();
-    // Another host's agent runs where its paths cannot be checked here.
-    if metadata.remote_peer.is_some() {
-        return;
-    }
     let Some(policy) = config.auto_approve.get(&metadata.agent_id) else {
         return;
     };
-    if policy.only_in_worktree && !in_worktree(&metadata.workspace, &config.worktree_root()) {
+    let inside = in_worktree(&metadata.workspace, &config.worktree_root());
+    if !should_watch(policy, metadata.remote_peer.is_some(), inside) {
         return;
     }
     let approver = match Approver::new(policy, &metadata.agent_id) {
@@ -857,6 +861,28 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn only_a_local_enabled_session_in_the_right_place_gets_a_watcher() {
+        let contained = policy(AutoRisk::Medium, false);
+        let anywhere = AutoApproveConfig {
+            only_in_worktree: false,
+            ..contained.clone()
+        };
+        // (policy, remote, in a worktree) -> watched
+        assert!(should_watch(&contained, false, true));
+        assert!(
+            !should_watch(&contained, false, false),
+            "a phone session needs the switch off"
+        );
+        assert!(should_watch(&anywhere, false, false));
+        assert!(should_watch(&anywhere, false, true));
+        // Another host's agent is never covered, whatever else is set.
+        assert!(!should_watch(&contained, true, true));
+        assert!(!should_watch(&anywhere, true, false));
+        // Off is off.
+        assert!(!should_watch(&AutoApproveConfig::default(), false, true));
     }
 
     #[test]
