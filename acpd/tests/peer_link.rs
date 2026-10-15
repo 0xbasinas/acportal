@@ -75,6 +75,10 @@ impl Far {
         Self::start_with(|_| {}).await
     }
     async fn start_with(tweak: impl FnOnce(&mut Config)) -> Self {
+        Self::start_with_agent(&["--delay-ms", "1"], tweak).await
+    }
+    /// As `start_with`, with the mock agent started with `agent_args`.
+    async fn start_with_agent(agent_args: &[&str], tweak: impl FnOnce(&mut Config)) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let workspace = directory.path().join("workspace");
         let shared = workspace.join("shared");
@@ -99,7 +103,7 @@ impl Far {
         tweak(&mut config);
         let registry = Registry::parse(
             &json!([{"id":"mock","name":"Mock","command":env!("CARGO_BIN_EXE_mock-acp-agent"),
-                "args":["--delay-ms","1"]}])
+                "args":agent_args}])
             .to_string(),
         )
         .unwrap();
@@ -1388,7 +1392,10 @@ async fn a_credential_revoked_while_the_link_is_down_ends_it_without_more_tries(
 
 #[tokio::test]
 async fn a_cancel_written_as_the_link_died_still_stops_the_turn_after_the_link_is_back() {
-    let far = Far::start().await;
+    // A turn that says nothing and never ends on its own, so no permission request is waiting:
+    // the cancel notification is the only thing that can stop it (a waiting request would be
+    // answered "cancelled" by this side, a tracked line that is resent in its own right).
+    let far = Far::start_with_agent(&["--delay-ms", "1", "--stall-prompt"], |_| {}).await;
     let (token, _) = far.pair_peer().await;
     let proxy = Proxy::start(far.addr.clone()).await;
     let through = format!("127.0.0.1:{}", proxy.port);
@@ -1401,7 +1408,8 @@ async fn a_cancel_written_as_the_link_died_still_stops_the_turn_after_the_link_i
     let session = near.open_remote().await.unwrap();
     let prompting = session.clone();
     let prompt = tokio::spawn(async move { prompting.prompt("go").await });
-    first_pending(&session).await;
+    let remote = far_session(&far, &session).await;
+    eventually(|| async { (event_count(&remote, "session/prompt") == 1).then_some(()) }).await;
 
     // The cancel goes into a link that is already dead: the far host never gets it. A notification
     // has no id, so only the rule "send it again while the turn is still running" saves it.
