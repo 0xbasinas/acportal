@@ -533,26 +533,52 @@ fn commit_snapshot(root: &Path, worktree: &Worktree) -> bool {
         )
         .is_ok()
 }
+/// Whether the branch exists: `None` when git could not say (it failed), which is not an answer.
+fn branch_exists(root: &Path, worktree: &Worktree) -> Option<bool> {
+    let reference = format!("refs/heads/{}", worktree.branch);
+    git(
+        root,
+        &worktree.repository,
+        &["for-each-ref", "--format=%(refname)", &reference],
+    )
+    .ok()
+    .map(|out| !out.trim().is_empty())
+}
+
 fn branch_cleanup(root: &Path, worktree: &Worktree) -> Outcome {
     let range = format!("{}..{}", worktree.base, worktree.branch);
-    match git(root, &worktree.repository, &["rev-list", "--count", &range]) {
-        Ok(count) if count == "0" => {
-            if git(
-                root,
-                &worktree.repository,
-                &["branch", "-D", &worktree.branch],
-            )
-            .is_ok()
-            {
-                Outcome::Removed
-            } else {
-                Outcome::CleanupFailed
+    for attempt in 0..5 {
+        match git(root, &worktree.repository, &["rev-list", "--count", &range]) {
+            Ok(count) if count == "0" => {
+                return if git(
+                    root,
+                    &worktree.repository,
+                    &["branch", "-D", &worktree.branch],
+                )
+                .is_ok()
+                {
+                    Outcome::Removed
+                } else {
+                    Outcome::CleanupFailed
+                };
+            }
+            Ok(_) => return Outcome::BranchKept,
+            Err(_) => {
+                // Only a branch that is not there leaves nothing to keep (it was deleted by
+                // hand). A failed count while it exists is not an answer: git can be briefly
+                // locked out by another git command on the same repository (Windows), or the
+                // base can be wrong. Ask again; if it never answers, say the cleanup failed
+                // rather than report a branch removed that is still there.
+                if branch_exists(root, worktree) == Some(false) {
+                    return Outcome::Removed;
+                }
+                if attempt < 4 {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
             }
         }
-        Ok(_) => Outcome::BranchKept,
-        // The branch is gone already (deleted by hand): nothing left to keep.
-        Err(_) => Outcome::Removed,
     }
+    Outcome::CleanupFailed
 }
 
 /// Folders under `root` that no record knows about (a host that stopped between creating a

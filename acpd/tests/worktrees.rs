@@ -574,6 +574,48 @@ async fn after_a_restart_worktrees_of_interrupted_tasks_are_released_and_unknown
     assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
 }
 
+#[test]
+fn a_branch_that_cannot_be_counted_is_never_reported_removed_while_it_exists() {
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let root = base.path().join("state/worktrees");
+
+    // Git cannot count commits against a base it does not know (standing in for any failed
+    // count), but the branch is there: that is a failed cleanup, with the branch still present,
+    // not "removed".
+    let mut wt = worktree::create(&root, &repo, &repo).unwrap();
+    wt.base = "0000000000000000000000000000000000000001".into();
+    let began = std::time::Instant::now();
+    assert_eq!(worktree::release(&root, &wt), Outcome::CleanupFailed);
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "it gave up in good time"
+    );
+    assert!(!git(&repo, &["branch", "--list", &wt.branch]).is_empty());
+
+    // The same failed count with the branch really gone (deleted by hand) is nothing left to keep.
+    let mut gone = worktree::create(&root, &repo, &repo).unwrap();
+    git(
+        &repo,
+        &[
+            "worktree",
+            "remove",
+            "--force",
+            &gone.path.to_string_lossy(),
+        ],
+    );
+    git(&repo, &["branch", "-D", &gone.branch]);
+    gone.base = "0000000000000000000000000000000000000001".into();
+    assert_eq!(worktree::release(&root, &gone), Outcome::Removed);
+}
+
 #[tokio::test]
 async fn a_worktree_that_will_not_go_does_not_hold_up_a_restart_and_is_tried_again_at_the_next() {
     let base = tempfile::tempdir().unwrap();
