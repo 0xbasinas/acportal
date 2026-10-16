@@ -95,6 +95,10 @@ MCP servers are configured per connection from Settings, New session or the sess
 | Host terminal/filesystem support | Implemented client capabilities in initialize |
 | Fork | Future stable capability only; no unstable protocol feature in MVP |
 
+## Control handoff
+
+When the host lists `controlTakeover`, a session that another device (the desktop or another phone) controls opens as a live view (`ConnectionState.Observing`) with **Take control**. A phone whose control is taken (`control_taken`) drops back to watching. With `sharedDrafts`, the phone checks `/v1/shared` every 5 s while a session is open. It shows host titles for sessions it has no copy of, saves a first-prompt title, and merges host prompt history with its own. A draft from the other device replaces the box only while it is unedited. Device checks are still open (see TODO).
+
 ## Attachments
 
 The composer's secondary menu also opens Prompt history. It lists up to 20 distinct submitted text prompts, newest first, from this conversation's retained timeline. Selection copies exact text into the draft and does not send; replacing nonempty different text requires confirmation. Current attachments stay selected, while past attachment content/references are excluded. Attachment-only submissions, agent echoes and older cached entries without submitted-text metadata are omitted because their original text cannot be reconstructed safely. History has no separate storage: optional message caching, timeline eviction and Remove local copy govern its retention. Removing a local copy also closes the sheet and clears a pending replacement choice.
