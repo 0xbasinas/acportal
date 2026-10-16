@@ -19,6 +19,7 @@ pub mod registry;
 pub mod security;
 pub mod session;
 pub(crate) mod session_catalog;
+pub mod shell;
 pub mod shell_review;
 pub mod terminal;
 pub mod userdata;

@@ -2,7 +2,8 @@
 //!
 //! A paired device may already approve any shell command an agent asks for, so running the
 //! test and lint lines the user configured for a workspace adds no new authority. The lines run
-//! one after another through `/bin/sh -c` in a folder inside the workspace roots or the task
+//! one after another through the host shell (`/bin/sh -c`; on Windows the `[windows] shell`
+//! setting, see `crate::shell`) in a folder inside the workspace roots or the task
 //! worktrees, inside the host OS sandbox when one works here (only that folder writable, home
 //! hidden), with a deadline and a bounded output tail. Each answer says whether it was sandboxed.
 use super::{ApiError, ApiResult, Host};
@@ -104,18 +105,17 @@ async fn run_lines(
     let mut out = vec![];
     for line in commands {
         let started = std::time::Instant::now();
-        let shell = Path::new("/bin/sh");
-        let mut command = match sandbox {
-            Some(runner) => {
-                let mut c = tokio::process::Command::new(runner);
-                c.args(crate::terminal::sandbox_args(dir, dir, shell));
-                c
+        let shell = match crate::shell::resolve(None, sandbox.is_some()) {
+            Ok(shell) => shell,
+            Err(error) => {
+                out.push(json!({"command":line,"code":null,"output":format!("could not start: {error}"),"ms":0}));
+                continue;
             }
-            None => tokio::process::Command::new(shell),
         };
+        let (mut command, profile) =
+            crate::terminal::sandboxed_command(sandbox, dir, dir, &shell.executable);
+        shell.push_line(&mut command, line);
         command
-            .arg("-c")
-            .arg(line)
             .current_dir(dir)
             .env("CI", "1")
             .stdin(Stdio::null())
@@ -142,6 +142,19 @@ async fn run_lines(
                 }
             },
         };
+        // The launcher is gone by now (or killed on timeout); remove its grant.
+        if profile.is_some() {
+            let dir = dir.to_path_buf();
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::terminal::sandbox_cleanup(profile, &dir)
+            })
+            .await;
+        }
+        let mut result = result;
+        result["shell"] = json!(shell.name());
+        if let Some(note) = &shell.note {
+            result["shellNote"] = json!(note);
+        }
         out.push(result);
     }
     out
@@ -164,12 +177,7 @@ pub(super) async fn run(
         .ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?
         .canonicalize()
         .map_err(|_| ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
-    // The Windows launcher only serves terminal commands; checks there stay unconfined (and say so).
-    let sandbox = if cfg!(windows) {
-        None
-    } else {
-        crate::terminal::sandbox_runner()
-    };
+    let sandbox = crate::terminal::sandbox_runner();
     let limit = Duration::from_secs(input.timeout_secs.unwrap_or(600).clamp(5, 1800));
     tracing::info!(
         commands = input.commands.len(),
@@ -183,7 +191,7 @@ pub(super) async fn run(
     ))
 }
 
-// Checks run through /bin/sh, so the tests are Unix-only.
+// The tests use POSIX shell lines; Windows behaviour is covered in `terminal`.
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -254,5 +262,38 @@ mod tests {
             "{left:?} {:?}",
             untracked(r)
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    #[tokio::test]
+    async fn checks_run_through_the_windows_shell_and_sandbox() {
+        // Under target, not %TEMP% (inside the user profile, which the sandbox closes).
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-checks-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = base.canonicalize().unwrap();
+        let commands = vec!["echo ok".to_string(), "exit /b 3".to_string()];
+        let plain = run_checks(&dir, &commands, None, Duration::from_secs(30)).await;
+        assert_eq!(plain[0]["code"], 0, "{plain:?}");
+        assert_eq!(plain[0]["shell"], "cmd");
+        assert_eq!(plain[1]["code"], 3);
+        let exe = std::env::current_exe().unwrap();
+        let launcher = exe.parent().unwrap().parent().unwrap().join("acpd.exe");
+        if crate::win_sandbox::available() && launcher.exists() {
+            let sandboxed =
+                run_checks(&dir, &commands, Some(&launcher), Duration::from_secs(30)).await;
+            assert_eq!(sandboxed[0]["code"], 0, "{sandboxed:?}");
+            assert!(sandboxed[0]["output"].as_str().unwrap().contains("ok"));
+            let acl = std::process::Command::new("icacls")
+                .arg(&dir)
+                .output()
+                .unwrap();
+            assert!(!String::from_utf8_lossy(&acl.stdout).contains("S-1-15-2-"));
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

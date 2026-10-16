@@ -62,7 +62,7 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
         </div>
       )}
       <div className="approval-foot">
-        <span className="sub grow">{isShell ? (p.source === 'agent' ? 'The agent runs this with its own tool once you allow it; the host does not sandbox it.' : p.scope?.sandboxed ? 'Runs these exact lines once on the host, in its sandbox.' : 'Runs these exact lines once on the host.') : 'The agent waits for your answer.'}</span>
+        <span className="sub grow">{isShell ? (p.source === 'agent' ? 'The agent runs this with its own tool once you allow it; the host does not sandbox it.' : `Runs these exact lines once on the host${p.scope?.shell ? ` in ${shellName(p.scope.shell)}` : ''}${p.scope?.sandboxed ? ', in its sandbox' : ''}.${p.scope?.shellNote ? ' ' + p.scope.shellNote : ''}`) : 'The agent waits for your answer.'}</span>
         {reject ? <button className="btn ghost" onClick={() => onAnswer(reject.optionId)}>{nice(reject.name || 'Reject')}</button> : <button className="btn ghost" onClick={() => onAnswer(null)}>Cancel</button>}
         {always && !isShell && <button className="btn" onClick={() => onAnswer(always.optionId)}>{nice(always.name)}</button>}
         {allow && <button className="btn primary" autoFocus onClick={() => onAnswer(allow.optionId)}>{nice(allow.name || 'Allow once')}</button>}
@@ -257,4 +257,9 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
       </div>
     </div>
   )
+}
+
+/** Display name for the host shell reported in `_meta.acpdScope.shell`. */
+export function shellName(s: string): string {
+  return ({ sh: 'sh', cmd: 'cmd.exe', powershell: 'PowerShell', bash: 'Git Bash' } as Record<string, string>)[s] ?? s
 }

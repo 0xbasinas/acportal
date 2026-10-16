@@ -13,7 +13,7 @@ export type PermissionItem = {
   options: { optionId: string; name: string; kind?: string }[]
   autoReview?: { decision: string; layer?: string; reason?: string; risk?: string }
   /** Host scope check: paths named outside the workspace, and whether it runs sandboxed. */
-  scope?: { outside: string[]; sandboxed: boolean; agentTool: boolean }
+  scope?: { outside: string[]; sandboxed: boolean; agentTool: boolean; shell?: string; shellNote?: string }
   answered?: string
   diffs: DiffBlock[]
 }
@@ -259,5 +259,8 @@ function scopeOf(v: unknown, agent: boolean): PermissionItem['scope'] {
   const o = v as Json
   const outside = Array.isArray(o.outsideWorkspace) ? (o.outsideWorkspace as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 16) : []
   // The agent's own tools never run in the host sandbox, whatever the metadata says.
-  return { outside, sandboxed: !agent && o.sandboxed === true, agentTool: agent || o.agentTool === true }
+  const text = (x: unknown, n: number): string | undefined => (typeof x === 'string' && x ? x.slice(0, n) : undefined)
+  const shell = agent ? undefined : text(o.shell, 32)
+  const shellNote = agent ? undefined : text(o.shellNote, 300)
+  return { outside, sandboxed: !agent && o.sandboxed === true, agentTool: agent || o.agentTool === true, ...(shell ? { shell } : {}), ...(shellNote ? { shellNote } : {}) }
 }

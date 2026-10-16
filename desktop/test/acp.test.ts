@@ -102,6 +102,14 @@ test('scope metadata on permission requests becomes an outside-workspace warning
   const plain = reduce(emptyTimeline(), ev(1, { ...req, id: 'p10', params: { ...req.params, _meta: {} } }))
   const q = plain.items.find((i) => i.kind === 'permission')
   assert.ok(q && q.kind === 'permission' && q.scope === undefined)
+  const win = { ...req, id: 'p11', params: { ...req.params, _meta: { acpdScope: { outsideWorkspace: [], sandboxed: true, shell: 'powershell', shellNote: 'Git Bash cannot run inside the Windows sandbox; runs in PowerShell.' } } } }
+  const w = reduce(emptyTimeline(), ev(1, win, 'host')).items.find((i) => i.kind === 'permission')
+  assert.ok(w && w.kind === 'permission')
+  assert.equal(w.scope?.shell, 'powershell')
+  assert.match(w.scope?.shellNote ?? '', /PowerShell/)
+  // The agent's own tool does not get host shell details.
+  const own = reduce(emptyTimeline(), ev(1, win)).items.find((i) => i.kind === 'permission')
+  assert.ok(own && own.kind === 'permission' && own.scope?.shell === undefined)
 })
 
 test('drag reorder moves a host onto the target position', () => {

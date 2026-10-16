@@ -202,7 +202,7 @@ function McpEditor({ servers, setServers }: { servers: McpServer[]; setServers: 
 }
 
 function AddAgent({ api, onDone }: { api: <T>(m: string, p: string, b?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string }>; onDone: () => void }) {
-  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false })
+  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto' })
   const [check, setCheck] = useState<string>()
   const [err, setErr] = useState<string>()
   const [found, setFound] = useState<{ command: string; found: boolean; executable?: string }[]>()
@@ -221,11 +221,16 @@ function AddAgent({ api, onDone }: { api: <T>(m: string, p: string, b?: unknown)
       <div className="field"><label>Arguments (space separated)</label><input className="input mono" value={f.args} onChange={(e) => setF({ ...f, args: e.target.value })} /></div>
       <div className="field"><label>Environment (NAME=value per line, non-secret settings)</label><textarea className="input mono" style={{ height: 60, padding: 10 }} value={f.env} onChange={(e) => setF({ ...f, env: e.target.value })} /></div>
       <div className="set-row"><span className={'toggle' + (f.ownTools ? ' on' : '')} style={{ cursor: 'pointer' }} onClick={() => setF({ ...f, ownTools: !f.ownTools })} /><span>The agent edits files with its own tools (host consents cannot see those edits)</span></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div className="field"><label>Host commands sandbox</label><select className="input" value={f.sandbox} onChange={(e) => setF({ ...f, sandbox: e.target.value })}><option value="auto">Auto (sandbox where the host supports it)</option><option value="off">Off (full access as the host user)</option></select></div>
+        <div className="field"><label>Shell on Windows hosts</label><select className="input" value={f.shell} onChange={(e) => setF({ ...f, shell: e.target.value })}><option value="auto">Host setting</option><option value="cmd">cmd.exe</option><option value="pwsh">PowerShell</option><option value="bash">Git Bash (only with sandbox off)</option></select></div>
+      </div>
+      {f.shell === 'bash' && f.sandbox === 'auto' && <div className="sub2">Git Bash cannot run inside the Windows sandbox: sandboxed lines run in PowerShell instead. Set the sandbox to Off to use Git Bash.</div>}
       {check && <div className="sub2">{check}</div>}
       {err && <div className="error">{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="pill" disabled={!f.command} onClick={async () => { const r = await api<{ found: boolean; executable: boolean; versionOk: boolean; version?: string }>('POST', '/v1/agents/check', { command: f.command, env: envObj() }); setCheck(r.ok ? (r.value.found ? `Found${r.value.version ? ' · ' + r.value.version : ''}${r.value.versionOk ? '' : ' · --version failed'}` : 'Not found on the host') : r.error) }}>Check on host</button>
-        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: f.args.split(' ').filter(Boolean), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>Add agent</button>
+        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: f.args.split(' ').filter(Boolean), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}), ...(f.sandbox !== 'auto' ? { sandbox: f.sandbox } : {}), ...(f.shell !== 'auto' ? { shell: f.shell } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>Add agent</button>
       </div>
     </div>
   )

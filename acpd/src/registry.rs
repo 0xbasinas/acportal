@@ -35,6 +35,9 @@ pub struct AgentDefinition {
     /// directory is hidden. `off` runs them unconfined.
     #[serde(default, skip_serializing_if = "Sandbox::is_auto")]
     pub sandbox: Sandbox,
+    /// Windows hosts only: shell for this agent's host shell lines (`auto` = host setting).
+    #[serde(default, skip_serializing_if = "crate::shell::ShellChoice::is_auto")]
+    pub shell: crate::shell::ShellChoice,
     /// Remote (`ws`) agents only: the other host's bridge, `wss://host:port/acp/<agent>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,

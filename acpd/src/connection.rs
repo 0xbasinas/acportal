@@ -511,8 +511,7 @@ fn offer_terminal_consent(
     if let Some(auto) = auto {
         meta["acpdAutoReview"] = auto.to_json();
     }
-    meta["acpdScope"] =
-        json!({"outsideWorkspace": prepared.outside(), "sandboxed": prepared.sandboxed()});
+    meta["acpdScope"] = json!({"outsideWorkspace": prepared.outside(), "sandboxed": prepared.sandboxed(), "shell": prepared.shell_name(), "shellNote": prepared.shell_note()});
     let consent = json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":meta,"options":options}});
     let size = consent.to_string().len();
     let inserted = {
@@ -657,7 +656,7 @@ struct ActorContext<'a> {
     access: WorkspaceAccess,
     review: Option<Arc<ShellReviewer>>,
     /// Run host terminals in the OS sandbox when available (agent `sandbox: auto`).
-    sandbox: bool,
+    sandbox: crate::terminal::TerminalPolicy,
 }
 
 impl AcpConnection {
@@ -734,7 +733,10 @@ impl AcpConnection {
         review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
-        let sandbox = definition.sandbox == crate::registry::Sandbox::Auto;
+        let sandbox = crate::terminal::TerminalPolicy {
+            sandbox: definition.sandbox == crate::registry::Sandbox::Auto,
+            shell: definition.shell,
+        };
         let mut command = Command::new(&launch.program);
         command
             .args(&launch.prefix_args)
@@ -790,7 +792,16 @@ impl AcpConnection {
         R: AsyncRead + Send + Unpin + 'static,
         W: tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
-        Self::start(reader, writer, None, limits, None, access, None, false)
+        Self::start(
+            reader,
+            writer,
+            None,
+            limits,
+            None,
+            access,
+            None,
+            Default::default(),
+        )
     }
     #[allow(clippy::too_many_arguments)]
     fn start<R, W>(
@@ -801,7 +812,7 @@ impl AcpConnection {
         files: Option<Arc<WorkspaceFiles>>,
         access: WorkspaceAccess,
         review: Option<Arc<ShellReviewer>>,
-        sandbox: bool,
+        sandbox: crate::terminal::TerminalPolicy,
     ) -> Self
     where
         R: AsyncRead + Send + Unpin + 'static,
@@ -1160,7 +1171,7 @@ async fn actor(
                                 else if waiter.method == "session/load" {file_session_id=waiter.session_id.clone();files_ready=file_session_id.is_some();}
                                 if access.terminal && files_ready && terminals.is_none() && let (Some(files),Some(session_id))=(&files,&file_session_id) {
                                     terminals=crate::terminal::TerminalService::new(session_id,files.workspace(),((limits.max_frame_bytes-512)/6).min(65536)).ok();
-                                    if sandbox && let Some(service)=terminals.as_mut() { service.enable_sandbox(); }
+                                    if let Some(service)=terminals.as_mut() { service.set_shell(sandbox.shell); if sandbox.sandbox { service.enable_sandbox(); } }
                                 }
                             }
                             if waiter.method == "session/prompt" { let _ = busy.send(false); }

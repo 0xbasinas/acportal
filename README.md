@@ -109,10 +109,11 @@ examples/              Example configuration and disabled agent templates
 - [Android app](docs/android.md), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
 - [Development and testing](docs/development.md), [real-agent testing](docs/real-agent-testing.md), [acceptance report](docs/acceptance-report.md)
 - [Orchestrator experiment (delegation, supervisor, peer bridge, worktree isolation and phone merge; off by default, draft PR #45)](docs/orchestrator-design.md), [status](docs/orchestrator-design.md#16-implementation-status-branch-experimentorchestrator)
+- Desktop app (branch `experiment/desktop`, PR #46): [desktop/README](desktop/README.md), [several hosts](docs/desktop-multi-host.md), [runs and pre-merge checks](docs/desktop-runs-and-checks.md), [agent handoff](HANDOFF.md)
 - [Contributor context](AGENTS.md), [open work](TODO.md), [completed work and evidence](TODO_DONE.md), [user-reported issues](USER_ISSUES.md)
 
 ## Status
 
-Not production complete. The host and the Android app work end to end and pass their automated tests, but several acceptance checks have not been done: real-phone testing (trusted TLS, networking changes, token expiry), gesture-driven Back animation, macOS cleanup after an abrupt host death, and signed releases. [TODO.md](TODO.md) has the exact open items; the dated history of what changed and what was verified is in the [CHANGELOG](CHANGELOG.md).
+Not production complete. The desktop client, host scope checks, the OS sandbox for approved commands (Linux bubblewrap, Windows AppContainer) and the Windows shell choice are on `experiment/desktop` (PR #46); see [HANDOFF](HANDOFF.md). The host and the Android app work end to end and pass their automated tests, but several acceptance checks have not been done: real-phone testing (trusted TLS, networking changes, token expiry), gesture-driven Back animation, macOS cleanup after an abrupt host death, and signed releases. [TODO.md](TODO.md) has the exact open items; the dated history of what changed and what was verified is in the [CHANGELOG](CHANGELOG.md).
 
 ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol). This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.

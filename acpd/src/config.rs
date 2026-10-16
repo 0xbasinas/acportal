@@ -18,6 +18,8 @@ pub struct Config {
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
     /// Experimental agent-to-agent delegation. Off by default.
     pub orchestrator: OrchestratorConfig,
+    /// Windows hosts only: which shell runs host shell lines and checks.
+    pub windows: crate::shell::WindowsConfig,
 }
 
 /// Experimental delegation between agents (see `docs/orchestrator-design.md`). Changes apply to
@@ -251,6 +253,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
             orchestrator: OrchestratorConfig::default(),
+            windows: Default::default(),
         }
     }
 }

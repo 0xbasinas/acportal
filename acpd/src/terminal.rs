@@ -49,6 +49,161 @@ mod tests {
         assert_eq!(args[args.len() - 2], "--");
     }
     #[cfg(windows)]
+    fn launcher_for_tests() -> Option<PathBuf> {
+        let exe = std::env::current_exe().unwrap();
+        let launcher = exe.parent()?.parent()?.join("acpd.exe");
+        (crate::win_sandbox::available() && launcher.exists()).then_some(launcher)
+    }
+    #[cfg(windows)]
+    async fn run_line(service: &mut TerminalService, line: &str) -> (PreparedInfo, String) {
+        let prepared = service
+            .prepare(serde_json::json!({"sessionId":"s","command":line}))
+            .unwrap();
+        let info = PreparedInfo {
+            shell: prepared.shell_name().map(str::to_owned),
+            note: prepared.shell_note().map(str::to_owned),
+        };
+        let created = service.create_approved(prepared).unwrap();
+        let id = created["terminalId"].as_str().unwrap().to_owned();
+        let exit = service.exit_receiver("s", &id).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), TerminalService::wait(exit))
+            .await
+            .unwrap()
+            .unwrap();
+        let text = service.output("s", &id).unwrap()["output"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        (info, text)
+    }
+    #[cfg(windows)]
+    struct PreparedInfo {
+        shell: Option<String>,
+        note: Option<String>,
+    }
+    /// Spike: Git Bash (MSYS2) inside the AppContainer launcher. Expected to fail, which is why
+    /// `shell::BASH_IN_SANDBOX` is false; PowerShell must work there.
+    #[cfg(windows)]
+    #[test]
+    fn spike_git_bash_cannot_start_in_the_appcontainer_but_powershell_can() {
+        let Some(launcher) = launcher_for_tests() else {
+            return;
+        };
+        let Some(bash) = crate::shell::windows_find_bash_for_tests() else {
+            eprintln!("Git Bash not installed; skipping");
+            return;
+        };
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-spike-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let ws = base.canonicalize().unwrap();
+        let run = |exe: &Path, args: &[&str]| {
+            let profile = crate::win_sandbox::profile_name();
+            let out = std::process::Command::new(&launcher)
+                .args(crate::win_sandbox::launcher_args(&ws, &ws, exe, &profile))
+                .args(args)
+                .current_dir(&ws)
+                .output()
+                .unwrap();
+            crate::win_sandbox::cleanup(&profile, &ws);
+            (
+                out.status.code(),
+                String::from_utf8_lossy(&out.stdout).to_string()
+                    + &String::from_utf8_lossy(&out.stderr),
+            )
+        };
+        let (bash_code, bash_out) = run(&bash, &["--noprofile", "--norc", "-c", "echo bash-ok"]);
+        let usr_bash = bash
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(r"usr\bin\bash.exe");
+        let (usr_code, usr_out) = run(&usr_bash, &["--noprofile", "--norc", "-c", "echo bash-ok"]);
+        assert!(
+            crate::shell::is_msys_program(&usr_bash),
+            "usr\\bin\\bash.exe should import msys-2.0.dll"
+        );
+        let ps = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+        let (ps_code, ps_out) = run(
+            &ps,
+            &[
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Write-Output ps-ok",
+            ],
+        );
+        let report = format!(
+            "bin\\bash: {bash_code:?} {bash_out:?}\nusr\\bin\\bash: {usr_code:?} {usr_out:?}\npowershell: {ps_code:?} {ps_out:?}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(ps_out.contains("ps-ok"), "{report}");
+        assert_eq!(
+            bash_out.contains("bash-ok") || usr_out.contains("bash-ok"),
+            crate::shell::BASH_IN_SANDBOX,
+            "{report}"
+        );
+    }
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_shell_choice_runs_lines_in_the_chosen_shell() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-shells-{}", std::process::id()));
+        let root = base.join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut service = TerminalService::new("s", &root, 8192).unwrap();
+        // Default (auto): cmd.exe, as before.
+        let (info, text) = run_line(&mut service, "echo %OS%").await;
+        assert_eq!(info.shell.as_deref(), Some("cmd"));
+        assert!(text.contains("Windows_NT"), "{text}");
+        service.set_shell(crate::shell::ShellChoice::Pwsh);
+        let (info, text) = run_line(&mut service, "Write-Output (\"ps-\" + 'ok')").await;
+        assert_eq!(info.shell.as_deref(), Some("powershell"));
+        assert!(text.contains("ps-ok"), "{text}");
+        if crate::shell::windows_find_bash_for_tests().is_some() {
+            service.set_shell(crate::shell::ShellChoice::Bash);
+            let (info, text) = run_line(
+                &mut service,
+                "echo \"bash-$((40+2))\" > out.txt; cat out.txt",
+            )
+            .await;
+            assert_eq!((info.shell.as_deref(), info.note), (Some("bash"), None));
+            assert!(text.contains("bash-42"), "{text}");
+            if let Some(launcher) = launcher_for_tests() {
+                // Sandboxed: bash is replaced by PowerShell, with a note on the card.
+                service.sandbox = Some(launcher);
+                let (info, text) = run_line(&mut service, "Write-Output sandboxed-ok").await;
+                assert_eq!(info.shell.as_deref(), Some("powershell"));
+                assert!(info.note.unwrap_or_default().contains("sandbox"));
+                assert!(text.contains("sandboxed-ok"), "{text}");
+                // An MSYS program run directly is refused with a clear error.
+                let grep = crate::shell::windows_find_bash_for_tests()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join(r"usr\bin\grep.exe");
+                if grep.exists() {
+                    let error = service
+                        .prepare(
+                            serde_json::json!({"sessionId":"s","command":grep,"args":["x","y"]}),
+                        )
+                        .err()
+                        .unwrap()
+                        .to_string();
+                    assert!(error.contains("MSYS2"), "{error}");
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+    #[cfg(windows)]
     #[tokio::test]
     async fn windows_sandbox_writes_only_the_workspace_and_cleans_up() {
         if !crate::win_sandbox::available() {
@@ -212,32 +367,61 @@ pub struct PreparedTerminal {
     cwd: PathBuf,
     limit: usize,
     executable: PathBuf,
-    /// True when `request.command` is a shell line that runs through [`SHELL_LABEL`].
+    /// True when `request.command` is a shell line that runs through the host shell (see `crate::shell`).
     shell: bool,
     /// Paths the command names outside the workspace (see `shell_review::outside_paths`).
     outside: Vec<String>,
     /// Will run inside the OS sandbox.
     sandboxed: bool,
+    /// The shell for a shell line.
+    shell_spec: Option<crate::shell::Shell>,
 }
-/// The fixed shell used for approved shell lines, as shown in consent.
+/// How an agent's host terminals run: OS sandbox (`sandbox: auto`) and shell choice.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TerminalPolicy {
+    pub sandbox: bool,
+    pub shell: crate::shell::ShellChoice,
+}
+/// Build the command for `executable`, wrapped by the sandbox `runner` when given. On Windows
+/// the second value is the AppContainer profile to pass to [`sandbox_cleanup`] afterwards.
+pub fn sandboxed_command(
+    runner: Option<&Path>,
+    workspace: &Path,
+    cwd: &Path,
+    executable: &Path,
+) -> (Command, Option<String>) {
+    let Some(runner) = runner else {
+        return (Command::new(executable), None);
+    };
+    let mut command = Command::new(runner);
+    #[cfg(windows)]
+    {
+        let profile = crate::win_sandbox::profile_name();
+        command.args(crate::win_sandbox::launcher_args(
+            workspace, cwd, executable, &profile,
+        ));
+        (command, Some(profile))
+    }
+    #[cfg(not(windows))]
+    {
+        command.args(sandbox_args(workspace, cwd, executable));
+        (command, None)
+    }
+}
+/// Remove what the Windows sandbox granted for `profile` (idempotent; nothing elsewhere).
+pub fn sandbox_cleanup(profile: Option<String>, workspace: &Path) {
+    #[cfg(windows)]
+    if let Some(profile) = profile {
+        crate::win_sandbox::cleanup(&profile, workspace);
+    }
+    #[cfg(not(windows))]
+    let _ = (profile, workspace);
+}
+/// The default shell label, used in the model reviewer's prompt.
 #[cfg(unix)]
 pub const SHELL_LABEL: &str = "/bin/sh -c";
 #[cfg(windows)]
 pub const SHELL_LABEL: &str = "cmd.exe /D /S /C";
-#[cfg(unix)]
-fn shell_executable() -> Result<PathBuf> {
-    let shell = PathBuf::from("/bin/sh");
-    anyhow::ensure!(shell.is_file(), "/bin/sh unavailable");
-    Ok(shell)
-}
-#[cfg(windows)]
-fn shell_executable() -> Result<PathBuf> {
-    // Use the system cmd.exe, never one found through PATH or the agent's environment.
-    let root = std::env::var_os("SystemRoot").context("SystemRoot unavailable")?;
-    let shell = PathBuf::from(root).join("System32").join("cmd.exe");
-    anyhow::ensure!(shell.is_file(), "cmd.exe unavailable");
-    Ok(shell)
-}
 /// A request is a shell line when it has no separate arguments and its command text
 /// contains whitespace or shell syntax, so it cannot be a literal program path.
 /// Plain program + args requests keep the literal argv path.
@@ -286,6 +470,14 @@ impl PreparedTerminal {
     pub fn is_shell(&self) -> bool {
         self.shell
     }
+    /// `sh`, `cmd`, `powershell` or `bash` for a shell line.
+    pub fn shell_name(&self) -> Option<&'static str> {
+        self.shell_spec.as_ref().map(|s| s.name())
+    }
+    /// Why the line runs in a different shell than configured (shown on the card).
+    pub fn shell_note(&self) -> Option<&str> {
+        self.shell_spec.as_ref().and_then(|s| s.note.as_deref())
+    }
     pub fn operation(&self) -> Value {
         // Values can contain credentials; show names in consent and never log the request.
         let names = self
@@ -296,7 +488,8 @@ impl PreparedTerminal {
             .collect::<Vec<_>>();
         if self.shell {
             // The complete line, verbatim; this exact text is what runs after approval.
-            json!({"shellLine":self.request.command,"shell":SHELL_LABEL,"executable":self.executable,"cwd":self.cwd,"environmentNames":names})
+            let spec = self.shell_spec.as_ref();
+            json!({"shellLine":self.request.command,"shell":spec.map(|s| s.label()),"shellNote":spec.and_then(|s| s.note.clone()),"executable":self.executable,"cwd":self.cwd,"environmentNames":names})
         } else {
             json!({"command":self.request.command,"executable":self.executable,"args":self.request.args,"cwd":self.cwd,"environmentNames":names})
         }
@@ -388,6 +581,7 @@ pub struct TerminalService {
     maximum_output: usize,
     terminals: HashMap<String, Terminal>,
     sandbox: Option<PathBuf>,
+    shell: crate::shell::ShellChoice,
 }
 
 /// Where a working bubblewrap lives, probed once. `None` off Linux, when it is not
@@ -462,6 +656,7 @@ impl TerminalService {
             maximum_output,
             terminals: HashMap::new(),
             sandbox: None,
+            shell: Default::default(),
         })
     }
     /// Run approved commands inside bubblewrap when it works on this host. Returns whether
@@ -472,6 +667,10 @@ impl TerminalService {
     }
     pub fn sandboxed(&self) -> bool {
         self.sandbox.is_some()
+    }
+    /// The agent's shell override for shell lines (Windows; `auto` = host setting).
+    pub fn set_shell(&mut self, shell: crate::shell::ShellChoice) {
+        self.shell = shell;
     }
     /// Canonical workspace root of this session.
     pub fn workspace(&self) -> &Path {
@@ -536,18 +735,19 @@ impl TerminalService {
             )
         };
         if is_shell_line(&request.command, &request.args) {
-            // cmd.exe stops at a line break, so a multi-line command could not run as approved.
-            if cfg!(windows) && request.command.contains(['\r', '\n']) {
+            let spec = crate::shell::resolve(Some(self.shell), self.sandbox.is_some())?;
+            if !spec.allows_multiline() && request.command.contains(['\r', '\n']) {
                 bail!("multi-line shell commands are not supported on Windows")
             }
             return Ok(PreparedTerminal {
                 request,
                 cwd,
                 limit,
-                executable: shell_executable()?,
+                executable: spec.executable.clone(),
                 shell: true,
                 outside,
                 sandboxed: self.sandbox.is_some(),
+                shell_spec: Some(spec),
             });
         }
         let program =
@@ -570,6 +770,12 @@ impl TerminalService {
         let executable = crate::registry::resolve_executable(&program, path)
             .context("terminal executable unavailable")?
             .canonicalize()?;
+        if cfg!(windows) && self.sandbox.is_some() && crate::shell::is_msys_program(&executable) {
+            bail!(
+                "{} is an MSYS2/Cygwin program (Git Bash tools), which cannot run inside the Windows sandbox; set this agent's sandbox to off to run it",
+                executable.display()
+            )
+        }
         Ok(PreparedTerminal {
             request,
             cwd,
@@ -578,6 +784,7 @@ impl TerminalService {
             shell: false,
             outside,
             sandboxed: self.sandbox.is_some(),
+            shell_spec: None,
         })
     }
     pub fn create_approved(&mut self, prepared: PreparedTerminal) -> Result<Value> {
@@ -599,36 +806,15 @@ impl TerminalService {
         if cwd != prepared.cwd || !cwd.starts_with(&self.workspace) {
             bail!("terminal directory changed while awaiting consent")
         }
-        #[cfg(windows)]
-        let sandbox_profile = self
-            .sandbox
-            .as_ref()
-            .map(|_| crate::win_sandbox::profile_name());
-        let mut command = match &self.sandbox {
-            Some(runner) => {
-                let mut command = Command::new(runner);
-                #[cfg(windows)]
-                command.args(crate::win_sandbox::launcher_args(
-                    &self.workspace,
-                    &cwd,
-                    &prepared.executable,
-                    sandbox_profile.as_deref().unwrap_or_default(),
-                ));
-                #[cfg(not(windows))]
-                command.args(sandbox_args(&self.workspace, &cwd, &prepared.executable));
-                command
-            }
-            None => Command::new(&prepared.executable),
-        };
-        if prepared.shell {
+        let (mut command, sandbox_profile) = sandboxed_command(
+            self.sandbox.as_deref(),
+            &self.workspace,
+            &cwd,
+            &prepared.executable,
+        );
+        if let Some(spec) = &prepared.shell_spec {
             // The approved line is passed as one argument and never re-parsed by the host.
-            #[cfg(unix)]
-            command.arg("-c").arg(&prepared.request.command);
-            // /S makes cmd strip only the outer quotes and run the inner text unchanged.
-            #[cfg(windows)]
-            command
-                .raw_arg("/D /S /C")
-                .raw_arg(format!("\"{}\"", prepared.request.command));
+            spec.push_line(&mut command, &prepared.request.command);
         } else {
             command.args(&prepared.request.args);
         }
@@ -656,8 +842,7 @@ impl TerminalService {
         let (exit_tx, exit) = watch::channel(None);
         let (stop, mut stop_rx) = watch::channel(false);
         let retained = output.clone();
-        #[cfg(windows)]
-        let cleanup = sandbox_profile.map(|profile| (profile, self.workspace.clone()));
+        let cleanup = (sandbox_profile, self.workspace.clone());
         tokio::spawn(async move {
             // Retain the global slot through process exit and bounded output draining.
             let _permit = permit;
@@ -696,13 +881,10 @@ impl TerminalService {
                     },
                 }
             }
-            // A killed launcher cannot clean up; repeat it (idempotent) before reporting exit.
-            #[cfg(windows)]
-            if let Some((profile, workspace)) = cleanup {
-                let _ = tokio::task::spawn_blocking(move || {
-                    crate::win_sandbox::cleanup(&profile, &workspace)
-                })
-                .await;
+            // A killed Windows launcher cannot clean up; repeat it (idempotent) before reporting.
+            if cleanup.0.is_some() {
+                let _ = tokio::task::spawn_blocking(move || sandbox_cleanup(cleanup.0, &cleanup.1))
+                    .await;
             }
             let _ = exit_tx.send(status);
         });

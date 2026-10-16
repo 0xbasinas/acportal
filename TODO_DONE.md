@@ -1,5 +1,13 @@
 # Completed work and verification history
 
+## Desktop client and host features (branch `experiment/desktop`, PR #46)
+
+- 16 October 2026: Windows shell choice (`[windows] shell = auto|cmd|pwsh|bash`, `bash_path`, per-agent `shell`), Git Bash detection (registry, common folders, `git` on PATH, never WSL), fallback PowerShell then cmd, shell and note on the card and in `_meta.acpdScope`; checks use the same shell and the sandbox on Windows; MSYS2 programs refused in the sandbox with a clear error; spike test that Git Bash cannot start in the AppContainer; desktop Add agent gets sandbox and shell choices.
+- 16 October 2026: Windows AppContainer sandbox for approved host commands (`win_sandbox.rs`), verified on the Windows runner (manual Rust run 38879206682).
+- 15-16 October 2026: run on several agents with compare/merge, pre-merge checklist (`POST /v1/checks` plus AI review gate), approval footer and drop-line fixes (`db79e64`, Rust 38875948424 and Desktop 38875948394 green).
+- 15 October 2026: live approvals across hosts, workspace scope checks, bubblewrap sandbox, drag reorder (`ced3af6`).
+- Earlier on the branch: multi-host desktop, UI overhaul, scoped `/v1/git`, session branch/worktree, form questions, attachments, prompt history, MCP and agent editing, git view with Learn mode (`6f55ca2` and before).
+
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
 - 14 October 2026: [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409` passes every job with the extras on: Linux stable and 1.88, Windows, macOS, container smoke and Windows reproducibility; this covers the phone merge on Windows and macOS. Docs synced the same day (TODO, HANDOFF, AGENTS, README, design sections 16-27, runbook §9, PR #45 description).
