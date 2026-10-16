@@ -48,6 +48,8 @@ pub struct Host {
     user_changes: Arc<AsyncMutex<()>>,
     /// Drafts, titles and prompt history shared by the phone and the desktop.
     shared: Arc<Mutex<shared::Store>>,
+    /// Modes, models and config options each agent reported in a probe (`POST /v1/agents/{id}/probe`).
+    agent_setups: Arc<Mutex<HashMap<String, Value>>>,
 }
 struct Gateway {
     /// Current controller: lease generation and whether another client may take it over.
@@ -182,6 +184,7 @@ impl Host {
             user_changes: Arc::new(AsyncMutex::new(())),
             shared: Arc::new(Mutex::new(shared::Store::load(&config.state_directory))),
             config: Arc::new(config),
+            agent_setups: Arc::new(Mutex::new(HashMap::new())),
         })
     }
     /// The delegation orchestrator, for embedders and tests that drive it directly.
@@ -206,6 +209,7 @@ impl Host {
             .route("/v1/agents/check", post(check_agent))
             .route("/v1/agents/locate", post(locate_agents))
             .route("/v1/agents/{id}", delete(remove_agent))
+            .route("/v1/agents/{id}/probe", post(probe_agent))
             .route(
                 "/v1/workspaces",
                 get(workspaces).post(add_workspace).delete(remove_workspace),
@@ -417,6 +421,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "checks",
         "controlTakeover",
         "sharedDrafts",
+        "agentProbe",
     ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
@@ -432,6 +437,7 @@ async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;
     let settings = host.sessions.launch_settings();
     let mut discovered = discovered_agents(&settings.registry, &active);
+    attach_setups(&mut discovered, &active, &host.agent_setups.lock().unwrap());
     // Agents the phone registered can be removed from the phone; the host's own cannot.
     let ours: Vec<String> = UserData::load(&settings.config.state_directory)
         .map(|data| data.agents.into_iter().map(|agent| agent.id).collect())
@@ -442,6 +448,70 @@ async fn agents(State(host): State<Host>) -> Json<Value> {
         }
     }
     Json(discovered)
+}
+/// The choices an ACP agent offers for a session (`modes`, `models`, `configOptions`), as
+/// reported in its last `session/new` or `session/load` reply. Anything else is left out.
+fn setup_choices(setup: &Value) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    for key in ["modes", "models", "configOptions"] {
+        if let Some(value) = setup.get(key).filter(|value| !value.is_null()) {
+            out.insert(key.into(), value.clone());
+        }
+    }
+    (!out.is_empty()).then_some(Value::Object(out))
+}
+/// Give each agent `setup`: the newest choices from one of its sessions, else from a probe.
+fn attach_setups(
+    discovered: &mut Value,
+    sessions: &[SessionMetadata],
+    probed: &HashMap<String, Value>,
+) {
+    let Some(list) = discovered.as_array_mut() else {
+        return;
+    };
+    for agent in list {
+        let Some(id) = agent["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let from_session = sessions
+            .iter()
+            .rev()
+            .filter(|session| session.agent_id == id)
+            .find_map(|session| setup_choices(&session.setup));
+        if let Some(setup) = from_session.or_else(|| probed.get(&id).cloned()) {
+            agent["setup"] = setup;
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProbeInput {
+    workspace: std::path::PathBuf,
+}
+/// Start the agent in a throwaway session (no prompt, no file or terminal access, no MCP
+/// servers), keep the modes/models/config options it reports, and stop it again.
+async fn probe_agent(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    Json(input): Json<ProbeInput>,
+) -> ApiResult<Json<Value>> {
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&id, &input.workspace, None, Vec::new(), access)
+        .await
+        .map_err(input_error)?;
+    let metadata = session.metadata();
+    drop(session);
+    let _ = host.sessions.remove(metadata.id).await;
+    let setup = setup_choices(&metadata.setup).unwrap_or_else(|| json!({}));
+    host.agent_setups.lock().unwrap().insert(id, setup.clone());
+    Ok(Json(json!({ "setup": setup })))
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();
