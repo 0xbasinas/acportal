@@ -104,7 +104,7 @@ function registerIpc(): void {
   ipcMain.handle('hosts:parse-link', wrap((s: string) => parsePairing(s)))
   ipcMain.handle(
     'hosts:pair',
-    wrap(async (address: string, code: string, deviceName?: string) => {
+    wrap(async (address: string, code: string, deviceName?: string, replaceId?: string) => {
       const base = validateAddress(address)
       const addr = base.origin
       const result = (await request(addr, '/v1/pair', { method: 'POST', body: { code: code.trim(), deviceName: deviceName?.trim() || `acportal desktop (${hostname()})` } })) as {
@@ -116,8 +116,17 @@ function registerIpc(): void {
       const status = (await request(addr, '/v1/status', { token: result.token })) as { name?: string }
       const stored: StoredHost = { id: randomUUID(), hostId: result.hostId, name: status.name || base.hostname, address: addr, deviceId: result.deviceId, secret: seal(result.token), expiresAt: result.expiresAt, addedAt: Date.now() }
       if (!stored.secret.startsWith('enc:')) memoryTokens.set(stored.id, result.token)
-      const hosts = loadHosts().filter((h) => !(h.hostId === stored.hostId && h.address === stored.address))
-      saveHosts([...hosts, stored])
+      // Pairing a known host again keeps its id, name and place in the list.
+      const hosts = loadHosts()
+      // Re-pair names the entry it replaces: a host whose state was reset has a new host id.
+      const at = hosts.findIndex((h) => (replaceId ? h.id === replaceId : h.hostId === stored.hostId && h.address === stored.address))
+      if (at >= 0) {
+        memoryTokens.delete(hosts[at].id)
+        Object.assign(stored, { id: hosts[at].id, name: hosts[at].name, addedAt: hosts[at].addedAt })
+        if (!stored.secret.startsWith('enc:')) memoryTokens.set(stored.id, result.token)
+        hosts[at] = stored
+        saveHosts(hosts)
+      } else saveHosts([...hosts, stored])
       return publicHost(stored)
     })
   )
@@ -128,6 +137,22 @@ function registerIpc(): void {
       if (revoke) await request(h.address, '/v1/device', { method: 'DELETE', token: unseal(h) }).catch(() => undefined)
       saveHosts(loadHosts().filter((x) => x.id !== id))
       memoryTokens.delete(id)
+    })
+  )
+  ipcMain.handle(
+    'hosts:rename',
+    wrap((id: string, name: string) => {
+      const n = name.trim().slice(0, 64)
+      if (!n) throw new Error('A host needs a name')
+      saveHosts(loadHosts().map((h) => (h.id === id ? { ...h, name: n } : h)))
+    })
+  )
+  ipcMain.handle(
+    'hosts:reorder',
+    wrap((ids: string[]) => {
+      const all = loadHosts()
+      const rank = (h: StoredHost): number => { const i = ids.indexOf(h.id); return i < 0 ? ids.length : i }
+      saveHosts([...all].sort((a, b) => rank(a) - rank(b)))
     })
   )
   ipcMain.handle(

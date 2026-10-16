@@ -2,13 +2,14 @@ import { ReactNode } from 'react'
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal,
   GitCompareArrows, GitMerge, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
-  Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network
+  Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network, ChevronUp, Filter
 } from 'lucide-react'
 import { DiffBlock, diffLines, lineStats } from './acp'
 
 const ic = { size: 15, strokeWidth: 1.75, 'aria-hidden': true } as const
 /** One icon set (Lucide), one size and stroke, everywhere. */
 export const I = {
+  up: <ChevronUp {...ic} size={13} />, filter: <Filter {...ic} size={13} />,
   back: <ArrowLeft {...ic} />, refresh: <RotateCw {...ic} />, plus: <Plus {...ic} />, gear: <Gear {...ic} />, chev: <ChevronRight {...ic} />, down: <ChevronDown {...ic} size={13} />,
   branch: <GitBranch {...ic} />, tool: <Wrench {...ic} size={13} />, sub: <CornerDownRight {...ic} size={13} />, tree: <Network {...ic} size={13} />, send: <ArrowUp {...ic} size={16} strokeWidth={2.25} />,
   clock: <History {...ic} />, close: <X {...ic} />, check: <Check {...ic} size={13} />, alert: <CircleAlert {...ic} />, shield: <ShieldAlert {...ic} size={16} />, attach: <Paperclip {...ic} />,

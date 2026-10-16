@@ -78,3 +78,12 @@ test('unified diffs from the host drop the trailing blank line', () => {
   const lines = unifiedLines('diff --git a/h b/h\n--- /dev/null\n+++ b/h\n@@ -0,0 +1 @@\n+hi\n')
   assert.deepEqual(lines, [{ kind: 'add', b: 1, text: 'hi' }])
 })
+
+test('several hosts report the worst state and how many are connected', async () => {
+  const { aggregate } = await import('../src/fleet')
+  const h = (id: string) => ({ id, hostId: id, name: id, address: 'http://127.0.0.1:1', deviceId: '', expiresAt: 0, addedAt: 0 })
+  const e = (state: 'connected' | 'offline' | 'repair') => ({ state, agents: [], sessions: [], workspaces: [], failures: 0 })
+  assert.deepEqual(aggregate([h('a'), h('b')], { a: e('connected'), b: e('connected') }), { state: 'connected', label: 'All 2 hosts connected' })
+  assert.deepEqual(aggregate([h('a'), h('b')], { a: e('connected'), b: e('offline') }), { state: 'offline', label: '1 of 2 hosts connected' })
+  assert.equal(aggregate([h('a')], { a: e('repair') }).label, 'Needs re-pair')
+})

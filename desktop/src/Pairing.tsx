@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { Host } from './types'
 import { I } from './ui'
 
-export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; onCancel?: () => void }) {
-  const [address, setAddress] = useState('')
+export function Pairing({ onPaired, onCancel, initialAddress, repairName, replaceId }: { replaceId?: string; onPaired: (h: Host) => void; onCancel?: () => void; initialAddress?: string; repairName?: string }) {
+  const [address, setAddress] = useState(initialAddress ?? '')
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -19,7 +19,7 @@ export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; o
   async function pair(): Promise<void> {
     setBusy(true)
     setError(undefined)
-    const r = await window.api.hosts.pair(address, code, name || undefined)
+    const r = await window.api.hosts.pair(address, code, name || undefined, replaceId)
     setBusy(false)
     if (r.ok) onPaired(r.value as Host)
     else setError(r.code === 'invalid_pairing_code' || r.status === 401 ? 'That code was not accepted. Codes are single-use and expire; run acpd pair again.' : r.error)
@@ -28,7 +28,7 @@ export function Pairing({ onPaired, onCancel }: { onPaired: (h: Host) => void; o
     <div className="pair-wrap">
       <div className="pair-left">
         <div className="logo">{I.term}</div>
-        <h1 className="pair-title">Pair with a host</h1>
+        <h1 className="pair-title">{repairName ? `Pair ${repairName} again` : 'Pair with a host'}</h1>
         <p className="sub2" style={{ marginTop: 8 }}>
           acportal desktop drives the agents on a machine running <span className="mono">acpd</span>, the same way the Android app does.
         </p>

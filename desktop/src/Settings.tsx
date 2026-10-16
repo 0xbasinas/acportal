@@ -15,13 +15,12 @@ export function Settings(props: {
   onAddWorkspace: (p: string) => Promise<string | undefined>; onRemoveWorkspace: (p: string) => void
   api: <T>(method: string, path: string, body?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string; code?: string }>
   onAgentsChanged: () => void; mcp: McpServer[]; setMcp: (m: McpServer[]) => void
+  hostsPanel?: React.ReactNode
 }) {
   const { section } = props
   const [version, setVersion] = useState('')
   const [storage, setStorage] = useState('')
   const [adding, setAdding] = useState(false)
-  const [hostStore, setHostStore] = useState<Record<string, string>>({})
-  useEffect(() => { void Promise.all(props.hosts.map(async (h) => [h.id, ((await window.api.storageOf(h.id)) as { ok: boolean; value?: string }).value ?? ''] as const)).then((e) => setHostStore(Object.fromEntries(e))) }, [props.hosts])
   useEffect(() => {
     void window.api.getVersion().then(setVersion)
     void window.api.secureStorage().then(setStorage)
@@ -71,29 +70,7 @@ export function Settings(props: {
             ))}
           </>
         )}
-        {section === 'Hosts' && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2>Hosts</h2>
-              <button className="pill" onClick={props.onPairNew}>{I.plus} Pair a host</button>
-            </div>
-            <div className="sub" style={{ marginBottom: 14 }}>Each host is paired separately with a one-use code.</div>
-            {Object.values(hostStore).includes('file') && <div className="banner" style={{ margin: '0 0 12px', color: 'var(--amber)' }}>Weaker storage on this computer: no system keychain was found, so host tokens are encrypted with a key kept in an owner-only file next to them. Anyone who can read your user files could use them. Install a keyring (GNOME Keyring or KWallet) and pair again for keychain storage.</div>}
-            {props.hosts.map((h) => {
-              const cur = h.id === props.current?.id
-              return (
-                <div className="set-row" key={h.id}>
-                  <span className={'dot ' + (cur && props.online ? 'green' : '')} />
-                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => props.onSwitch(h)}>
-                    <div>{h.name}{cur ? ' · current' : ''}</div>
-                    <div className="sub mono">{h.address}{cur && props.status ? ` · acpd ${props.status.version} · ${props.online ? 'Connected' : 'Offline'}` : ''}{hostStore[h.id] ? ` · token in ${hostStore[h.id] === 'enc' ? 'keychain' : hostStore[h.id] === 'file' ? 'encrypted file (weaker)' : 'memory'}` : ''}</div>
-                  </div>
-                  <button className="pill" onClick={() => props.onForget(h, true)} title="Revoke this device on the host and forget it here">Unpair</button>
-                </div>
-              )
-            })}
-          </>
-        )}
+        {section === 'Hosts' && props.hostsPanel}
         {section === 'Workspaces' && <Workspaces {...props} />}
         {section === 'MCP servers' && <McpEditor servers={props.mcp} setServers={props.setMcp} />}
         {section === 'Approvals & review' && (
