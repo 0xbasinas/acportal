@@ -96,7 +96,7 @@ mod tests {
             ("inner-direct-nowindow", inner.clone(), 0x0800_0000),
         ] {
             let mut bad = vec![];
-            for i in 0..20 {
+            for i in 0..50 {
                 let (code, out, err, ms) = direct(&exe, flags, line);
                 if !out.contains("bash-42") {
                     bad.push(format!(
@@ -105,6 +105,7 @@ mod tests {
                 }
             }
             report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
+            println!("{report}");
         }
         let mut service = TerminalService::new("s", &root, 8192).unwrap();
         service.set_shell(crate::shell::ShellChoice::Bash);
@@ -117,7 +118,7 @@ mod tests {
             ),
         ] {
             let mut bad = vec![];
-            for i in 0..20 {
+            for i in 0..50 {
                 let t = std::time::Instant::now();
                 let prepared = service
                     .prepare(serde_json::json!({"sessionId":"s","command":line}))
@@ -130,6 +131,7 @@ mod tests {
                     .as_str()
                     .unwrap_or_default()
                     .to_owned();
+                let _ = service.release("s", &id).await;
                 if !text.contains("bash-42") {
                     bad.push(format!(
                         "#{i} status={status} ms={} text={text:?}",
@@ -138,6 +140,7 @@ mod tests {
                 }
             }
             report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
+            println!("{report}");
         }
         let _ = std::fs::remove_dir_all(&base);
         panic!("DIAG\n{report}");
