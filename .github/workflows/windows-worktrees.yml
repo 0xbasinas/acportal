@@ -1,0 +1,32 @@
+name: Windows worktree tests
+# Targeted check for the worktree merge/cleanup tests on Windows only, so a fix for one test
+# does not need the whole Rust workflow (and its Windows reproducibility jobs) to run again.
+on:
+  pull_request:
+    paths:
+      - "acpd/src/orchestrator/worktree.rs"
+      - "acpd/src/orchestrator/views.rs"
+      - "acpd/tests/worktrees.rs"
+      - ".github/workflows/windows-worktrees.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-worktrees-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  worktrees:
+    name: Windows (worktrees test binary only)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Worktree tests (three passes, the failure was intermittent)
+        shell: bash
+        run: |
+          set -e
+          for i in 1 2 3; do
+            cargo test --locked -p acpd --test worktrees
+          done
