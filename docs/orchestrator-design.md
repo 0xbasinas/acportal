@@ -707,7 +707,7 @@ Written 13 October 2026 for the next agent. Everything here is experimental and 
 
 ### How to continue
 
-1. Read this section, then `TODO.md` ("Agent orchestrator"). Branch `experiment/orchestrator`, draft PR #45.
+1. Read this section, then `TODO.md` ("Agent orchestrator"). Branch `experiment/orchestrator`, PR #45 (the desktop work is merged into it).
 2. Run: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`. For Linux evidence: `gh workflow run Rust --ref experiment/orchestrator` and read the result.
 3. Suggested order: Linux CI read and fixes; two-machine TLS check and `goose serve` peer test; decide client reconnect; `GET /v1/peer/info`; worktree isolation; Penpot boards then Android task tree; hardening (macOS, overflow/rate-limit tests, dependency review) before taking the PR out of draft.
 4. Keep invariants from `AGENTS.md`: literal argv, no secrets in logs, TLS never downgraded, record only verified scope.

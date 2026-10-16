@@ -53,23 +53,32 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| GET | `/v1/status` | Version, host identity, health and optional `features` (`formElicitation`, `git`, `sessionWorktree`, plus orchestrator features) |
+| GET | `/v1/status` | Version, host identity, health and optional `features`: `formElicitation`, `git`, `sessionWorktree`, `checks`, `controlTakeover`, `sharedDrafts`, `agentProbe`, and `orchestrator` while delegation is enabled |
 | GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools`, and `setup` (the agent's `modes`/`models`/`configOptions` from its newest session or a probe) when known |
 | POST | `/v1/agents/{id}/probe` | Feature `agentProbe`. `{"workspace"}` must be an approved folder. Starts the agent in a throwaway session (no access, no MCP, no prompt), returns `{"setup"}` with only `modes`/`models`/`configOptions`, caches it and removes the session |
 | GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
 | POST / DELETE | `/v1/workspaces` | Add (`{"path"}`) or remove a folder the phone added; saved in `user-settings.json`, applies to new sessions at once |
 | GET | `/v1/filesystem/directories` | Folder names (no files) under `?path=`; empty path lists drives or `/` |
 | POST | `/v1/agents/check` | Run `<command> --version` once (`{"command","env"}`) and report `found`, `executable`, `versionOk`, `version` |
+| POST | `/v1/agents/locate` | `{"commands":[names]}` (at most 64 bare names): which exist on `PATH` or in the usual user install folders, and where. Nothing is run |
 | POST / DELETE | `/v1/agents`, `/v1/agents/{id}` | Register or remove an agent the phone added; same validation as a registry file, host-defined ids cannot be replaced |
 | GET | `/v1/workspaces/browse` | Canonical child folders inside allowed roots |
 | GET | `/v1/sessions` | Host-owned session metadata |
 | POST | `/v1/sessions` | Create or advertised load with agent ID and workspace |
-| GET | `/v1/sessions/:id` | Initialization, setup, status and ACP session ID |
-| DELETE | `/v1/sessions/:id` | Explicitly terminate process and remove host record |
+| GET | `/v1/sessions/{id}` | Initialization, setup, status and ACP session ID |
+| DELETE | `/v1/sessions/{id}` | Explicitly terminate process and remove host record |
 | POST | `/v1/pair` | Rate-limited one-use code exchange over TLS |
 | DELETE | `/v1/device` | Revoke the current device's credential |
-| WS | `/v1/sessions/:id/connect` | ACP messages and bounded reconnect replay |
+| WS | `/v1/sessions/{id}/connect` | ACP messages and bounded reconnect replay; `?after=`, `readOnly=true`, `takeover=true` (see below) |
+| POST | `/v1/sessions/{id}/supervisor` | `{"paused"}`: pause or resume supervisor approvals for the session's delegated tasks (feature `orchestrator`) |
+| GET | `/v1/tasks`, `/v1/tasks/{id}` | Delegated task tree and one task's detail (feature `orchestrator`; see [orchestrator design](orchestrator-design.md)) |
+| POST | `/v1/tasks/{id}/cancel`, `/merge`, `/discard` | Cancel a task and its subtree; merge a finished task's worktree branch into the parent checkout, or discard it (409 with a code and conflicting files on refusal) |
+| POST | `/v1/tasks/{id}/supervisor/pause`, `/resume` | Pause or resume the supervisor for one task |
+| POST | `/v1/checks` | Feature `checks`. `{"path","commands":[lines],"timeoutSecs"}` runs each line in a workspace folder with the host shell (and sandbox where configured), then removes untracked files the lines created; see [desktop runs and checks](desktop-runs-and-checks.md) |
+| GET / PUT / POST | `/v1/shared`, `/v1/shared/drafts/{id}`, `/v1/shared/titles/{id}`, `/v1/shared/history` | Feature `sharedDrafts`: drafts, titles and prompt history shared between the phone and desktop (see below) |
 | POST | `/v1/git/{op}` | Run one git operation from a fixed list in a workspace folder or task worktree (feature `git`); see below |
+
+Peer hosts (role `peer`, see [orchestrator design](orchestrator-design.md) section 7) use a separate set: `GET /v1/peer/info` and the ACP bridge WebSocket at `/acp` or `/acp/{agent_id}`. Peers get only the agents in `peer_agents`, folders by alias, and at most `peer_rights`.
 
 Creation input:
 

@@ -4,11 +4,12 @@
 
 ## Product boundary
 
-The phone is an ACP client interface. The development host owns execution, workspaces, agent configuration, and session processes. Android learns names, availability, capabilities, modes, models, and configuration options from the host and ACP responses. No Kotlin branch will select behavior by agent name.
+The phone and the desktop app are ACP client interfaces. The development host owns execution, workspaces, agent configuration, and session processes. Android learns names, availability, capabilities, modes, models, and configuration options from the host and ACP responses. No Kotlin branch will select behavior by agent name.
 
 ```mermaid
 flowchart TD
     UI[Android Compose interface] --> Domain[Session repository and ACP reducer]
+    Desktop[Desktop Electron app] --> WS
     Domain --> Transport[AgentTransport]
     Transport --> WS[Authenticated WebSocket]
     WS --> Host[acpd management and session service]
@@ -20,45 +21,33 @@ flowchart TD
 
 The Android and network blocks are implemented. The independently tested Android protocol module contains wire models, the reducer and diff logic. Transport, data, storage, security and presentation currently live in app packages rather than separate Gradle modules; this keeps the working app small without coupling protocol logic to Android.
 
-## Final repository structure
-
-The intended structure below is the destination. It is not a list of files already implemented.
+## Repository structure
 
 ```text
 /
-  android/universal-acp/
-    app/                   Compose navigation and dependency graph
-    core/domain/           Models, reducers and use cases
-    core/protocol/         ACP v1 serialization and connection routing
-    core/transport/        Secure WebSocket and reconnect handling
-    core/data/             Host API and session repositories
-    core/storage/          Room, DataStore and migrations
-    core/security/         Keystore credentials and host verification
-    feature/hosts/         Pairing, host details, agent/workspace selection
-    feature/sessions/      Session list, conversation, permissions, diffs
-    feature/settings/      Connection and privacy preferences
-  acpd/
-    src/config.rs          Validated host configuration
-    src/registry.rs        Agent metadata and executable discovery
-    src/connection.rs      Child process actor and JSON-RPC routing
-    src/session.rs         Host session lifecycle
-    src/api/               REST and WebSocket management, Phase 2
-    src/security/          Pairing, tokens and rate limits, Phase 2
-    src/host_services/     Host filesystem and terminal capability handlers
-    src/main.rs            Operator CLI
+  acpd/                    Host (library, CLI `acpd`, mock agent, integration tests)
+    src/api.rs, src/api/   REST and WebSocket API; bridge.rs (peer ACP bridge), checks.rs,
+                           git.rs (scoped git), shared.rs (drafts, titles, history)
+    src/session.rs, connection.rs, session_catalog.rs   Sessions, ACP process actor, restart catalog
+    src/registry.rs, discovery.rs, userdata.rs           Agents, executable discovery, phone-added settings
+    src/terminal.rs, shell.rs, shell_review.rs, auto_approve.rs, win_sandbox.rs, process_tree.rs
+                           Host terminals, Windows shell choice, scope check, auto-review, sandboxes, cleanup
+    src/orchestrator/      Delegated tasks, supervisor, worktrees, task records (off by default)
+    src/peers.rs, peer_link.rs, peer_cli.rs              Peer hosts
+    src/security.rs, launcher.rs, daemon.rs, doctor.rs   Pairing/tokens, setup, background mode, diagnostics
     src/bin/mock_acp_agent.rs
-    registry/builtin.json
     tests/
-  protocol/
-    src/lib.rs             Shared wire boundary and upstream stable v1 types
-    management.schema.json Versioned host API contract, Phase 2
-  docs/
-  examples/
-  scripts/
-  docker/
+  protocol/                Shared Rust wire types (ACP v1)
+  tray/                    System-tray controller (separate Cargo workspace)
+  android/universal-acp/
+    app/                   Compose app: transport, data, storage, security and presentation packages
+    core/protocol/         JVM-tested ACP models, reducer and diff logic
+  desktop/                 Electron client: electron/ (main process: host API, sockets, git, secrets,
+                           approval watcher), src/ (React renderer), test/ (node and Vitest tests)
+  docs/  examples/  scripts/  docker/  assets/
 ```
 
-Create a Gradle module when its boundary has working code and tests. Do not make a module for every screen, event variant, or agent.
+The Android app keeps transport, data, storage, security and presentation in app packages. Create a Gradle module only when its boundary has working code and tests, not one per screen, event variant or agent. The desktop app talks to the same host API as the phone; see [desktop/README](../desktop/README.md).
 
 ## Key data models
 

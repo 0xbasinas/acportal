@@ -6,6 +6,14 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+On `experiment/orchestrator` (PR #45), not released yet:
+
+- Agent orchestrator: delegated tasks, supervisor, peer bridge, worktree isolation and phone merge. Off by default.
+- Experimental Electron desktop app (`desktop/`): several hosts, approvals with scope check, git view, session branches and worktrees, run on several agents, pre-merge checks, and an inline new-session composer.
+- Host: scoped `/v1/git`, `POST /v1/checks`, a scope check on terminal consents, an opt-in OS sandbox for approved commands (bubblewrap, AppContainer), and a Windows shell choice (cmd, PowerShell, Git Bash).
+- Phone/desktop handoff: Take control (`takeover`), with the replaced client watching. Shared drafts, titles and prompt history (`/v1/shared`).
+- `POST /v1/agents/{id}/probe` and `setup` on `GET /v1/agents`, for an agent's models and modes before its first session.
+
 ## [0.1.8] - 2026-10-12
 
 ### Fixed
