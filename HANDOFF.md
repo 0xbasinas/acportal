@@ -114,7 +114,7 @@ gh run list --workflow rust.yml --event workflow_dispatch --limit 1
 - The scope check is heuristic.
 - Composer: the agent probe starts the agent once per host and agent, and the host forgets the probe cache on restart (sessions keep their own `setup`). Recent prompts show text only. The docked “Starting…” view is usually too brief to see on a fast host.
 - Checks config and MCP definitions live on each client, not on the host (drafts, titles and prompt history are shared since #47).
-- `terminal::tests::windows_shell_choice_runs_lines_in_the_chosen_shell` failed once on Windows CI with empty Git Bash output and passed on rerun; watch for it.
+- `terminal::tests::windows_shell_choice_runs_lines_in_the_chosen_shell` failed twice on Windows CI with empty Git Bash output; the terminal pump was hardened (see TODO) but the cause was never reproduced, so watch for it.
 - Android shows neither the scope/sandbox warning nor the shell note, and has no notifications (see roadmap).
 - No signed installers for the desktop app (AppImage builds locally only).
 - `tests/testy.rs` was relaxed to accept extra features; the testy job is not run on PRs.

@@ -28,6 +28,18 @@ struct CreateRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_retryable_read_errors_keep_the_pipe_open() {
+        use std::io::{Error, ErrorKind};
+        assert!(transient_read_error(&Error::from(ErrorKind::WouldBlock)));
+        assert!(transient_read_error(&Error::from(ErrorKind::Interrupted)));
+        assert!(!transient_read_error(&Error::from(ErrorKind::BrokenPipe)));
+        assert!(!transient_read_error(&Error::other("closed")));
+        assert_eq!(
+            transient_read_error(&Error::from_raw_os_error(232)),
+            cfg!(windows)
+        );
+    }
     #[cfg(unix)]
     #[test]
     fn sandbox_arguments_expose_only_the_workspace_writable() {
@@ -495,6 +507,15 @@ impl PreparedTerminal {
         }
     }
 }
+/// A read that may succeed later. MSYS2 programs (Git Bash) can put the pipe in
+/// non-blocking mode, so an empty pipe reads as `ERROR_NO_DATA` (232) before any
+/// output arrives; that is not end of output.
+fn transient_read_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+    ) || (cfg!(windows) && error.raw_os_error() == Some(232))
+}
 struct Output {
     bytes: VecDeque<u8>,
     limit: usize,
@@ -860,8 +881,8 @@ impl TerminalService {
                     break;
                 }
                 tokio::select! {
-                    result=stdout.read(&mut out),if !out_closed => match result {Ok(0)|Err(_)=>{out_closed=true;out_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>out_decoder.feed(&out[..count],&mut retained.lock().unwrap())},
-                    result=stderr.read(&mut err),if !err_closed => match result {Ok(0)|Err(_)=>{err_closed=true;err_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>err_decoder.feed(&err[..count],&mut retained.lock().unwrap())},
+                    result=stdout.read(&mut out),if !out_closed => match result {Err(error) if transient_read_error(&error)=>tokio::time::sleep(Duration::from_millis(10)).await,Ok(0)|Err(_)=>{out_closed=true;out_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>out_decoder.feed(&out[..count],&mut retained.lock().unwrap())},
+                    result=stderr.read(&mut err),if !err_closed => match result {Err(error) if transient_read_error(&error)=>tokio::time::sleep(Duration::from_millis(10)).await,Ok(0)|Err(_)=>{err_closed=true;err_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>err_decoder.feed(&err[..count],&mut retained.lock().unwrap())},
                     result=child.wait(),if status.is_none()=> {
                         status=Some(match result {
                             Ok(status)=> {
@@ -871,7 +892,8 @@ impl TerminalService {
                             },
                             Err(_)=>json!({"exitCode":null,"signal":null}),
                         });
-                        let _=tree.terminate();deadline=Instant::now()+Duration::from_secs(1);
+                        // Descendants are ended now; keep draining what they already wrote until EOF.
+                        let _=tree.terminate();deadline=Instant::now()+Duration::from_secs(5);
                     },
                     _=stop_rx.changed(),if !stopping && status.is_none()=> {stopping=true;let _=tree.terminate();let _=child.start_kill();},
                     _=tokio::time::sleep_until(deadline)=> {
