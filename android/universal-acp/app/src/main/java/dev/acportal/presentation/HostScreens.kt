@@ -272,7 +272,7 @@ import kotlinx.serialization.json.*
     }
 }
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null) {
+@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap()) {
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit) {while(true) {delay(60_000);now=System.currentTimeMillis()}}
     var archived by rememberSaveable {mutableStateOf(initialUiState.sessionsArchived)}
@@ -328,7 +328,8 @@ import kotlinx.serialization.json.*
                 items(entries,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->
                     var menu by remember {mutableStateOf(false)}
                     val summary=summaryOf(stored,info)
-                    val title=summary.title
+                    // A session started on the desktop has no copy here yet; use the host's title.
+                    val title=if(summary.title==SESSION_TITLE_PLACEHOLDER)sharedTitles["${stored.hostId}/${stored.id}"] ?: summary.title else summary.title
                     val activity=summary.activity
                     val liveActivity=liveActivities["${stored.hostId}/${stored.id}"]
                     val status=when {

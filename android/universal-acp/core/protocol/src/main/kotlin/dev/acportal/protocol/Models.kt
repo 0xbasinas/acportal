@@ -51,6 +51,8 @@ data class SessionInfo(
 data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList())
 /** Host feature: forwards agent form elicitations when the phone opts in at session creation. */
 const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
+/** Host keeps drafts, titles and prompt history for all paired devices (`/v1/shared`). */
+const val HOST_FEATURE_SHARED_DRAFTS = "sharedDrafts"
 @Serializable
 data class PairingResult(val hostId: String, val deviceId: String, val token: String, val expiresAt: Long)
 

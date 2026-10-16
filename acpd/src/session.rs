@@ -230,6 +230,7 @@ impl SessionManager {
     /// Existing and in-flight sessions retain their original, coherent launch snapshot.
     pub fn reload(&self, config: Config, registry: Registry) -> Result<()> {
         config.validate()?;
+        crate::shell::set_host(&config.windows);
         let old = self.launch_settings();
         if config.state_directory != old.config.state_directory
             || config.runtime.max_frame_bytes != old.config.runtime.max_frame_bytes
@@ -246,6 +247,7 @@ impl SessionManager {
     }
     pub fn new(config: Config, registry: Registry) -> Result<Self> {
         config.validate()?;
+        crate::shell::set_host(&config.windows);
         Ok(Self {
             launch_settings: RwLock::new(Arc::new(LaunchSettings { config, registry })),
             sessions: Mutex::new(BTreeMap::new()),

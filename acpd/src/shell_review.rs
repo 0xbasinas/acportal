@@ -1120,6 +1120,81 @@ pub fn evaluate_sh(line: &str, cwd: &Path, root: &Path) -> RuleVerdict {
 }
 
 /// Rules entry point. Only `/bin/sh` syntax is understood; Windows lines always ask.
+/// Paths a shell line names that resolve outside `root`, for the approval card's scope
+/// warning. Agent-agnostic and conservative: absolute, `~` and `..` operands (also after
+/// `--flag=`), redirect targets, and `cd` targets are checked lexically and through symlinks.
+/// A line that does not parse yields `["(unparsed command)"]` so the card still warns.
+pub fn outside_paths(line: &str, cwd: &Path, root: &Path) -> Vec<String> {
+    let Ok(parsed) = lex(line).and_then(parse) else {
+        return vec!["(unparsed command)".into()];
+    };
+    let mut cwd = cwd.to_path_buf();
+    let mut cwd_outside = false;
+    let mut out: Vec<String> = vec![];
+    fn push(out: &mut Vec<String>, text: &str) {
+        if out.len() < 16 && !out.iter().any(|seen| seen == text) {
+            out.push(text.into());
+        }
+    }
+    for command in &parsed.commands {
+        let mut candidates: Vec<&str> = command
+            .words
+            .iter()
+            .skip(1)
+            .map(|w| w.text.as_str())
+            .collect();
+        candidates.extend(
+            command
+                .redirects
+                .iter()
+                .filter_map(|(_, target)| target.as_ref().map(|w| w.text.as_str())),
+        );
+        for text in candidates {
+            let value = match text.split_once('=') {
+                Some((flag, value)) if flag.starts_with('-') => value,
+                _ => text,
+            };
+            if value.is_empty()
+                || value.contains("://")
+                || matches!(
+                    value,
+                    "/dev/null" | "/dev/stdin" | "/dev/stdout" | "/dev/stderr"
+                )
+            {
+                continue;
+            }
+            if value.starts_with('~') || value.starts_with("$HOME") || value.starts_with("${HOME}")
+            {
+                push(&mut out, value);
+                continue;
+            }
+            let pathlike = value.starts_with('/')
+                || value == ".."
+                || value.starts_with("../")
+                || value.contains("/../")
+                || value.ends_with("/..");
+            let relative_after_cd =
+                cwd_outside && !value.starts_with('-') && !value.starts_with('/');
+            if relative_after_cd || (pathlike && inside(root, &cwd, value).is_none()) {
+                push(&mut out, value);
+            }
+        }
+        if command.words.first().map(program) == Some("cd") {
+            match command.words.get(1).map(|w| w.text.as_str()) {
+                None | Some("~") | Some("-") => cwd_outside = true,
+                Some(target) => match inside(root, &cwd, target) {
+                    Some(next) => cwd = next,
+                    None => {
+                        cwd_outside = true;
+                        push(&mut out, target);
+                    }
+                },
+            }
+        }
+    }
+    out
+}
+
 pub fn rules_verdict(line: &str, cwd: &Path, root: &Path) -> RuleVerdict {
     if cfg!(windows) {
         return ask("automatic rules understand /bin/sh lines only", false);
@@ -1327,6 +1402,51 @@ pub fn relative_cwd(root: &Path, cwd: &Path) -> String {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn outside_paths_flags_only_paths_leaving_the_workspace() {
+        let base = std::env::temp_dir().join(format!("acpd-scope-{}", std::process::id()));
+        let root = base.join("ws");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let root = root.canonicalize().unwrap();
+        let cwd = root.join("src");
+        let none: Vec<String> = vec![];
+        for line in [
+            "ls -la",
+            "cat main.rs ../README.md",
+            "cargo test --manifest-path=../Cargo.toml 2>/dev/null",
+            "curl https://example.com/a/../b",
+            &format!("cat {}/src/main.rs", root.display()),
+            "cd .. && ls src",
+        ] {
+            assert_eq!(outside_paths(line, &cwd, &root), none, "{line}");
+        }
+        let cases: Vec<(&str, Vec<&str>)> = vec![
+            ("cat /etc/passwd", vec!["/etc/passwd"]),
+            ("cat ../../secret", vec!["../../secret"]),
+            ("cat ~/.ssh/id_rsa", vec!["~/.ssh/id_rsa"]),
+            ("cat \"$HOME/.bashrc\"", vec!["$HOME/.bashrc"]),
+            ("echo hi > /tmp/x", vec!["/tmp/x"]),
+            ("tool --out=/var/x", vec!["/var/x"]),
+            (
+                "cd /workspace/other && cat config.toml",
+                vec!["/workspace/other", "config.toml"],
+            ),
+            ("cd && cat .bashrc", vec![".bashrc"]),
+            ("echo 'unclosed", vec!["(unparsed command)"]),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(outside_paths(line, &cwd, &root), expected, "{line}");
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc", root.join("etc-link")).unwrap();
+            assert_eq!(
+                outside_paths("cat ../etc-link/passwd", &cwd, &root),
+                vec!["../etc-link/passwd"]
+            );
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
     use super::*;
     use Decision::*;
 

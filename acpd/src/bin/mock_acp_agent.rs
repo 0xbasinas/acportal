@@ -23,6 +23,9 @@ struct Options {
     mcp_sse: bool,
     #[arg(long)]
     echo_mcp: bool,
+    /// Report modes and a model config option in `session/new`, like agents that offer them.
+    #[arg(long)]
+    setup_choices: bool,
     /// Kind of the permission request the mock raises each turn (default `edit`).
     #[arg(long, default_value = "edit")]
     permission_kind: String,
@@ -175,6 +178,10 @@ async fn main() -> anyhow::Result<()> {
                 mcp_servers = params["mcpServers"].clone();
                 session_counter += 1;
                 let mut reply = json!({"sessionId":format!("mock-{session_counter}"),"_meta":{"mockMcpServers":mcp_servers.as_array().unwrap().iter().map(|server| json!({"name":server["name"],"type":server.get("type").and_then(Value::as_str).unwrap_or("stdio")})).collect::<Vec<_>>()}});
+                if options.setup_choices {
+                    reply["modes"] = json!({"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"code","name":"Code"}]});
+                    reply["configOptions"] = json!([{"id":"model","name":"Model","category":"model","type":"select","currentValue":"small","options":[{"value":"small","name":"Small"},{"value":"large","name":"Large"}]}]);
+                }
                 if options.echo_mcp {
                     // Test-only: an agent knows its own MCP definitions, environment included.
                     reply["_meta"]["mockMcpFull"] = mcp_servers.clone();

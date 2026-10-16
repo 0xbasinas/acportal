@@ -1,5 +1,15 @@
 # Completed work and verification history
 
+## Desktop client and host features (branch `experiment/desktop`, PR #46)
+
+- 16 October 2026: composer follow-up. Host `POST /v1/agents/{id}/probe` (feature `agentProbe`) reads an agent's modes/models/config options from a throwaway ACP session with no access, then removes it. `GET /v1/agents` carries `setup` (newest session, else probe). The composer shows *Reading models…* while it probes and falls back to defaults. Dropdowns flip up and clamp horizontally. 20 Vitest component tests run in desktop CI. Rust test `agent_probe`. Live-tested with Goose (worker)/DeepSeek. Screenshots in `/workspace/desktop-shots/v9/`.
+- 16 October 2026: inline new-session composer (Penpot boards 96–99) replaces the new-session dialog: chips for agent, model/mode, host, folder, branch (search, current, existing, new from base, own worktree), access and worktree with anchored dropdowns; recent prompts; docking animation that respects reduced motion; host chip switches the active host; the new session shows in the sidebar immediately; the first prompt is sent after start. Live-tested with acpd + Goose/DeepSeek; screenshots in `/workspace/desktop-shots/v8/` (not committed).
+- 16 October 2026: Windows shell choice (`[windows] shell = auto|cmd|pwsh|bash`, `bash_path`, per-agent `shell`), Git Bash detection (registry, common folders, `git` on PATH, never WSL), fallback PowerShell then cmd, shell and note on the card and in `_meta.acpdScope`; checks use the same shell and the sandbox on Windows; MSYS2 programs refused in the sandbox with a clear error; spike test that Git Bash cannot start in the AppContainer; desktop Add agent gets sandbox and shell choices.
+- 16 October 2026: Windows AppContainer sandbox for approved host commands (`win_sandbox.rs`), verified on the Windows runner (manual Rust run 38879206682).
+- 15-16 October 2026: run on several agents with compare/merge, pre-merge checklist (`POST /v1/checks` plus AI review gate), approval footer and drop-line fixes (`db79e64`, Rust 38875948424 and Desktop 38875948394 green).
+- 15 October 2026: live approvals across hosts, workspace scope checks, bubblewrap sandbox, drag reorder (`ced3af6`).
+- Earlier on the branch: multi-host desktop, UI overhaul, scoped `/v1/git`, session branch/worktree, form questions, attachments, prompt history, MCP and agent editing, git view with Learn mode (`6f55ca2` and before).
+
 ## 15 October 2026 host-side auto-approve
 
 - New `[auto_approve.<agent>]` ([design section 32](docs/orchestrator-design.md#32-host-side-auto-approve-15-october-2026)): the host answers allow-once to safe permission requests (reads, in-folder edits within the size limit) by the supervisor's classifier, never refuses, applies by default only to sessions in a task worktree, optional model that can only make it stricter; own-tool write requests qualify with `own_edit_shape`. 12 unit + 9 integration + 1 orchestrator tests, 14 guards mutation-checked. A real Goose in a worktree: both its write gate and the host's write consent answered by the rules, no phone entry for the worker, 17 s (was 55-80 s). One run, Windows.

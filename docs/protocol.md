@@ -39,6 +39,8 @@ Two consent shapes exist:
 - **Plain program** (`_meta.acpdSource: "host-terminal"`). The agent sent a command plus a separate `args` array, or a single word with no shell metacharacters. Consent shows the resolved executable, literal arguments, cwd and environment variable names. Options are `acpd-command-deny` / `acpd-command-allow` ("Run once"). Approval launches that executable with those args; no shell.
 - **Shell line** (`_meta.acpdSource: "host-shell-command"`). The agent sent a command string with empty `args` that contains whitespace or shell metacharacters (`& | ; < > ( ) $ \` " ' * ? [ ] { } ~ ! # % ^`, and on Unix a backslash). Consent title is "Run shell command". `rawInput` carries `shellLine` (the exact text), `shell` (`/bin/sh -c` on Unix, `cmd.exe /D /S /C` on Windows), `executable`, `cwd` and `environmentNames` — never env values, and never the plain `command`/`args` keys so older clients do not show a truncated preview. Options are `acpd-shell-deny` / `acpd-shell-allow` ("Run this shell line once"). There is no remembered or blanket approval: each line needs its own phone choice. Approval runs exactly that string through the fixed shell (`/bin/sh -c <line>` on Unix; on Windows `%SystemRoot%\System32\cmd.exe` with `/D /S /C "<line>"` via `raw_arg`, rejecting CR/LF in the line). A plain-command option id cannot approve a shell consent, and vice versa.
 
+Every host terminal consent (`host-shell-command`, `host-terminal`) also carries `_meta.acpdScope: {"outsideWorkspace": ["/etc/passwd", ...], "sandboxed": true|false, "shell"?: "sh"|"cmd"|"powershell"|"bash", "shellNote"?: "..."}`. `outsideWorkspace` lists at most 16 paths the command names outside the workspace (see [security](security.md#workspace-scope-of-shell-commands)); `sandboxed` says the command will run in the host's OS sandbox. An agent's own `session/request_permission` whose `toolCall.rawInput` has a `command`, `cmd`, `shellLine` or `script` string gets the same object with `"agentTool": true` and `sandboxed: false`. Clients should show a prominent warning when `outsideWorkspace` is non-empty and should trust the field only from host-direction events.
+
 With opt-in shell-line auto-review (`[shell_review.<agent-id>]`, see [security](security.md#shell-line-auto-review-opt-in)), the host may decide a shell line itself. It then publishes a host `tool_call` (same `toolCallId` scheme, title "Run shell command", `rawInput.shellLine`) with `_meta.acpdAutoReview: {"decision":"allow"|"deny"|"reviewing","layer":"rules"|"model","reason":"…"}`. `allow` creates the terminal without a consent (status `in_progress`, then the usual `acpdTerminal` snapshots); `deny` answers the agent's `terminal/create` with `-32602` and the message `Shell line refused by acpd auto-review (<layer>): <reason>. Do not retry it unchanged.`; `reviewing` is followed by a `tool_call_update` with the final decision, or by the normal `host-shell-command` consent whose `_meta.acpdAutoReview.decision` is `ask`. Clients should trust `acpdAutoReview` only from host-direction events.
 
 Detection is conservative: any non-empty `args` stays on the literal path even if the text looks like shell syntax. A single unresolvable word with no metacharacters still fails resolution, as before. Existing protections (cwd containment, process-group / job cleanup, output and handle limits, metadata-only logging of the method) apply to both shapes. Session cancel still calls `stop_all` on live terminals so a running shell and its grandchildren are cleaned up.
@@ -51,8 +53,9 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| GET | `/v1/status` | Version, host identity, health and optional `features` (currently `formElicitation`) |
-| GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools` |
+| GET | `/v1/status` | Version, host identity, health and optional `features` (`formElicitation`, `git`, `sessionWorktree`, plus orchestrator features) |
+| GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools`, and `setup` (the agent's `modes`/`models`/`configOptions` from its newest session or a probe) when known |
+| POST | `/v1/agents/{id}/probe` | Feature `agentProbe`. `{"workspace"}` must be an approved folder. Starts the agent in a throwaway session (no access, no MCP, no prompt), returns `{"setup"}` with only `modes`/`models`/`configOptions`, caches it and removes the session |
 | GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
 | POST / DELETE | `/v1/workspaces` | Add (`{"path"}`) or remove a folder the phone added; saved in `user-settings.json`, applies to new sessions at once |
 | GET | `/v1/filesystem/directories` | Folder names (no files) under `?path=`; empty path lists drives or `/` |
@@ -66,12 +69,40 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | POST | `/v1/pair` | Rate-limited one-use code exchange over TLS |
 | DELETE | `/v1/device` | Revoke the current device's credential |
 | WS | `/v1/sessions/:id/connect` | ACP messages and bounded reconnect replay |
+| POST | `/v1/git/{op}` | Run one git operation from a fixed list in a workspace folder or task worktree (feature `git`); see below |
 
 Creation input:
 
 ```json
 {"agentId":"goose","workspace":"/home/user/projects/app","loadSessionId":null}
 ```
+
+Session branch (feature `sessionWorktree`). Creation input may carry an optional `branch`:
+
+```json
+{"agentId":"goose","workspace":"/home/user/projects/app","branch":{"name":"acportal/fix-x","base":"main","create":true,"worktree":true}}
+```
+
+Without `worktree` the host runs `git switch [-c] <name> [<base>]` in the folder. With `worktree` it creates `<repo>-<slug>` beside the repository's top level on that branch and starts the session in the matching sub-folder there. Errors: `invalid_branch_name` and `not_a_repository` (400), `branch_failed` and `worktree_path_unavailable` (409), `path_not_allowed` (403). Older hosts reject the unknown field, so clients send it only when `features` lists `sessionWorktree`.
+
+### Git operations
+
+`POST /v1/git/{op}` takes `{"path": "<folder>", "params": {...}, "input": "<stdin, optional>"}` (unknown fields rejected; body up to 1 MiB plus overhead) and returns `{"code","out","err","args","readOnly"}`. A failing git command is still HTTP 200 with its exit `code`; `args` is the exact argument list, so clients can show it (the desktop's Learn mode does). `path` must be inside the workspace roots or the host's task worktrees (403 otherwise); an unknown `op` is 404; a parameter that is empty, starts with `-` or contains NUL, or a branch name that fails `git check-ref-format --branch`, is 400. Output is capped at 2 MiB and each run at 60 s (push 120 s). Git runs without a shell, with `core.quotepath=off` and `color.ui=never`.
+
+| Group | Operations (params) |
+| --- | --- |
+| Read | `status`, `diff` (`staged`, `file`), `log`, `worktree-list`, `stash-list`, `branch-list`, `conflicts`, `rev-parse`, `merging`, `show` (`rev`), `reflog`, `compare` (`base`: `log --left-right base...HEAD`), `remote-url` |
+| Index | `add` (`file`), `restore-staged` (`file`), `apply-cached` and `apply-cached-reverse` (patch in `input`) |
+| Commits | `commit` (`message`), `reset-soft` (`rev`, default `HEAD~1`) |
+| Stash | `stash-push` (`message`, optional), `stash-pop` (`ref`, optional), `stash-apply` and `stash-drop` (`ref`) |
+| Worktrees | `worktree-add` (`path`, `branch`, `base`; the target must be absolute, new and inside an allowed parent), `worktree-remove` (`path`) |
+| Conflicts | `checkout-ours`, `checkout-theirs` (`file`), `merge-abort` |
+| Branches | `checkout` (`branch`: `git switch`), `branch-create` (`branch`, `base`: `switch -c`), `branch-rename` (`from`, `to`), `branch-delete` (`branch`, `force=1` for `-D`) |
+| Remote | `push` (`git push --set-upstream origin <current branch>`, using the host account's own git credentials; no tokens pass through the API) |
+
+### Task worktree changes
+
+`GET /v1/tasks/{id}` adds `worktreeChanges` when the task ran in its own worktree: `[{"path","status","diff"}]` from `git diff <base>` of the worktree (status is the first letter of `--name-status`; `diff` is unified and capped at 256 KiB), plus untracked files as `{"path","status":"A","newText"}` (text up to 256 KiB, otherwise null). Edits made with shell commands therefore appear, not only those reported through ACP. Once the worktree is removed the list comes from `git diff <base> <branch>` in the main repository, without untracked files.
 
 The host UUID in these paths identifies a managed process/session record. It is distinct from the agent's ACP session ID. Management errors use an HTTP status and stable machine-readable code. Raw registry env, authorization headers, and process arguments must never appear in discovery or error responses.
 
@@ -112,8 +143,21 @@ This follows the [ACP session setup specification](https://agentclientprotocol.c
 
 Subscribe before reading replay. Return replay through its latest sequence, then ignore queued live events at or below that sequence. A cursor older than the retained journal yields an explicit gap; never silently claim complete history. Include unresolved permissions separately from the bounded history so eviction cannot hide an outstanding decision. Android reducers deduplicate permission IDs and tool-call IDs as well as sequence numbers.
 
-One controlling client lease is allowed per session. Observers explicitly request `readOnly=true`; a second controller gets HTTP 409. Each session-scoped message must target the attached ACP session ID. Connect with `?after=42` to replay after a cursor. Delivery includes `replay_start`, individual `event` and `pending_permission` envelopes, then `replay_complete`. Accepted client prompts and permission answers are journaled with `direction: client`; agent output uses `direction: agent`. Pending/completed client request IDs are retained in a bounded memory cache for duplicate protection. Clients must not automatically resend prompts after a socket closes. A transport loss does not cancel the prompt or approve permission.
+One controlling client lease is allowed per session. Observers explicitly request `readOnly=true`; a second controller gets HTTP 409. With `takeover=true` (feature `controlTakeover`), a client app instead takes the lease from another client app, so a conversation can move between the phone and the desktop: the replaced socket receives `{"type":"control_taken"}` and stays open as an observer (its input gets `read_only` errors), and closing it does not release the successor's lease. A lease held by a peer bridge is never taken over. The phone and the desktop both follow a busy session read-only (HTTP 409 or `control_taken`) and offer Take control.
+
+Shared drafts (feature `sharedDrafts`): `GET /v1/shared` returns `{revision, drafts:{sessionId:{text, updatedAt, device}}, titles:{sessionId:title}, history:{workspace:[prompt, ...]}}`. `PUT /v1/shared/drafts/{sessionId}` `{text}` (empty removes; at most 64 KiB, 512 drafts, oldest dropped), `PUT /v1/shared/titles/{sessionId}` `{title}` (at most 200 characters), `POST /v1/shared/history` `{workspace, text}` (newest first, duplicates moved, 50 per folder, 16 KiB per prompt, 256 folders). Drafts are last writer wins; each change bumps `revision`. The host stores them in an owner-only `<state>/shared.json`; an unreadable file is left untouched and these routes answer 503 `shared_store_unreadable`. Removing a session forgets its draft and title. Clients reclaiming their own lease after a dropped socket also send `takeover=true`, because the host may not have noticed the old socket close yet. Each session-scoped message must target the attached ACP session ID. Connect with `?after=42` to replay after a cursor. Delivery includes `replay_start`, individual `event` and `pending_permission` envelopes, then `replay_complete`. Accepted client prompts and permission answers are journaled with `direction: client`; agent output uses `direction: agent`. Pending/completed client request IDs are retained in a bounded memory cache for duplicate protection. Clients must not automatically resend prompts after a socket closes. A transport loss does not cancel the prompt or approve permission.
 
 Live delivery holds only weak references to journal events. If the journal evicts an event before a slow socket receives it, or the live queue overflows, the host sends `reconnect_required` with reason `consumer_lagged` and the client reconnects from its cursor; the replay reports the gap. Host-bound requests beyond a per-session byte budget of max(8 MiB, 2 × max_frame_bytes) fail immediately with a retryable error; cancellation is never refused for this reason. Ping/pong, bounded frames, backpressure and credential revalidation are implemented. Android reconnects with capped exponential backoff and jitter. Closing a transport releases its lease, not the session process. Rust network tests cover authentication, permission recovery, replay, duplicate prompts, mismatched session IDs and revocation.
 
 Android retains incoming text, image, audio, embedded resources and resource links from message chunks and tool content. The same standard blocks are used for capability-checked outgoing attachments. Optional message IDs preserve message boundaries. Session metadata patches and complete usage snapshots follow the current [prompt-turn update definitions](https://agentclientprotocol.com/protocol/v1/prompt-turn) and [session metadata semantics](https://agentclientprotocol.com/protocol/v1/session-list). Unsupported content variants remain visible through a fallback; no agent URL is fetched automatically. Media bytes are omitted from Markdown export while embedded text and resource identities remain readable.
+
+
+## Pre-merge checks (`POST /v1/checks`, feature `checks`)
+
+Body: `{"path": "<folder inside a workspace root or a task worktree>", "commands": ["python3 -m unittest -v", ...], "timeoutSecs": 600}`. There can be 1 to 8 lines of at most 2000 bytes each, with no NUL. The timeout defaults to 600 s and is clamped to 5–1800 s per line. The host runs the lines in order with `/bin/sh -c` and `CI=1` in that folder, inside its OS sandbox when one works. Afterwards it removes untracked, non-ignored files the lines created. The answer is:
+
+`{"passed": bool, "sandboxed": bool, "results": [{"command", "code": int|null, "output": "<last 32 KiB of stdout+stderr>", "ms", "truncated"?, "timedOut"?, "shell": "sh"|"cmd"|"powershell"|"bash", "shellNote"?}]}`. Lines run through the host shell (`/bin/sh -c`; on Windows the `[windows] shell` setting), inside the OS sandbox where it works (bubblewrap on Linux, AppContainer on Windows).
+
+Errors: `400 invalid_commands`, `403 path_not_allowed`. A paired device can already approve any shell command an agent asks for, so this adds no new authority. The host logs only the number of lines and whether they ran sandboxed.
+
+`/v1/git/{op}` also accepts `add-all` (`git add -A`), `merge` (`{"branch"}` → `git merge --no-ff --no-edit <branch>`), `diff` with an optional `base` (`git diff [--cached] <base> --`), and `worktree-remove` with `"force": "1"`.

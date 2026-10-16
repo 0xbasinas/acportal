@@ -28,6 +28,25 @@ On the Agents screen (or New session when none exist), **Add agent** takes a nam
 
 Optional `"ownTools": true` declares that the agent edits files, runs commands or reads files with its own built-in tools, outside the host's ACP callbacks. It is reported by `/v1/agents` and in session metadata, and the Android app shows a "Uses its own tools" warning. It changes no host behavior. The host cannot detect this itself, so set it for agents such as OpenCode; the shipped OpenCode template sets it. It defaults to false and is omitted when false.
 
+Optional `"sandbox": "auto" | "off"` (default `auto`, omitted when `auto`) controls how commands the host runs for this agent through ACP `terminal/create` are confined. With `auto`, on Linux hosts where bubblewrap (`bwrap`) is installed and can create namespaces, each approved command runs with `/usr`, `/bin`, `/lib*`, `/etc`, `/opt` and `/nix` read-only, a private `/tmp`, and only the session workspace writable; the home directory and every other folder are absent. On Windows hosts where AppContainers can be created (Windows 8 and later), each approved command runs in a fresh AppContainer: the host grants that container modify rights on the session workspace only (an inherited ACL entry, removed again when the command ends), system folders stay readable, the user profile and other folders are closed, and the network matches Linux (outbound internet and private network allowed; Windows still blocks loopback to services on the same machine). A job object kills the whole process tree on stop or timeout. Programs installed under the user profile (for example `%USERPROFILE%\.cargo\bin`, per-user Python or Node) cannot run inside it. Elsewhere (macOS, no `bwrap`, user namespaces disabled, AppContainer creation failing) commands run unconfined as before, and approval cards say so. Use `off` for an agent whose commands need tools or caches under the home directory (for example `~/.cargo`, `~/.npm`, `~/.local/bin`, or per-user installs on Windows). The sandbox does not cover an agent's own built-in tools (see `ownTools`).
+
+### Windows shell
+
+Optional `"shell": "auto" | "cmd" | "pwsh" | "bash"` (default `auto`, omitted when `auto`) picks the shell for this agent's host shell lines on Windows hosts; `auto` uses the host setting:
+
+```toml
+[windows]
+shell = "auto"          # auto (= cmd.exe, the previous behaviour) | cmd | pwsh | bash
+# bash_path = 'D:\Git\bin\bash.exe'   # optional; otherwise found automatically
+```
+
+- `cmd`: the system `cmd.exe /D /S /C` (never one found on PATH). Multi-line lines are refused.
+- `pwsh`: PowerShell 7 (`%ProgramFiles%\PowerShell\7\pwsh.exe` or `pwsh` on PATH), else Windows PowerShell 5.1, else `cmd.exe`, run as `-NoLogo -NoProfile -NonInteractive -Command <line>`.
+- `bash`: Git Bash (`bin\bash.exe --noprofile --norc -c <line>`), found through `bash_path`, the Git for Windows registry key `HKLM`/`HKCU\SOFTWARE\GitForWindows\InstallPath`, `%ProgramFiles%\Git`, `%LocalAppData%\Programs\Git`, scoop's `git\current`, then the folder of `git` on PATH. The WSL `bash.exe` in System32 is never used. When Git Bash is not found, PowerShell (then `cmd.exe`) runs the line instead.
+- Git Bash cannot run inside the Windows sandbox (see [security](security.md)): with `sandbox: auto` the line runs in PowerShell, with a note on the approval card. Use `"sandbox": "off", "shell": "bash"` to run lines in Git Bash, unconfined.
+
+The approval card and `_meta.acpdScope` name the shell that will run the line (`shell`) and why it differs from the setting (`shellNote`). Pre-merge checks use the host setting. Other systems always use `/bin/sh -c` and ignore both settings. The desktop app's Add agent form sets `sandbox` and `shell`.
+
 Arguments are literal process arguments. There is no shell string parsing. IDs use ASCII letters, digits, underscores, or hyphens, with a maximum length of 64. Invalid entries, unknown keys, unsupported transports, duplicate IDs in a file, and malformed environment keys fail configuration validation.
 
 An explicit working directory must be absolute, exist, and be inside an allowed workspace root. The process launch cwd can differ from the session workspace, but both need host authorization.

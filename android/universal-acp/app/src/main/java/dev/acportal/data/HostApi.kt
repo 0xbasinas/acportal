@@ -73,6 +73,11 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     suspend fun discardTask(host:HostProfile,id:String): TaskDiscardResult = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}/discard",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST"))
     suspend fun mergeTask(host:HostProfile,id:String): TaskMergeResult = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}/merge",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST"))
     suspend fun setTaskSupervision(host:HostProfile,id:String,paused:Boolean) { execute(host.address,"/v1/tasks/${taskPath(id)}/supervisor/${if(paused)"pause" else "resume"}",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
+    /** Drafts, titles and folder prompt history shared with the desktop (host feature `sharedDrafts`). */
+    suspend fun shared(host:HostProfile): JsonObject = execute(host.address,"/v1/shared",vault.read(host.credentialAlias)).jsonObject
+    suspend fun putDraft(host:HostProfile,id:String,text:String) { execute(host.address,"/v1/shared/drafts/$id",vault.read(host.credentialAlias),buildJsonObject {put("text",text)},"PUT") }
+    suspend fun putTitle(host:HostProfile,id:String,title:String) { execute(host.address,"/v1/shared/titles/$id",vault.read(host.credentialAlias),buildJsonObject {put("title",title)},"PUT") }
+    suspend fun addHistory(host:HostProfile,workspace:String,text:String) { execute(host.address,"/v1/shared/history",vault.read(host.credentialAlias),buildJsonObject {put("workspace",workspace);put("text",text)},"POST") }
     fun token(host:HostProfile): String = vault.read(host.credentialAlias)
 }
 private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine { continuation ->

@@ -18,6 +18,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     val sessions=repository.sessions.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private val summaryMemo=SessionListSummaries()
     /** Row titles, times and search text, decoded off the main thread and only for changed rows. */
+    val sharedTitles=repository.sharedTitles.asStateFlow()
     val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyMap())
     val liveActivities=repository.liveActivities
     val agentCatalogs=repository.agentCatalogs.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
@@ -93,6 +94,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun cancel(live:LiveSession) = work { repository.cancel(live) }
     fun dismissSessionError(live:LiveSession) = repository.dismissSessionError(live)
     fun reconnect(live:LiveSession) = work { repository.reconnect(live) }
+    fun takeControl(live:LiveSession) = work { repository.takeControl(live) }
     fun disconnect(live:LiveSession) = work { repository.disconnect(live) }
     fun removeLocalCopy(live:LiveSession) = work {repository.removeLocalCopy(live)}
     fun permission(live:LiveSession,permission:Permission,optionId:String) = work { repository.permission(live,permission,optionId) }

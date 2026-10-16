@@ -4,6 +4,18 @@ Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `cod
 
 Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
 
+## Desktop branch (`experiment/desktop`, PR #46)
+
+- [ ] Phone/desktop handoff and shared drafts (16 October 2026): `takeover=true`/`control_taken`, both clients watch a session another device controls with Take control, and drafts, first-prompt titles and folder prompt history are kept on the host (`/v1/shared`). Host tests `takeover_moves_control_between_clients_and_the_old_one_keeps_watching` and `drafts_titles_and_history_are_shared_between_devices_and_survive_restart` pass; desktop typecheck/tests pass. Android compile/JVM tests rely on CI (no SDK or Gradle plugin access in that session); no client tried by hand. An open session on the phone checks the host every 5 s (the desktop every 4 s); a draft from the other device replaces the box only while it is unedited, otherwise local typing wins. The phone shows host titles for sessions it has no copy of and saves a first-prompt title for sessions started there. Not shared: attachments (binary, per-device file grants) and MCP/checks settings (the shared-settings item below, which needs host-side secret storage).
+
+- [ ] Android: show `_meta.acpdScope` (outside-workspace paths, sandboxed, shell and `shellNote`) on the shell approval sheet; no quick approve when paths are listed.
+- [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets; prompt history and drafts now done) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
+- [ ] Android: git view, branch/worktree picker, run on several agents, checks, approval notifications and list badges.
+- [ ] macOS sandbox for host commands.
+- [ ] Desktop: edit form for existing agents (sandbox, shell); host `[windows] shell` editable from the app.
+- [ ] Windows: test timeout tree-kill under the sandbox; model reviewer prompt should name the resolved shell.
+- [ ] Signed desktop installers (only when asked).
+
 ## Proposed, not started
 
 - [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (draft PR #45), off by default.** Phases 0-5 are implemented, including worktree isolation with the researched defaults and the phone merge (design sections 16-27). Linux, Windows and macOS CI (plus container and Windows reproducibility) pass: [run 38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and, with the phone merge, [run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409`. Remaining:

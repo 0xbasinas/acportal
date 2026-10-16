@@ -33,7 +33,9 @@ class WebSocketTransportTest {
             transport.connect()
             val first=withContext(Dispatchers.IO) {server.takeRequest(10,TimeUnit.SECONDS)}!!
             val second=withContext(Dispatchers.IO) {server.takeRequest(10,TimeUnit.SECONDS)}!!
-            assertTrue(first.path!!.endsWith("after=42"));assertTrue(second.path!!.endsWith("after=42"))
+            assertTrue(first.path!!.endsWith("after=42"))
+            // Reclaiming its own lease after a dropped socket is a takeover.
+            assertTrue(second.path!!.endsWith("after=42&takeover=true"))
             val peer=withTimeout(5000) {restored.await()}
             repeat(8) {assertEquals(frame,withTimeout(5000) {transport.messages().first().toString(Charsets.UTF_8)})}
             assertTrue(peer.send("restored"))
@@ -43,7 +45,7 @@ class WebSocketTransportTest {
         } finally {transport.disconnect();scope.cancel();server.shutdown();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
     }
     @Test fun terminalFailuresOfferSpecificRecoveryAndStopAutomaticRequests()=runBlocking {
-        listOf(403 to ConnectionFailure.AUTHORIZATION,404 to ConnectionFailure.SESSION_UNAVAILABLE,409 to ConnectionFailure.CONTROLLER_BUSY).forEach {(code,kind)->
+        listOf(403 to ConnectionFailure.AUTHORIZATION,404 to ConnectionFailure.SESSION_UNAVAILABLE).forEach {(code,kind)->
             val server=MockWebServer();server.enqueue(MockResponse().setResponseCode(code));server.start()
             val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO);val client=OkHttpClient()
             val transport=WebSocketTransport(client,server.url("/").toString(),"credential","s",{7},scope)
@@ -58,6 +60,26 @@ class WebSocketTransportTest {
             } finally {transport.disconnect();scope.cancel();server.shutdown();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
         }
         assertNull(terminalConnectionFailure(503))
+    }
+    @Test fun busySessionIsWatchedReadOnlyUntilTakeover()=runBlocking {
+        val server=MockWebServer();val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO);val client=OkHttpClient()
+        server.enqueue(MockResponse().setResponseCode(409))
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener() {}))
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener() {}))
+        server.start()
+        val transport=WebSocketTransport(client,server.url("/").toString(),"credential","s",{7},scope)
+        try {
+            transport.connect()
+            withTimeout(5000) {transport.connectionState().first {it==ConnectionState.Observing}}
+            assertEquals("/v1/sessions/s/connect?after=7",server.takeRequest(5,TimeUnit.SECONDS)!!.path)
+            assertEquals("/v1/sessions/s/connect?after=7&readOnly=true",server.takeRequest(5,TimeUnit.SECONDS)!!.path)
+            try {transport.send("{}".toByteArray());fail("A watching phone must not submit")} catch(error:IllegalStateException) {assertTrue(error.message!!.contains("Take control"))}
+            transport.disconnect();transport.requestTakeover();transport.connect()
+            withTimeout(5000) {transport.connectionState().first {it==ConnectionState.Connected}}
+            assertEquals("/v1/sessions/s/connect?after=7&takeover=true",server.takeRequest(5,TimeUnit.SECONDS)!!.path)
+            transport.controlTaken()
+            assertEquals(ConnectionState.Observing,transport.connectionState().value)
+        } finally {transport.disconnect();scope.cancel();server.shutdown();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
     }
     @Test fun observerConnectionDoesNotAcquireControllerOrAllowSubmission()=runBlocking {
         val server=MockWebServer();val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO);val client=OkHttpClient()
@@ -119,7 +141,7 @@ class WebSocketTransportTest {
             transport.connect()
             val first=withContext(Dispatchers.IO) {server.takeRequest(5,TimeUnit.SECONDS)}!!
             val second=withContext(Dispatchers.IO) {server.takeRequest(5,TimeUnit.SECONDS)}!!
-            assertTrue(first.path!!.endsWith("after=0"));assertTrue(second.path!!.endsWith("after=9"))
+            assertTrue(first.path!!.endsWith("after=0"));assertTrue(second.path!!.endsWith("after=9&takeover=true"))
             assertEquals(0,second.bodySize)
         } finally {transport.disconnect();scope.cancel();server.shutdown();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
     }

@@ -526,7 +526,12 @@ async fn testy_form_elicitations_reach_a_phone_that_opts_in() {
         .json()
         .await
         .unwrap();
-    assert_eq!(status["features"], json!(["formElicitation"]), "{status}");
+    assert!(
+        status["features"]
+            .as_array()
+            .is_some_and(|f| f.contains(&json!("formElicitation"))),
+        "{status}"
+    );
     let session = fixture
         .create_with(json!({"workspaceAccess":{"readFiles":true,"writeFiles":true,"terminal":true,"formElicitation":true}}))
         .await;

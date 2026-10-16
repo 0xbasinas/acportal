@@ -30,6 +30,14 @@ pub struct AgentDefinition {
     /// phone shows a warning. The host cannot detect this; the registry owner declares it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub own_tools: bool,
+    /// `auto` (default) runs host-approved terminal commands in an OS sandbox when the host
+    /// supports one (bubblewrap on Linux): only the workspace is writable and the home
+    /// directory is hidden. `off` runs them unconfined.
+    #[serde(default, skip_serializing_if = "Sandbox::is_auto")]
+    pub sandbox: Sandbox,
+    /// Windows hosts only: shell for this agent's host shell lines (`auto` = host setting).
+    #[serde(default, skip_serializing_if = "crate::shell::ShellChoice::is_auto")]
+    pub shell: crate::shell::ShellChoice,
     /// Remote (`ws`) agents only: the other host's bridge, `wss://host:port/acp/<agent>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -44,6 +52,18 @@ pub struct AgentDefinition {
     /// Remote agents only, for a server that is not acpd: the absolute folder on that server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_cwd: Option<String>,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Sandbox {
+    #[default]
+    Auto,
+    Off,
+}
+impl Sandbox {
+    pub fn is_auto(&self) -> bool {
+        *self == Sandbox::Auto
+    }
 }
 impl AgentDefinition {
     pub fn is_remote(&self) -> bool {
