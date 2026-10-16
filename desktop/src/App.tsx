@@ -16,6 +16,9 @@ import { HostSwitcher, HostsSettings } from './Hosts'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+/** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
+const shortPath = (p: string): string => { const t = tildify(p); const parts = t.split(/[\\/]/).filter(Boolean); return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : t }
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
 
@@ -417,7 +420,7 @@ export default function App() {
       <div className="side-actions">
         <button className="btn full new-btn" onClick={() => setNewSession(true)} disabled={!hosts.some((h) => fleet[h.id]?.state === 'connected') && !online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
         <button className="btn full multi-btn" onClick={() => setMultiOpen(true)} disabled={!online} title="Same prompt to 2-3 agents, each in its own worktree; compare and merge one">{I.flow}Run on several agents</button>
-        <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow">Search or run a command</span><span className="kbd">Ctrl K</span></button>
+        <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow" title="Search sessions or run a command">Search or command</span><span className="kbd">Ctrl K</span></button>
       </div>
       {hosts.length > 1 && (
         <div className="host-filter" role="tablist" aria-label="Filter by host">
@@ -557,7 +560,7 @@ export default function App() {
             {repair ? <button className="btn primary" onClick={() => setView({ kind: 'pair', repair: hostId })}>Pair again</button> : <button className="btn primary" onClick={() => setNewSession(true)} disabled={!online}>{I.plus}New session</button>}
             <button className="btn" onClick={() => setPalette(true)}>{I.cmd}Commands <span className="kbd">Ctrl K</span></button>
           </>}>
-          {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${host?.name ?? 'this host'} · ${agents.filter((a) => a.enabled !== false).length} agents ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
+          {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${host?.name ?? 'this host'} · ${plural(agents.filter((a) => a.enabled !== false).length, 'agent')} ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
         </Empty>
       </div>
     )
@@ -578,7 +581,7 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-title">
             <h1>{title(session)}</h1>
-            <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{tildify(session.workspace)}</span></div>
+            <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{shortPath(session.workspace)}</span></div>
           </div>
           {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
           {setup.modes?.availableModes?.length ? (
@@ -608,7 +611,7 @@ export default function App() {
           </div>
         )}
         {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
-        <Conversation t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        <Conversation root={session.workspace} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
         <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
           history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} key={session.id}
           remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
@@ -694,7 +697,7 @@ function NewSession({ hostId, hostPick, onHost, agents, workspaces, mcp, hostBra
         )}
         <div className="grid2">
           <div className="field"><label>Agent</label>
-            <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
+            <select className="input" autoFocus value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
           </div>
           <div className="field"><label>Folder</label>
             <select className="input mono" value={ws} onChange={(e) => setWs(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tildify(w.path)}</option>)}</select>

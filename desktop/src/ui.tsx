@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, createContext, useContext } from 'react'
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal,
   GitCompareArrows, GitMerge, GripVertical, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
@@ -33,14 +33,18 @@ export function Empty({ icon, title, children, actions }: { icon?: ReactNode; ti
   )
 }
 
+/** The session folder, so diffs inside it show a relative path (the full path stays in the tooltip). */
+export const PathRoot = createContext<string | undefined>(undefined)
+const relPath = (p: string, root?: string): string => { const r = root?.replace(/[\\/]$/, ''); return r && (p.startsWith(r + '/') || p.startsWith(r + '\\')) ? p.slice(r.length + 1) : p }
 export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: number; onMore?: () => void }): ReactNode {
+  const root = useContext(PathRoot)
   const lines = diffLines(d)
   const shown = maxLines ? lines.slice(0, maxLines) : lines
   const s = lineStats(d)
   return (
     <div className="diff">
       <div className="diff-head">
-        <span className="diff-path">{d.oldText ? I.file : I.newfile}<span className="mono">{d.path}</span></span>
+        <span className="diff-path">{d.oldText ? I.file : I.newfile}<span className="mono" title={d.path}>{relPath(d.path, root)}</span></span>
         <span className="diff-stat mono">
           <span className="green">+{s.added}</span><span className="red">−{s.removed}</span>
           <span className="bar">{Array.from({ length: 5 }, (_, i) => { const t = s.added + s.removed || 1; const g = Math.round((s.added / t) * 5); return <i key={i} className={i < g ? 'g' : 'r'} /> })}</span>

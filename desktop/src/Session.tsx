@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ElicitSchema, Item, PermissionItem, Timeline } from './acp'
-import { DiffView, Empty, I } from './ui'
+import { DiffView, Empty, I, PathRoot } from './ui'
 import { Markdown } from './Markdown'
 
 const nice = (n: string): string => (/^[a-z]+(_[a-z]+)+$/.test(n) ? n.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : n)
@@ -19,7 +19,7 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
     return (
       <div className="answered">
         <span className={'ans-ic ' + (rejected ? 'red' : 'green')}>{rejected ? I.close : I.check}</span>
-        <span className="mono tool-title">{p.lines[0] ?? p.title}</span>
+        <span className={(p.lines.length ? 'mono ' : '') + 'tool-title'}>{p.lines[0] ?? p.title}</span>
         <span className="sub">{p.source === 'agent' ? 'agent' : 'host'} · {p.answered === 'cancelled' ? 'Cancelled' : nice(chosen?.name ?? p.answered ?? '')}</span>
       </div>
     )
@@ -123,7 +123,7 @@ function Row({ item, agent, onAnswer, onReview, onElicit }: { item: Item; agent:
   }
 }
 
-export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit }: { t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
+export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit, root }: { root?: string; t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   useEffect(() => {
@@ -131,6 +131,7 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit 
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [t])
   return (
+    <PathRoot.Provider value={root}>
     <div className="scroll" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
       <div className="convo">
         {t.gap && <div className="sub amber">Older history was trimmed by the host; this view starts later.</div>}
@@ -139,6 +140,7 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit 
         {t.busy && <div className="working"><span className="pulse" />{agent} is working…</div>}
       </div>
     </div>
+    </PathRoot.Provider>
   )
 }
 

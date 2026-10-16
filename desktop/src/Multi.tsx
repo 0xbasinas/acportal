@@ -59,10 +59,10 @@ export function MultiRunDialog({ hostId, agents, workspaces, onClose, onStarted 
   }
   return (
     <div className="overlay" onMouseDown={onClose}>
-      <div className="modal" style={{ width: 640 }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ width: 640 }} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
         <div className="modal-h"><h3>Run on several agents</h3><button className="icon-btn" onClick={onClose} aria-label="Close">{I.close}</button></div>
         <div className="sub2">Every agent gets the same prompt on its own new branch in its own worktree, so nothing touches your checkout until you merge the one you pick.</div>
-        <div className="field"><label>Prompt</label><textarea className="input" rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Add a --verbose flag to the CLI and a test for it" /></div>
+        <div className="field"><label>Prompt</label><textarea className="input" rows={4} autoFocus value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Add a --verbose flag to the CLI and a test for it" /></div>
         <div className="grid2">
           <div className="field"><label>Folder</label><select className="input mono" value={root} onChange={(e) => setRoot(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tild(w.path)}</option>)}</select></div>
           <div className="field"><label>Sub-folder <span className="sub">optional</span></label><input className="input mono" value={sub} onChange={(e) => setSub(e.target.value)} placeholder="e.g. notes" /></div>

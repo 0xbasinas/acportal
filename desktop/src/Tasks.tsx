@@ -79,12 +79,12 @@ export function RightPanel({ tasks, rootTask, timeline, onOpenTask, onReview, on
   const usage = timeline?.usage
   return (
     <aside className="right">
-      <section className="panel">
+      {/* Delegation is a host setting; without it the task tree has nothing to show. */}
+      {orchestrator && <section className="panel">
         <div className="panel-h">{I.flow}<span>Task tree</span>{rows.length > 0 && <span className="count">{rows.length}</span>}</div>
-        {!orchestrator && <div className="hint">Delegation is off on this host.</div>}
         {orchestrator && rows.length === 0 && <div className="hint">No delegated tasks in this session yet.</div>}
         <TaskRows rows={rows} onOpen={onOpenTask} />
-      </section>
+      </section>}
       <section className="panel">
         <div className="panel-h">{I.file}<span>Changed files</span>
           {files.length > 0 && <span className="diff-stat mono"><span className="green">+{add}</span><span className="red">−{del}</span></span>}
