@@ -28,6 +28,7 @@ State: the host keeps its config in `config.toml` and `agents.json` (hand-writte
 | Feature | Where | Docs |
 |---|---|---|
 | Several hosts, grouped sidebar, host switcher, live approvals from all hosts, notifications with Approve once | `desktop/src/Hosts.tsx`, `src/fleet.ts`, `electron/watch.ts` | [desktop-multi-host](docs/desktop-multi-host.md) |
+| New-session inline composer (chips, anchored dropdowns, docking, optimistic sidebar row, first prompt sent after start) | `desktop/src/NewSession.tsx`, `src/App.tsx` (`openComposer`, `startFromComposer`) | [desktop-composer](docs/desktop-composer.md) |
 | Form questions, attachments, prompt history, MCP editing, adding agents | `desktop/src/Session.tsx`, `src/App.tsx`, `src/Settings.tsx` | [desktop/README](desktop/README.md) |
 | Git view, branch picker, Learn mode | `desktop/src/Git.tsx`, `electron/git.ts`, `acpd/src/api/git.rs` | [protocol](docs/protocol.md) |
 | Session on a branch or its own worktree | `acpd/src/api.rs` (`branch` in `POST /v1/sessions`) | [protocol](docs/protocol.md) |
@@ -103,6 +104,7 @@ gh run list --workflow rust.yml --event workflow_dispatch --limit 1
 - Windows sandbox: per-user programs (under `%USERPROFILE%`) cannot run inside it; the ACL grant walks the whole workspace per command; a host crash mid-command can leave an `S-1-15-2-…` ACL entry (harmless; `icacls` removes it); loopback to local services is blocked. Timeout tree-kill under the sandbox is not separately tested.
 - Git Bash only unsandboxed on Windows; tools started from inside a sandboxed line that are MSYS2 programs fail to start (only directly named ones are refused with a clear error). The model reviewer's prompt still names the default shell.
 - The scope check is heuristic.
+- Composer: model/mode are remembered per agent (from its last session), not discovered before start; the docked “Starting…” view is usually too brief to see on a fast host; no unit tests for the composer component (covered by live CDP drive only).
 - Checks config, MCP definitions and prompt history live on each client, not on the host.
 - Android shows neither the scope/sandbox warning nor the shell note, and has no notifications (see roadmap).
 - No signed installers for the desktop app (AppImage builds locally only).

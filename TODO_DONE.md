@@ -2,6 +2,7 @@
 
 ## Desktop client and host features (branch `experiment/desktop`, PR #46)
 
+- 16 October 2026: inline new-session composer (Penpot boards 96–99) replaces the new-session dialog: chips for agent, model/mode, host, folder, branch (search, current, existing, new from base, own worktree), access and worktree with anchored dropdowns; recent prompts; docking animation that respects reduced motion; host chip switches the active host; the new session shows in the sidebar immediately; the first prompt is sent after start. Live-tested with acpd + Goose/DeepSeek; screenshots in `/workspace/desktop-shots/v8/` (not committed).
 - 16 October 2026: Windows shell choice (`[windows] shell = auto|cmd|pwsh|bash`, `bash_path`, per-agent `shell`), Git Bash detection (registry, common folders, `git` on PATH, never WSL), fallback PowerShell then cmd, shell and note on the card and in `_meta.acpdScope`; checks use the same shell and the sandbox on Windows; MSYS2 programs refused in the sandbox with a clear error; spike test that Git Bash cannot start in the AppContainer; desktop Add agent gets sandbox and shell choices.
 - 16 October 2026: Windows AppContainer sandbox for approved host commands (`win_sandbox.rs`), verified on the Windows runner (manual Rust run 38879206682).
 - 15-16 October 2026: run on several agents with compare/merge, pre-merge checklist (`POST /v1/checks` plus AI review gate), approval footer and drop-line fixes (`db79e64`, Rust 38875948424 and Desktop 38875948394 green).

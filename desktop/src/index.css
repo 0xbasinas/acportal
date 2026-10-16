@@ -594,3 +594,60 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .gate { white-space: nowrap; }
 .cmp-col .inline { flex-wrap: wrap; }
 .check-row summary .mono { flex: 1; min-width: 0; }
+
+/* new session: inline composer (Penpot boards 96-99) */
+.ns-main { position: relative; overflow: auto; }
+.ns-center { width: min(720px, calc(100% - 64px)); margin: 0 auto; padding: 18vh 0 48px; display: flex; flex-direction: column; gap: 12px; }
+.ns-title { text-align: center; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+.ns-lead { text-align: center; margin-bottom: 14px; }
+.ns-composer { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 18px; padding: 14px 14px 10px 16px; box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s; }
+.ns-composer:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); }
+.ns-composer textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; min-height: 52px; font-size: 15px; line-height: 1.55; }
+.ns-composer textarea::placeholder { color: var(--text-3); }
+.ns-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ns-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.icon-btn.round { border-radius: 50%; border: 1px solid var(--line); width: 30px; height: 30px; }
+.ns-bar .send { border-radius: 50%; }
+.ctx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ctx-wrap { position: relative; display: inline-flex; }
+.ctx-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; max-width: 260px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
+.ns-bar .ctx-chip { background: var(--surface-2); border-color: transparent; color: var(--text); }
+.ctx-chip:hover, .ctx-chip:focus-visible { color: var(--text); border-color: var(--line-strong); }
+.ctx-chip.on { color: var(--text); border-color: var(--ring); background: color-mix(in srgb, var(--ring) 14%, transparent); }
+.ctx-chip svg { flex: none; }
+.ctx-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 280px; max-height: min(420px, 48vh); overflow: auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); padding: 6px; animation: pop-in .14s ease-out; display: flex; flex-direction: column; gap: 1px; }
+.ns-bar .ctx-pop { top: auto; bottom: calc(100% + 6px); }
+.ctx-pop.wide { width: 340px; }
+.ctx-h { font-size: 11px; color: var(--text-3); font-weight: 500; padding: 8px 10px 4px; }
+.ctx-pad { padding: 6px 10px; }
+.ctx-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 12.5px; color: var(--text); }
+.ctx-item:hover, .ctx-item:focus-visible { background: var(--hover); outline: none; }
+.ctx-item.on { background: var(--surface-2); }
+.ctx-item .tick { color: var(--blue); display: inline-flex; }
+.ctx-item .sub { font-size: 11px; }
+.ctx-sep { height: 1px; background: var(--line); margin: 5px 0; }
+.ctx-input { margin: 4px; width: calc(100% - 8px); height: 32px; }
+.ctx-select { height: 28px; flex: 1; min-width: 0; width: 0; }
+.ctx-line { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 12.5px; }
+.ctx-scroll { max-height: 150px; overflow: auto; }
+.ctx-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; margin-left: 4px; }
+.switch { width: 30px; height: 18px; border-radius: 9px; background: var(--surface-3); border: 1px solid var(--line); position: relative; flex: none; transition: background .15s; }
+.switch span { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-3); transition: transform .15s, background .15s; }
+.switch.on { background: var(--primary); border-color: transparent; }
+.switch.on span { transform: translateX(12px); background: var(--on-primary); }
+.switch:focus-visible, .ctx-chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.ns-err { text-align: center; }
+.ns-recent { margin-top: 26px; }
+.ns-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.ns-card { text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 13px; color: var(--text); min-height: 56px; }
+.ns-card:hover, .ns-card:focus-visible { border-color: var(--line-strong); background: var(--hover); }
+.ell2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ns-keys { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--text-3); }
+.ns-main.docked { display: flex; flex-direction: column; }
+.ns-fold { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ns-fold span { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--surface-2); font-size: 11px; color: var(--text-2); }
+.ns-fold svg { width: 12px; height: 12px; }
+.ns-thread { flex: 1; display: flex; flex-direction: column; gap: 14px; width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 24px 0; }
+.ns-starting { display: inline-flex; gap: 8px; align-items: center; }
+.ns-composer.docked { width: min(760px, calc(100% - 48px)); margin: 0 auto 18px; }
+@media (prefers-reduced-motion: reduce) { .ctx-pop { animation: none; } .switch, .switch span { transition: none; } }

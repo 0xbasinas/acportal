@@ -26,8 +26,9 @@ shell and file approvals (host consent and agent permission cards with auto-revi
 diff review and task review with *Merge into parent*, ⌘K / Ctrl K command palette, settings
 (General, Agents, Hosts, Workspaces, Approvals, Appearance, Keyboard) and dark / light / system themes.
 Also: several hosts at once (grouped sidebar, host switcher, live approvals from every host, desktop notifications with Approve once), form questions (elicitation), attachments, prompt history, MCP server editing (secrets sealed on this computer), adding agents (with sandbox and Windows shell choice), git view with branch picker and Learn mode, run on several agents with compare/merge, and the pre-merge checklist (host checks plus an AI review).
+New session is an inline composer in the main area (Ctrl N, sidebar *New session*, project rows): a prompt box with attach, agent chip (with *Run on several agents…*), remembered model/mode, and a context row of chips for host, folder, branch (search, existing, new from base, own worktree), access rights and a Worktree switch, each opening an anchored, keyboard-navigable dropdown. Recent prompts sit below as cards. Sending docks the composer to the bottom (220 ms, none with reduced motion), shows the session in the sidebar straight away, and sends the first prompt once the agent is ready. Details: [desktop composer](../docs/desktop-composer.md).
 Approval cards show the host's scope check (paths outside the workspace), whether the command runs sandboxed, and which shell runs it.
-Design: Penpot boards 55-95, tokens from `Theme.kt`. Details: [desktop multi-host](../docs/desktop-multi-host.md), [runs and checks](../docs/desktop-runs-and-checks.md).
+Design: Penpot boards 55-99, tokens from `Theme.kt`. Details: [desktop multi-host](../docs/desktop-multi-host.md), [runs and checks](../docs/desktop-runs-and-checks.md).
 
 ## Develop
 
@@ -48,4 +49,5 @@ For a local host: run `acpd --config <config> start`, then `acpd --config <confi
 - Checks config, MCP definitions and prompt history are stored on this computer only; a plan to share them through the host is in [HANDOFF](../HANDOFF.md#roadmap).
 - The host-wide `[windows] shell` setting is edited in the host's `config.toml`; the app sets only the per-agent override when adding an agent (no edit form for existing agents).
 - Delegated-task decisions are answered by opening the task's session (as on the phone).
+- Composer model/mode choices are the values the agent last reported (it reports them only after starting); they are applied right after start, before the first prompt.
 - No signed installers; Windows/macOS packaging is not set up.

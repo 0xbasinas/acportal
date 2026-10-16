@@ -13,6 +13,7 @@ import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
+import { NewSessionHome, setupKey, type AgentSetup, type StartRequest } from './NewSession'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
@@ -35,14 +36,18 @@ export default function App() {
   const [conn, setConn] = useState<Record<string, ConnState>>({})
   const [view, setView] = useState<View>({ kind: 'workspace' })
   const [palette, setPalette] = useState(false)
-  const [newSession, setNewSession] = useState(false)
   const [theme, setThemeState] = useState<Theme>('dark')
   const [toast, setToast] = useState<string>()
   const [merging, setMerging] = useState(false)
   const [confirmMerge, setConfirmMerge] = useState<Task>()
   const [mcp, setMcpState] = useState<McpServer[]>([])
   const [draft, setDraft] = useState<{ text: string; n: number }>()
-  const [newSessionPrompt, setNewSessionPrompt] = useState<string>()
+  const [compose, setCompose] = useState<{ text: string; n: number }>()
+  const [composeFolder, setComposeFolder] = useState<string>()
+  const [multiPrompt, setMultiPrompt] = useState<string>()
+  // The session being started from the composer: shown in the sidebar at once, then its first prompt.
+  const [starting, setStarting] = useState<{ hostId: string; title: string; agent: string; workspace: string }>()
+  const [firstSend, setFirstSend] = useState<{ sid: string; text: string; atts: Attachment[]; mode?: string; model?: string }>()
   const [branchOf, setBranchOf] = useState<Record<string, string>>({})
   const [taskDetail, setTaskDetail] = useState<Task>()
   const pendingSuggest = useRef<{ sid: string; id: number; resolve: (s: string | undefined) => void } | undefined>(undefined)
@@ -273,7 +278,26 @@ export default function App() {
     setSessions((s) => [...s, r.value])
     setSelected(r.value.id)
     setView({ kind: 'workspace' })
-    setNewSession(false)
+    lastCreated.current = r.value.id
+  }
+  const lastCreated = useRef<string | undefined>(undefined)
+  const openComposer = (text?: string, folder?: string): void => {
+    setSelected(undefined); setView({ kind: 'workspace' }); setComposeFolder(folder)
+    if (text !== undefined) setCompose({ text, n: Date.now() })
+  }
+  async function startFromComposer(r: StartRequest): Promise<string | undefined> {
+    const title = r.text.split('\n')[0].slice(0, 60)
+    setStarting({ hostId: hostId!, title, agent: r.agent, workspace: r.workspace })
+    lastCreated.current = undefined
+    const b = r.branch
+    const e = await createSession(r.agent, r.workspace, { read: r.access.read, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
+    setStarting(undefined)
+    if (e) return e
+    const sid = lastCreated.current
+    if (sid) {
+      localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: title }))
+      setFirstSend({ sid, text: r.text, atts: r.atts, mode: r.mode, model: r.model })
+    }
   }
   async function endSession(id: string): Promise<void> {
     const r = await api('DELETE', `/v1/sessions/${id}`)
@@ -313,9 +337,35 @@ export default function App() {
     return () => { stop = true; clearInterval(t) }
   }, [viewTask?.id, viewTask?.state])
 
+  // Remember each agent's models and modes, so the new-session composer can offer them.
+  useEffect(() => {
+    if (!session) return
+    const st = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string; name: string }[] }; configOptions?: { id: string; category?: string; currentValue?: string; options?: { value: string; name: string }[] }[] }
+    const mo = st.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
+    if (!st.modes?.availableModes?.length && !mo?.options?.length) return
+    const prev = JSON.parse(localStorage.getItem(setupKey(session.agentId)) ?? '{}') as AgentSetup
+    const next: AgentSetup = { modes: st.modes?.availableModes?.map((m) => ({ id: m.id, name: m.name })), mode: tl?.currentMode ?? prev.mode ?? st.modes?.currentModeId, modelConfig: mo?.id, models: mo?.options?.map((o) => ({ value: o.value, name: o.name })), model: tl?.config?.[mo?.id ?? ''] ?? prev.model ?? mo?.currentValue }
+    localStorage.setItem(setupKey(session.agentId), JSON.stringify(next))
+  }, [session?.id, session?.setup, tl?.currentMode, tl?.config])
+  // First prompt of a session started from the composer: once connected, apply the remembered
+  // model and mode, then send it.
+  useEffect(() => {
+    if (!firstSend || !session || session.id !== firstSend.sid || conn[session.id]?.kind !== 'connected' || !attached.current?.endsWith(session.id)) return
+    const f = firstSend
+    setFirstSend(undefined)
+    const st = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string }[] }; configOptions?: { id: string; category?: string; currentValue?: string; options?: { value: string }[] }[] }
+    const mo = st.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
+    const rpc = (method: string, params: Record<string, unknown>): Promise<unknown> => window.api.session.send(attached.current!, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } })
+    void (async () => {
+      if (f.mode && f.mode !== st.modes?.currentModeId && st.modes?.availableModes?.some((m) => m.id === f.mode)) { await rpc('session/set_mode', { modeId: f.mode }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: f.mode } })) }
+      if (mo && f.model && f.model !== mo.currentValue && mo.options?.some((o) => o.value === f.model)) { await rpc('session/set_config_option', { configId: mo.id, value: f.model }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [mo.id]: f.model! } } })) }
+      await sendPrompt(f.text, f.atts)
+    })()
+  }, [firstSend, session?.id, conn[selected ?? '']?.kind])
+
   const commands: Command[] = useMemo(() => {
     const c: Command[] = [
-      { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => setNewSession(true) },
+      { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => openComposer() },
       { id: 'multi', group: 'Actions', label: 'Run on several agents…', run: () => setMultiOpen(true) },
       { id: 'git', group: 'Actions', label: 'Open Git (changes, history, worktrees, stash)', hint: 'Ctrl G', run: () => setView({ kind: 'git' }) },
       { id: 'review', group: 'Actions', label: 'Review changes in this session', hint: 'Ctrl D', run: () => setView({ kind: 'review' }) },
@@ -334,13 +384,13 @@ export default function App() {
     for (const h of hosts ?? []) if (h.id !== hostId) for (const s of fleet[h.id]?.sessions ?? []) c.push({ id: 'o' + s.id, group: `Sessions on ${h.name}`, label: title(s), run: () => openOn(h.id, s.id) })
     return c
   }, [sessions, tasks, hosts, hostId, theme, timelines, fleet, runs])
-  const paletteNew = (q: string): void => { setNewSessionPrompt(q); setNewSession(true) }
+  const paletteNew = (q: string): void => openComposer(q)
 
   useEffect(() => {
     const k = (e: KeyboardEvent): void => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p) }
-      else if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); setNewSession(true) }
+      else if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); openComposer() }
       else if (mod && e.key === ',') { e.preventDefault(); setView({ kind: 'settings', section: 'General' }) }
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); setView({ kind: 'review' }) }
       else if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); setView({ kind: 'git' }) }
@@ -352,7 +402,7 @@ export default function App() {
   }, [palette, view, tl?.busy])
 
   // test hook: window.__acportal for screenshot automation
-  ;(window as unknown as Record<string, unknown>).__acportal = { setView, setPalette, setNewSession, setSelected, setTheme, sessions, tasks, setConfirmMerge }
+  ;(window as unknown as Record<string, unknown>).__acportal = { setView, setPalette, openComposer, setSelected, setTheme, sessions, tasks, setConfirmMerge }
 
   if (hosts === null) return null
   if (hosts.length === 0 || view.kind === 'pair')
@@ -361,9 +411,8 @@ export default function App() {
 
   const overlays = (
     <>
-      {multiOpen && hostId && <MultiRunDialog hostId={hostId} agents={agents} workspaces={workspaces} onClose={() => setMultiOpen(false)} onStarted={(r) => { setMultiOpen(false); setRuns([...runs, r]); setView({ kind: 'compare', runId: r.id }); void refresh(); flash(`Started ${r.entries.filter((e) => e.sessionId).length} runs`) }} />}
+      {multiOpen && hostId && <MultiRunDialog hostId={hostId} initialPrompt={multiPrompt} agents={agents} workspaces={workspaces} onClose={() => { setMultiOpen(false); setMultiPrompt(undefined) }} onStarted={(r) => { setMultiOpen(false); setMultiPrompt(undefined); setRuns([...runs, r]); setView({ kind: 'compare', runId: r.id }); void refresh(); flash(`Started ${r.entries.filter((e) => e.sessionId).length} runs`) }} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} onNew={paletteNew} />}
-      {newSession && hostId && <NewSession key={hostId} hostId={hostId} hostPick={hosts.length > 1 ? hosts.map((h) => ({ id: h.id, label: `${h.name} · ${STATE_LABEL[fleet[h.id]?.state ?? 'connecting']}`, ok: fleet[h.id]?.state === 'connected' })) : undefined} onHost={(id) => openOn(id)} agents={agents} workspaces={workspaces} mcp={mcp} hostBranches={Boolean(status?.features?.includes('git'))} local={Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))} firstPrompt={newSessionPrompt} onClose={() => { setNewSession(false); setNewSessionPrompt(undefined) }} onCreate={async (a, w, o) => { const e = await createSession(a, w, o); if (!e) setNewSessionPrompt(undefined); return e }} />}
       {confirmMerge && (
         <div className="overlay" onMouseDown={() => setConfirmMerge(undefined)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -403,7 +452,7 @@ export default function App() {
           onRepair={(h) => setView({ kind: 'pair', repair: h.id })} onSettings={() => setView({ kind: 'settings', section: 'Hosts' })} onAdd={() => setView({ kind: 'pair' })} />
       </div>
       <div className="side-actions">
-        <button className="btn full new-btn" onClick={() => setNewSession(true)} disabled={!hosts.some((h) => fleet[h.id]?.state === 'connected') && !online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
+        <button className={'btn full new-btn' + (!session && view.kind === 'workspace' && online ? ' on' : '')} onClick={() => openComposer()} disabled={!hosts.some((h) => fleet[h.id]?.state === 'connected') && !online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
         <button className="btn full multi-btn" onClick={() => setMultiOpen(true)} disabled={!online} title="Same prompt to 2-3 agents, each in its own worktree; compare and merge one">{I.flow}Run on several agents</button>
         <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow">Search or run a command</span><span className="kbd">Ctrl K</span></button>
       </div>
@@ -454,13 +503,19 @@ export default function App() {
                   <div className="section-label">Projects</div>
                   {ws.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>{st === 'connected' ? 'No folders are allowed on this host yet.' : '—'}</div>}
                   {ws.slice(0, 6).map((w) => (
-                    <div className="row compact" key={w.path} onClick={() => { if (!live) openOn(h.id); setNewSession(true) }} title={`New session in ${w.path} on ${h.name}`}>
+                    <div className="row compact" key={w.path} onClick={() => { if (!live) openOn(h.id); openComposer(undefined, w.path) }} title={`New session in ${w.path} on ${h.name}`}>
                       <span className="row-ic">{I.folder}</span><span className="grow ell">{w.name}</span>
                       <span className="count">{hs.filter((s) => s.workspace.startsWith(w.path)).length || ''}</span>
                     </div>
                   ))}
                   <div className="section-label">Sessions</div>
-                  {hs.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>No sessions on this host.</div>}
+                  {starting && starting.hostId === h.id && (
+                    <div className="row session active" aria-busy="true" title={`Starting ${agentName(starting.agent)} in ${starting.workspace}`}>
+                      <span className="dot white live" />
+                      <div className="grow"><div className="title">{starting.title}</div><div className="sub row-meta"><span>Starting…</span><span className="mono ell">{baseName(starting.workspace)}</span></div></div>
+                    </div>
+                  )}
+                  {hs.length === 0 && !(starting && starting.hostId === h.id) && <div className="hint" style={{ padding: '0 10px' }}>No sessions on this host.</div>}
                   {[...hs].reverse().map((s) => {
                     const t = live ? timelines[s.id] : undefined
                     const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
@@ -502,7 +557,7 @@ export default function App() {
     ]
     center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })} suggest={suggestCommit}
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
-      openSession={(path) => { setNewSessionPrompt(undefined); setNewSession(true); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
+      openSession={(path) => { openComposer(); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
   } else if (view.kind === 'compare' && runs.some((r) => r.id === view.runId)) {
     const run = runs.find((r) => r.id === view.runId)!
     center = <CompareView key={run.id} run={run} watch={watch} agents={agents} flash={flash} onBack={() => setView({ kind: 'workspace' })}
@@ -535,6 +590,13 @@ export default function App() {
         )}
       </div>
     )
+  } else if (!session && online && hostId) {
+    center = (
+      <NewSessionHome hosts={hosts.map((h) => ({ id: h.id, name: h.name, state: STATE_LABEL[fleet[h.id]?.state ?? 'connecting'], ok: fleet[h.id]?.state === 'connected' || h.id === hostId }))} hostId={hostId}
+        onHost={(id) => { openOn(id); flash(`Switched to ${hosts.find((h) => h.id === id)?.name}`) }} agents={agents} workspaces={workspaces} mcp={mcp}
+        canBranch={Boolean(status?.features?.includes('git')) || Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))}
+        history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }} />
+    )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)
     center = (
@@ -542,7 +604,7 @@ export default function App() {
         {hostError && <div className="banner red">{I.alert}<span>{hostError}</span></div>}
         <Empty icon={online ? I.chat : I.server} title={online ? 'Pick a session or start one' : repair ? 'Pair this host again' : 'Host offline'}
           actions={<>
-            {repair ? <button className="btn primary" onClick={() => setView({ kind: 'pair', repair: hostId })}>Pair again</button> : <button className="btn primary" onClick={() => setNewSession(true)} disabled={!online}>{I.plus}New session</button>}
+            {repair ? <button className="btn primary" onClick={() => setView({ kind: 'pair', repair: hostId })}>Pair again</button> : <button className="btn primary" onClick={() => openComposer()} disabled={!online}>{I.plus}New session</button>}
             <button className="btn" onClick={() => setPalette(true)}>{I.cmd}Commands <span className="kbd">Ctrl K</span></button>
           </>}>
           {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${host?.name ?? 'this host'} · ${agents.filter((a) => a.enabled !== false).length} agents ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
@@ -613,116 +675,3 @@ export default function App() {
 
 type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
 const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }
-const slug = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/^-|-$/g, '')
-function NewSession({ hostId, hostPick, onHost, agents, workspaces, mcp, hostBranches, local, firstPrompt, onClose, onCreate }: { hostId: string; hostPick?: { id: string; label: string; ok: boolean }[]; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; hostBranches: boolean; local: boolean; firstPrompt?: string; onClose: () => void; onCreate: (a: string, w: string, o: NewOpts) => Promise<string | undefined> }) {
-  const usable = agents.filter((a) => a.enabled !== false)
-  const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
-  const [ws, setWs] = useState(workspaces[0]?.path ?? '')
-  // The lists arrive after a host switch; keep the picks valid for the host shown.
-  useEffect(() => { if (!workspaces.some((w) => w.path === ws)) setWs(workspaces[0]?.path ?? '') }, [workspaces])
-  useEffect(() => { if (!usable.some((x) => x.id === agent)) setAgent(usable[0]?.id ?? '') }, [agents])
-  const [sub, setSub] = useState('')
-  const [o, setO] = useState<NewOpts>({ ...defaultOpts, firstPrompt, newBranch: Boolean(firstPrompt), branch: firstPrompt ? 'acportal/' + slug(firstPrompt) : '' })
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string>()
-  const [branches, setBranches] = useState<string[]>()
-  const [current, setCurrent] = useState<string>()
-  const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
-  const canBranch = hostBranches || local
-  useEffect(() => {
-    let stop = false
-    setBranches(undefined)
-    if (!canBranch || !target) return
-    const t = setTimeout(async () => {
-      const r = await window.api.git.run(hostId, target, 'branch-list')
-      if (stop) return
-      if (!r.ok) { setBranches([]); return }
-      const list = parseBranches(r.value.out)
-      setBranches(list.filter((b) => !b.remote).map((b) => b.name))
-      const cur = list.find((b) => b.current)?.name
-      setCurrent(cur)
-      setO((x) => ({ ...x, base: x.base && list.some((b) => b.name === x.base) ? x.base : cur }))
-    }, 250)
-    return () => { stop = true; clearTimeout(t) }
-  }, [target, canBranch])
-  const go = async (): Promise<void> => {
-    setBusy(true); setErr(undefined)
-    localStorage.setItem('acportal.lastAgent', agent)
-    const e = await onCreate(agent, target, o)
-    setBusy(false)
-    if (e) setErr(e)
-  }
-  const Check = ({ k, label, title, disabled }: { k: 'read' | 'write' | 'terminal' | 'mcp'; label: string; title?: string; disabled?: boolean }) => (
-    <button className={'check' + (o[k] ? ' on' : '')} title={title} disabled={disabled} onClick={() => setO({ ...o, [k]: !o[k] })}><span className="box">{o[k] ? I.check : null}</span>{label}</button>
-  )
-  const enabledMcp = mcp.filter((m) => m.enabled)
-  const isRepo = Boolean(branches && branches.length)
-  const branchName = o.branch?.trim() ?? ''
-  const exists = Boolean(branches?.includes(branchName))
-  const cmd = !o.newBranch && !o.worktree ? '' : o.worktree
-    ? `git worktree add ${o.newBranch ? `-b ${branchName || '<branch>'} ` : ''}../${baseName(target)}-${(branchName || '<branch>').replace(/[^\w-]/g, '-')}${o.newBranch ? ` ${o.base ?? ''}` : ` ${branchName}`}`
-    : `git switch ${o.newBranch ? `-c ${branchName || '<branch>'} ${o.base ?? ''}` : branchName}`
-  return (
-    <div className="overlay" onMouseDown={onClose}>
-      <div className="modal" style={{ width: 620 }} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT' && !busy && agent && ws && !(o.newBranch && (!branchName || exists))) void go() }}>
-        <div className="modal-h"><h3>New session</h3><button className="icon-btn" onClick={onClose} aria-label="Close">{I.close}</button></div>
-        <div className="sub2">{firstPrompt ? <>Task: <span style={{ color: 'var(--text)' }}>{firstPrompt}</span></> : 'The agent starts on the host in the folder you pick.'}</div>
-        {hostPick && (
-          <div className="field"><label>Host</label>
-            <select className="input" value={hostId} onChange={(e) => onHost(e.target.value)}>{hostPick.map((h) => <option key={h.id} value={h.id} disabled={!h.ok && h.id !== hostId}>{h.label}</option>)}</select>
-          </div>
-        )}
-        <div className="grid2">
-          <div className="field"><label>Agent</label>
-            <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · ${a.version}` : ''}</option>)}</select>
-          </div>
-          <div className="field"><label>Folder</label>
-            <select className="input mono" value={ws} onChange={(e) => setWs(e.target.value)}>{workspaces.map((w) => <option key={w.path} value={w.path}>{tildify(w.path)}</option>)}</select>
-          </div>
-        </div>
-        <div className="field"><label>Sub-folder <span className="sub">optional</span></label><input className="input mono" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} /></div>
-        <div className="field"><label>Branch</label>
-          {!canBranch ? <div className="hint">This host does not run git for the app; the session starts on whatever branch the folder is on.</div>
-            : branches === undefined ? <div className="hint">Reading branches…</div>
-            : !isRepo ? <div className="hint">Not a git repository; the session starts in the folder as it is.</div>
-            : (
-              <>
-                <div className="seg">
-                  <button className={!o.newBranch && !o.worktree ? 'on' : ''} onClick={() => setO({ ...o, newBranch: false, worktree: false, branch: '' })}>Current <span className="mono">{current}</span></button>
-                  <button className={o.newBranch ? 'on' : ''} onClick={() => setO({ ...o, newBranch: true, branch: o.branch || 'acportal/' + (firstPrompt ? slug(firstPrompt) : 'session-' + Date.now().toString(36)) })}>New branch</button>
-                  <button className={!o.newBranch && (o.worktree || Boolean(o.branch)) ? 'on' : ''} onClick={() => setO({ ...o, newBranch: false, branch: branches?.find((b) => b !== current) ?? '' })}>Existing branch</button>
-                </div>
-                {o.newBranch && (
-                  <div className="grid2" style={{ marginTop: 8 }}>
-                    <input className="input mono" placeholder="acportal/my-change" value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value.replace(/\s+/g, '-') })} />
-                    <div className="inline"><span className="sub">from</span><select className="input mono" value={o.base} onChange={(e) => setO({ ...o, base: e.target.value })}>{branches!.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
-                  </div>
-                )}
-                {!o.newBranch && (o.worktree || Boolean(o.branch)) && (
-                  <select className="input mono" style={{ marginTop: 8 }} value={o.branch} onChange={(e) => setO({ ...o, branch: e.target.value })}>{branches!.filter((b) => b !== current || o.worktree).map((b) => <option key={b} value={b}>{b}</option>)}</select>
-                )}
-                {(o.newBranch || Boolean(o.branch)) && (
-                  <div className="where">
-                    <button className={'where-card' + (!o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: false })}><b>Switch this folder</b><span className="sub">Edits land in {tildify(target)}</span></button>
-                    <button className={'where-card' + (o.worktree ? ' on' : '')} onClick={() => setO({ ...o, worktree: true })}><b>Own worktree</b><span className="sub">A new folder beside the repo; nothing else changes</span></button>
-                  </div>
-                )}
-                {o.newBranch && exists && <div className="error">A branch named {branchName} already exists.</div>}
-                {cmd && <code className="learn-cmd" style={{ marginTop: 8, display: 'inline-block' }}>$ {cmd}</code>}
-              </>
-            )}
-        </div>
-        <div className="field"><label>Rights for this session</label>
-          <div className="checks"><Check k="read" label="Read files" /><Check k="write" label="Write files" /><Check k="terminal" label="Run commands" />
-            <Check k="mcp" label={`MCP servers (${enabledMcp.length})`} title={enabledMcp.map((m) => m.name).join(', ') || 'Add servers in Settings → MCP servers'} disabled={!enabledMcp.length} /></div>
-          <div className="hint" title="Delegation is enabled per agent in the host config ([orchestrator] orchestrate)">Delegation to other agents is set on the host.</div>
-        </div>
-        {err && <div className="error">{err}</div>}
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!agent || !ws || busy || (o.newBranch && (!branchName || exists))} onClick={() => void go()}>{busy ? 'Starting agent…' : 'Start session'}<span className="kbd on-primary">Enter</span></button>
-        </div>
-      </div>
-    </div>
-  )
-}
