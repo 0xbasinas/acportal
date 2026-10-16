@@ -263,6 +263,15 @@ impl Registry {
         }
         Ok(Self { agents })
     }
+    /// Agent CLIs this host knows how to start in ACP mode, in display order (`registry/known.json`,
+    /// following the public ACP agent registry). These are suggestions for the Add agent forms and
+    /// are never registered or launched on their own.
+    pub fn known() -> Vec<AgentDefinition> {
+        let known: Vec<AgentDefinition> =
+            serde_json::from_str(include_str!("../registry/known.json"))
+                .expect("registry/known.json is a JSON array of agent definitions");
+        known
+    }
     pub fn load(path: &Path) -> Result<Self> {
         let builtins = Self::parse(include_str!("../registry/builtin.json"))?;
         if !path.exists() {
@@ -281,6 +290,16 @@ impl Registry {
     }
     pub fn contains(&self, id: &str) -> bool {
         self.agents.contains_key(id)
+    }
+    /// Whether an agent with this id, or one that starts this command (by name or by a path
+    /// ending in it, `.exe`/`.cmd` ignored), is already registered.
+    pub fn covers(&self, id: &str, command: &str) -> bool {
+        self.contains(id)
+            || self.agents.values().any(|agent| {
+                Path::new(&agent.command)
+                    .file_stem()
+                    .is_some_and(|stem| stem.eq_ignore_ascii_case(command))
+            })
     }
     pub fn remove(&mut self, id: &str) -> bool {
         self.agents.remove(id).is_some()
@@ -384,6 +403,28 @@ mod tests {
         assert!(!custom.get("custom-native").unwrap().own_tools);
         let gemini = custom.get("gemini-cli-node").unwrap();
         assert_eq!(gemini.args.last().map(String::as_str), Some("--acp"));
+    }
+    #[test]
+    fn known_agents_are_valid_unique_and_never_registered() {
+        let known = Registry::known();
+        assert!(!known.is_empty());
+        let ids: HashSet<&str> = known.iter().map(|agent| agent.id.as_str()).collect();
+        assert_eq!(ids.len(), known.len());
+        for agent in &known {
+            agent.validate().unwrap();
+            assert!(
+                !agent.command.contains(['/', '\\']),
+                "{} is a bare command",
+                agent.id
+            );
+        }
+        // Suggestions only: nothing is built in.
+        assert!(
+            Registry::parse(include_str!("../registry/builtin.json"))
+                .unwrap()
+                .agents
+                .is_empty()
+        );
     }
     #[test]
     fn arbitrary_custom_agents_and_literal_arguments() {

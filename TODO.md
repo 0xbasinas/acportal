@@ -15,6 +15,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 - [ ] Desktop: edit form for existing agents (sandbox, shell); host `[windows] shell` editable from the app.
 - [ ] Windows: test timeout tree-kill under the sandbox; model reviewer prompt should name the resolved shell.
 - [ ] Signed desktop installers (only when asked).
+- [ ] Host-owned agent list (`GET /v1/agents/discover`, branch `agent-discovery`, 16 October 2026): run `AddAgentScreenUiTest` on the emulator and try both Add agent forms against a real host. Host, desktop and Android JVM/build checks only so far.
 
 ## Proposed, not started
 

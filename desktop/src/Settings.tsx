@@ -201,23 +201,36 @@ function McpEditor({ servers, setServers }: { servers: McpServer[]; setServers: 
   )
 }
 
+type KnownAgent = { id: string; name: string; command: string; args: string[]; env: Record<string, string>; ownTools: boolean; found: boolean; registered: boolean; executable?: string }
+
 function AddAgent({ api, onDone }: { api: <T>(m: string, p: string, b?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string }>; onDone: () => void }) {
   const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto' })
   const [check, setCheck] = useState<string>()
   const [err, setErr] = useState<string>()
-  const [found, setFound] = useState<{ command: string; found: boolean; executable?: string }[]>()
-  useEffect(() => { void api<{ command: string; found: boolean; executable?: string }[]>('POST', '/v1/agents/locate', { commands: ['claude-code-acp', 'codex-acp', 'gemini', 'opencode', 'goose', 'qwen', 'kiro-cli'] }).then((r) => r.ok && setFound(r.value.filter((x) => x.found))) }, [])
+  // The host's own list of agent CLIs it knows how to start (GET /v1/agents/discover); the app keeps none.
+  const [known, setKnown] = useState<KnownAgent[] | 'failed'>()
+  const scan = () => { setKnown(undefined); void api<KnownAgent[]>('GET', '/v1/agents/discover').then((r) => setKnown(r.ok ? r.value : 'failed')) }
+  useEffect(scan, [])
+  const use = (a: KnownAgent) => setF({ ...f, id: a.id, name: a.name, command: a.executable ?? a.command, args: a.args.join(' '), env: Object.entries(a.env).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: a.ownTools })
   const envObj = (): Record<string, string> => Object.fromEntries(pairs(f.env).map((p) => [p.name, p.value]))
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <h3>Add an agent to the host</h3>
       <div className="sub2">Registered in the host's user settings. Provider keys belong in the host's environment, not here.</div>
-      {found && found.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}><span className="sub">Found on the host:</span>{found.map((x) => <button key={x.command} className="pill" onClick={() => setF({ ...f, id: x.command.replace(/[^\w-]/g, ''), name: x.command, command: x.executable ?? x.command, args: x.command === 'gemini' ? '--experimental-acp' : x.command === 'goose' || x.command === 'opencode' ? 'acp' : '' })}>{x.command}</button>)}</div>}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+        {known === undefined && <span className="sub" role="status">Looking for agents on the host…</span>}
+        {known === 'failed' && <span className="sub">The host did not list agents (older acpd?). Type the command below.</span>}
+        {Array.isArray(known) && (known.some((a) => a.found)
+          ? <><span className="sub">Installed on the host:</span>{known.filter((a) => a.found).map((a) => <button key={a.id} className="pill" title={a.executable} onClick={() => use(a)}>{a.name}{a.registered ? ' · added' : ''}</button>)}</>
+          : <span className="sub">None of the agents the host knows were found. Install one, then scan again, or type its command.</span>)}
+        {known !== undefined && <button className="pill" onClick={scan}>Scan again</button>}
+      </div>
+      {Array.isArray(known) && known.some((a) => !a.found) && <div className="sub2">Not installed: {known.filter((a) => !a.found).map((a) => a.name).join(', ')}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <div className="field"><label>Id</label><input className="input mono" value={f.id} onChange={(e) => setF({ ...f, id: e.target.value })} /></div>
         <div className="field"><label>Name</label><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
       </div>
-      <div className="field"><label>Command</label><input className="input mono" placeholder="/usr/local/bin/claude-code-acp" value={f.command} onChange={(e) => setF({ ...f, command: e.target.value })} /></div>
+      <div className="field"><label>Command</label><input className="input mono" placeholder="program name or full path" value={f.command} onChange={(e) => setF({ ...f, command: e.target.value })} /></div>
       <div className="field"><label>Arguments (space separated)</label><input className="input mono" value={f.args} onChange={(e) => setF({ ...f, args: e.target.value })} /></div>
       <div className="field"><label>Environment (NAME=value per line, non-secret settings)</label><textarea className="input mono" style={{ height: 60, padding: 10 }} value={f.env} onChange={(e) => setF({ ...f, env: e.target.value })} /></div>
       <div className="set-row"><span className={'toggle' + (f.ownTools ? ' on' : '')} style={{ cursor: 'pointer' }} onClick={() => setF({ ...f, ownTools: !f.ownTools })} /><span>The agent edits files with its own tools (host consents cannot see those edits)</span></div>

@@ -204,11 +204,17 @@ describe('models and modes before the first session', () => {
     expect(probe).not.toHaveBeenCalled()
     expect(chip(/Small · Ask/)).toBeTruthy()
   })
-  it('falls back to defaults when the probe fails', async () => {
-    setup({ probe: vi.fn(async () => undefined) })
-    await waitFor(() => chip(/Default model · default mode/))
-    fireEvent.click(chip(/Default model/))
-    expect(screen.getByRole('dialog', { name: 'Model and mode' }).textContent).toMatch(/Could not read Goose/)
+  it('says the models are unknown when the probe fails, invents none, and retries on request', async () => {
+    const probe = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(raw)
+    setup({ probe })
+    await waitFor(() => chip(/Models unknown/))
+    fireEvent.click(chip(/Models unknown/))
+    const dialog = screen.getByRole('dialog', { name: 'Model and mode' })
+    expect(dialog.textContent).toMatch(/Could not read Goose/)
+    expect(dialog.textContent).not.toMatch(/Default model/)
+    fireEvent.click(screen.getByText('Retry'))
+    await waitFor(() => chip(/Small · Ask/))
+    expect(probe).toHaveBeenCalledTimes(2)
   })
   it('setupFromAcp keeps a chosen value over the reported one', () => {
     expect(setupFromAcp(raw, { model: 'large' })).toMatchObject({ mode: 'ask', model: 'large', modelConfig: 'model', models: [{ value: 'small' }, { value: 'large' }] })

@@ -208,6 +208,7 @@ impl Host {
             .route("/v1/agents", get(agents).post(add_agent))
             .route("/v1/agents/check", post(check_agent))
             .route("/v1/agents/locate", post(locate_agents))
+            .route("/v1/agents/discover", get(discover_agents))
             .route("/v1/agents/{id}", delete(remove_agent))
             .route("/v1/agents/{id}/probe", post(probe_agent))
             .route(
@@ -423,6 +424,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "controlTakeover",
         "sharedDrafts",
         "agentProbe",
+        "agentDiscovery",
     ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
@@ -604,6 +606,35 @@ mod discovery_tests {
         assert_eq!(status("missing"), "missing");
         assert_eq!(status("invalid"), "misconfigured");
     }
+}
+/// The agent CLIs this host knows how to start in ACP mode (`registry/known.json`), each with
+/// whether it is installed here (on `PATH` or in the usual user install folders), where, and
+/// whether it is already registered. Clients fill their Add agent forms from this and keep no list
+/// of their own. Nothing is run, registered or installed.
+async fn discover_agents(State(host): State<Host>) -> Json<Value> {
+    let registry = host.sessions.launch_settings().registry.clone();
+    let list = tokio::task::spawn_blocking(move || {
+        let extra = crate::discovery::known_tool_directories();
+        crate::registry::Registry::known()
+            .into_iter()
+            .map(|agent| {
+                let launch = crate::discovery::resolve_in(&agent.command, None, &extra);
+                let mut entry = json!({
+                    "id": agent.id, "name": agent.name, "command": agent.command,
+                    "args": agent.args, "env": agent.env, "ownTools": agent.own_tools,
+                    "found": launch.is_some(),
+                    "registered": registry.covers(&agent.id, &agent.command),
+                });
+                if let Some(launch) = launch {
+                    entry["executable"] = json!(plain_path(&launch.found));
+                }
+                entry
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    Json(json!(list))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

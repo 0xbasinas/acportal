@@ -93,7 +93,8 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [current, setCurrent] = useState<string>()
   const [query, setQuery] = useState('')
   // Choices: what this computer saw in the agent's last session, else what the host reports
-  // for the agent (its sessions or an earlier probe), else a probe now; defaults if all fail.
+  // for the agent (its sessions or an earlier probe), else a probe now. Nothing is made up: when all
+  // fail the form says so, offers Retry, and the agent picks for itself.
   const [probed, setProbed] = useState<Record<string, AgentSetup | 'loading' | 'failed'>>({})
   const remembered = rememberedSetup(agent)
   const hostReported = agents.find((a) => a.id === agent)?.setup
@@ -102,6 +103,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     : hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
     : typeof probeState === 'object' ? probeState : {}
   const loadingSetup = probeState === 'loading'
+  const retryProbe = () => setProbed((p) => { const { [hostId + '/' + agent]: _, ...rest } = p; return rest })
   const [mode, setMode] = useState<string | undefined>(setup.mode)
   const [model, setModel] = useState<string | undefined>(setup.model)
   useEffect(() => { setMode(setup.mode); setModel(setup.model) }, [agent, hostId, hasChoices(setup)])
@@ -110,7 +112,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     if (!probe || !agent || !ws || hasChoices(setup) || probed[key]) return
     setProbed((p) => ({ ...p, [key]: 'loading' }))
     probe(agent, ws).then((raw) => setProbed((p) => ({ ...p, [key]: raw === undefined ? 'failed' : setupFromAcp(raw) })), () => setProbed((p) => ({ ...p, [key]: 'failed' })))
-  }, [agent, hostId, ws, Boolean(probe)])
+  }, [agent, hostId, ws, Boolean(probe), probeState === undefined])
   const ta = useRef<HTMLTextAreaElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
@@ -190,9 +192,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           <div className="ctx-sep" />
           <Item onPick={() => { setOpen(undefined); onMulti(text) }} sub="2-3 agents">{I.flow} Run on several agents…</Item>
         </Chip>
-        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : `${modelName ?? 'Default model'} · ${modeName ?? 'default mode'}`} title="Model and mode">
+        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : probeState === 'failed' && !hasChoices(setup) ? 'Models unknown' : !hasChoices(setup) ? `${agentName}'s own choice` : `${modelName ?? 'Agent picks the model'} · ${modeName ?? 'agent picks the mode'}`} title="Model and mode">
           {loadingSetup && <div className="hint ctx-pad" role="status">Asking {agentName} which models and modes it offers…</div>}
-          {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes; the session starts with its defaults.` : `${agentName} offers no model or mode choices; it uses its defaults.`}</div>}
+          {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes. The session can still start; ${agentName} then picks its own.` : `${agentName} reports no model or mode choices; it picks its own.`}</div>}
+          {!loadingSetup && probeState === 'failed' && !hasChoices(setup) && <Item on={false} onPick={retryProbe}>Retry</Item>}
           {setup.models?.length ? <><div className="ctx-h">Model</div>{setup.models.map((m) => <Item key={m.value} on={m.value === model} onPick={() => setModel(m.value)}>{m.name}</Item>)}</> : null}
           {setup.modes?.length ? <><div className="ctx-h">Mode</div>{setup.modes.map((m) => <Item key={m.id} on={m.id === mode} onPick={() => setMode(m.id)}>{m.name}</Item>)}</> : null}
         </Chip>

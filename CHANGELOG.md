@@ -13,6 +13,7 @@ On `experiment/orchestrator` (PR #45), not released yet:
 - Host: scoped `/v1/git`, `POST /v1/checks`, a scope check on terminal consents, an opt-in OS sandbox for approved commands (bubblewrap, AppContainer), and a Windows shell choice (cmd, PowerShell, Git Bash).
 - Phone/desktop handoff: Take control (`takeover`), with the replaced client watching. Shared drafts, titles and prompt history (`/v1/shared`).
 - `POST /v1/agents/{id}/probe` and `setup` on `GET /v1/agents`, for an agent's models and modes before its first session.
+- No agent defaults in the apps or CLI: the host owns the one list of known agent CLIs and their ACP arguments (`registry/known.json`, `GET /v1/agents/discover`, feature `agentDiscovery`). The phone and desktop Add agent forms show only that list; their own copies (which disagreed on Gemini's arguments) are gone. `acpd probe` and `acpd chat` need `--agent` instead of falling back to Goose. When the desktop composer cannot read an agent's models it says "Models unknown" with Retry instead of showing a default.
 
 ## [0.1.8] - 2026-10-12
 

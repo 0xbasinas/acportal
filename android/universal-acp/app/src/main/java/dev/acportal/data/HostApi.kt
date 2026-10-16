@@ -49,7 +49,7 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     }
     suspend fun addWorkspace(host:HostProfile,path:String): Workspace = WireJson.decodeFromJsonElement(execute(host.address,"/v1/workspaces",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"POST"))
     suspend fun removeWorkspace(host:HostProfile,path:String) { execute(host.address,"/v1/workspaces",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"DELETE") }
-    suspend fun locateAgents(host:HostProfile,commands:List<String>): List<LocatedAgent> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/agents/locate",vault.read(host.credentialAlias),buildJsonObject {put("commands",JsonArray(commands.map {JsonPrimitive(it)}))},"POST"))
+    suspend fun discoverAgents(host:HostProfile): List<KnownAgent> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/agents/discover",vault.read(host.credentialAlias)))
     suspend fun checkAgent(host:HostProfile,command:String,env:Map<String,String>): AgentCheck = WireJson.decodeFromJsonElement(execute(host.address,"/v1/agents/check",vault.read(host.credentialAlias),buildJsonObject {put("command",command);if(env.isNotEmpty())put("env",buildJsonObject {env.forEach {(key,value)->put(key,value)}})},"POST"))
     suspend fun addAgent(host:HostProfile,registration:AgentRegistration) { execute(host.address,"/v1/agents",vault.read(host.credentialAlias),buildJsonObject {
         put("id",registration.id);put("name",registration.name);put("command",registration.command)

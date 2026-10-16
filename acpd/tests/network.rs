@@ -383,6 +383,54 @@ async fn phone_checks_registers_and_removes_agents_and_they_survive_restart() {
 }
 
 #[tokio::test]
+async fn clients_get_the_hosts_own_agent_list_with_install_state() {
+    let fixture = Fixture::start().await;
+    let url = format!("{}/v1/agents/discover", fixture.base);
+    let anonymous = fixture.client.get(&url).send().await.unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let list: Value = fixture
+        .client
+        .get(&url)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), acpd::registry::Registry::known().len());
+    for agent in list {
+        for key in ["id", "name", "command"] {
+            assert!(agent[key].is_string(), "{agent}");
+        }
+        assert!(agent["args"].is_array() && agent["env"].is_object());
+        assert!(agent["found"].is_boolean() && agent["registered"].is_boolean());
+        assert_eq!(agent["found"] == true, agent["executable"].is_string());
+    }
+    // Clients can tell this host offers the list.
+    let status: Value = fixture
+        .client
+        .get(format!("{}/v1/status", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        status["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("agentDiscovery"))
+    );
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn phone_locates_installed_commands_by_name_only() {
     let fixture = Fixture::start().await;
     let url = format!("{}/v1/agents/locate", fixture.base);

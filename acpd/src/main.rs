@@ -123,15 +123,17 @@ enum Commands {
     Config,
     /// Verify ACP initialization without sending a prompt or starting a model request.
     Probe {
-        #[arg(long, default_value = "goose")]
-        agent: String,
+        /// Agent id from the registry (see `acpd agents`). There is no default agent.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
     },
     /// Run a local ACP session. Permission choices always require interactive input.
     Chat {
-        #[arg(long, default_value = "goose")]
-        agent: String,
+        /// Agent id from the registry (see `acpd agents`). There is no default agent.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
         #[arg(long)]
@@ -616,6 +618,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Probe { agent, workspace } => {
+            let agent = required_agent(agent, &registry)?;
             let workspace = config.workspace(&workspace)?;
             let definition = registry.get(&agent)?;
             if !definition.enabled {
@@ -645,6 +648,7 @@ async fn main() -> Result<()> {
             prompt,
             load,
         } => {
+            let agent = required_agent(agent, &registry)?;
             let manager = SessionManager::new(config, registry)?;
             let result = async {
                 let session = match load {
@@ -672,6 +676,25 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The `--agent` the operator chose. Without one, the error lists the registered agents instead of
+/// picking one.
+fn required_agent(agent: Option<String>, registry: &Registry) -> Result<String> {
+    if let Some(agent) = agent {
+        return Ok(agent);
+    }
+    let ids: Vec<String> = registry
+        .discover()
+        .into_iter()
+        .map(|agent| agent.id)
+        .collect();
+    if ids.is_empty() {
+        bail!(
+            "--agent is required, and no agents are registered; add one from the desktop or phone app, or in agents.json"
+        )
+    }
+    bail!("--agent is required; registered agents: {}", ids.join(", "))
 }
 
 fn operator_input(label: &str) -> Result<String> {
