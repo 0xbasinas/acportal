@@ -216,6 +216,7 @@ async fn main() -> Result<()> {
     if std::env::args_os().nth(1).as_deref() == Some(acpd::win_sandbox::LAUNCHER_ARG.as_ref()) {
         std::process::exit(acpd::win_sandbox::launcher_main());
     }
+    acpd::win_sandbox::enable_launcher();
     let cli = Cli::parse();
     let profile_path = cli
         .profile

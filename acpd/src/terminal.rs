@@ -397,7 +397,7 @@ pub fn sandbox_runner() -> Option<PathBuf> {
     RUNNER
         .get_or_init(|| {
             #[cfg(windows)]
-            if crate::win_sandbox::available() {
+            if crate::win_sandbox::launcher_enabled() && crate::win_sandbox::available() {
                 return std::env::current_exe().ok();
             }
             if !cfg!(target_os = "linux") {

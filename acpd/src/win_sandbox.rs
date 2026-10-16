@@ -40,6 +40,19 @@ pub fn tail_after_marker(command_line: &str) -> Option<&str> {
     None
 }
 
+static LAUNCHER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Called by the acpd binary, which handles [`LAUNCHER_ARG`]. Other programs that embed the
+/// library (tests, tools) do not, so their terminals stay unsandboxed unless set explicitly.
+pub fn enable_launcher() {
+    LAUNCHER.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether this executable can act as the launcher.
+pub fn launcher_enabled() -> bool {
+    LAUNCHER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A profile name unique to this terminal.
 pub fn profile_name() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
