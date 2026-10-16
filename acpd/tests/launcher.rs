@@ -109,29 +109,33 @@ fn short_start_uses_saved_listener_and_still_requires_authentication() {
             .spawn()
             .unwrap(),
     );
+    // The port can accept a connection a moment before the server answers on it (a reset on a
+    // busy runner), so retry the whole request until the deadline.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let mut stream = loop {
+    let (reply, count) = loop {
         assert!(
             child.0.try_wait().unwrap().is_none(),
             "fixture host exited before listening"
         );
-        if let Ok(stream) = std::net::TcpStream::connect(address) {
-            break stream;
+        let attempt = (|| -> std::io::Result<([u8; 8192], usize)> {
+            let mut stream = std::net::TcpStream::connect(address)?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            stream.write_all(
+                b"GET /v1/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )?;
+            let mut reply = [0u8; 8192];
+            let count = stream.read(&mut reply)?;
+            Ok((reply, count))
+        })();
+        match attempt {
+            Ok((reply, count)) if count > 0 => break (reply, count),
+            _ => assert!(
+                std::time::Instant::now() < deadline,
+                "fixture listener timed out: {attempt:?}"
+            ),
         }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "fixture listener timed out"
-        );
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-        .unwrap();
-    stream
-        .write_all(b"GET /v1/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .unwrap();
-    let mut reply = [0u8; 8192];
-    let count = stream.read(&mut reply).unwrap();
     assert!(String::from_utf8_lossy(&reply[..count]).starts_with("HTTP/1.1 401"));
     assert_eq!(std::fs::read_to_string(&config).unwrap(), contents);
 }
