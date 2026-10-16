@@ -447,6 +447,13 @@ fn remove_folder(
                 tracing::debug!(%error, "worktree removal will be retried");
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
+            // Windows: git can delete the files, fail on the last locked step and leave the
+            // folder gone but still registered. Pruning finishes what it started.
+            Err(_) if !worktree.path.exists() => {
+                let _ = git(root, &worktree.repository, &["worktree", "prune"]);
+                removed = true;
+                break;
+            }
             Err(error) => {
                 tracing::warn!(%error, path = %target, "worktree removal failed");
                 break;
@@ -472,7 +479,14 @@ pub fn snapshot_if_dirty(root: &Path, worktree: &Worktree) -> bool {
 /// folder that cannot go yet (Windows, while the task's agent still runs in it) is retried and
 /// otherwise left to the startup sweep. True when both are gone.
 pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
-    let folder = !worktree.path.exists() || remove_folder(root, worktree, REMOVE_RETRY, false);
+    let folder = if worktree.path.exists() {
+        remove_folder(root, worktree, REMOVE_RETRY, false)
+    } else {
+        // A folder that is already gone may still be registered, and git will not delete a
+        // branch it believes is checked out there.
+        let _ = git(root, &worktree.repository, &["worktree", "prune"]);
+        true
+    };
     let branch = git(
         root,
         &worktree.repository,
