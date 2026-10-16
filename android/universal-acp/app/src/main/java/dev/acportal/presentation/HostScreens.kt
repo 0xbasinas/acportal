@@ -122,7 +122,7 @@ import kotlinx.serialization.json.*
         Button({onPair(address.trim(),normalizedCode,label.trim())},enabled=!busy && addressValid && normalizedCode.isNotBlank(),modifier=Modifier.padding(horizontal=24.dp,vertical=8.dp).fillMaxWidth().heightIn(min=52.dp)) {Text(if(loading)"Connecting…" else "Pair connection")}
     }
 }
-@Composable fun HostDetailsScreen(details:HostDetails?,onBack:()->Unit,onNew:()->Unit,onSession:(SessionInfo)->Unit,onRefresh:()->Unit,onForget:()->Unit,onAgent:((String)->Unit)?=null,loading:Boolean=false) {
+@Composable fun HostDetailsScreen(details:HostDetails?,onBack:()->Unit,onNew:()->Unit,onSession:(SessionInfo)->Unit,onRefresh:()->Unit,onForget:()->Unit,onAgent:((String)->Unit)?=null,loading:Boolean=false,onTasks:(()->Unit)?=null) {
     var confirmForget by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(details?.host?.label ?: "Host",details?.host?.address,onBack,action={IconButton(onRefresh,enabled=!loading) { Icon(Icons.Outlined.Refresh,"Refresh host") }})
@@ -133,9 +133,10 @@ import kotlinx.serialization.json.*
             items(details.workspaces) { workspace -> ListItem(headlineContent={Text(folderTitle(workspace.name,workspace.path))},supportingContent={FolderPathText(workspace.path)},leadingContent={Icon(Icons.Outlined.Folder,null)}) }
             item { SectionLabel("Agents") }
             items(details.agents) { agent -> ListItem(modifier=if(onAgent!=null)Modifier.clickable {onAgent(agent.id)} else Modifier,headlineContent={Text(agent.name)},supportingContent={Text(registryStatus(agent,withTools=true))},leadingContent={Icon(Icons.Outlined.Code,null)},trailingContent={if(onAgent!=null)Icon(Icons.Outlined.ChevronRight,"Inspect ${agent.name}")}) }
+            if(onTasks!=null && HOST_FEATURE_ORCHESTRATOR in details.features) item { ListItem(modifier=Modifier.clickable {onTasks()},headlineContent={Text("Delegated tasks")},supportingContent={Text("Experimental · task trees, supervisor decisions and delegation status")},leadingContent={Icon(Icons.Outlined.AccountTree,null)},trailingContent={Icon(Icons.Outlined.ChevronRight,"Open delegated tasks")}) }
             item { SectionLabel("Active sessions") }
             if(details.sessions.isEmpty()) item { Text("No sessions yet.",Modifier.padding(horizontal=24.dp,vertical=12.dp),color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(details.sessions,key={it.id}) { session -> ListItem(modifier=Modifier.clickable { onSession(session) },headlineContent={Text(session.workspace.substringAfterLast('/').substringAfterLast('\\'))},supportingContent={Text("${session.agentId} · ${session.statusLabel()}")},trailingContent={Icon(Icons.Outlined.ChevronRight,"Open session")}) }
+            items(details.sessions,key={it.id}) { session -> ListItem(modifier=Modifier.clickable { onSession(session) },headlineContent={Text(session.workspace.substringAfterLast('/').substringAfterLast('\\'))},supportingContent={Text(sessionRowSupporting(session))},trailingContent={Icon(Icons.Outlined.ChevronRight,"Open session")}) }
             item { TextButton(onClick={confirmForget=true},modifier=Modifier.padding(16.dp)) { Text("Remove paired host",color=MaterialTheme.colorScheme.error) } }
         }
     }
@@ -271,7 +272,7 @@ import kotlinx.serialization.json.*
     }
 }
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null) {
+@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap()) {
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit) {while(true) {delay(60_000);now=System.currentTimeMillis()}}
     var archived by rememberSaveable {mutableStateOf(initialUiState.sessionsArchived)}
@@ -327,7 +328,8 @@ import kotlinx.serialization.json.*
                 items(entries,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->
                     var menu by remember {mutableStateOf(false)}
                     val summary=summaryOf(stored,info)
-                    val title=summary.title
+                    // A session started on the desktop has no copy here yet; use the host's title.
+                    val title=if(summary.title==SESSION_TITLE_PLACEHOLDER)sharedTitles["${stored.hostId}/${stored.id}"] ?: summary.title else summary.title
                     val activity=summary.activity
                     val liveActivity=liveActivities["${stored.hostId}/${stored.id}"]
                     val status=when {
@@ -386,3 +388,6 @@ private val PreviewHost=HostProfile("host","Development machine","https://dev.ex
 @Preview(showBackground=true) @Composable private fun ConnectionErrorPreview() { PortalTheme { ConnectionError("The host is offline. Check its address and try again.",{}) } }
 @Preview(showBackground=true) @Composable private fun EmptyStatePreview() { PortalTheme { EmptyState("No hosts yet","Pair your development machine to get started.") } }
 
+
+/** Agent and status, plus the peer host for a session whose agent runs on another host. */
+internal fun sessionRowSupporting(session:SessionInfo):String = listOfNotNull(session.agentId,session.remotePeer?.let {"on peer $it"},session.statusLabel()).joinToString(" · ")

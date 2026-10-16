@@ -12,6 +12,19 @@ use std::{
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
+/// What a paired credential may do. A phone manages the host through `/v1`; a peer is another
+/// host that may only use the agent bridge under `/acp`. Fixed when the pairing code is made.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    #[default]
+    Phone,
+    Peer,
+}
+fn is_phone(role: &Role) -> bool {
+    *role == Role::Phone
+}
+
 #[derive(Clone)]
 pub struct SecurityStore {
     directory: PathBuf,
@@ -41,6 +54,9 @@ pub struct Device {
     pub id: Uuid,
     pub name: String,
     pub expires_at: u64,
+    /// Absent in files written before roles existed, which were all phones.
+    #[serde(default, skip_serializing_if = "is_phone")]
+    pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
     digest: Option<String>,
 }
@@ -48,6 +64,8 @@ pub struct Device {
 struct Pairing {
     digest: String,
     expires_at: u64,
+    #[serde(default, skip_serializing_if = "is_phone")]
+    role: Role,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +74,9 @@ pub struct PairingResult {
     pub device_id: Uuid,
     pub token: String,
     pub expires_at: u64,
+    /// Left out for phones so the pairing reply a phone app reads is unchanged.
+    #[serde(default, skip_serializing_if = "is_phone")]
+    pub role: Role,
 }
 pub fn now() -> u64 {
     SystemTime::now()
@@ -135,15 +156,20 @@ impl SecurityStore {
         self.transaction(false, |database| Ok(database.host_id))
     }
     pub fn new_pairing_code(&self) -> Result<String> {
-        self.new_pairing_code_at(now())
+        self.new_pairing_code_for(Role::Phone)
     }
-    fn new_pairing_code_at(&self, timestamp: u64) -> Result<String> {
+    /// A one-use, 60-second code whose redeemed credential carries `role`.
+    pub fn new_pairing_code_for(&self, role: Role) -> Result<String> {
+        self.new_pairing_code_at(now(), role)
+    }
+    fn new_pairing_code_at(&self, timestamp: u64, role: Role) -> Result<String> {
         let random = random_hex()?;
         let code = format!("{}-{}-{}", &random[0..4], &random[4..8], &random[8..12]).to_uppercase();
         self.transaction(true, |database| {
             database.pairing = Some(Pairing {
                 digest: digest(&normalize_code(&code)),
                 expires_at: timestamp + 60,
+                role,
             });
             database.failed_attempts = 0;
             database.blocked_until = 0;
@@ -188,10 +214,12 @@ impl SecurityStore {
             let token = random_hex()?;
             let device_id = Uuid::new_v4();
             let expires_at = timestamp + lifetime;
+            let role = database.pairing.as_ref().map_or(Role::Phone, |p| p.role);
             database.devices.push(Device {
                 id: device_id,
                 name: name.trim().into(),
                 expires_at,
+                role,
                 digest: Some(digest(&token)),
             });
             database.pairing = None;
@@ -201,6 +229,7 @@ impl SecurityStore {
                 device_id,
                 token,
                 expires_at,
+                role,
             })
         })
     }
@@ -346,7 +375,7 @@ mod tests {
     fn pairing_is_one_use_and_tokens_are_digests_only() {
         let directory = tempfile::tempdir().unwrap();
         let store = SecurityStore::open(directory.path()).unwrap();
-        let code = store.new_pairing_code_at(100).unwrap();
+        let code = store.new_pairing_code_at(100, Role::Phone).unwrap();
         let result = store.redeem_at(&code, "Phone", 600, 110).unwrap();
         assert!(store.redeem_at(&code, "Phone", 600, 110).is_err());
         assert!(store.authorize_at(&result.token, 120).is_ok());
@@ -362,15 +391,52 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let operator = SecurityStore::open(directory.path()).unwrap();
         let server = SecurityStore::open(directory.path()).unwrap();
-        let code = operator.new_pairing_code_at(100).unwrap();
+        let code = operator.new_pairing_code_at(100, Role::Phone).unwrap();
         assert!(server.redeem_at(&code, "Phone", 600, 160).is_err());
-        let code = operator.new_pairing_code_at(200).unwrap();
+        let code = operator.new_pairing_code_at(200, Role::Phone).unwrap();
         for _ in 0..5 {
             assert!(server.redeem_at("wrong", "Phone", 600, 210).is_err());
         }
         assert!(server.redeem_at(&code, "Phone", 600, 211).is_err());
-        let code = operator.new_pairing_code_at(220).unwrap();
+        let code = operator.new_pairing_code_at(220, Role::Phone).unwrap();
         assert!(server.redeem_at(&code, "Phone", 600, 221).is_ok());
+    }
+    #[test]
+    fn a_pairing_code_fixes_the_role_of_the_credential_it_creates() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SecurityStore::open(directory.path()).unwrap();
+        let peer_code = store.new_pairing_code_at(100, Role::Peer).unwrap();
+        let peer = store.redeem_at(&peer_code, "Laptop", 600, 110).unwrap();
+        assert_eq!(peer.role, Role::Peer);
+        assert_eq!(
+            store.authorize_at(&peer.token, 120).unwrap().role,
+            Role::Peer
+        );
+        // The next code is a phone code again: roles are never inherited or chosen at redeem time.
+        let phone_code = store.new_pairing_code_at(200, Role::Phone).unwrap();
+        let phone = store.redeem_at(&phone_code, "Phone", 600, 210).unwrap();
+        assert_eq!(phone.role, Role::Phone);
+        assert_eq!(
+            store.authorize_at(&phone.token, 220).unwrap().role,
+            Role::Phone
+        );
+        // A phone's pairing reply and stored record are byte-for-byte what they were before roles.
+        let reply = serde_json::to_value(&phone).unwrap();
+        assert!(reply.get("role").is_none(), "{reply}");
+        let raw = std::fs::read_to_string(directory.path().join("security.json")).unwrap();
+        assert!(raw.contains("\"role\": \"peer\"") || raw.contains("\"role\":\"peer\""));
+        assert_eq!(
+            raw.matches("\"role\"").count(),
+            1,
+            "only the peer is marked: {raw}"
+        );
+    }
+    #[test]
+    fn files_from_before_roles_load_as_phones() {
+        let old = r#"{"hostId":"00000000-0000-4000-8000-000000000001","devices":[{"id":"00000000-0000-4000-8000-000000000002","name":"Old phone","expiresAt":9999999999,"digest":"abc"}],"pairing":null,"failedAttempts":0,"blockedUntil":0}"#;
+        let value: serde_json::Value = serde_json::from_str(old).unwrap();
+        let devices: Vec<Device> = serde_json::from_value(value["devices"].clone()).unwrap();
+        assert_eq!(devices[0].role, Role::Phone);
     }
     #[test]
     fn concurrent_pairing_exchanges_have_one_winner() {

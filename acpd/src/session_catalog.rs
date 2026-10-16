@@ -121,6 +121,7 @@ mod tests {
             status: "ready".into(),
             workspace_access: Default::default(),
             own_tools: false,
+            remote_peer: None,
         }
     }
     #[test]

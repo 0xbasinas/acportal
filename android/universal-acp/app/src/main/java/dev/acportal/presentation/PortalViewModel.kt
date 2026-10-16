@@ -11,11 +11,14 @@ import kotlinx.serialization.json.*
 
 data class WorkspaceBrowseState(val hostId:String?=null,val path:String?=null,val loading:Boolean=false,val folders:List<Workspace>?=null,val error:String?=null)
 data class PortalUiState(val loading:Boolean=false,val error:String?=null,val errorRetry:(()->Unit)?=null,val details:HostDetails?=null,val live:LiveSession?=null,val workspaceBrowse:WorkspaceBrowseState=WorkspaceBrowseState(),val mcpHost:HostProfile?=null,val mcpServers:List<McpDefinition> = emptyList(),val accessHost:HostProfile?=null,val accessPath:String?=null,val savedAccess:WorkspaceAccess=WorkspaceAccess(),val currentAccess:WorkspaceAccess?=null)
+/** The delegated task tree of one host (experimental; only shown when the host lists the `orchestrator` feature). */
+data class TasksUiState(val hostId:String?=null,val tasks:List<TaskSummary>?=null,val detail:TaskDetail?=null,val loading:Boolean=false,val error:String?=null,val notice:String?=null)
 class PortalViewModel(val repository:PortalRepository):ViewModel() {
     val hosts=repository.hosts.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val sessions=repository.sessions.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private val summaryMemo=SessionListSummaries()
     /** Row titles, times and search text, decoded off the main thread and only for changed rows. */
+    val sharedTitles=repository.sharedTitles.asStateFlow()
     val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyMap())
     val liveActivities=repository.liveActivities
     val agentCatalogs=repository.agentCatalogs.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
@@ -91,6 +94,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun cancel(live:LiveSession) = work { repository.cancel(live) }
     fun dismissSessionError(live:LiveSession) = repository.dismissSessionError(live)
     fun reconnect(live:LiveSession) = work { repository.reconnect(live) }
+    fun takeControl(live:LiveSession) = work { repository.takeControl(live) }
     fun disconnect(live:LiveSession) = work { repository.disconnect(live) }
     fun removeLocalCopy(live:LiveSession) = work {repository.removeLocalCopy(live)}
     fun permission(live:LiveSession,permission:Permission,optionId:String) = work { repository.permission(live,permission,optionId) }
@@ -105,6 +109,26 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         check(info.acpSessionId.isNotBlank()) { "Sign in before resuming this session" }
         onDone(repository.create(stored.hostId,info.agentId,info.workspace,info.acpSessionId))
     }
+    val tasks=MutableStateFlow(TasksUiState())
+    private var tasksJob:Job?=null
+    private fun tasksWork(hostId:String,action:suspend ()->Unit) {
+        tasksJob?.cancel()
+        tasks.update {if(it.hostId==hostId)it.copy(loading=true,error=null,notice=null) else TasksUiState(hostId,loading=true)}
+        tasksJob=viewModelScope.launch {
+            try {action()} catch(cancelled:CancellationException) {throw cancelled}
+            catch(failure:Exception) {tasks.update {it.copy(error=failure.message ?: "Task list unavailable. Try again.")}}
+            finally {tasks.update {it.copy(loading=false)}}
+        }
+    }
+    fun loadTasks(hostId:String,taskId:String?=null) = tasksWork(hostId) {
+        val list=repository.tasks(hostId)
+        val detail=taskId?.let {repository.task(hostId,it)}
+        tasks.update {it.copy(tasks=list,detail=detail)}
+    }
+    fun mergeTask(hostId:String,id:String) = tasksWork(hostId) {mergeAndRefresh(tasks,{repository.mergeTask(hostId,id)},{repository.tasks(hostId)},{repository.task(hostId,id)})}
+    fun discardTask(hostId:String,id:String) = tasksWork(hostId) {discardAndRefresh(tasks,{repository.discardTask(hostId,id)},{repository.tasks(hostId)},{repository.task(hostId,id)})}
+    fun cancelTask(hostId:String,id:String) = tasksWork(hostId) {repository.cancelTask(hostId,id);tasks.update {it.copy(tasks=repository.tasks(hostId),detail=repository.task(hostId,id))}}
+    fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = tasksWork(hostId) {repository.setTaskSupervision(hostId,id,paused);tasks.update {it.copy(detail=repository.task(hostId,id))}}
     fun forget(hostId:String,onDone:()->Unit) = work { repository.forget(hostId);mcpEdits.remove(hostId)?.close();onDone() }
     fun theme(value:String) = work { repository.settings.theme(value) }
     fun cache(value:Boolean) = work { repository.settings.cache(value);if(!value)repository.clearCache() }

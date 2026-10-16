@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     connection::{AcpConnection, AgentRpcError, Replay, WorkspaceAccess},
+    orchestrator::Orchestrator,
     registry::Registry,
     session_catalog::SessionCatalog,
 };
@@ -32,6 +33,17 @@ pub struct SessionMetadata {
     /// inside the conversation.
     #[serde(default)]
     pub own_tools: bool,
+    /// For an agent that runs on another host: the name of the peer it runs on. Absent for
+    /// agents started on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_peer: Option<String>,
+}
+
+/// What `session/new` carries for an agent on another host, kept so signing in later repeats it.
+#[derive(Clone)]
+struct RemoteSetup {
+    cwd: String,
+    meta: Option<Value>,
 }
 
 pub struct AcpSession {
@@ -39,6 +51,9 @@ pub struct AcpSession {
     setup_lock: Mutex<()>,
     load_id: Option<String>,
     mcp_servers: Vec<Value>,
+    remote: Option<RemoteSetup>,
+    /// The W3C `traceparent` of the task this session belongs to, sent in `_meta`.
+    trace: Option<String>,
     catalog: Option<Arc<SessionCatalog>>,
     pub connection: AcpConnection,
 }
@@ -62,14 +77,12 @@ impl AcpSession {
         if metadata.acp_session_id.is_empty() {
             bail!("authentication required")
         }
-        let result = self
-            .connection
-            .request(
-                "session/prompt",
-                json!({"sessionId":metadata.acp_session_id,
-            "prompt":[{"type":"text","text":text}]}),
-            )
-            .await?;
+        let mut params = json!({"sessionId":metadata.acp_session_id,
+            "prompt":[{"type":"text","text":text}]});
+        if let Some(trace) = &self.trace {
+            params["_meta"] = json!({ "traceparent": trace });
+        }
+        let result = self.connection.request("session/prompt", params).await?;
         let _: acp::PromptResponse =
             serde_json::from_value(result.clone()).context("invalid ACP prompt result")?;
         Ok(result)
@@ -112,6 +125,8 @@ impl AcpSession {
                 &metadata.workspace,
                 self.load_id.as_deref(),
                 &self.mcp_servers,
+                self.remote.as_ref(),
+                self.trace.as_deref(),
             )
             .await?;
             let mut metadata = self.metadata.lock().unwrap();
@@ -133,6 +148,8 @@ async fn setup_session(
     workspace: &Path,
     load: Option<&str>,
     mcp_servers: &[Value],
+    remote: Option<&RemoteSetup>,
+    trace: Option<&str>,
 ) -> Result<(Value, String)> {
     crate::mcp::validate(mcp_servers, Some(initialization))?;
     let setup = if let Some(session_id) = load {
@@ -146,12 +163,20 @@ async fn setup_session(
             )
             .await?
     } else {
-        connection
-            .request(
-                "session/new",
-                json!({"cwd":workspace,"mcpServers":mcp_servers}),
-            )
-            .await?
+        let mut params = match remote {
+            Some(remote) => json!({"cwd":remote.cwd,"mcpServers":mcp_servers}),
+            None => json!({"cwd":workspace,"mcpServers":mcp_servers}),
+        };
+        if let Some(meta) = remote.and_then(|remote| remote.meta.as_ref()) {
+            params["_meta"] = meta.clone();
+        }
+        if let Some(trace) = trace {
+            if !params["_meta"].is_object() {
+                params["_meta"] = json!({});
+            }
+            params["_meta"]["traceparent"] = json!(trace);
+        }
+        connection.request("session/new", params).await?
     };
     let session_id = if let Some(session_id) = load {
         let _: acp::LoadSessionResponse =
@@ -174,6 +199,22 @@ pub struct SessionManager {
     catalog: Option<Arc<SessionCatalog>>,
     // Serializes lifecycle creation to enforce limits without holding the sessions lock across IO.
     lifecycle: Mutex<()>,
+    orchestrator: std::sync::OnceLock<Arc<Orchestrator>>,
+}
+
+/// Undoes orchestrator admission if the session never finishes starting.
+struct TicketGuard<'a> {
+    orchestrator: &'a Orchestrator,
+    task: Uuid,
+    armed: bool,
+}
+impl Drop for TicketGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.orchestrator
+                .abort(self.task, "the agent could not be started");
+        }
+    }
 }
 pub struct LaunchSettings {
     pub config: Config,
@@ -189,6 +230,7 @@ impl SessionManager {
     /// Existing and in-flight sessions retain their original, coherent launch snapshot.
     pub fn reload(&self, config: Config, registry: Registry) -> Result<()> {
         config.validate()?;
+        crate::shell::set_host(&config.windows);
         let old = self.launch_settings();
         if config.state_directory != old.config.state_directory
             || config.runtime.max_frame_bytes != old.config.runtime.max_frame_bytes
@@ -205,13 +247,32 @@ impl SessionManager {
     }
     pub fn new(config: Config, registry: Registry) -> Result<Self> {
         config.validate()?;
+        crate::shell::set_host(&config.windows);
         Ok(Self {
             launch_settings: RwLock::new(Arc::new(LaunchSettings { config, registry })),
             sessions: Mutex::new(BTreeMap::new()),
             retained: Mutex::new(BTreeMap::new()),
             catalog: None,
             lifecycle: Mutex::new(()),
+            orchestrator: std::sync::OnceLock::new(),
         })
+    }
+    /// Attach the orchestrator once, right after construction. Sessions started before this are
+    /// never part of a task tree.
+    pub fn attach_orchestrator(&self, orchestrator: Arc<Orchestrator>) {
+        let _ = self.orchestrator.set(orchestrator);
+    }
+    /// Start a delegated child session for `parent`. Admission runs before any process starts and
+    /// refusals surface as [`crate::orchestrator::AdmissionFailure`].
+    pub async fn open_task(
+        &self,
+        agent_id: &str,
+        workspace: &Path,
+        access: WorkspaceAccess,
+        parent: Uuid,
+    ) -> Result<Arc<AcpSession>> {
+        self.open_inner(agent_id, workspace, None, Vec::new(), access, Some(parent))
+            .await
     }
     /// Network hosts retain metadata. Standalone local chats stay in memory.
     pub fn persistent(config: Config, registry: Registry, state_directory: &Path) -> Result<Self> {
@@ -307,6 +368,18 @@ impl SessionManager {
         mcp_servers: Vec<Value>,
         access: WorkspaceAccess,
     ) -> Result<Arc<AcpSession>> {
+        self.open_inner(agent_id, workspace, load, mcp_servers, access, None)
+            .await
+    }
+    async fn open_inner(
+        &self,
+        agent_id: &str,
+        workspace: &Path,
+        load: Option<&str>,
+        mut mcp_servers: Vec<Value>,
+        access: WorkspaceAccess,
+        parent: Option<Uuid>,
+    ) -> Result<Arc<AcpSession>> {
         crate::mcp::validate(&mcp_servers, None)?;
         let _lifecycle = self.lifecycle.lock().await;
         let settings = self.launch_settings();
@@ -318,25 +391,119 @@ impl SessionManager {
         if !definition.enabled {
             bail!("agent is disabled")
         }
-        let workspace = config.workspace(workspace)?;
+        // An agent on another host: no program to find or start here, and nothing local to
+        // hand it (an MCP server is a command to run, and the other host will not run ours).
+        let remote = definition.is_remote();
+        if remote && (!mcp_servers.is_empty() || load.is_some()) {
+            bail!("remote agents do not take MCP servers or load saved sessions yet")
+        }
+        // A delegated task may run in its own worktree under the state directory.
+        let workspace = if parent.is_some() {
+            config.task_workspace(workspace)?
+        } else {
+            config.workspace(workspace)?
+        };
         let cwd = match &definition.working_directory {
             Some(path) => config.workspace(path)?,
             None => workspace.clone(),
         };
-        let discovery = definition.discover();
-        let launch = discovery.launch.context("agent executable not found")?;
-        let connection = AcpConnection::spawn_with_access(
-            definition,
-            launch,
-            &cwd,
-            config.runtime.clone(),
-            &workspace,
-            access,
-            config.shell_review.get(agent_id),
-        )?;
+        let launch = if remote {
+            None
+        } else {
+            Some(
+                definition
+                    .discover()
+                    .launch
+                    .context("agent executable not found")?,
+            )
+        };
+        // Admission before any process starts; the guard undoes it if startup fails below.
+        let mut ticket = None;
+        let mut trace = None;
+        if let Some(orchestrator) = self.orchestrator.get() {
+            if let Some(issued) = orchestrator
+                .begin(parent, agent_id, &workspace, access, &settings)
+                .map_err(anyhow::Error::new)?
+            {
+                if let Some(mcp) = issued.mcp.clone()
+                    && !remote
+                {
+                    mcp_servers.push(mcp);
+                    crate::mcp::validate(&mcp_servers, None)?;
+                }
+                trace = issued.traceparent.clone();
+                ticket = Some(TicketGuard {
+                    orchestrator,
+                    task: issued.task,
+                    armed: true,
+                });
+            }
+        } else if parent.is_some() {
+            bail!("delegation is not available on this host")
+        }
+        let mut link_events = None;
+        let connection = match launch {
+            Some(launch) => AcpConnection::spawn_with_access(
+                definition,
+                launch,
+                &cwd,
+                config.runtime.clone(),
+                &workspace,
+                access,
+                config.shell_review.get(agent_id),
+            )?,
+            None => {
+                let peer = definition
+                    .peer
+                    .as_deref()
+                    .context("remote agent has no peer")?;
+                let url = definition
+                    .url
+                    .as_deref()
+                    .context("remote agent has no url")?;
+                let store = crate::peers::PeerStore::open(&config.state_directory);
+                let link = crate::peer_link::connect(
+                    &store,
+                    peer,
+                    url,
+                    config.runtime.max_frame_bytes,
+                    crate::peer_link::Resume::within_seconds(
+                        config.orchestrator.peer_reconnect_seconds,
+                    ),
+                )
+                .await?;
+                link_events = Some(link.events);
+                AcpConnection::over_transport(
+                    link.reader,
+                    link.writer,
+                    config.runtime.clone(),
+                    access,
+                )
+            }
+        };
+        let remote_setup = remote.then(|| RemoteSetup {
+            cwd: definition
+                .remote_cwd
+                .clone()
+                .unwrap_or_else(|| "/".to_owned()),
+            // An acpd peer maps an alias to its own folder and grants at most what it allows;
+            // asking for less is always fine. A path is never sent to it.
+            meta: definition.workspace_alias.as_ref().map(|alias| {
+                json!({"acpdWorkspace": alias, "acpdRights": {
+                    "read": access.read_files,
+                    "write": access.write_files,
+                    "terminal": access.terminal}})
+            }),
+        });
         let setup_result = async {
             let mut initialization_request = initialize_params();
-            initialization_request["clientCapabilities"] = access.capabilities();
+            // This host serves no file or terminal callbacks for an agent that runs elsewhere:
+            // that host enforces and asks for those itself, and sends us only the permissions.
+            initialization_request["clientCapabilities"] = if remote {
+                json!({})
+            } else {
+                access.capabilities()
+            };
             let initialization = connection
                 .request("initialize", initialization_request)
                 .await?;
@@ -345,23 +512,30 @@ impl SessionManager {
             if parsed.protocol_version != acportal_protocol::ProtocolVersion::V1 {
                 bail!("agent does not support ACP protocolVersion {ACP_VERSION}")
             }
-            let (setup, acp_session_id) =
-                match setup_session(&connection, &initialization, &workspace, load, &mcp_servers)
-                    .await
+            let (setup, acp_session_id) = match setup_session(
+                &connection,
+                &initialization,
+                &workspace,
+                load,
+                &mcp_servers,
+                remote_setup.as_ref(),
+                trace.as_deref(),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(error)
+                    if error
+                        .downcast_ref::<AgentRpcError>()
+                        .is_some_and(|error| error.0 == -32000)
+                        && initialization["authMethods"]
+                            .as_array()
+                            .is_some_and(|methods| !methods.is_empty()) =>
                 {
-                    Ok(result) => result,
-                    Err(error)
-                        if error
-                            .downcast_ref::<AgentRpcError>()
-                            .is_some_and(|error| error.0 == -32000)
-                            && initialization["authMethods"]
-                                .as_array()
-                                .is_some_and(|methods| !methods.is_empty()) =>
-                    {
-                        (json!({}), String::new())
-                    }
-                    Err(error) => return Err(error),
-                };
+                    (json!({}), String::new())
+                }
+                Err(error) => return Err(error),
+            };
             Ok::<_, anyhow::Error>((initialization, setup, acp_session_id))
         }
         .await;
@@ -383,10 +557,13 @@ impl SessionManager {
                 status: "ready".into(),
                 workspace_access: access,
                 own_tools: definition.own_tools,
+                remote_peer: remote.then(|| definition.peer.clone()).flatten(),
             }),
             setup_lock: Mutex::new(()),
             load_id: load.map(str::to_owned),
             mcp_servers,
+            remote: remote_setup,
+            trace,
             catalog: self.catalog.clone(),
             connection,
         });
@@ -409,6 +586,14 @@ impl SessionManager {
             .lock()
             .await
             .insert(session.metadata().id, session.clone());
+        if let Some(mut guard) = ticket {
+            guard.armed = false;
+            guard.orchestrator.bind(guard.task, session.metadata().id);
+        }
+        crate::auto_approve::spawn(&session, config);
+        if let Some(events) = link_events {
+            crate::peer_link::report_to(&session, events);
+        }
         tracing::info!(session_id = %session.metadata().id, "session created");
         Ok(session)
     }
@@ -443,6 +628,15 @@ impl SessionManager {
         self.sessions.lock().await.len()
     }
     pub async fn remove(&self, id: Uuid) -> Result<()> {
+        // Delegated children go first, so none outlives the session that started it.
+        if let Some(orchestrator) = self.orchestrator.get() {
+            for child in orchestrator.release_subtree(id) {
+                let _ = self.remove_one(child).await;
+            }
+        }
+        self.remove_one(id).await
+    }
+    async fn remove_one(&self, id: Uuid) -> Result<()> {
         let _lifecycle = self.lifecycle.lock().await;
         let session = self.get(id).await.ok();
         let _setup = if let Some(session) = &session {
@@ -464,6 +658,12 @@ impl SessionManager {
     }
     pub async fn shutdown(&self) {
         let _lifecycle = self.lifecycle.lock().await;
+        if let Some(orchestrator) = self.orchestrator.get() {
+            // Write what is open as open (a restart shows it as interrupted), then stop writing:
+            // sessions ending below would otherwise schedule a late write that could overwrite
+            // the file of a host started after this one.
+            orchestrator.close();
+        }
         let sessions = std::mem::take(&mut *self.sessions.lock().await);
         for session in sessions.values() {
             session.connection.shutdown().await;

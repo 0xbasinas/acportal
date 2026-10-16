@@ -22,6 +22,33 @@ struct Options {
     #[arg(long)]
     mcp_sse: bool,
     #[arg(long)]
+    echo_mcp: bool,
+    /// Report modes and a model config option in `session/new`, like agents that offer them.
+    #[arg(long)]
+    setup_choices: bool,
+    /// Kind of the permission request the mock raises each turn (default `edit`).
+    #[arg(long, default_value = "edit")]
+    permission_kind: String,
+    /// Path named in that request's rawInput (default `example.rs`).
+    #[arg(long, default_value = "example.rs")]
+    permission_path: String,
+    /// Text for the request's rawInput `content` (default none): with it the request looks like a
+    /// file write from the agent's own tool.
+    #[arg(long, default_value = "")]
+    permission_content: String,
+    /// A prompt that says nothing and never ends on its own (it still ends if cancelled).
+    #[arg(long)]
+    stall_prompt: bool,
+    /// Ignore `session/cancel` entirely.
+    #[arg(long)]
+    ignore_cancel: bool,
+    /// Report this cumulative cost in a `usage_update` at the start of each turn (negative: none).
+    #[arg(long, default_value_t = -1.0, allow_negative_numbers = true)]
+    usage_cost: f64,
+    /// The currency of that cost.
+    #[arg(long, default_value = "USD")]
+    usage_currency: String,
+    #[arg(long)]
     prompt_media: bool,
     #[arg(long)]
     read_during_load: bool,
@@ -150,11 +177,17 @@ async fn main() -> anyhow::Result<()> {
             "session/new" => {
                 mcp_servers = params["mcpServers"].clone();
                 session_counter += 1;
-                out.send(response(
-                    id,
-                    json!({"sessionId":format!("mock-{session_counter}"),"_meta":{"mockMcpServers":mcp_servers.as_array().unwrap().iter().map(|server| json!({"name":server["name"],"type":server.get("type").and_then(Value::as_str).unwrap_or("stdio")})).collect::<Vec<_>>()}}),
-                ))
-                .await?;
+                let mut reply = json!({"sessionId":format!("mock-{session_counter}"),"_meta":{"mockMcpServers":mcp_servers.as_array().unwrap().iter().map(|server| json!({"name":server["name"],"type":server.get("type").and_then(Value::as_str).unwrap_or("stdio")})).collect::<Vec<_>>()}});
+                if options.setup_choices {
+                    reply["modes"] = json!({"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"code","name":"Code"}]});
+                    reply["configOptions"] = json!([{"id":"model","name":"Model","category":"model","type":"select","currentValue":"small","options":[{"value":"small","name":"Small"},{"value":"large","name":"Large"}]}]);
+                }
+                if options.echo_mcp {
+                    // Test-only: an agent knows its own MCP definitions, environment included.
+                    reply["_meta"]["mockMcpFull"] = mcp_servers.clone();
+                    reply["_meta"]["mockNewMeta"] = params["_meta"].clone();
+                }
+                out.send(response(id, reply)).await?;
             }
             "session/load" if !options.no_resume => {
                 mcp_servers = params["mcpServers"].clone();
@@ -205,6 +238,18 @@ async fn main() -> anyhow::Result<()> {
                 out.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}))
                     .await?;
             }
+            "session/prompt" if options.stall_prompt => {
+                let (cancel, mut cancellation) = watch::channel(false);
+                cancellations.insert(session.clone(), cancel);
+                let worker_out = out.clone();
+                tokio::spawn(async move {
+                    if cancellation.changed().await.is_ok() {
+                        let _ = worker_out
+                            .send(response(id, json!({"stopReason":"cancelled"})))
+                            .await;
+                    }
+                });
+            }
             "session/prompt" => {
                 last_prompt = params.clone();
                 permission_counter += 1;
@@ -217,7 +262,12 @@ async fn main() -> anyhow::Result<()> {
                 let terminal_enabled =
                     options.terminal_during_prompt && client_capabilities["terminal"] == true;
                 let delay = options.delay_ms;
+                let permission_kind = options.permission_kind.clone();
+                let permission_path = options.permission_path.clone();
+                let permission_content = options.permission_content.clone();
                 let terminal_delay = options.terminal_exit_delay_ms;
+                let usage = (options.usage_cost >= 0.0)
+                    .then(|| (options.usage_cost, options.usage_currency.clone()));
                 tokio::spawn(async move {
                     let mut cancellation = cancellation;
                     let work = async {
@@ -237,6 +287,10 @@ async fn main() -> anyhow::Result<()> {
                             &session,
                             &permission_id,
                             delay,
+                            (&permission_kind, &permission_path, &permission_content),
+                            usage
+                                .as_ref()
+                                .map(|(amount, currency)| (*amount, currency.as_str())),
                         )
                         .await
                     };
@@ -253,10 +307,15 @@ async fn main() -> anyhow::Result<()> {
                         .await;
                 });
             }
+            "session/cancel" if options.ignore_cancel => {}
             "session/cancel" => {
                 if let Some(cancel) = cancellations.remove(&session) {
                     let _ = cancel.send(true);
                 }
+            }
+            "_mock/pid" => {
+                out.send(response(id, json!({"pid": std::process::id()})))
+                    .await?;
             }
             "_mock/crash" => std::process::exit(24),
             "_mock/stall" => {}
@@ -431,13 +490,33 @@ async fn terminal_turn(
     update(out,session,json!({"sessionUpdate":"tool_call_update","toolCallId":format!("native-terminal-{token}"),"status":if exit["exitCode"]==0 {"completed"}else{"failed"}})).await?;
     Ok(())
 }
+/// What the request's rawInput holds: the path, and the content when one was asked for.
+fn raw_input(path: &str, content: &str) -> Value {
+    if content.is_empty() {
+        json!({"path": path})
+    } else {
+        json!({"path": path, "content": content})
+    }
+}
+
 async fn turn(
     out: &mpsc::Sender<Value>,
     waiters: &PermissionWaiters,
     session: &str,
     permission_id: &str,
     delay: u64,
+    (kind, path, content): (&str, &str, &str),
+    usage: Option<(f64, &str)>,
 ) -> anyhow::Result<bool> {
+    if let Some((amount, currency)) = usage {
+        update(
+            out,
+            session,
+            json!({"sessionUpdate":"usage_update","used":1000,"size":200000,
+                   "cost":{"amount":amount,"currency":currency}}),
+        )
+        .await?;
+    }
     for text in ["I'll inspect ", "the workspace.\n"] {
         update(
             out,
@@ -455,7 +534,7 @@ async fn turn(
         .await
         .insert(json!(permission_id).to_string(), decision);
     out.send(json!({"jsonrpc":"2.0","id":permission_id,"method":"session/request_permission","params":{
-        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":"edit","rawInput":{"path":"example.rs"}},
+        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":kind,"rawInput":raw_input(path, content)},
         "options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}})).await?;
     let decision = result.await?;
     if decision["outcome"]["outcome"] == "cancelled" {

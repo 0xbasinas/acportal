@@ -24,14 +24,28 @@ history_bytes = 8388608
 # Optional, per agent id: automatic review of agent shell lines. Off unless present
 # with rules = true; otherwise every shell line waits for approval on the phone.
 # See docs/security.md ("Shell-line auto-review") for what this does and does not protect.
-# [shell_review.goose]
+# [shell_review.my-agent]
 # rules = true                       # deterministic allowlist + hard-deny list
 # inert_env = false                  # default true: inert env overrides (PAGER=cat, TERM, NO_COLOR,
 #                                    # LANG, ... see docs/security.md) don't force the phone; false opts out
-# [shell_review.goose.model]         # optional reviewer for lines the rules leave undecided
+# [shell_review.my-agent.model]         # optional reviewer for lines the rules leave undecided
 # base_url = "https://api.deepseek.com"
 # model = "deepseek-flash"
 # api_key_env = "DEEPSEEK_API_KEY"   # name of the env var; never put the key here
 # timeout_seconds = 10               # 1..60
 # max_requests_per_minute = 6        # 1..60, per session
 # max_command_bytes = 2048           # longer lines go straight to the phone
+
+# Let the host answer an agent's safe permission requests itself, so a person is not asked about
+# every ordinary edit. Off for every agent unless listed. It only ever allows (never refuses):
+# anything it will not allow still goes to the phone. See docs/orchestrator-design.md section 32.
+# [auto_approve.my-agent]
+# max_risk = "medium"                # "none" (off) | "low" (reads) | "medium" (reads + edits in the folder)
+# only_in_worktree = true            # default: only sessions in a task worktree; false covers phone sessions
+# own_edit_shape = false             # rate an agent's own file-tool request (kind "other", path + content)
+#                                    # as an edit. The shape is what the agent declares and cannot be verified.
+# model_sees_content = false         # true sends the start of the file to the model below
+# [auto_approve.my-agent.model]      # optional second look; can only make a decision stricter
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-flash"
+# api_key_env = "DEEPSEEK_API_KEY"

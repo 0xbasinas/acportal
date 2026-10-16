@@ -7,6 +7,12 @@ import kotlinx.serialization.json.*
 /** Status shown for a saved session whose stored details could not be read. */
 const val STORED_DETAILS_UNAVAILABLE = "details_unavailable"
 
+/** Host limits for `/v1/shared` drafts and history entries (`acpd/src/api/shared.rs`). */
+const val SHARED_DRAFT_MAX_BYTES = 64 * 1024
+const val SHARED_PROMPT_MAX_BYTES = 16 * 1024
+/** How often an open session checks the host for a draft typed on another device. */
+const val SHARED_POLL_MS = 5_000L
+
 /** UTF-8 length of [text] up to [limit] + 1, without building a byte array. */
 internal fun utf8Bytes(text: String, limit: Int = Int.MAX_VALUE - 4): Int {
     var size = 0

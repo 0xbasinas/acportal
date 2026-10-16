@@ -4,9 +4,31 @@ Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `cod
 
 Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
 
+## Desktop and handoff (merged into `experiment/orchestrator`)
+
+- [ ] Try by hand on a real phone and the desktop: phone/desktop handoff and shared drafts (16 October 2026), implemented and CI-tested: `takeover=true`/`control_taken`, both clients watch a session another device controls with Take control, and drafts, first-prompt titles and folder prompt history are kept on the host (`/v1/shared`). Host tests `takeover_moves_control_between_clients_and_the_old_one_keeps_watching` and `drafts_titles_and_history_are_shared_between_devices_and_survive_restart` pass; desktop typecheck/tests pass. Android compile/JVM tests rely on CI (no SDK or Gradle plugin access in that session); no client tried by hand. An open session on the phone checks the host every 5 s (the desktop every 4 s); a draft from the other device replaces the box only while it is unedited, otherwise local typing wins. The phone shows host titles for sessions it has no copy of and saves a first-prompt title for sessions started there. Not shared: attachments (binary, per-device file grants) and MCP/checks settings (the shared-settings item below, which needs host-side secret storage).
+
+- [ ] Android: show `_meta.acpdScope` (outside-workspace paths, sandboxed, shell and `shellNote`) on the shell approval sheet; no quick approve when paths are listed.
+- [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets; prompt history and drafts now done) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
+- [ ] Android: git view, branch/worktree picker, run on several agents, checks, approval notifications and list badges.
+- [ ] macOS sandbox for host commands.
+- [ ] Desktop: edit form for existing agents (sandbox, shell); host `[windows] shell` editable from the app.
+- [ ] Windows: test timeout tree-kill under the sandbox; model reviewer prompt should name the resolved shell.
+- [ ] Signed desktop installers (only when asked).
+
 ## Proposed, not started
 
-- [ ] Agent orchestrator module in `acpd` (delegation, supervisor approvals with phone escalation, built-in ACP bridge for remote agents). Design only: [orchestrator design](docs/orchestrator-design.md). Needs the user's go-ahead and phase 0 spec/agent checks before any code.
+- [ ] **Agent orchestrator, experimental on `experiment/orchestrator` (PR #45, ready for review; the desktop work is merged into it), off by default.** Phases 0-5 are implemented, including worktree isolation with the researched defaults and the phone merge (design sections 16-27). Linux, Windows and macOS CI (plus container and Windows reproducibility) pass: [run 38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and, with the phone merge, [run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409`. Remaining:
+  - Protocol-uniform handling (design §28) is implemented on this branch: no Goose-specific production paths; override layer is `ownTools` / shell_review / orchestrate|delegable only.
+  - [ ] Two-machine check with real TLS, and `goose serve` as a peer.
+  - [ ] Auto-approve ([design section 32](docs/orchestrator-design.md#32-host-side-auto-approve-15-october-2026)) is verified with a real Goose in a worktree on Windows, one run; not on Linux/macOS or a device, and its optional model reviewer only against a local fake server. Windows shell lines still always rate High (shell lines have their own `shell_review`).
+  - [ ] Dependency follow-ups from the `tokio-tungstenite` review (design section 30): `cargo audit` runs in CI (`audit.yml`); `cargo deny` not added; decide whether private-CA peers must be reachable (trust roots are the bundled web set only); the journal-lag cut-off and the reply-queue overflow in the bridge are untested.
+  - [ ] Run Linux and macOS CI (and an Android run) for `f123159` and the review fixes (design section 29); neither has run on them. Repository-configured filters, merge drivers and textconv are not blocked in worktree git calls (documented; refuse-when-configured is the next step if wanted).
+  - [ ] Worktrees: merge conflicts are refused (the phone shows the command to merge by hand), not resolved; submodule repositories get no worktree (section 31).
+  - [ ] Phone task views on a device: run [runbook §9](docs/emulator-runbook.md) (task tree, detail, worktree row, merge button, peer row, both themes, font 2.0, TalkBack). Built and JVM-tested only.
+  - [ ] Look at Penpot boards 53 and 54 (both themes) once image export works again: their two text flaws were fixed on 15 October and checked by measured geometry only.
+  - Decided against: a token budget (design section 23). Client reconnect is now built (section 31); not yet run on Linux/macOS or over real TLS between two machines.
+  - [ ] Before merge: ask the user whether to delete test sessions `20261013_2`-`_5` from their Goose history. (PR #45 is out of draft.)
 
 ## Host limits requiring further verification or a containment decision
 
@@ -23,7 +45,7 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 - [ ] Download the v0.1.3 binaries and run them: install with `install.ps1`/`install.sh`, open the tray, try both Uninstall items on a throwaway install, and check the shortcut/PATH are gone.
 - [ ] Real Linux check of agent discovery (nvm/fnm Node folders, `~/.local/bin`, snap/Linuxbrew) and the tray uninstall (desktop entry and links).
 - [ ] Phone check of the Add agent scan against a real host (user-owned).
-- [ ] Investigate the one-off `launcher.rs` "connection reset" failure on Linux CI; make the test retry the read if it recurs.
+- [ ] Windows CI: `windows_shell_choice_runs_lines_in_the_chosen_shell` got empty Git Bash output twice (runs 38907047097, 38910348900). Not reproduced in 300 diagnostic runs on CI or 25 local full-suite runs; Git's `binash.exe` waits for its inner shell, so the output exists before exit. The terminal pump now retries transient read errors (`WouldBlock`, `Interrupted`, Windows `ERROR_NO_DATA` from MSYS2 non-blocking pipes) instead of treating them as end of output, and drains for up to 5 s after exit instead of 1 s. Close after several clean Windows runs.
 - [ ] Download the v0.1.6 tray and try "Set up with Tailscale" through a real start-up (restart Tailscale, then set up), a switched-off Tailscale (the one-time `tailscale up` reconnect) and a signed-out one; none of these were exercised, only the scripted wait and a Ready machine. Also Linux and macOS.
 - [ ] Install `app-v0.1.5` (or newer) on a phone and try the Update screen's Follow switch, including the one-time uninstall when moving between debug builds and signed releases. Only the emulator against the real GitHub list was checked, and Download and install was not pressed.
 - [ ] Launcher icon of the downloaded `.apk` in a file manager: the `mipmap-anydpi-v26` change is unconfirmed on a real phone. Ask which file manager shows the wrong icon if it persists.

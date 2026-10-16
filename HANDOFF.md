@@ -1,5 +1,156 @@
 # ACP Portal agent handoff
 
+## Current handoff (16 October 2026, `experiment/orchestrator`, PR #45 into `main`)
+
+This section is the current handoff. The dated sections under [Earlier handoffs](#earlier-handoffs-historical) are history and may describe states that have since changed.
+
+### Branch state
+
+The stack is merged down to `experiment/orchestrator`. #48 (new-session composer) and #47 (phone/desktop handoff) went into `experiment/desktop`, and #46 (desktop) into `experiment/orchestrator`. PR #45 (`experiment/orchestrator` into `main`) is the only open PR of the stack and has not been merged. New work branches from `experiment/orchestrator` and goes back into it by PR.
+
+### What this branch adds (beyond `main`)
+
+The orchestrator (delegated tasks, supervisor, peer bridge, worktree isolation; off by default, see [orchestrator design](docs/orchestrator-design.md)) plus an Electron desktop client and the host features it needs:
+
+- **Desktop app** (`desktop/`): pairing, several hosts at once, sessions, approvals, task tree, diff review and merge, git view, run on several agents, pre-merge checklist, settings, themes.
+- **acpd additions**: scoped git API, session branch/worktree option, `POST /v1/checks`, host scope check on every terminal consent, OS sandbox for approved commands (bubblewrap on Linux, AppContainer on Windows), Windows shell choice (cmd, PowerShell, Git Bash).
+- **Phone/desktop handoff**: `takeover=true` on connect (`controlTakeover`), the replaced client keeps watching; shared drafts, titles and prompt history (`/v1/shared`, `sharedDrafts`). Android has the observer state and Take control.
+- **Agent probe**: `POST /v1/agents/{id}/probe` (`agentProbe`) for the composer's model/mode choices before a first session.
+- **Android** (`android/universal-acp/`): task views and the handoff changes; other desktop features are missing (see [Roadmap](#roadmap)).
+
+### Architecture
+
+| Part | Language | Role | Entry points |
+|---|---|---|---|
+| `acpd/` | Rust (tokio, axum) | The host. Runs ACP agents over stdio (or bridges remote ones), owns sessions, consents, terminals, files, git, checks, pairing and tokens. REST plus a WebSocket per session. | `src/main.rs` (CLI), `src/api.rs` (routes), `src/session.rs`, `src/connection.rs` (ACP actor, consents, `acpdScope`), `src/terminal.rs` (host terminals and sandbox), `src/shell.rs` (Windows shell choice), `src/win_sandbox.rs` (AppContainer launcher), `src/shell_review.rs` (auto-review and `outside_paths`), `src/api/git.rs`, `src/api/checks.rs`, `src/orchestrator/` |
+| `protocol/` | Rust | Shared wire types (`acportal_protocol`) | |
+| `desktop/` | TypeScript, Electron, React | Desktop client. All network access is in the main process; the renderer gets IPC only. | `electron/main.ts` (IPC, prefs, sealed secrets), `electron/host.ts` (REST and TLS rules), `electron/watch.ts` (background sockets for every host: approvals, notifications, `sendOnce`), `electron/git.ts`, `src/App.tsx`, `src/Session.tsx` (conversation and approval cards), `src/Multi.tsx` (runs, compare, checks, merge gate), `src/runs.ts`, `src/Git.tsx`, `src/Hosts.tsx`, `src/fleet.ts`, `src/Settings.tsx`, `src/acp.ts` (timeline reducer) |
+| `android/universal-acp/` | Kotlin, Compose | Phone client | `PortalViewModel.kt`, `HostApi.kt`, `SessionScreens.kt`, `TaskScreens.kt` |
+
+State: the host keeps its config in `config.toml` and `agents.json` (hand-written, never rewritten) and device-added folders and agents in `<state>/user-settings.json` (`userdata.rs`). Pairing tokens are in the state directory (`security.rs`). The desktop keeps hosts in `userData/hosts.json` (tokens in the OS keychain through `safeStorage`, or AES-GCM with a 0600 key file), prefs in `userData/prefs.json` (checks config, MCP servers with env/headers sealed), and prompt history and titles in renderer `localStorage`.
+
+### Feature map
+
+| Feature | Where | Docs |
+|---|---|---|
+| Several hosts, grouped sidebar, host switcher, live approvals from all hosts, notifications with Approve once | `desktop/src/Hosts.tsx`, `src/fleet.ts`, `electron/watch.ts` | [desktop-multi-host](docs/desktop-multi-host.md) |
+| New-session inline composer (chips, anchored dropdowns, docking, optimistic sidebar row, first prompt sent after start) | `desktop/src/NewSession.tsx`, `src/agentSetup.ts`, `src/App.tsx` (`openComposer`, `startFromComposer`, `probeAgent`), `acpd/src/api.rs` (`probe_agent`, `attach_setups`); tests `desktop/test/NewSession.test.tsx`, `acpd/tests/agent_probe.rs` | [desktop-composer](docs/desktop-composer.md) |
+| Form questions, attachments, prompt history, MCP editing, adding agents | `desktop/src/Session.tsx`, `src/App.tsx`, `src/Settings.tsx` | [desktop/README](desktop/README.md) |
+| Git view, branch picker, Learn mode | `desktop/src/Git.tsx`, `electron/git.ts`, `acpd/src/api/git.rs` | [protocol](docs/protocol.md) |
+| Session on a branch or its own worktree | `acpd/src/api.rs` (`branch` in `POST /v1/sessions`) | [protocol](docs/protocol.md) |
+| Run on several agents, compare, merge one, discard the rest | `desktop/src/Multi.tsx`, `src/runs.ts` | [desktop-runs-and-checks](docs/desktop-runs-and-checks.md) |
+| Pre-merge checklist (host checks plus AI review gate) | `desktop/src/Multi.tsx`, `acpd/src/api/checks.rs` | same |
+| Scope check (paths outside the workspace) | `acpd/src/shell_review.rs` (`outside_paths`), `connection.rs` (`annotate_agent_scope`) | [security](docs/security.md) |
+| OS sandbox for approved commands | `acpd/src/terminal.rs` (bwrap), `src/win_sandbox.rs` (AppContainer) | [security](docs/security.md), [agents](docs/agents.md) |
+| Windows shell choice | `acpd/src/shell.rs`, `src/config.rs` (`[windows]`), `src/registry.rs` (`shell`) | [agents](docs/agents.md#windows-shell) |
+| Phone/desktop handoff: take control of a session from the other device; the replaced client keeps watching live. Shared drafts, titles and folder prompt history (`/v1/shared`, `acpd/src/api/shared.rs`) | `acpd/src/api.rs` (`acquire_lease`, `control_taken`), `desktop/electron/host.ts`, `transport/WebSocketTransport.kt`, `SessionRecovery.kt` | [protocol](docs/protocol.md) |
+| Delegated tasks, supervisor, worktree merge | `acpd/src/orchestrator/` | [orchestrator-design](docs/orchestrator-design.md) |
+
+### Host API (summary)
+
+Full reference: [docs/protocol.md](docs/protocol.md). Authentication is a bearer token from pairing (`POST /v1/pair` with a one-use code from `acpd pair`); every other route needs it. `/v1/status` lists `features` (`formElicitation`, `git`, `sessionWorktree`, `checks`, `controlTakeover`, `sharedDrafts`, `agentProbe`, `orchestrator` when on).
+
+- `GET /v1/status`; `GET/POST /v1/agents`, `DELETE /v1/agents/{id}`, `POST /v1/agents/check`, `POST /v1/agents/locate`, `POST /v1/agents/{id}/probe`
+- `GET /v1/workspaces` (and add/remove), `GET /v1/filesystem/directories`, `GET /v1/workspaces/browse`
+- `GET/POST /v1/sessions`, `GET/DELETE /v1/sessions/{id}`, WebSocket `GET /v1/sessions/{id}/connect` (subprotocol `acpd.v1`; `after`, `readOnly`, `takeover`), `POST /v1/sessions/{id}/supervisor`
+- `GET /v1/tasks`, `GET /v1/tasks/{id}`, `POST /v1/tasks/{id}/cancel|merge|discard|supervisor/pause|supervisor/resume`
+- `GET /v1/shared`, `PUT /v1/shared/drafts/{id}`, `PUT /v1/shared/titles/{id}`, `POST /v1/shared/history`
+- `POST /v1/git/{op}` (status, log, diff, show, compare, add, add-all, commit, reset-soft, restore-staged, apply-cached(-reverse), checkout, checkout-theirs, branch-list/create/delete/rename, merge, merge-abort, merging, conflicts, stash-*, worktree-add/list/remove, push, reflog, remote-url, rev-parse; paths must be inside a workspace root or a task worktree)
+- `POST /v1/checks` (`{path, commands, timeoutSecs?}`)
+- `DELETE /v1/device` (unpair self), `GET /v1/peer/info` (peer bridge)
+
+ACP metadata the host adds: `_meta.acpdSource` (`host-terminal`, `host-shell-command`, `host-write`, …), `_meta.acpdScope {outsideWorkspace, sandboxed, shell?, shellNote?, agentTool?}`, `_meta.acpdWrite`, auto-review verdicts.
+
+### Security model
+
+- **Pairing and tokens:** one-use 60-second codes; device tokens with a role; HTTPS required for remote hosts, plain HTTP only on loopback.
+- **Consents:** host writes and host terminals need a person's approval (or an opt-in auto-review rule or model reviewer). Agents that use their own tools (`ownTools`) bypass host consents; the apps warn.
+- **Scope check (always on):** every host terminal consent lists paths outside the workspace; a non-empty list always needs a person, never auto-review. It is heuristic (no run-time paths).
+- **OS sandbox (per agent `sandbox: auto|off`, default auto):** Linux bubblewrap (system folders read-only, private `/tmp`, only the workspace writable, home hidden, network shared). Windows AppContainer through acpd's own launcher (`acpd __acpd-sandbox-exec`): per-command profile, inherited ACL grant on the workspace removed afterwards, `internetClient` and `privateNetworkClientServer` capabilities, kill-on-close job. macOS: none. Checks use the same sandbox.
+- **Windows shells:** cmd by default; PowerShell or Git Bash by setting. Git Bash (MSYS2) cannot start in the AppContainer, so sandboxed lines fall back to PowerShell with a card note.
+- **Secrets:** never in the repository, logs or command lines. Desktop MCP env/headers are sealed (AES-256-GCM) in prefs; tokens use the OS keychain. Agent provider keys live in the host's environment, never in the registry.
+
+### Build, run, test
+
+```bash
+# Host
+cargo fmt --all && cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings   # Windows code without linking (rustup target add x86_64-pc-windows-gnu)
+cargo test --workspace
+
+# Desktop
+cd desktop && npm install && npm run typecheck && npm test && npm run dev
+
+# Android
+cd android/universal-acp && ./gradlew testDebugUnitTest assembleDebug
+```
+
+Local host for the desktop: `acpd --config <dir>/config.toml start`, then `acpd --config <dir>/config.toml pair`, and enter `http://127.0.0.1:<port>` and the code in the app.
+
+**Live testing with Goose and DeepSeek (paid; keep it short).** The box has a scratch setup in `/workspace/desktop-run/` (`config.toml`, `agents.json` with Goose `acp` and `GOOSE_MODE=approve`, provider `openai`, model `deepseek-flash`, `OPENAI_HOST=https://api.deepseek.com`, and a scratch `HOME` at `/workspace/desktop-run/home` so the user's own Goose config is never touched). The key file is `/home/box/.config/deepseek-api-key`; pass it only through the environment of the host process, never echo or commit it:
+
+```bash
+cd /workspace/desktop-run
+OPENAI_API_KEY="$(cat /home/box/.config/deepseek-api-key)" /workspace/acportal/target/debug/acpd --config config.toml start > host.out 2>&1 &
+/workspace/acportal/target/debug/acpd --config config.toml pair    # code for the app
+```
+
+Screenshots from earlier runs are in `/workspace/desktop-shots/v6` to `v9` (on the shared box, not in the repository); the Penpot file has the desktop boards 55-99.
+
+**CI.** `rust.yml` runs Linux stable (fmt, clippy including the Windows target, tests) and Rust 1.88 on pull requests (drafts included). The Windows, macOS, container and reproducibility jobs run only for ready PRs or by hand. To verify Windows once on a draft PR, dispatch it with the extras and testy off to save minutes:
+
+```bash
+gh workflow run rust.yml --ref <branch> -f testy=false
+gh run list --workflow rust.yml --event workflow_dispatch --limit 1
+```
+
+`desktop.yml` typechecks, runs the node and Vitest component tests and builds the desktop app. `tray.yml` (ready PRs touching `tray/`, `acpd/` or `protocol/`) builds the tray with `--locked`, so `tray/Cargo.lock` must be refreshed (`cargo update -w --manifest-path tray/Cargo.toml`) when acpd's dependencies change. `audit.yml` runs `cargo audit`. Android workflows run only on Android changes.
+
+### Known gaps
+
+- macOS has no sandbox for host commands.
+- Windows sandbox: per-user programs (under `%USERPROFILE%`) cannot run inside it; the ACL grant walks the whole workspace per command; a host crash mid-command can leave an `S-1-15-2-…` ACL entry (harmless; `icacls` removes it); loopback to local services is blocked. Timeout tree-kill under the sandbox is not separately tested.
+- Git Bash only unsandboxed on Windows; tools started from inside a sandboxed line that are MSYS2 programs fail to start (only directly named ones are refused with a clear error). The model reviewer's prompt still names the default shell.
+- The scope check is heuristic.
+- Composer: the agent probe starts the agent once per host and agent, and the host forgets the probe cache on restart (sessions keep their own `setup`). Recent prompts show text only. The docked “Starting…” view is usually too brief to see on a fast host.
+- Checks config and MCP definitions live on each client, not on the host (drafts, titles and prompt history are shared since #47).
+- `terminal::tests::windows_shell_choice_runs_lines_in_the_chosen_shell` failed twice on Windows CI with empty Git Bash output; the terminal pump was hardened (see TODO) but the cause was never reproduced, so watch for it.
+- Android shows neither the scope/sandbox warning nor the shell note, and has no notifications (see roadmap).
+- No signed installers for the desktop app (AppImage builds locally only).
+- `tests/testy.rs` was relaxed to accept extra features; the testy job is not run on PRs.
+
+### Roadmap
+
+1. **Android outside-workspace warning** (about 1 day): read `_meta.acpdScope` in the shell approval sheet (`ShellApproval.kt`, `SessionScreens.kt`): red box with paths, "Sandboxed to the workspace", shell and `shellNote`; never offer quick approve when paths are listed.
+2. **Shared settings on the host** (about 6-8 days; drafts, titles and history are done in `/v1/shared`): move checks config and MCP definitions (with secrets) into `<state>/shared.json` with endpoints `GET/PUT /v1/checks/{workspace}`, `GET/POST /v1/mcp`, `PATCH/DELETE /v1/mcp/{id}`, `GET/POST /v1/history`, `DELETE /v1/history/{id}`, `mcpIds` in `POST /v1/sessions`, a change event, revision-based concurrency and a `sharedSettings` feature flag. Secrets in the OS keychain (`keyring`) or AES-GCM file fallback; only masked values (`{set, hint}`) are ever returned; the host injects them at session start. One-time migration from desktop prefs and Android storage with conflict rules (identical MCP entries merge, differing ones import as "name (device)", host checks win, history merges by time).
+3. **Android missing features** (from the audit on 16 October 2026):
+
+   | Feature | Android |
+   |---|---|
+   | Form questions, attachments, MCP editing (local), adding agents, prompt history (local), multi-host, delegated tasks and merge | Supported |
+   | Shell approval details, approval badges (in-session only) | Partial |
+   | Git view, branch/worktree picker, run on several agents, checks, scope/sandbox warnings, approval notifications | Missing |
+
+4. **macOS sandbox** for host commands (`sandbox-exec` profile or an alternative), same `sandbox: auto|off` setting.
+5. **Installers**: signed desktop builds (Windows, macOS, Linux) and a release workflow; currently out of scope until the user asks.
+
+### Constraints for agents working here
+
+- Commit as `0xbasinas <241305723+0xbasinas@users.noreply.github.com>`.
+- No force-push, no push to `main`, no rewriting pushed history. Push in few batches.
+- Keep GitHub Actions minutes low: Linux CI on PRs; run Windows/macOS by hand only when the change needs it, with extras and testy off.
+- Never print, log or commit secrets (DeepSeek key, tokens). Pass keys only through process environment.
+- Do not touch the user's own Goose config; use the scratch home.
+- Rust host changes stay minimal and tested; Windows code must compile on Linux (`--target x86_64-pc-windows-gnu`).
+- UI changes go into Penpot before acceptance.
+- No installers unless asked.
+
+## Earlier handoffs (historical)
+
+14 October 2026 protocol-uniform reform on `experiment/orchestrator` (draft PR #45): classification and permission options follow ACP only; `ownTools` is narrowed to agent-originated requests via `orchestrator/overrides.rs`; mock + testy protocol tests in `orchestrator_protocol.rs`; design §28 lists remaining exceptions. See that section and the latest commit on the branch.
+
+14 October 2026 orchestrator handoff: branch `experiment/orchestrator`, draft PR #45, everything pushed (head after `eb8f409` is docs only). Phases 0-5 are done, including worktree isolation (writers in a git repo get a worktree by default; a finished child's uncommitted work is committed to its branch and the folder removed; non-git folders run shared with a note) and the phone merge of a task's branch. Linux, Windows and macOS CI pass ([run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776)). Open: two-machine TLS, a device run of [runbook §9](docs/emulator-runbook.md), the Penpot board 53/54 flaws, the items in [TODO.md](TODO.md). Read [orchestrator design](docs/orchestrator-design.md) sections 16 and 22-27.
+
 11 October offline empty-history increment: owned actual MainActivity reproduced the missing 2× TalkBack body; the Penpot-backed shared scrolling body now passes dark/light at normal and actual 2× font. Preserve boards 32–35 and all consumed approval markers. The user requested finishing this increment, updating PR #16 and then pausing the goal. Do not start the remaining shell, motion or macOS work until resumed. [TODO](TODO.md) retains unfinished gates; [current evidence](docs/final-acceptance.md#native-page-state-traversal) records failures, fixes and limits.
 
 Earlier write/page-state source `b135c9f` is pushed to draft PR #16. Full [Android Actions 38135646596](https://github.com/0xbasinas/acportal/actions/runs/38135646596) passes JVM tests, both debug APKs and lint. All write approvals are consumed; write-3 completes with one agent and one matching host consent. Its initial empty-state failure is superseded only by the later verified fix above. See [current continuation](docs/final-acceptance.md).

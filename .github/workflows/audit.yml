@@ -1,0 +1,53 @@
+name: Audit
+# Dependency advisories (RustSec) checked against the locked versions in Cargo.lock.
+# Runs when a manifest or the lockfile changes, once a week (an advisory can appear any day,
+# whether or not anyone pushed), and by hand. It fails the run when an advisory applies to a
+# locked version. A knowingly accepted advisory goes in `.cargo/audit.toml` under
+# `[advisories] ignore = [...]`, with the reason written next to it.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "acpd/Cargo.toml"
+      - "protocol/Cargo.toml"
+      - ".cargo/audit.toml"
+      - ".github/workflows/audit.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "acpd/Cargo.toml"
+      - "protocol/Cargo.toml"
+      - ".cargo/audit.toml"
+      - ".github/workflows/audit.yml"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  audit:
+    name: cargo audit (RustSec advisories)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      # Pinned, so a new release of the tool cannot change what this check means. Built from
+      # source with its own lockfile.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Check the locked dependencies against the advisory database
+        run: cargo audit

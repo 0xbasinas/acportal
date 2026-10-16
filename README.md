@@ -1,6 +1,6 @@
 # ACP Portal
 
-Use the coding agents on your computer from your phone. The **host** (`acpd`) runs on your laptop, starts the agent CLIs you register, and keeps them contained to folders you allow. The **Android app** pairs with it over HTTPS and shows the conversation, tool output, diffs and approval requests, so you can steer an agent from the couch and approve every file write and shell command from your pocket.
+Use the coding agents on your computer from your phone. The **host** (`acpd`) runs on your laptop, starts the agent CLIs you register, and keeps them contained to folders you allow. The **Android app** pairs with it over HTTPS and shows the conversation, tool output, diffs and approval requests, so you can steer an agent from the couch and approve every file write and shell command from your pocket. An experimental **desktop app** (Electron, `desktop/`) does the same from Windows, macOS or Linux, for several hosts at once; a session can move between phone and desktop with **Take control**.
 
 It speaks the open [Agent Client Protocol](https://agentclientprotocol.com) (ACP), so it works with any agent that does. **You register the agents you want; none are built in.**
 
@@ -72,16 +72,19 @@ Folders and agents you add from the phone are kept in `user-settings.json` in th
 - **Review before anything happens.** File writes show a diff and wait for your approval; terminal commands show the exact line. Opt-in rules can auto-approve safe lines such as running tests. See [security](docs/security.md).
 - **Contained.** Agents only get folders you allow, with symlink and path-escape checks; you can add or remove folders from the phone.
 - **Survives your phone sleeping.** Sessions keep running on the computer; the phone reconnects and replays what it missed, never repeating a prompt or a decision. Saved conversations open offline.
+- **Phone and desktop together.** One device controls a session at a time; the other watches live and can take control. Drafts, titles and prompt history are shared through the host.
+- **Sandboxed commands (opt-in).** Approved commands can run in bubblewrap (Linux) or an AppContainer (Windows); on Windows you can pick cmd, PowerShell or Git Bash. See [agents](docs/agents.md) and [security](docs/security.md).
 - **A real conversation view.** Streaming Markdown, tool cards, thoughts, plans, attachments, a searchable model picker, light and dark themes, and TalkBack support.
 
 ## Build from source
 
-Requires Rust 1.88 or newer for the host, JDK 21 for the Android app.
+Requires Rust 1.88 or newer for the host, JDK 21 for the Android app, Node 22 for the desktop app.
 
 ```sh
 cargo build --locked --release -p acpd            # the host
 cargo build --locked --release --manifest-path tray/Cargo.toml    # the tray (needs GTK 3 dev packages on Linux)
 cd android/universal-acp && ./gradlew :app:assembleDebug           # the app (gradlew.bat on Windows)
+cd desktop && npm ci && npm test && npm run build                  # the desktop app (Node 22)
 cargo test --locked --workspace --all-targets
 ```
 
@@ -94,6 +97,7 @@ acpd/                  Rust host library, command line, mock agent and tests
 protocol/              Shared Rust protocol types (ACP v1)
 tray/                  System-tray controller for the host (its own Cargo workspace)
 android/universal-acp/ Compose Android app and the independently tested JVM protocol module
+desktop/               Electron desktop client (React + TypeScript), experimental
 scripts/               install.ps1 and install.sh, developer and test scripts
 assets/logo/           Logo SVGs
 docs/                  Architecture, protocol, security, UI guide and acceptance evidence
@@ -108,10 +112,12 @@ examples/              Example configuration and disabled agent templates
 - [Installation and TLS](docs/installation.md), [native setup and background mode](docs/native-cli-and-motion.md), [reload rules](docs/daemon-and-reload.md), [pairing](docs/pairing-and-markdown.md)
 - [Android app](docs/android.md), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
 - [Development and testing](docs/development.md), [real-agent testing](docs/real-agent-testing.md), [acceptance report](docs/acceptance-report.md)
+- [Orchestrator experiment (delegation, supervisor, peer bridge, worktree isolation and phone merge; off by default, PR #45)](docs/orchestrator-design.md), [status](docs/orchestrator-design.md#16-implementation-status-branch-experimentorchestrator)
+- Desktop app (experimental): [desktop/README](desktop/README.md), [new-session composer](docs/desktop-composer.md), [several hosts](docs/desktop-multi-host.md), [runs and pre-merge checks](docs/desktop-runs-and-checks.md), [agent handoff](HANDOFF.md)
 - [Contributor context](AGENTS.md), [open work](TODO.md), [completed work and evidence](TODO_DONE.md), [user-reported issues](USER_ISSUES.md)
 
 ## Status
 
-Not production complete. The host and the Android app work end to end and pass their automated tests, but several acceptance checks have not been done: real-phone testing (trusted TLS, networking changes, token expiry), gesture-driven Back animation, macOS cleanup after an abrupt host death, and signed releases. [TODO.md](TODO.md) has the exact open items; the dated history of what changed and what was verified is in the [CHANGELOG](CHANGELOG.md).
+Not production complete. The orchestrator, the desktop client, phone/desktop handoff, host scope checks, the OS sandbox for approved commands (Linux bubblewrap, Windows AppContainer) and the Windows shell choice are on `experiment/orchestrator` (PR #45, not yet on `main`); see [HANDOFF](HANDOFF.md). The host and the Android app work end to end and pass their automated tests, but several acceptance checks have not been done: real-phone testing (trusted TLS, networking changes, token expiry), gesture-driven Back animation, macOS cleanup after an abrupt host death, and signed releases. [TODO.md](TODO.md) has the exact open items; the dated history of what changed and what was verified is in the [CHANGELOG](CHANGELOG.md).
 
 ACP v1 details follow the [official protocol repository](https://github.com/agentclientprotocol/agent-client-protocol). This project pins `agent-client-protocol-schema` 1.10.2 and negotiates wire version 1.

@@ -1,4 +1,4 @@
-use crate::shell_review::ShellReviewConfig;
+use crate::{auto_approve::AutoApproveConfig, shell_review::ShellReviewConfig};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,6 +16,182 @@ pub struct Config {
     /// Opt-in automatic review of agent shell lines, keyed by agent id. Absent = off:
     /// every shell line needs explicit phone approval.
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
+    /// Per-agent host-side auto-approval of permission requests (off for an agent not listed).
+    pub auto_approve: BTreeMap<String, AutoApproveConfig>,
+    /// Experimental agent-to-agent delegation. Off by default.
+    pub orchestrator: OrchestratorConfig,
+    /// Windows hosts only: which shell runs host shell lines and checks.
+    pub windows: crate::shell::WindowsConfig,
+}
+
+/// Experimental delegation between agents (see `docs/orchestrator-design.md`). Changes apply to
+/// sessions and tasks started after a reload; running sessions keep what they were launched with.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OrchestratorConfig {
+    pub enabled: bool,
+    /// Agent ids whose sessions get the delegation tools (an MCP server added to `session/new`).
+    pub orchestrate: Vec<String>,
+    /// Agent ids that other agents may delegate to.
+    pub delegable: Vec<String>,
+    pub max_depth: u8,
+    pub max_children_per_task: usize,
+    pub max_tasks_total: usize,
+    /// Applied when a delegation names no deadline.
+    pub default_deadline_seconds: u64,
+    /// A task that has produced no event for this long, and is not waiting for a person, is
+    /// cancelled and ends failed.
+    pub idle_timeout_seconds: u64,
+    /// Stop a task whose cumulative cost, as the agent reports it in USD, goes over this.
+    /// 0 turns it off. An agent that reports no cost, or one in another currency, is unmetered
+    /// and cannot be held to it.
+    pub task_max_cost_usd: f64,
+    /// Prompts one task may be given: its first and every `task_send` follow-up. 0 turns it
+    /// off. A follow-up past the limit is refused and the task stays completed.
+    pub max_turns_per_task: u32,
+    /// How long a finished child task's session is kept (so a follow-up can still be sent)
+    /// before it is ended. 0 keeps it until its root session is removed.
+    pub finished_child_keep_seconds: u64,
+    /// Highest risk a supervising agent may approve for its sub-tasks. `none` leaves every
+    /// permission request to the phone; `high` is not allowed.
+    pub supervisor_max_risk: SupervisorRisk,
+    /// How long after a request appears the supervisor may still answer it. After that only the
+    /// phone can.
+    pub supervisor_timeout_seconds: u64,
+    /// Largest edit (bytes) still rated medium risk.
+    pub max_edit_bytes: usize,
+    /// Agent ids that paired peer hosts may use through `/acp/{agent_id}`. Empty: none.
+    pub peer_agents: Vec<String>,
+    /// Workspaces peers may name, by alias. A peer never supplies or sees a path.
+    pub peer_workspaces: BTreeMap<String, PathBuf>,
+    /// The most a peer's sessions may be allowed to do on this host. A peer may ask for less.
+    pub peer_rights: PeerRights,
+    /// How long a bridge session survives its socket, so the peer can reattach with
+    /// `session/load`. 0 removes it at once.
+    pub bridge_resume_seconds: u64,
+    /// Interval between WebSocket pings and credential re-checks on a bridge connection.
+    pub bridge_ping_seconds: u64,
+    /// How long one frame or ping may take to be written to a bridge peer before the connection
+    /// is closed. A peer that has stopped reading is also cut off as soon as its 256-frame
+    /// outbox is full, whichever comes first.
+    pub bridge_send_timeout_seconds: u64,
+    /// How long a lost link to another host (a `transport = "ws"` agent) is retried before its
+    /// session ends. The far host must keep the session that long too (its `bridge_resume_seconds`)
+    /// and must number its journal frames (an acpd 0.1.x with reattach support). 0 turns it off.
+    pub peer_reconnect_seconds: u64,
+    /// Isolation of a delegated task that does not ask for one. `worktree` (default) gives a task
+    /// with the write right its own git worktree when its folder is in a git repository, and runs
+    /// it in the folder itself when it is not; `shared` always runs it in the folder.
+    pub default_isolation: DefaultIsolation,
+    /// The most unmerged `acpd/task-*` branches one repository may hold (kept ones and ones in
+    /// use). At the limit a task that wants a worktree is refused (the default isolation falls
+    /// back to the shared folder with a note); nothing is deleted to make room. 0 means no limit.
+    pub max_task_branches: u32,
+    /// What happens to a finished worktree task's uncommitted changes: `commit` (default) commits
+    /// them to the task's branch and removes the worktree; `keep` leaves the worktree on disk.
+    pub worktree_uncommitted: crate::orchestrator::worktree::Uncommitted,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DefaultIsolation {
+    Shared,
+    #[default]
+    Worktree,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeerRights {
+    pub read: bool,
+    pub write: bool,
+    pub terminal: bool,
+}
+impl Default for PeerRights {
+    fn default() -> Self {
+        Self {
+            read: true,
+            write: false,
+            terminal: false,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SupervisorRisk {
+    None,
+    Low,
+    #[default]
+    Medium,
+}
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            orchestrate: vec![],
+            delegable: vec![],
+            max_depth: 2,
+            max_children_per_task: 4,
+            max_tasks_total: 8,
+            default_deadline_seconds: 1800,
+            idle_timeout_seconds: 300,
+            task_max_cost_usd: 0.0,
+            max_turns_per_task: 0,
+            finished_child_keep_seconds: 600,
+            supervisor_max_risk: SupervisorRisk::default(),
+            supervisor_timeout_seconds: 60,
+            max_edit_bytes: 256 * 1024,
+            peer_agents: vec![],
+            peer_workspaces: BTreeMap::new(),
+            peer_rights: PeerRights::default(),
+            bridge_resume_seconds: 120,
+            bridge_ping_seconds: 20,
+            bridge_send_timeout_seconds: 5,
+            peer_reconnect_seconds: 60,
+            default_isolation: DefaultIsolation::default(),
+            max_task_branches: 50,
+            worktree_uncommitted: Default::default(),
+        }
+    }
+}
+impl OrchestratorConfig {
+    fn validate(&self) -> Result<()> {
+        if !(1..=5).contains(&self.max_depth)
+            || !(1..=16).contains(&self.max_children_per_task)
+            || !(1..=64).contains(&self.max_tasks_total)
+            || !(1..=86_400).contains(&self.default_deadline_seconds)
+            || !(1..=3600).contains(&self.idle_timeout_seconds)
+            || !self.task_max_cost_usd.is_finite()
+            || self.task_max_cost_usd < 0.0
+            || self.finished_child_keep_seconds > 86_400
+            || self.max_turns_per_task > 1000
+            || self.max_task_branches > 10_000
+            || !(1..=600).contains(&self.supervisor_timeout_seconds)
+            || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
+        {
+            bail!("invalid orchestrator limits")
+        }
+        if self.orchestrate.len() > 64 || self.delegable.len() > 64 || self.peer_agents.len() > 64 {
+            bail!("too many orchestrator agents")
+        }
+        if self.bridge_resume_seconds > 3600
+            || !(5..=120).contains(&self.bridge_ping_seconds)
+            || !(1..=600).contains(&self.bridge_send_timeout_seconds)
+            || self.peer_reconnect_seconds > 600
+        {
+            bail!("invalid bridge timers")
+        }
+        if self.peer_workspaces.len() > 32
+            || self.peer_workspaces.keys().any(|alias| {
+                alias.is_empty()
+                    || alias.len() > 32
+                    || !alias.bytes().all(|b| {
+                        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_'
+                    })
+            })
+        {
+            bail!("peer workspace aliases must be 1..32 characters of a-z, 0-9, '-' or '_'")
+        }
+        Ok(())
+    }
 }
 
 /// Optional bounded file sink for host lifecycle logs. Stderr output is unchanged.
@@ -98,6 +274,9 @@ impl Default for Config {
             state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
+            auto_approve: BTreeMap::new(),
+            orchestrator: OrchestratorConfig::default(),
+            windows: Default::default(),
         }
     }
 }
@@ -221,6 +400,7 @@ impl Config {
         {
             bail!("invalid history limits")
         }
+        self.orchestrator.validate()?;
         let logging = &self.logging;
         if !(64 * 1024..=64 * 1024 * 1024).contains(&logging.max_file_bytes) {
             bail!("log file size must be 64 KiB..64 MiB")
@@ -248,6 +428,19 @@ impl Config {
                 .validate()
                 .with_context(|| format!("shell_review.{agent}"))?;
         }
+        for (agent, policy) in &self.auto_approve {
+            if agent.is_empty()
+                || agent.len() > 64
+                || !agent
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                bail!("auto_approve keys must be agent ids")
+            }
+            policy
+                .validate()
+                .with_context(|| format!("auto_approve.{agent}"))?;
+        }
         Ok(())
     }
     pub fn workspace(&self, requested: &Path) -> Result<PathBuf> {
@@ -264,6 +457,27 @@ impl Config {
             if path.starts_with(root) {
                 return Ok(path);
             }
+        }
+        bail!("workspace is outside configured workspace_roots; configure an explicit root")
+    }
+    /// Where delegated tasks' git worktrees live: inside the host's state, never inside a
+    /// workspace root, so a parent agent cannot reach a child's worktree through its own folder.
+    pub fn worktree_root(&self) -> PathBuf {
+        self.state_directory.join("worktrees")
+    }
+    /// A folder a delegated task may run in: a workspace as for any session, or a folder inside
+    /// one of this host's task worktrees. Phone-started sessions never use this.
+    pub fn task_workspace(&self, requested: &Path) -> Result<PathBuf> {
+        if let Ok(path) = self.workspace(requested) {
+            return Ok(path);
+        }
+        let path = requested
+            .canonicalize()
+            .context("workspace does not exist or is inaccessible")?;
+        let root = self.worktree_root();
+        let root = root.canonicalize().unwrap_or(root);
+        if path.is_dir() && path.starts_with(&root) && path != root {
+            return Ok(path);
         }
         bail!("workspace is outside configured workspace_roots; configure an explicit root")
     }

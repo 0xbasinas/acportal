@@ -55,6 +55,10 @@ enum Commands {
     DaemonWorker,
     /// Generate a one-use pairing code through the local operator store.
     Pair {
+        /// `phone` manages this host from the app. `peer` is another acpd host that may only use
+        /// the agent bridge (`/acp`); it cannot reach any phone management route.
+        #[arg(long, value_enum, default_value = "phone", conflicts_with_all = ["qr", "manual"])]
+        role: PairRole,
         /// Phone-reachable HTTPS address (for example a Tailscale Serve address).
         #[arg(long)]
         address: Option<String>,
@@ -72,6 +76,20 @@ enum Commands {
     Devices,
     /// Revoke a paired device, including its open sockets at the next heartbeat.
     Revoke { id: uuid::Uuid },
+    /// Show the delegated tasks this host has recorded, read from its saved task records.
+    ///
+    /// Works whether the host is running or not and shows the last state written. After a
+    /// restart, tasks that were still open show as failed ("interrupted"); nothing is restarted.
+    Tasks {
+        /// Print the records as JSON instead of a table.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Manage the other hosts this computer connects to as a client (agents on another host).
+    Peer {
+        #[command(subcommand)]
+        action: PeerAction,
+    },
     /// Read authenticated host status with a token supplied through ACPD_TOKEN.
     Status {
         #[arg(long, default_value = "http://127.0.0.1:8765")]
@@ -98,6 +116,9 @@ enum Commands {
         #[arg(long, requires = "agent")]
         prompt_check: bool,
     },
+    /// Run the experimental MCP delegation server for an agent session. Started by the host, not by hand.
+    #[command(hide = true)]
+    McpDelegate,
     /// Print effective non-secret host configuration. Does not overwrite files.
     Config,
     /// Verify ACP initialization without sending a prompt or starting a model request.
@@ -120,6 +141,65 @@ enum Commands {
     },
 }
 #[derive(Subcommand)]
+enum PeerAction {
+    /// Pair with another acpd host, or save the shared secret of a server that is not acpd.
+    ///
+    /// For acpd, run `acpd pair --role peer` on the other host and give the code it prints here
+    /// within 60 seconds. For anything else, name the header and the environment variable that
+    /// holds its secret. The credential is stored owner-only and sent only to this address.
+    Add {
+        /// A short name for this peer (a-z, 0-9, '-' or '_'), used by registry entries.
+        #[arg(long)]
+        name: String,
+        /// The other host's address, such as https://laptop.example:8765.
+        #[arg(long)]
+        address: String,
+        /// The pairing code. Prefer --code-env: a command line is kept in shell history.
+        #[arg(long, conflicts_with_all = ["code_env", "header"])]
+        code: Option<String>,
+        /// The environment variable that holds the pairing code.
+        #[arg(long, conflicts_with = "header")]
+        code_env: Option<String>,
+        /// For a server that is not acpd: the header that carries its shared secret.
+        #[arg(long, requires = "secret_env")]
+        header: Option<String>,
+        /// The environment variable that holds that secret (never put it on the command line).
+        #[arg(long, requires = "header")]
+        secret_env: Option<String>,
+        /// The name the other host shows for this computer (default: this computer's name).
+        #[arg(long = "as")]
+        device_name: Option<String>,
+    },
+    /// List the peers: names, addresses and the kind of credential, never the secret.
+    List,
+    /// Forget a peer. This does not revoke the credential on the other host.
+    Remove { name: String },
+}
+/// "5s ago", "12m ago", "3h ago", "2d ago".
+fn ago(unix: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    match now.saturating_sub(unix) {
+        seconds if seconds < 60 => format!("{seconds}s ago"),
+        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
+        seconds if seconds < 86_400 => format!("{}h ago", seconds / 3600),
+        seconds => format!("{}d ago", seconds / 86_400),
+    }
+}
+fn computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "acpd host".into())
+}
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum PairRole {
+    Phone,
+    Peer,
+}
+#[derive(Subcommand)]
 enum DaemonAction {
     /// Start the saved host in the background.
     Start,
@@ -132,11 +212,35 @@ enum DaemonAction {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(windows)]
+    if std::env::args_os().nth(1).as_deref() == Some(acpd::win_sandbox::LAUNCHER_ARG.as_ref()) {
+        std::process::exit(acpd::win_sandbox::launcher_main());
+    }
+    acpd::win_sandbox::enable_launcher();
     let cli = Cli::parse();
     let profile_path = cli
         .profile
         .clone()
         .unwrap_or_else(|| default_directory().join("launcher.json"));
+    if let Commands::McpDelegate = &cli.command {
+        // Only MCP messages may reach stdout; diagnostics go to stderr. The task token is read from
+        // the environment (never an argument) and is not printed.
+        let path = std::env::var_os("ACPD_CONTROL").context("ACPD_CONTROL is not set")?;
+        let token = std::env::var("ACPD_TASK_TOKEN").context("ACPD_TASK_TOKEN is not set")?;
+        let stream = acpd::orchestrator::control::connect(std::path::Path::new(&path))
+            .await
+            .context("cannot reach the host control channel")?;
+        let backend = acpd::orchestrator::control::ControlBackend::new(stream, token);
+        {
+            // Tell the host the delegation tools really started. Failure is not fatal: the tools
+            // still work, the host just cannot show that they connected.
+            use acpd::orchestrator::delegate::Backend as _;
+            let _ = backend.call("_hello", serde_json::json!({})).await;
+        }
+        acpd::orchestrator::delegate::serve(tokio::io::stdin(), tokio::io::stdout(), &backend)
+            .await?;
+        return Ok(());
+    }
     if let Commands::Setup { address, name } = &cli.command {
         // Without --config the settings live in the standard per-user folder, created on first use.
         let config = match &cli.config {
@@ -253,6 +357,7 @@ async fn main() -> Result<()> {
     let foreground = matches!(&cli.command, Commands::Start { background: false });
     match cli.command {
         Commands::Setup { .. } => unreachable!("setup handled before host initialization"),
+        Commands::McpDelegate => unreachable!("mcp-delegate handled before host initialization"),
         Commands::Start { background: false } | Commands::DaemonWorker => {
             if foreground {
                 println!(
@@ -270,6 +375,7 @@ async fn main() -> Result<()> {
             unreachable!("daemon command handled before host initialization")
         }
         Commands::Pair {
+            role,
             address,
             qr,
             manual,
@@ -301,8 +407,17 @@ async fn main() -> Result<()> {
                 }
             }
             let store = SecurityStore::open(&config.state_directory)?;
-            let code = store.new_pairing_code()?;
+            let role = match role {
+                PairRole::Phone => acpd::security::Role::Phone,
+                PairRole::Peer => acpd::security::Role::Peer,
+            };
+            let code = store.new_pairing_code_for(role)?;
             println!("Pairing code: {}\nExpires in 60 seconds.", code);
+            if role == acpd::security::Role::Peer {
+                println!(
+                    "Role: peer. The paired host can use the agent bridge only, not phone management."
+                );
+            }
             if let Some(address) = address {
                 println!("Host address: {address}");
                 if qr {
@@ -323,6 +438,125 @@ async fn main() -> Result<()> {
         Commands::Revoke { id } => {
             SecurityStore::open(&config.state_directory)?.revoke(id)?;
             println!("Device revoked.");
+        }
+        Commands::Tasks { json } => {
+            let records = acpd::orchestrator::records::load(&config.state_directory)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&records)?);
+            } else if records.is_empty() {
+                println!("No tasks recorded.");
+            } else {
+                println!(
+                    "{:<9} {:<9} {:<16} {:<14} {:<10} NOTE",
+                    "TASK", "PARENT", "AGENT", "STATE", "UPDATED"
+                );
+                for record in &records {
+                    println!(
+                        "{:<9} {:<9} {:<16} {:<14} {:<10} {}",
+                        &record.id.to_string()[..8],
+                        record
+                            .parent
+                            .map_or("-".into(), |id| id.to_string()[..8].to_owned()),
+                        record.agent.chars().take(16).collect::<String>(),
+                        record.state,
+                        ago(record.updated_at),
+                        record.summary.as_deref().unwrap_or("")
+                    );
+                }
+            }
+        }
+        Commands::Peer { action } => {
+            use acpd::peers::{Peer, PeerAuth, PeerStore, origin_of};
+            let store = PeerStore::open(&config.state_directory);
+            match action {
+                PeerAction::List => {
+                    println!("{}", serde_json::to_string_pretty(&store.summaries()?)?)
+                }
+                PeerAction::Remove { name } => {
+                    if !store.remove(&name)? {
+                        bail!("no peer named {name}")
+                    }
+                    println!(
+                        "Peer {name} removed. The other host still lists this computer as a paired device; revoke it there (acpd revoke <id>) if it should lose access."
+                    );
+                }
+                PeerAction::Add {
+                    name,
+                    address,
+                    code,
+                    code_env,
+                    header,
+                    secret_env,
+                    device_name,
+                } => {
+                    let origin = origin_of(&address)?;
+                    // Check everything that can be checked here before a one-use code is spent.
+                    let paired_with_code = header.is_none();
+                    let auth = match (header, secret_env) {
+                        (Some(header), Some(variable)) => PeerAuth::Header {
+                            name: header,
+                            value: std::env::var(&variable)
+                                .ok()
+                                .filter(|value| !value.is_empty())
+                                .with_context(|| {
+                                    format!("the environment variable {variable} is not set")
+                                })?,
+                        },
+                        // A stand-in with the right shape, replaced once the code is spent.
+                        _ => PeerAuth::Bearer {
+                            token: "0".repeat(64),
+                        },
+                    };
+                    let mut peer = Peer {
+                        name: name.clone(),
+                        origin: origin.clone(),
+                        auth,
+                        device_id: None,
+                    };
+                    store.check_can_add(&peer)?;
+                    if paired_with_code {
+                        let code = match (code, code_env) {
+                            (Some(code), _) => code,
+                            (None, Some(variable)) => std::env::var(&variable)
+                                .ok()
+                                .filter(|value| !value.trim().is_empty())
+                                .with_context(|| {
+                                    format!("the environment variable {variable} is not set")
+                                })?,
+                            (None, None) => {
+                                use std::io::IsTerminal;
+                                if !std::io::stdin().is_terminal() {
+                                    bail!("give the pairing code with --code-env (or --code)")
+                                }
+                                operator_input(
+                                    "Pairing code from the other host (acpd pair --role peer)",
+                                )?
+                            }
+                        };
+                        let (token, device_id) = acpd::peer_cli::redeem(
+                            &origin,
+                            code.trim(),
+                            &device_name.unwrap_or_else(computer_name),
+                        )
+                        .await?;
+                        peer.auth = PeerAuth::Bearer { token };
+                        peer.device_id = device_id;
+                    }
+                    let device_id = peer.device_id;
+                    store.add(peer)?;
+                    println!(
+                        "Peer {name} added for {origin}. The credential is stored owner-only and is sent only to that address."
+                    );
+                    if let Some(id) = device_id {
+                        println!(
+                            "On the other host this computer is device {id}; revoke it there with: acpd revoke {id}"
+                        );
+                    }
+                    println!(
+                        "To use an agent there, add a registry entry such as:\n  {{\"id\":\"{name}-agent\",\"name\":\"Agent on {name}\",\"transport\":\"ws\",\"url\":\"{origin}/acp/AGENT_ID\",\"peer\":\"{name}\",\"workspaceAlias\":\"ALIAS\"}}\nAGENT_ID and ALIAS must be shared with peers on the other host (peer_agents and peer_workspaces in its [orchestrator] settings)."
+                    );
+                }
+            }
         }
         Commands::Status { address } => host_query(&address, "/v1/status").await?,
         Commands::Sessions { address } => host_query(&address, "/v1/sessions").await?,

@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     registry::{AgentDefinition, Registry},
-    security::{Device, SecurityStore},
+    security::{Device, Role, SecurityStore},
     session::{AcpSession, SessionManager, SessionMetadata},
     userdata::{UserData, plain_path},
 };
@@ -24,27 +24,38 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
+
+mod bridge;
+mod checks;
+mod git;
+mod shared;
 
 #[derive(Clone)]
 pub struct Host {
     pub config: Arc<Config>,
     pub registry: Arc<Registry>,
     pub sessions: Arc<SessionManager>,
+    orchestrator: Arc<crate::orchestrator::Orchestrator>,
+    bridge: Arc<bridge::BridgeState>,
     pub security: SecurityStore,
     gateways: Arc<AsyncMutex<HashMap<Uuid, Arc<Gateway>>>>,
     /// Serializes phone-initiated changes to folders (read, change, save, reload).
     user_changes: Arc<AsyncMutex<()>>,
+    /// Drafts, titles and prompt history shared by the phone and the desktop.
+    shared: Arc<Mutex<shared::Store>>,
+    /// Modes, models and config options each agent reported in a probe (`POST /v1/agents/{id}/probe`).
+    agent_setups: Arc<Mutex<HashMap<String, Value>>>,
 }
 struct Gateway {
-    controller: AtomicBool,
+    /// Current controller: lease generation and whether another client may take it over.
+    controller: Mutex<Option<(u64, bool)>>,
+    /// Broadcasts the controlling generation (0 = none) so a replaced controller can step down.
+    owner: tokio::sync::watch::Sender<u64>,
     requests: Mutex<VecDeque<CachedRequest>>,
     cache_bytes: usize,
     result_reserve: usize,
@@ -116,12 +127,19 @@ mod cache_tests {
 }
 struct Lease {
     gateway: Arc<Gateway>,
+    generation: u64,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.gateway.controller.store(false, Ordering::Release);
+        let mut controller = self.gateway.controller.lock().unwrap();
+        // A lease that was taken over must not release its successor.
+        if controller.is_some_and(|(generation, _)| generation == self.generation) {
+            *controller = None;
+            self.gateway.owner.send_replace(0);
+        }
     }
 }
+static LEASE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 #[derive(Clone)]
 struct Authorized {
     device: Device,
@@ -152,14 +170,37 @@ impl Host {
             registry.clone(),
             security.directory(),
         )?);
+        let orchestrator = crate::orchestrator::Orchestrator::new(Arc::downgrade(&sessions));
+        sessions.attach_orchestrator(orchestrator.clone());
+        // Tasks an earlier run left open are shown as failed by the restart; nothing is resumed.
+        orchestrator.restore(&config.state_directory);
         Ok(Self {
-            config: Arc::new(config),
             registry: Arc::new(registry),
             sessions,
+            orchestrator,
+            bridge: Arc::new(bridge::BridgeState::default()),
             security,
             gateways: Arc::new(AsyncMutex::new(HashMap::new())),
             user_changes: Arc::new(AsyncMutex::new(())),
+            shared: Arc::new(Mutex::new(shared::Store::load(&config.state_directory))),
+            config: Arc::new(config),
+            agent_setups: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+    /// The delegation orchestrator, for embedders and tests that drive it directly.
+    pub fn orchestrator(&self) -> &Arc<crate::orchestrator::Orchestrator> {
+        &self.orchestrator
+    }
+    /// Start the control channel agents' delegate processes connect to, if delegation is on.
+    /// Dropping the returned endpoint stops it. `serve` calls this once; it is public so a
+    /// host can be driven without a listener.
+    pub fn start_control_channel(&self) -> Result<Option<crate::orchestrator::control::Endpoint>> {
+        if !self.config.orchestrator.enabled {
+            return Ok(None);
+        }
+        crate::orchestrator::control::start(self.orchestrator.clone(), &self.config.state_directory)
+            .map(Some)
+            .context("start the delegation control channel")
     }
     pub fn router(&self) -> Router {
         let protected = Router::new()
@@ -168,6 +209,7 @@ impl Host {
             .route("/v1/agents/check", post(check_agent))
             .route("/v1/agents/locate", post(locate_agents))
             .route("/v1/agents/{id}", delete(remove_agent))
+            .route("/v1/agents/{id}/probe", post(probe_agent))
             .route(
                 "/v1/workspaces",
                 get(workspaces).post(add_workspace).delete(remove_workspace),
@@ -177,10 +219,52 @@ impl Host {
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
             .route("/v1/sessions/{id}/connect", get(connect))
+            .route("/v1/sessions/{id}/supervisor", post(set_supervisor))
+            .route("/v1/tasks", get(list_tasks))
+            .route("/v1/tasks/{id}", get(task_detail))
+            .route("/v1/tasks/{id}/cancel", post(cancel_task))
+            .route("/v1/tasks/{id}/merge", post(merge_task))
+            .route("/v1/tasks/{id}/discard", post(discard_task))
+            .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
+            .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
+            .route("/v1/checks", post(checks::run))
+            .route("/v1/shared", get(shared::get))
+            .route(
+                "/v1/shared/drafts/{id}",
+                axum::routing::put(shared::put_draft),
+            )
+            .route(
+                "/v1/shared/titles/{id}",
+                axum::routing::put(shared::put_title),
+            )
+            .route("/v1/shared/history", post(shared::add_history))
+            .route(
+                "/v1/git/{op}",
+                post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
+            )
             .route("/v1/device", delete(revoke_self))
+            .route_layer(middleware::from_fn(phones_only))
+            .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
+        // Standard ACP over a WebSocket for paired peer hosts. Streamable HTTP is not offered.
+        let bridge = Router::new()
+            .route("/v1/peer/info", get(bridge::info))
+            .route(
+                "/acp",
+                get(bridge::agent_required)
+                    .post(bridge::not_supported)
+                    .delete(bridge::not_supported),
+            )
+            .route(
+                "/acp/{agent_id}",
+                get(bridge::upgrade)
+                    .post(bridge::not_supported)
+                    .delete(bridge::not_supported),
+            )
+            .route_layer(middleware::from_fn(peers_only))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
         Router::new()
             .merge(protected)
+            .merge(bridge)
             .route("/v1/pair", post(pair))
             .layer(DefaultBodyLimit::max(16 * 1024))
             .layer(middleware::from_fn(no_browser_and_no_cache))
@@ -210,6 +294,9 @@ impl Host {
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(5)));
             host.sessions.shutdown().await;
         });
+        // Experimental delegation: the control endpoint lives exactly as long as the host serves.
+        // Enabling it by reload alone is not enough; it is started here, once.
+        let _control = self.start_control_channel()?;
         let address = self.config.server.listen;
         let listener = std::net::TcpListener::bind(address)
             .context("bind host listener; check address and port conflicts")?;
@@ -271,6 +358,20 @@ async fn no_browser_and_no_cache(request: Request, next: Next) -> Response {
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
 }
+/// Phone management routes are for phones only: a peer host's credential stops at `/acp`.
+async fn phones_only(request: Request, next: Next) -> Response {
+    match request.extensions().get::<Authorized>() {
+        Some(auth) if auth.device.role == Role::Phone => next.run(request).await,
+        _ => ApiError(StatusCode::FORBIDDEN, "role_not_allowed").into_response(),
+    }
+}
+/// The agent bridge is for peer hosts only.
+async fn peers_only(request: Request, next: Next) -> Response {
+    match request.extensions().get::<Authorized>() {
+        Some(auth) if auth.device.role == Role::Peer => next.run(request).await,
+        _ => ApiError(StatusCode::FORBIDDEN, "role_not_allowed").into_response(),
+    }
+}
 async fn authenticate(State(host): State<Host>, mut request: Request, next: Next) -> Response {
     let Some(token) = request
         .headers()
@@ -312,17 +413,32 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
     Ok(Json(serde_json::to_value(result).map_err(internal)?))
 }
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
+    // `orchestrator` is listed only while delegation is enabled, so the phone shows the task
+    // views only then.
+    let mut features = vec![
+        "formElicitation",
+        "git",
+        "sessionWorktree",
+        "checks",
+        "controlTakeover",
+        "sharedDrafts",
+        "agentProbe",
+    ];
+    if host.config.orchestrator.enabled {
+        features.push("orchestrator");
+    }
     Ok(Json(
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
-        "features":["formElicitation"],"activeSessions":host.sessions.active_count().await}),
+        "features":features,"activeSessions":host.sessions.active_count().await}),
     ))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;
     let settings = host.sessions.launch_settings();
     let mut discovered = discovered_agents(&settings.registry, &active);
+    attach_setups(&mut discovered, &active, &host.agent_setups.lock().unwrap());
     // Agents the phone registered can be removed from the phone; the host's own cannot.
     let ours: Vec<String> = UserData::load(&settings.config.state_directory)
         .map(|data| data.agents.into_iter().map(|agent| agent.id).collect())
@@ -333,6 +449,70 @@ async fn agents(State(host): State<Host>) -> Json<Value> {
         }
     }
     Json(discovered)
+}
+/// The choices an ACP agent offers for a session (`modes`, `models`, `configOptions`), as
+/// reported in its last `session/new` or `session/load` reply. Anything else is left out.
+fn setup_choices(setup: &Value) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    for key in ["modes", "models", "configOptions"] {
+        if let Some(value) = setup.get(key).filter(|value| !value.is_null()) {
+            out.insert(key.into(), value.clone());
+        }
+    }
+    (!out.is_empty()).then_some(Value::Object(out))
+}
+/// Give each agent `setup`: the newest choices from one of its sessions, else from a probe.
+fn attach_setups(
+    discovered: &mut Value,
+    sessions: &[SessionMetadata],
+    probed: &HashMap<String, Value>,
+) {
+    let Some(list) = discovered.as_array_mut() else {
+        return;
+    };
+    for agent in list {
+        let Some(id) = agent["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let from_session = sessions
+            .iter()
+            .rev()
+            .filter(|session| session.agent_id == id)
+            .find_map(|session| setup_choices(&session.setup));
+        if let Some(setup) = from_session.or_else(|| probed.get(&id).cloned()) {
+            agent["setup"] = setup;
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProbeInput {
+    workspace: std::path::PathBuf,
+}
+/// Start the agent in a throwaway session (no prompt, no file or terminal access, no MCP
+/// servers), keep the modes/models/config options it reports, and stop it again.
+async fn probe_agent(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    Json(input): Json<ProbeInput>,
+) -> ApiResult<Json<Value>> {
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&id, &input.workspace, None, Vec::new(), access)
+        .await
+        .map_err(input_error)?;
+    let metadata = session.metadata();
+    drop(session);
+    let _ = host.sessions.remove(metadata.id).await;
+    let setup = setup_choices(&metadata.setup).unwrap_or_else(|| json!({}));
+    host.agent_setups.lock().unwrap().insert(id, setup.clone());
+    Ok(Json(json!({ "setup": setup })))
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();
@@ -738,16 +918,23 @@ struct CreateInput {
     mcp_servers: Vec<Value>,
     #[serde(default)]
     workspace_access: crate::connection::WorkspaceAccess,
+    /// Start on a branch, optionally in its own worktree (feature `sessionWorktree`).
+    #[serde(default)]
+    branch: Option<git::SessionBranch>,
 }
 async fn create_session(
     State(host): State<Host>,
     Json(input): Json<CreateInput>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let workspace = match &input.branch {
+        Some(branch) => git::prepare_session(&host, &input.workspace, branch).await?,
+        None => input.workspace.clone(),
+    };
     let session = host
         .sessions
         .open_configured(
             &input.agent_id,
-            &input.workspace,
+            &workspace,
             input.load_session_id.as_deref(),
             input.mcp_servers,
             input.workspace_access,
@@ -776,7 +963,150 @@ async fn delete_session(State(host): State<Host>, Path(id): Path<Uuid>) -> ApiRe
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "session_not_found"))?;
     host.gateways.lock().await.remove(&id);
+    shared::forget_session(&host, id);
     Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SupervisorInput {
+    paused: bool,
+}
+/// Pause or resume supervisor approvals for the delegated tasks of a phone-started session.
+/// Pending requests stay pending for the phone either way.
+async fn set_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<SupervisorInput>,
+) -> ApiResult<StatusCode> {
+    if host.orchestrator.set_supervisor_paused(id, input.paused) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError(StatusCode::NOT_FOUND, "no_delegated_tasks"))
+    }
+}
+/// Every task this host knows about, oldest first.
+async fn list_tasks(State(host): State<Host>) -> Json<Value> {
+    Json(Value::Array(host.orchestrator.task_list()))
+}
+fn task_id(id: &str) -> ApiResult<Uuid> {
+    Uuid::parse_str(id).map_err(|_| ApiError(StatusCode::NOT_FOUND, "task_not_found"))
+}
+async fn task_detail(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let mut view = host
+        .orchestrator
+        .task_detail(task_id(&id)?)
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "task_not_found"))?;
+    // What the task's worktree changed, shell-made edits included. While the worktree is on disk
+    // that is base..working tree; once it is removed, base..branch in the main repository.
+    let w = &view["worktree"];
+    let path = w["path"].as_str().map(PathBuf::from);
+    let repo = w["repository"].as_str().map(PathBuf::from);
+    let base = w["base"].as_str().map(str::to_owned);
+    let branch = w["branch"].as_str().map(str::to_owned);
+    let target = match (path, repo, branch) {
+        (Some(p), _, _) if p.is_dir() => Some((p, None)),
+        (_, Some(r), Some(b)) if r.is_dir() => Some((r, Some(b))),
+        _ => None,
+    };
+    if let (Some((folder, branch)), Some(base)) = (target, base) {
+        let changes = tokio::task::spawn_blocking(move || {
+            git::worktree_changes(&folder, &base, branch.as_deref())
+        })
+        .await
+        .unwrap_or_default();
+        view["worktreeChanges"] = json!(changes);
+    }
+    Ok(Json(view))
+}
+/// Cancel a task and what is still running below it.
+async fn cancel_task(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    use crate::orchestrator::views::CancelRefusal;
+    match host.orchestrator.cancel_task(task_id(&id)?).await {
+        Ok(cancelled) => Ok(Json(json!({ "cancelled": cancelled }))),
+        Err(CancelRefusal::Unknown) => Err(ApiError(StatusCode::NOT_FOUND, "task_not_found")),
+        Err(CancelRefusal::NotOpen) => Err(ApiError(StatusCode::CONFLICT, "task_not_open")),
+    }
+}
+/// The phone merges a finished task's worktree branch into the parent's checkout. A refusal is
+/// 404 or 409 with a code; a conflict also lists the conflicting files.
+async fn merge_task(State(host): State<Host>, Path(id): Path<String>) -> Response {
+    let id = match task_id(&id) {
+        Ok(id) => id,
+        Err(error) => return error.into_response(),
+    };
+    match host.orchestrator.merge_task(id).await {
+        Ok(merged) => Json(merged).into_response(),
+        Err(refusal) => {
+            let (status, body) = merge_refusal_response(&refusal);
+            (status, Json(body)).into_response()
+        }
+    }
+}
+/// The phone throws a finished task's work away (its worktree and branch). Refusals as for a merge.
+async fn discard_task(State(host): State<Host>, Path(id): Path<String>) -> Response {
+    let id = match task_id(&id) {
+        Ok(id) => id,
+        Err(error) => return error.into_response(),
+    };
+    match host.orchestrator.discard_task(id).await {
+        Ok(done) => Json(done).into_response(),
+        Err(refusal) => {
+            let (status, body) = merge_refusal_response(&refusal);
+            (status, Json(body)).into_response()
+        }
+    }
+}
+/// The most conflicting files a refused merge names. A conflict can touch hundreds; the phone
+/// shows a handful, and the body stays small enough for its error reader.
+const MERGE_CONFLICT_FILES: usize = 20;
+/// HTTP status and JSON body for a refused merge.
+fn merge_refusal_response(
+    refusal: &crate::orchestrator::views::MergeTaskRefusal,
+) -> (StatusCode, Value) {
+    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
+    let status = match refusal {
+        MergeTaskRefusal::Unknown => StatusCode::NOT_FOUND,
+        MergeTaskRefusal::Git(MergeRefusal::GitFailed) => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::CONFLICT,
+    };
+    let mut error = json!({"code": refusal.code()});
+    if let MergeTaskRefusal::Conflict {
+        files,
+        branch,
+        repository,
+    } = refusal
+    {
+        if !files.is_empty() {
+            error["files"] = json!(files.iter().take(MERGE_CONFLICT_FILES).collect::<Vec<_>>());
+        }
+        // What the owner needs to merge by hand on the host.
+        error["branch"] = json!(branch);
+        error["repository"] = json!(repository);
+    }
+    (status, json!({ "error": error }))
+}
+fn supervisor(host: &Host, id: &str, paused: bool) -> ApiResult<StatusCode> {
+    use crate::orchestrator::views::PauseRefusal;
+    match host
+        .orchestrator
+        .set_supervisor_paused_for_task(task_id(id)?, paused)
+    {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(PauseRefusal::Unknown) => Err(ApiError(StatusCode::NOT_FOUND, "task_not_found")),
+        Err(PauseRefusal::NotARoot) => Err(ApiError(StatusCode::CONFLICT, "not_a_root_task")),
+    }
+}
+async fn pause_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    supervisor(&host, &id, true)
+}
+async fn resume_supervisor(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    supervisor(&host, &id, false)
 }
 async fn revoke_self(
     State(host): State<Host>,
@@ -795,6 +1125,10 @@ struct ConnectInput {
     after: u64,
     #[serde(default)]
     read_only: bool,
+    /// Take control from another client app (desktop or phone) that holds the lease. The
+    /// replaced client receives `control_taken` and continues as an observer.
+    #[serde(default)]
+    takeover: bool,
 }
 async fn connect(
     State(host): State<Host>,
@@ -819,33 +1153,14 @@ async fn connect(
         .get(id)
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "session_not_found"))?;
-    let gateway = host
-        .gateways
-        .lock()
-        .await
-        .entry(id)
-        .or_insert_with(|| {
-            Arc::new(Gateway {
-                controller: AtomicBool::new(false),
-                requests: Mutex::new(VecDeque::new()),
-                cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
-                result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
-            })
-        })
-        .clone();
+    let gateway = gateway_for(&host, id).await;
     let lease = if input.read_only {
         None
     } else {
-        if gateway
-            .controller
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err(ApiError(StatusCode::CONFLICT, "session_has_controller"));
-        }
-        Some(Lease {
-            gateway: gateway.clone(),
-        })
+        Some(
+            acquire_lease(&gateway, true, input.takeover)
+                .ok_or(ApiError(StatusCode::CONFLICT, "session_has_controller"))?,
+        )
     };
     let limit = host.config.runtime.max_frame_bytes;
     Ok(ws
@@ -856,6 +1171,45 @@ async fn connect(
             socket_session(socket, host, session, gateway, lease, auth, input)
         })
         .into_response())
+}
+/// The per-session gateway: the single-controller lease and the request de-duplication cache.
+async fn gateway_for(host: &Host, id: Uuid) -> Arc<Gateway> {
+    host.gateways
+        .lock()
+        .await
+        .entry(id)
+        .or_insert_with(|| {
+            Arc::new(Gateway {
+                controller: Mutex::new(None),
+                owner: tokio::sync::watch::Sender::new(0),
+                requests: Mutex::new(VecDeque::new()),
+                cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
+                result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
+            })
+        })
+        .clone()
+}
+/// Take the controller lease, or `None` if someone else (a phone, a peer) already has it.
+/// Peer bridge leases never yield to a takeover.
+fn take_lease(gateway: &Arc<Gateway>) -> Option<Lease> {
+    acquire_lease(gateway, false, false)
+}
+/// Take the lease. With `takeover`, a yielding holder (a client app) is replaced; a peer
+/// bridge holder is not.
+fn acquire_lease(gateway: &Arc<Gateway>, yields: bool, takeover: bool) -> Option<Lease> {
+    let mut controller = gateway.controller.lock().unwrap();
+    match *controller {
+        None => {}
+        Some((_, true)) if takeover => {}
+        Some(_) => return None,
+    }
+    let generation = LEASE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    *controller = Some((generation, yields));
+    gateway.owner.send_replace(generation);
+    Some(Lease {
+        gateway: gateway.clone(),
+        generation,
+    })
 }
 async fn send_json(
     socket: &mut futures_util::stream::SplitSink<WebSocket, Message>,
@@ -875,10 +1229,11 @@ async fn socket_session(
     host: Host,
     session: Arc<AcpSession>,
     gateway: Arc<Gateway>,
-    _lease: Option<Lease>,
+    mut lease: Option<Lease>,
     auth: Authorized,
     input: ConnectInput,
 ) {
+    let mut owner = gateway.owner.subscribe();
     let mut events = session.connection.subscribe();
     let replay = session.replay(input.after);
     let mut cursor = replay.latest_sequence;
@@ -927,7 +1282,7 @@ async fn socket_session(
                 last_received = tokio::time::Instant::now();
                 match message {
                     Some(Ok(Message::Text(text))) => {
-                        if input.read_only { let _ = send_json(&mut outgoing, json!({"type":"error","code":"read_only"})).await; continue }
+                        if lease.is_none() { let _ = send_json(&mut outgoing, json!({"type":"error","code":"read_only"})).await; continue }
                         let value = serde_json::from_str::<Value>(&text);
                         let value = match value { Ok(value) if validate_message(&value).is_ok() => value, _ => { let _ = send_json(&mut outgoing, json!({"type":"error","code":"invalid_acp_message"})).await; continue } };
                         let security = host.security.clone(); let token = auth.token.clone();
@@ -947,6 +1302,14 @@ async fn socket_session(
                 }
                 if last_received.elapsed() > Duration::from_secs(40) { break }
                 if !matches!(tokio::time::timeout(Duration::from_secs(5), outgoing.send(Message::Ping(vec![].into()))).await, Ok(Ok(()))) { break }
+            }
+            changed = owner.changed(), if lease.is_some() => {
+                let replaced = changed.is_err() || lease.as_ref().is_some_and(|lease| *owner.borrow_and_update() != lease.generation);
+                if replaced {
+                    // Step down to an observer; the successor already holds the lease.
+                    lease = None;
+                    if !send_json(&mut outgoing, json!({"type":"control_taken"})).await { break }
+                }
             }
             reason = session.connection.wait_closed() => {
                 // All already-published outcomes are replayable after a close.
@@ -1109,4 +1472,95 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
             let _ = session.cancel().await;
         }
     });
+}
+
+#[cfg(test)]
+mod merge_response_tests {
+    use super::*;
+    use crate::orchestrator::{views::MergeTaskRefusal, worktree::MergeRefusal};
+
+    fn conflict(count: usize) -> MergeTaskRefusal {
+        MergeTaskRefusal::Conflict {
+            files: (0..count).map(|n| format!("src/file{n}.rs")).collect(),
+            branch: "acpd/task-0123456789ab".into(),
+            repository: "/home/me/project".into(),
+        }
+    }
+
+    #[test]
+    fn a_conflict_names_its_files_but_never_more_than_twenty() {
+        let (status, body) = merge_refusal_response(&conflict(3));
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"]["code"], "merge_conflict");
+        assert_eq!(
+            body["error"]["files"],
+            json!(["src/file0.rs", "src/file1.rs", "src/file2.rs"])
+        );
+        // Exactly at the cap: all of them. One over, and far over: the first twenty, in order.
+        let at = merge_refusal_response(&conflict(20)).1;
+        assert_eq!(at["error"]["files"].as_array().unwrap().len(), 20);
+        for count in [21, 500] {
+            let body = merge_refusal_response(&conflict(count)).1;
+            let files = body["error"]["files"].as_array().unwrap();
+            assert_eq!(files.len(), 20, "{count} conflicting files");
+            assert_eq!(files[0], "src/file0.rs");
+            assert_eq!(files[19], "src/file19.rs");
+        }
+        // The body a phone reads stays far under the 8 KiB it reads, even with long paths.
+        let long = MergeTaskRefusal::Conflict {
+            files: (0..500)
+                .map(|n| format!("{}/{n}.rs", "d".repeat(200)))
+                .collect(),
+            branch: "acpd/task-0123456789ab".into(),
+            repository: "/home/me/project".into(),
+        };
+        assert!(merge_refusal_response(&long).1.to_string().len() < 8192);
+    }
+
+    #[test]
+    fn other_refusals_carry_a_code_and_the_right_status_and_no_file_list() {
+        for (refusal, status, code) in [
+            (
+                MergeTaskRefusal::Unknown,
+                StatusCode::NOT_FOUND,
+                "task_not_found",
+            ),
+            (
+                MergeTaskRefusal::Git(MergeRefusal::GitFailed),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git_failed",
+            ),
+            (
+                MergeTaskRefusal::Git(MergeRefusal::ParentDirty),
+                StatusCode::CONFLICT,
+                "parent_dirty",
+            ),
+            (
+                MergeTaskRefusal::AlreadyMerged,
+                StatusCode::CONFLICT,
+                "already_merged",
+            ),
+            (
+                MergeTaskRefusal::AlreadyDiscarded,
+                StatusCode::CONFLICT,
+                "already_discarded",
+            ),
+            (
+                MergeTaskRefusal::NothingKept,
+                StatusCode::CONFLICT,
+                "nothing_to_discard",
+            ),
+        ] {
+            let (got, body) = merge_refusal_response(&refusal);
+            assert_eq!(got, status, "{code}");
+            assert_eq!(body["error"]["code"], code);
+            assert!(body["error"].get("files").is_none(), "{code}");
+        }
+        // A conflict git reported no names for has no list at all (not an empty one), but still
+        // says which branch and repository to merge by hand.
+        let (_, body) = merge_refusal_response(&conflict(0));
+        assert!(body["error"].get("files").is_none());
+        assert_eq!(body["error"]["branch"], "acpd/task-0123456789ab");
+        assert_eq!(body["error"]["repository"], "/home/me/project");
+    }
 }

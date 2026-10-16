@@ -950,18 +950,26 @@ async fn shell_review_model_layer_allow_deny_malformed_and_timeout() {
             .unwrap();
         assert!(pending.await.unwrap().is_err());
     }
-    // A positive model response cannot approve an outside-workspace glob.
+    // An outside-workspace path never reaches the model and is flagged on the card.
     let pending = create_shell(&session, &session_id, "cat /etc/allowme*").await;
     let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdScope"]["outsideWorkspace"],
+        json!(["/etc/allowme*"])
+    );
     assert_eq!(
         consent["params"]["_meta"]["acpdAutoReview"]["decision"],
         "ask"
     );
     assert_eq!(
         consent["params"]["_meta"]["acpdAutoReview"]["layer"],
-        "model"
+        "rules"
     );
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "outside paths never reach the model"
+    );
     session
         .connection
         .permission(

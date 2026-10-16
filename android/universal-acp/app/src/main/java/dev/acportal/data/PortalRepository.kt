@@ -12,7 +12,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>)
+data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>,val features:List<String> = emptyList())
+/** A draft from another device: apply it only while the composer still shows [replaces]. */
+data class RemoteDraft(val text:String,val replaces:String,val at:Long)
 class LiveSession(val host:HostProfile,info:SessionInfo,val transport:AgentTransport,initial:SessionState) {
     val metadata = MutableStateFlow(info)
     val info:SessionInfo get() = metadata.value
@@ -29,12 +31,26 @@ class LiveSession(val host:HostProfile,info:SessionInfo,val transport:AgentTrans
     val transportActions = Mutex()
     var manuallyDetached = false
     val jobs = mutableListOf<Job>()
+    /** The host keeps drafts and prompt history for the desktop too (feature `sharedDrafts`). */
+    @Volatile var sharedDrafts = false
+    val sharedHistory = MutableStateFlow<List<String>>(emptyList())
+    var draftUpload:Job? = null
+    /** The draft text known to match the host copy, and a newer host draft for an unedited composer. */
+    @Volatile var syncedDraft = ""
+    @Volatile var remoteDraftAt = 0L
+    val remoteDraft = MutableStateFlow<RemoteDraft?>(null)
     suspend fun close() { transport.disconnect();jobs.forEach { it.cancelAndJoin() };jobs.clear();attachments.value=emptyList();submittedAttachments=null }
 }
 class PortalRepository(
     private val dao:PortalDao, val api:HostApi,private val vault:CredentialVault,
     val settings:SettingsStore,private val scope:CoroutineScope,
 ) {
+    /** Session titles kept on the host (`hostId/sessionId` to title), for sessions this phone has no copy of yet. */
+    val sharedTitles = MutableStateFlow<Map<String,String>>(emptyMap())
+    private fun applyShared(hostId:String,shared:JsonObject) {
+        val titles=shared["titles"].objectValue().mapNotNull {(id,title)->(title as? JsonPrimitive)?.contentOrNull?.let {"$hostId/$id" to it}}.toMap()
+        sharedTitles.update {current->current.filterKeys {!it.startsWith("$hostId/")}+titles}
+    }
     val hosts = dao.hosts()
     val sessions = dao.sessions()
     val agentCatalogs=dao.agentCatalogs()
@@ -102,10 +118,18 @@ class PortalRepository(
             require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
-            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId))
+            if(HOST_FEATURE_SHARED_DRAFTS in status.features)try {applyShared(host.id,api.shared(host))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
+            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features)
         } catch (cancelled:CancellationException) { throw cancelled }
         catch (failure:Exception) { dao.markHostOffline(host.id);throw failure }
     }
+    private suspend fun savedHost(hostId:String)=dao.host(hostId) ?: error("Host is no longer saved")
+    suspend fun tasks(hostId:String):List<TaskSummary> = withContext(Dispatchers.IO) {api.tasks(savedHost(hostId))}
+    suspend fun task(hostId:String,id:String):TaskDetail = withContext(Dispatchers.IO) {api.task(savedHost(hostId),id)}
+    suspend fun discardTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.discardTask(savedHost(hostId),id)}
+    suspend fun mergeTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.mergeTask(savedHost(hostId),id)}
+    suspend fun cancelTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.cancelTask(savedHost(hostId),id)}
+    suspend fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = withContext(Dispatchers.IO) {api.setTaskSupervision(savedHost(hostId),id,paused)}
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
     fun agentClient(host:HostProfile)=object:AgentClient {
@@ -147,9 +171,27 @@ class PortalRepository(
         val state=SessionReducer.limitMetadata(cached,cached.copy(replaying=true,modes=if(cached.modes.isEmpty())info.setup["modes"].objectValue() else cached.modes,
             models=if(cached.models.isEmpty())info.setup["models"].objectValue() else cached.models,
             configOptions=if(cached.configOptions.isEmpty())info.setup["configOptions"].arrayValue() else cached.configOptions))
+        // Continue a draft typed on the desktop when this phone has none; a local draft wins and is uploaded.
+        val shared=try {api.shared(host)} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {null}
+        val remoteDraft=shared?.get("drafts").objectValue()[id].objectValue()["text"].text()
+        if(remoteDraft.isNotBlank() && stored.draft.isBlank())dao.saveDraft(hostId,id,storedDraft(remoteDraft))
+        shared?.let {applyShared(hostId,it)}
         lateinit var live:LiveSession
         val transport=WebSocketTransport(api.client,host.address,api.token(host),id,{ live.state.value.sequence },scope)
         live=LiveSession(host,info,transport,state)
+        if(shared!=null) {
+            live.sharedDrafts=true
+            live.syncedDraft=if(stored.draft.isBlank())remoteDraft else stored.draft
+            live.remoteDraftAt=shared["drafts"].objectValue()[id].objectValue()["updatedAt"].text().toLongOrNull() ?: 0
+            applySharedToLive(live,shared)
+            // Follow drafts typed and prompts sent on the desktop while this session is open here.
+            live.jobs += scope.launch {
+                while(isActive) {
+                    delay(SHARED_POLL_MS)
+                    try {applySharedToLive(live,api.shared(host).also {applyShared(hostId,it)})} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
+                }
+            }
+        }
         active[key]=live
         mutableActivities.update {it+(key to liveSessionActivity(live.state.value,live.connection.value))}
         live.jobs += scope.launch {
@@ -164,6 +206,7 @@ class PortalRepository(
                     val envelope=WireJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).objectValue()
                     live.state.update { SessionReducer.reduce(it,envelope) }
                     val message=envelope["message"].objectValue()
+                    if(envelope["type"].text()=="control_taken")transport.controlTaken()
                     if(envelope["type"].text()=="session_closed")live.transportActions.withLock {live.manuallyDetached=true;transport.disconnect()}
                     if(message["method"]==null && message["id"].text()==live.authenticationRequestId) {
                         live.authenticationRequestId=null
@@ -179,6 +222,7 @@ class PortalRepository(
                             live.attachments.compareAndSet(sent.second,emptyList())
                             live.submittedAttachments=null
                             dao.saveDraft(hostId,id,"")
+                            uploadDraft(live,"")
                         }
                     }
                     if (envelope["type"].text()=="reconnect_required") live.transportActions.withLock {
@@ -228,6 +272,8 @@ class PortalRepository(
         live.state.update { SessionReducer.limitMetadata(it,it.copy(modes=info.setup["modes"].objectValue(),models=info.setup["models"].objectValue(),configOptions=info.setup["configOptions"].arrayValue(),error=if(becameReady)null else it.error)) }
     }
     suspend fun reconnect(live:LiveSession) = live.transportActions.withLock { check(!live.state.value.sessionClosed) {"This agent session stopped. Open Sessions to continue."};live.manuallyDetached=false;live.transport.disconnect();live.transport.connect() }
+    /** Continue here a session another device (desktop or phone) controls; history replays from the cursor. */
+    suspend fun takeControl(live:LiveSession) = live.transportActions.withLock { check(!live.state.value.sessionClosed) {"This agent session stopped. Open Sessions to continue."};live.manuallyDetached=false;live.transport.disconnect();live.transport.requestTakeover();live.transport.connect() }
     suspend fun disconnect(live:LiveSession) = live.transportActions.withLock { live.manuallyDetached=true;live.transport.disconnect() }
     fun addAttachment(live:LiveSession,attachment:PromptAttachment,version:Long=live.localCopyGeneration.value) = synchronized(live.attachmentLock) {
         require(version==live.localCopyGeneration.value) {"File selection expired. Choose the file again."}
@@ -258,6 +304,7 @@ class PortalRepository(
         live.state.update {it.copy(processing=true,promptRequestId=JsonPrimitive(id).toString())}
         try {live.transport.send(bytes)}
         catch(failure:Exception) {live.state.update {it.copy(processing=false,promptRequestId=null)};live.submittedAttachments=null;throw failure}
+        shareHistory(live,text)
     }
     suspend fun cancel(live:LiveSession) {
         val state=live.state.value
@@ -296,7 +343,51 @@ class PortalRepository(
             throw failure
         }
     }
-    suspend fun draft(hostId:String,id:String,text:String) = cacheStorage.withLock {dao.saveDraft(hostId,id,storedDraft(text))}
+    suspend fun draft(hostId:String,id:String,text:String) {
+        cacheStorage.withLock {dao.saveDraft(hostId,id,storedDraft(text))}
+        active["$hostId/$id"]?.let {uploadDraft(it,text)}
+    }
+    private suspend fun applySharedToLive(live:LiveSession,shared:JsonObject) {
+        live.sharedHistory.value=(shared["history"].objectValue()[live.info.workspace] as? JsonArray)?.mapNotNull {(it as? JsonPrimitive)?.contentOrNull}.orEmpty()
+        val entry=shared["drafts"].objectValue()[live.info.id] as? JsonObject
+        val at=entry?.get("updatedAt").text().toLongOrNull() ?: 0
+        val text=entry?.get("text").text()
+        if(at<=live.remoteDraftAt && entry!=null)return
+        if(entry==null && live.syncedDraft.isEmpty())return
+        // Only an unedited composer follows the other device; local typing wins and is uploaded.
+        val local=dao.session(live.host.id,live.info.id)?.draft.orEmpty()
+        if(local!=live.syncedDraft || text==local) {live.remoteDraftAt=at;if(text==local)live.syncedDraft=text;return}
+        cacheStorage.withLock {dao.saveDraft(live.host.id,live.info.id,storedDraft(text))}
+        live.remoteDraft.value=RemoteDraft(text,live.syncedDraft,at)
+        live.syncedDraft=text
+        live.remoteDraftAt=at
+    }
+    /** Debounced, best-effort upload; a failure leaves the local draft as it is. */
+    private fun uploadDraft(live:LiveSession,text:String) {
+        if(!live.sharedDrafts || utf8Bytes(text,SHARED_DRAFT_MAX_BYTES)>SHARED_DRAFT_MAX_BYTES)return
+        synchronized(live) {
+            live.draftUpload?.cancel()
+            live.draftUpload=scope.launch {
+                delay(if(text.isEmpty())0 else 800)
+                try {api.putDraft(live.host,live.info.id,text);live.syncedDraft=text} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
+            }
+        }
+    }
+    private fun shareHistory(live:LiveSession,text:String) {
+        if(!live.sharedDrafts || text.isBlank() || utf8Bytes(text,SHARED_PROMPT_MAX_BYTES)>SHARED_PROMPT_MAX_BYTES)return
+        live.sharedHistory.update {(listOf(text)+it.filter {prompt->prompt!=text}).take(50)}
+        val key="${live.host.id}/${live.info.id}"
+        val title=text.lineSequence().first().trim().take(60)
+        val needsTitle=title.isNotEmpty() && key !in sharedTitles.value
+        if(needsTitle)sharedTitles.update {it+(key to title)}
+        scope.launch {
+            try {
+                api.addHistory(live.host,live.info.workspace,text)
+                // The desktop names sessions by their first prompt; do the same for one started here.
+                if(needsTitle)api.putTitle(live.host,live.info.id,title)
+            } catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
+        }
+    }
     suspend fun removeLocalCopy(live:LiveSession) = cacheStorage.withLock {
         var previous:SessionState
         var cleared:SessionState

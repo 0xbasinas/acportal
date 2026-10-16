@@ -210,7 +210,7 @@ Rules: host session UUID and ACP session ID stay separate. A task's `rights` dec
 
 ### 6.1 Wiring
 
-On `session/new` for an agent that has `orchestrate = true` in config, `acpd` appends one MCP server to the request:
+On `session/new` for an agent whose id is listed in `[orchestrator].orchestrate`, `acpd` appends one MCP server to the request:
 
 ```json
 { "name": "acpd-orchestrator",
@@ -274,7 +274,7 @@ Behavior on the socket, using the existing one-process-per-session model (`Sessi
 
 Because ACP v1 over HTTP/WebSocket does not replay missed messages, the host keeps the journal and the bridge adds one extension that is ignored by other implementations: after `session/load`, the host sends a `session/update` with `_meta.acpdGap = {missed: n}` (inside `_meta`, as the extensibility rules require; never a custom root field) when events were lost. Non-acpd clients simply do not see the extra field.
 
-Frame limits, rate limits, ping interval (default 20 s, close after 3 missed pongs) and the byte budgets in `connection.rs` apply per bridge connection.
+Frame limits, a message-rate cap (100 per second per connection, section 23), ping interval (default 20 s, close after 3 missed pongs) and the byte budgets in `connection.rs` apply per bridge connection.
 
 ### 7.2 Outbound client
 
@@ -341,7 +341,7 @@ struct PendingRequest {
 | `shell_review` rules `Allow` (read-only/test commands inside scope) | Low |
 | `edit`, `move` inside scope and within `max_edit_bytes` | Medium |
 | `execute` through shell review `Ask` for non-sensitive lines | Medium |
-| `delete`, `fetch`/network, writes outside scope, large edits, anything marked sensitive by `shell_review`, `own_tools` agents, `other` | High |
+| `delete`, `fetch`/network, writes outside scope, large edits, anything marked sensitive by `shell_review`, agent-originated requests when registry `ownTools` is set, `other` | High |
 
 `switch_mode` and `other` kinds are treated by the strictest applicable row; unknown kinds are High.
 
@@ -357,7 +357,7 @@ struct PendingRequest {
 
 Elicitation requests (`elicitation/create`, form or URL) from a child are **never decidable by the supervisor**: they need a human's input, so the task becomes `InputRequired` and the card goes to the phone. The host advertises `elicitation` to a child only when a phone is attached to the root task, otherwise the capability is omitted so the agent does not ask.
 
-Additional rules: a decision is single-use; an agent cannot decide on its own requests or those of tasks outside its subtree; `supervisor_max_risk` cannot be raised by an agent; the user can pause supervisor approval for a root task, after which all pending requests go to the phone. Agents with `own_tools` never get supervisor approval (the host cannot see their edits).
+Additional rules: a decision is single-use; an agent cannot decide on its own requests or those of tasks outside its subtree; `supervisor_max_risk` cannot be raised by an agent; the user can pause supervisor approval for a root task, after which all pending requests go to the phone. Agents with registry `ownTools` never get supervisor approval for **agent-originated** requests (the host cannot see their own-tool edits); host-raised consents (`host-filesystem`, shell, terminal) stay on the protocol path. See section 28.
 
 ## 9. Configuration, API and CLI
 
@@ -369,6 +369,7 @@ enabled = false                      # off by default; restart or soft reload fo
 max_depth = 2                        # 1..8
 max_children_per_task = 4            # 1..16
 max_tasks_total = 16                 # 1..64, counted with [runtime].max_sessions
+max_turns_per_task = 0               # 0 = off; 0..1000; first prompt plus follow-ups (section 23)
 task_timeout_seconds = 1800          # 30..86400
 idle_timeout_seconds = 300           # 30..3600
 supervisor_max_risk = "medium"       # "low" | "medium"; "high" is not allowed
@@ -377,10 +378,13 @@ task_max_cost_usd = 0                # 0 = off; enforced only when the agent rep
 max_edit_bytes = 262144              # medium ceiling for edits
 bridge_resume_seconds = 120          # 0..3600
 bridge_ping_seconds = 20             # 5..120
+bridge_send_timeout_seconds = 5      # 1..600; one frame or ping to a peer may take this long to write
+peer_reconnect_seconds = 60           # 0..600; how long a lost link to another host is retried (0 = off), section 31
+max_task_branches = 50               # 0..10000; unmerged acpd/task-* branches per repository (0 = no limit), section 31
+# [auto_approve.<agent id>]            # per agent, off unless listed: max_risk, only_in_worktree, own_edit_shape, model (section 32)
 
-[orchestrator.agents.goose]          # keyed by agent id
-orchestrate = true                   # agent receives the delegation tools
-delegable = true                     # may be a child
+orchestrate = ["supervisor"]         # agent ids that receive the MCP delegation tools
+delegable = ["worker", "supervisor"] # agent ids that may be children (and may also orchestrate)
 ```
 
 Validation follows `config.rs`: unknown keys rejected; values outside ranges fail startup/reload; `enabled = true` requires non-empty `workspace_roots`. Reload rules follow [daemon-and-reload](daemon-and-reload.md): existing sessions keep their snapshot; the listener, TLS and peer-role changes need a restart.
@@ -427,7 +431,7 @@ The existing consent answering path is unchanged; `acpd.v1` frames gain an optio
 | B | Accepts stdio MCP servers in `session/new` (mandatory in the spec) | Can also delegate (be a supervisor) |
 | C | HTTP/WebSocket transport, `subagents`, MCP-over-ACP, `session/load` | Optional improvements |
 
-Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. `own_tools` agents run but are never auto-approved. Tier is stored per directory entry from real discovery, never from the agent name.
+Fallbacks: an agent that ignores or fails MCP setup is child-only. A stdio-only agent is made remote by the bridge. No `session/load` means a task is not resumable after a restart. registry `ownTools` agents run but agent-originated requests are never auto-approved (host consents stay on the protocol path; section 28). Tier is stored per directory entry from real discovery, never from the agent name.
 
 Phase 0 builds a compatibility table from the registry index (section 2.1: all 41 listed agents) plus any others the operator adds, with these checks per CLI: launches by the registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers`; the MCP server's tools are listed and callable from a prompt; `session/cancel` ends a turn `cancelled`; `sessionCapabilities` (`resume`, `close`, `list`) and `loadSession`; `authMethods` types; `promptCapabilities`; whether it reports `usage_update` with cost; permission requests use `allow_once`/`reject_once` option kinds; `own_tools` behavior. Results are recorded as measured, per version.
 
@@ -437,7 +441,7 @@ Phase 0 builds a compatibility table from the registry index (section 2.1: all 4
 | --- | --- | --- |
 | 0 | Compatibility table (section 12); confirm RFD statuses | Table committed with exact versions and per-check results |
 | 1 | `tree`, `directory`, `control`, `delegate`, `mcp-delegate`, admission, cascade cancel, restart behavior, local agents, mock agent | Rust tests: each admission code; state transitions; cancel leaves no process (Linux group check as in `lifecycle.rs`); restart shows interrupted, no prompt resent; token rejection after session end; `mcp-delegate` MCP conformance (`initialize`, `tools/list`, `tools/call`, `isError`) |
-| 2 | `approvals`: classification, supervisor decision, digest, single-use, fail closed, escalation, pause | Tests: late/duplicate/malformed/mismatched decisions go to the phone; High and `own_tools` never supervisor-approved; no self-approval; first answer wins race between phone and supervisor; logs contain no secrets |
+| 2 | `approvals`: classification, supervisor decision, digest, single-use, fail closed, escalation, pause | Tests: late/duplicate/malformed/mismatched decisions go to the phone; High and an `own_tools` agent's own requests never supervisor-approved (its host-raised consents are, section 28); no self-approval; first answer wins race between phone and supervisor; logs contain no secrets |
 | 3 | `bridge` inbound WebSocket, outbound `ws` transport trait, `peer` role, `peers.json`, alias resolution | Two `acpd` instances: delegate to a remote mock agent; drop link and resume with `session/load`; `_meta.acpdGap` after loss; revoke peer ends subtree; TLS required; `501` on SSE routes; Actions on Linux and Windows |
 | 4 | Streamable HTTP when the RFD stabilizes; git worktree isolation; `subagent_update` | Interop test against a second implementation if available |
 | 5 | Real-agent trial: one supervisor CLI delegating to a second CLI; then Android task-tree UI (Penpot boards first per [AGENTS.md](../AGENTS.md)) | Same discipline as `scripts/real-agent-check.py`: exact costs, scope and limits recorded |
@@ -446,7 +450,7 @@ Phase 0 builds a compatibility table from the registry index (section 2.1: all 4
 
 1. Whether each CLI in 2.1 honors stdio MCP servers and prompts reliably enough to use `task_delegate` (phase 0).
 2. Exact `initialize` caching behavior for `/acp` when capabilities depend on credentials (phase 1 to measure).
-3. `own_tools` agents: delegable only when listed, never auto-approved; revisit after phase 5 evidence.
+3. `own_tools` agents: delegable only when listed; their own requests are never supervisor-approved. Changed in section 28: host-raised consents (write, shell, terminal) of an `own_tools` agent are classified from the host's own description and a supervisor may decide a Medium one. Phase 5 evidence has not changed anything else here.
 4. Peer pairing UX details (who displays the code) before phase 3.
 5. Whether Goose's reference `/acp` implementation matches the RFD closely enough to interoperate with our inbound bridge; test in phase 3.
 
@@ -468,3 +472,493 @@ v2 changes that would affect this design when it stabilizes (from the announceme
 | Enum-like values accept unknown `_`-prefixed variants; `session/resume` in the setup flow | Parsers must tolerate unknown variants; the resume path becomes the default. |
 
 Readiness rules for the code: one protocol adapter module owns all version-specific shapes (stop reasons, permission subject, file changes, prompt lifecycle); the rest of `orchestrator/` sees version-neutral types. v2 support is a later phase behind a config flag, added only after the final schema and at least one agent in the registry negotiate it.
+
+## 16. Implementation status (branch `experiment/orchestrator`)
+
+Experimental and **off by default** (`[orchestrator] enabled = false`). What exists, what was actually run, and what is still open. Nothing here is production acceptance.
+
+| Piece | State |
+| --- | --- |
+| `orchestrator/tree.rs` task tree, admission codes, state machine, subtree and cascade helpers | Implemented; 10 unit tests |
+| `acpd mcp-delegate` (MCP 2025-06-18 stdio server, seven tools, argument validation) | Implemented; 11 unit tests plus a run of the real binary |
+| Control channel: client (`control::connect`, `ControlBackend`) and host server (`control::start`) | Implemented. Windows named pipe (random name, remote clients refused) exercised. **Unix socket (private 0700 directory, 0600 socket) compiled out on Windows and not yet built or run** (later: built and run on Linux and macOS CI, section 16); CI on Linux/macOS is its first test. Unix socket paths have a length limit (about 104-108 bytes), so a very long `state_directory` fails at start with a clear error |
+| `Orchestrator` wired into `SessionManager` (`begin`/`bind`/`abort`/`release_subtree`, `open_task`) and `Host` | Implemented; `[orchestrator]` config section (`enabled`, `orchestrate`, `delegable`, limits, default deadline) |
+| Tools backed for real | `agents_list`, `task_delegate` (incl. `wait_seconds`), `task_status` (incl. `wait_seconds`), `task_result`, `task_send`, `task_cancel`, `task_decide` (phase 2, section 18) |
+| Phase 3, inbound half (section 20) | `peer` device role and `acpd pair --role peer`, `/acp/{agent_id}` WebSocket bridge with reattach |
+| Phase 3, outbound half (section 21) | `transport = "ws"` registry agents, `peers.json`, the WebSocket link, delegation across two hosts, `acpd peer add|list|remove` |
+| Phase 1 gaps (section 22) | Task records survive restart (`tasks.json`), phone REST routes and `acpd tasks`, idle/deadline/cost limits, finished-child sweep, delegate hello, W3C trace, process-level cleanup tests |
+| Phase 1-3 closing items (section 23) | `GET /v1/peer/info`, bridge message-rate cap, turn budget, overflow/cut-off test, Linux CI green, mutation check of the original tree and delegate tests (38 guards, 3 survivors fixed) |
+| Phase 4 worktree isolation (sections 25-27) | `isolation: "worktree"`; `default_isolation` defaults to `worktree` for writers in a git repo; uncommitted work committed to the task branch on release (`worktree_uncommitted`); non-git fallback with `isolation_note`; phone merge `POST /v1/tasks/{id}/merge` |
+| Phase 5 Android task views (section 24) | Task tree, detail with supervisor outcomes, worktree row and merge button, peer session rows; JVM-tested, no device run yet |
+| CI | Linux stable and 1.88, Windows, macOS, container and Windows reproducibility pass: runs [38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and [38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) (`eb8f409`) |
+| Not implemented | client reconnect/reattach (decided against, section 23), token budget (decided against), a cap on kept worktree branches |
+
+Tested through real sessions with the mock agent (`acpd/tests/orchestrator.rs`; first written with 12 tests on Windows, now run on Linux, Windows and macOS CI): delegation tools appear only for listed agents and never when disabled; a child runs, completes, returns bounded untrusted text and takes a follow-up (a second concurrent follow-up is refused); every admission code is returned and a refused delegation starts no process; rights default to read-only and cannot exceed the caller's; the session limit applies to children; cancel cascades down a three-level tree and a child cannot manage its parent; a deadline ends a task that never finishes; trees are isolated from each other; removing a root session removes its children and revokes tokens; the host re-validates arguments and rejects wrong tokens and garbage frames; the real `acpd mcp-delegate` process works end to end with a clean stdout and no token on stderr.
+
+Behaviour worth knowing:
+- Finished child sessions are kept (visible on the phone, open to `task_send`) and count toward `max_sessions` until their root session is removed.
+- An agent that ignores `session/cancel` has its session removed after a grace period (15 s, shortened in tests). That path is not exercised, because the mock agent always honors cancel.
+- Enabling the feature by reload alone does not start the control channel; the host must restart. New limit settings (section 22) apply to future tasks after a reload.
+- The task token is held by the agent and by the agent's `mcp-delegate` child, so anything the agent runs can use it. It authorizes only what that one task could already do, and dies with its session or when its task fails or is cancelled.
+- A Windows named pipe's default access list lets other local users open the pipe; the unguessable name and the per-task token are what protect it.
+
+## 17. Phase 0 results: Goose 1.54.0 (13 October 2026)
+
+Measured with `acpd/tests/real_goose.rs` (opt-in, `#[ignore]`): the in-process orchestrator and control channel on Windows, with two real Goose sessions (`goose acp`, `GOOSE_MODE=approve`, DeepSeek `deepseek-flash` through Goose's OpenAI-compatible provider, key from the environment only). One agent, one version, one model, one run per check: this is evidence that the path works, not a compatibility guarantee. Models are not deterministic.
+
+| Check (section 12) | Result |
+| --- | --- |
+| Launches by its registry command; `initialize` and `session/new` succeed with a stdio MCP server in `mcpServers` | Yes. Protocol version 1, session ready in about 0.6 s |
+| MCP tools listed and callable from a prompt | Yes. From one plain-language prompt Goose called `agents_list`, then `task_delegate` (agent `worker`, workspace `sub`, `wait_seconds` 120) with the arguments asked for. Goose shows the tools as "acpd-orchestrator: agents list" / "task delegate" |
+| Delegation result | The child Goose answered `PONG`; `task_delegate` returned `completed`, `stop_reason end_turn`, `untrusted: true`, and the parent reported it correctly |
+| `session/cancel` ends a turn `cancelled` | Yes, within about 60 ms of the cancel (mid essay) |
+| `agentCapabilities` | `loadSession: true`; `promptCapabilities` image and embeddedContext, no audio; `mcpCapabilities` http true, sse false; `sessionCapabilities` list, delete, close and **no `resume`** |
+| `authMethods` | One, `goose-provider` ("Configure Provider"), no `terminal` type |
+| `usage_update` with cost | Yes (`used`, `size` and `cost` in USD). About US$0.002 for the parent turn and US$0.0001 for the child |
+| Permission requests | Goose asks for each MCP tool call itself in `approve` mode, with option kinds `allow_once`, `allow_always`, `reject_once`, `reject_always`. Phone approval of the delegation tools is therefore still required in this mode; the supervisor design (section 8) would apply to these requests |
+| `own_tools` | Goose is registered `own_tools: false`; not exercised further |
+| Update kinds seen | `agent_message_chunk`, `agent_thought_chunk`, `available_commands_update`, `session_info_update`, `tool_call`, `tool_call_update`, `usage_update` |
+
+Two findings that change the design or the code:
+
+1. **A delegate server that fails to start is invisible to the host.** The first run launched `mcp-delegate` from the test binary, which has no such subcommand. Goose still created the session and honestly told the user it had no `acpd-orchestrator` tools; `session/new` succeeded and nothing on the host side noticed. A host cannot assume the tools reached the agent just because the session started. Mitigation (built later, section 22 "delegate hello"; shown on the phone, section 24): the control channel records whether a delegate process connected with the session's token, and show the phone "delegation tools unavailable". The orchestrator now has `set_delegate_executable` for embedders whose running executable is not `acpd`.
+2. In `approve` mode every tool call, including `agents_list`, needs a phone answer. A task that makes several calls is a stream of prompts until supervisor approvals exist.
+
+Not covered: nested delegation by a Goose child, `task_cancel`/`task_send`/deadline driven by Goose, how Goose reacts to a tool error, other registry agents (the other 40 are untested), Linux or macOS, and any model other than DeepSeek. Cost of all three runs together was about one US cent.
+
+## 18. Phase 2: supervisor approvals (branch `experiment/orchestrator`)
+
+Implemented as designed in section 8 unless listed under "Differences". Off when `supervisor_max_risk = "none"`; the default is `medium`, as decided.
+
+**How it works.** For every delegated child (and only children) a watcher notices each pending permission request. `approvals.rs` classifies it (Low / Medium / High, or refused, or people-only), computes the digest, and records it. The task moves `working` to `input_required` while any request needs a person or the supervisor, and back afterwards. `task_status` lists them under `needs_decision` with `decidable` and, when not decidable, a `reason` (`human_only`, `escalated`, `supervisor_disabled`, `paused`, `risk_too_high`, `expired`). `task_decide` checks, in order: the caller is the task's parent (never the task itself, never another tree); the request exists and was not answered; the digest matches; nothing blocks it (the reasons above); the request offers a matching option. It then answers through the connection, which answers a request at most once, so a racing phone answer and a supervisor decision cannot both win (tested over 8 rounds). Every other outcome leaves the request pending for the phone. The phone is never excluded: it sees and may answer everything.
+
+**Classification.**
+
+| Request | Risk |
+| --- | --- |
+| Credential or configuration path (`.env*`, `.ssh`, `.aws`, `.git`, `.config`, `*.pem`, `*.key`, ...) in any request | Refused automatically, never offered (`_meta.acpdAutoReview` layer `rules`, decision `deny`) |
+| Host write consent outside the task's workspace | Refused automatically |
+| Host write consent, inside, at most `max_edit_bytes` | Medium; larger is High |
+| Host shell line | The shell-review rules: allowed-by-rules Low, hard-denied refused, plain "ask" Medium, "sensitive ask" High. The rules read `/bin/sh` only, so every Windows `cmd.exe` line is High |
+| Host terminal (literal argv) | High |
+| Agent's own request: read, search or think, all declared paths inside | Low |
+| Agent's own request: edit or move, paths inside and confirmed, at most `max_edit_bytes` | Medium |
+| Agent's own request: delete, fetch, execute, switch_mode, other, an unknown or missing kind, a path outside the scope, or an edit with no confirmable path | High |
+| Elicitation, or an agent-originated request of an agent registered `ownTools` | Only a person (`human_only`), shown as High. Host-raised consents of an `ownTools` agent follow the rows above (section 28) |
+
+High is never decidable by a supervisor; Low and Medium are decidable up to `supervisor_max_risk`.
+
+**Differences from the written design, and limits to know.**
+
+- **Trust.** A request the host raised (write, shell, terminal consent) is classified from the host's own description. The connection now records which pending permissions it created itself (`PendingPermission.host_origin`), because an agent controls every field of its own request, including `_meta.acpdSource`. A request the agent sent is classified from the agent's *declared* kind and paths, which it can misstate: those are trusted only to make a decision harder (unknown means High), but a child that declares `read` for something harmful gets a Low rating. The supervisor sees the facts, and the human sees everything. Path checks are lexical and do not follow symlinks.
+- `_meta.acpdAutoReview` uses the key `reason`, not `rationale`, with layer `supervisor` (or `rules`), so the existing Android badge renders it unchanged. The Android app was not run against it.
+- `supervisor_max_risk` accepts `"none"` (default `"medium"`; `"high"` stays disallowed) so delegation can run with the phone deciding everything. `"none"` starts no watcher, so there is no `input_required` tracking and no automatic refusal: exactly the phase 1 behavior.
+- New: `task_status {wait_seconds}` holds until a state or a request changes (and returns at once when every task asked about has finished or a request the caller may decide is already waiting), so a supervisor need not poll. `task_delegate {wait_seconds}` now also returns when a request needs a decision.
+- Pause is `POST /v1/sessions/{id}/supervisor {"paused": bool}` on the root session id, not `/v1/tasks/{id}/supervisor/pause` (there is no task REST yet). Pending requests are unaffected by pausing.
+- Config added: `supervisor_max_risk`, `supervisor_timeout_seconds` (default 60), `max_edit_bytes` (default 262144). After the timeout the supervisor can no longer answer; the phone still can.
+- Automatic refusal of denied requests applies to delegated children only. Phone-started sessions are unchanged.
+
+**Verified.** 27 integration tests with the mock agent (`acpd/tests/orchestrator.rs`) cover approve, refuse, escalate, wrong or stale digest, unknown request, replay, a late decision after the phone answered, an 8-round phone-versus-supervisor race, each risk class and ceiling, the off switch, refused credential paths, `ownTools` agents, parent-only authority (another tree, an unknown task, the child's own task), timeout, pause and resume, log hygiene (the decision is logged; the rationale, paths, digest, token and agent text are not), and host-origin tracking from a real host terminal consent. Ten classifier unit tests cover the risk table, the digest, spoofed labels and lexical path escapes. A network test covers the pause route over HTTP with a paired device. Six deliberate breakages of the safety checks (digest, host-origin, pause, ceiling, timeout, own-tools) were each caught by a test. Windows locally, and Windows stable, Linux stable and Linux Rust 1.88 in Actions ([run 38440692147](https://github.com/0xbasinas/acportal/actions/runs/38440692147), commit `dff7b86`), including the `/bin/sh` shell-rules classification on Linux.
+
+**Not verified.** No real agent has been through supervisor approval: with Goose on Windows every child request is High (the shell rules do not read `cmd.exe`, and extension tools declare no kind), so it would only demonstrate escalation. Not run on macOS, and not on a device.
+
+## 19. Phase 3 pre-check: Goose's own ACP server over HTTP and WebSocket (13 October 2026)
+
+Open item 5 asked whether Goose's reference `/acp` implementation matches the RFD closely enough to interoperate with our bridge. Measured against `goose serve` 1.54.0 on loopback (plain HTTP, Windows, DeepSeek `deepseek-flash`), with scripts kept outside the repository: handshake and transport probes cost nothing; two short prompts cost well under a cent. One server, one version; the RFD is a moving target.
+
+| Aspect | Goose 1.54.0 | RFD / design assumption |
+| --- | --- | --- |
+| Command | `goose serve --host --port` (default 127.0.0.1:3284), `--tls` with cert and key, `--allowed-origin`, `--dangerously-unauthenticated` | Not specified by the RFD |
+| Authentication | Shared secret from `GOOSE_SERVER__SECRET_KEY`, sent as an **`X-Secret-Key` header** on every request and on the WebSocket upgrade; `401` without it. `Authorization: Bearer` is not accepted | RFD defines no authentication (section 2). The outbound bridge needs a per-peer header, not a bearer token |
+| Origin | A foreign `Origin` on the upgrade gets `403`; loopback origins allowed by default | RFD phase 4 (future) |
+| WebSocket upgrade | `GET /acp` returns `101` with an `Acp-Connection-Id` header; no subprotocol; JSON-RPC in text frames; binary frames ignored and the socket keeps working | Matches |
+| `initialize` first | **Not enforced**: `session/new` before `initialize` succeeded | RFD says the client must send `initialize` first. A peer must not rely on the server enforcing it |
+| HTTP | `POST /acp` `initialize` returns `200` with JSON and `Acp-Connection-Id`; later POSTs return `202`; `GET` with `Accept: text/event-stream` and the connection id returns `200 text/event-stream`; `DELETE` returns `202` and later POSTs on that id return `404`; `Accept` is not required; plain HTTP/1.1 works on loopback | Matches, except HTTP/2 (not tried with TLS) |
+| Batches | **Processed** (an array in, an array out) | RFD says `501` |
+| Connection id after the socket drops | A POST with the dropped connection's id still returned `202` | Connection state outlives the socket |
+| **Turn when the transport closes mid-prompt** | **Lost.** After an abrupt drop, and after an orderly close, `session/load` on a new connection replayed only the user message (`messageCount` 1, no agent text), even after waiting 25 s. The control run (same prompt left open) replayed the full reply (234 characters, `DONE`) | RFD v1: sessions survive disconnects, but nothing is said about turns in flight |
+| `session/load` | Replays history as `session/update` (`user_message_chunk`, `agent_thought_chunk`, `agent_message_chunk`); consolidated, not the original chunking | Matches v1 (no sequencing, no replay of missed messages) |
+| `session/list`, `session/delete` | Work; `list` filters by `cwd`; empty sessions are not kept | Optional capabilities, advertised |
+
+**What this means for phase 3.**
+
+1. **A remote delegated turn does not survive a lost link.** The design already marks "bridge loss not recovered" as `Failed`; Goose confirms that is the only honest state. A resumed link recovers the session's *history*, never a turn that was running. `bridge_resume_seconds` and `_meta.acpdGap` can describe what was lost, but the host must never re-send the prompt automatically (it would also repeat side effects) and should report the loss to the supervisor and phone.
+2. **The outbound bridge needs a configurable credential header per peer** (`X-Secret-Key` for Goose, something else elsewhere), stored like other secrets and never logged. The design's peer token model (section 7.3) should allow a header name.
+3. **Our inbound `/acp` should be stricter than the reference:** require `initialize` first, answer batches with `501`, check `Origin`, require TLS off loopback.
+4. The wire shapes the RFD describes are real in a shipping server, so the bridge can be tested against `goose serve` as a second implementation (phase 4's interop gate becomes possible earlier). HTTP/2 over TLS and the SSE per-session stream were not exercised.
+
+Cleanup: the probe's sessions were deleted from Goose's store through `session/delete`; `goose serve` was stopped by its listening port. Four test sessions from the phase 0 runs (`20261013_2` to `_5`, titles mentioning `acpd-orchestrator`) remain in Goose's history.
+
+## 20. Phase 3, first slice: peer role and the inbound `/acp` bridge (branch `experiment/orchestrator`)
+
+Only the inbound half of section 7 exists. Another acpd host (or any ACP client with a peer credential) can start and drive a session on this host over a WebSocket; this host cannot yet *be* that client (no outbound transport, no `peers.json`, no `GET /v1/peer/info`, no reconnect backoff). Off unless `[orchestrator] enabled` and the agent is listed in `peer_agents`.
+
+**Credentials and routes.** Device records and pairing codes carry a `role`, `phone` (default, and what every existing file means) or `peer`; the code fixes the role, it is never chosen at redeem time. `acpd pair --role peer` makes a peer code. A phone credential gets `403 role_not_allowed` on `/acp`; a peer credential gets `403` on every `/v1` route, including revoking itself. A phone's pairing reply and stored record are unchanged byte for byte (the role is written only for peers). `GET /acp` returns `400 agent_required`; `POST` and `DELETE` return `501 transport_not_supported`; a request with an `Origin` header returns `403` (peers are hosts, not browsers); an agent that does not exist and one that is not shared with peers both return `404 agent_not_found`.
+
+**On the socket.** Standard ACP JSON-RPC text frames, stricter than the reference server (section 19): `initialize` must come first, a second one is refused, batches get `-32600`, binary frames are ignored, frames over `max_frame_bytes` end the connection, and credentials are re-checked on every message and on a heartbeat (`bridge_ping_seconds`, 5 to 120). `initialize` is answered by the host with version 1 whatever the peer asked for, `loadSession: true`, no prompt media and no MCP transports advertised (conservative: nothing is promised that was not tested). `session/new` takes the workspace as `_meta.acpdWorkspace`, an alias from `peer_workspaces`, never a path (`cwd` must be present for spec validity and is ignored), refuses any `mcpServers` (a stdio MCP server is a command to run on this host), and gives the session at most `peer_rights` (read-only by default); the peer may ask for less through `_meta.acpdRights`, never more. Bridge session ids are the host's UUIDs and every `sessionId` is translated in both directions, because agent ids collide between processes (two mock sessions are both `mock-1`). Everything else goes through the same `dispatch` the phone uses, so the method allow-list, request de-duplication and permission answering are shared, the phone sees the session in its list, and the single-controller lease applies: a phone can attach read-only but gets `409` while a peer is attached.
+
+**Detach and reattach.** A dropped socket does not end a session: it is kept for `bridge_resume_seconds` (default 120). The same peer reattaches with `session/load`; the host replays its journal (what the agent did meanwhile, and the response to a prompt that finished while the peer was away, under the peer's original request id) and re-sends requests still waiting for an answer. A turn left running when the socket dropped keeps running and can finish. This differs from Goose's own server, which discards it (section 19). If the bounded journal evicted events, the load result carries `_meta.acpdGap.missed`. Nothing is ever sent to the agent on reattach, so no prompt or decision is repeated. Another peer cannot load or use the session; a second connection of the owner cannot take an attached one; a stale removal timer cannot end a session that was reattached and left again.
+
+**Revocation.** A revoked or expired peer is disconnected at its next message (heartbeat as backstop), and its attached sessions are removed at once. Sessions of that peer that were detached, waiting to be reattached, are removed when their resume window ends, at the latest; the revoked peer cannot reattach them in the meantime. The `acpd revoke` command runs in another process, so the host notices on the next message or heartbeat.
+
+**Verified.** 14 integration tests over real WebSockets (`acpd/tests/bridge.rs`) against a real `Host` and the mock agent: routes, roles, origin and sharing rules; strictness; workspace aliases, MCP refusal and rights ceilings (ten refused shapes, no agent started by any); a prompt with the peer answering a permission; cancel; two sessions with colliding agent ids; cross-peer isolation; reattach after a drop with a permission outstanding; a turn that finished while the peer was away; the gap report; the resume window; the stale-timer case; revocation (within 3 s, with an unaffected bystander); phone controller conflict. Security tests (4) for roles and old-format files. Full workspace tests, strict Clippy and formatting pass on Windows. The earlier phases' tests were rerun unchanged.
+
+**Mutation check.** Thirteen guards were broken one at a time and the bridge suite rerun, each test on its own under a timeout:
+
+| Broken guard | Caught by |
+| --- | --- |
+| Session ids not translated | six tests that prompt |
+| Every registered agent shared with peers | the routes test |
+| `initialize` not required first | the strictness test |
+| Batches accepted | the strictness test |
+| Peer MCP servers accepted | the alias and rights test |
+| Rights ceiling ignored | the alias and rights test |
+| Any peer may reattach any session | the cross-peer test |
+| An attached session may be taken over | the reattach test |
+| Per-message credential check removed | the revocation test (it now asserts disconnect within 3 s, so the 5-second heartbeat cannot hide it) |
+| Stale removal timer honored | the stale-timer test |
+| A phone may use `/acp` | the routes test |
+| A peer may use `/v1` | the routes test |
+| Browser `Origin` accepted | **survived**: see below |
+
+Two findings came out of it.
+
+1. **The tests could hang instead of fail.** The first mutation (ids not translated) hung the suite for 18 minutes. The cause was in the test client, not the bridge: its 15-second timeout restarted on every WebSocket ping, and the bridge pings every few seconds, so a frame that never arrived made a test wait forever with an idle CPU. A bridge regression would have hung CI. The client now uses one deadline per wait (15 s) and the multi-frame waits are limited to 30 s; the same mutation now fails six tests in seconds.
+2. **One survivor was an equivalent mutant.** The `Origin` check in the bridge handler could never run: the router's `no_browser_and_no_cache` layer already refuses every request that carries an `Origin` header, so breaking the handler's copy changed nothing. The duplicate was deleted. The route test (which asserts `403` for `/acp` with an `Origin`) now guards the global layer, and breaking that layer is caught by it.
+
+**Not verified or not done.** (Status 14 October 2026: Linux and macOS CI now pass, section 16; the rest of this list stands.) Linux and macOS; a real second host or `goose serve` as a peer; TLS (the bridge relies on the listener's rules, tested here over plain loopback); the outbox overflow disconnect (`1013`); rate limits; real-agent behavior through the bridge; any Android surface for peer sessions. HTTP/2 and Streamable HTTP are not offered.
+
+## 21. Phase 3, outbound half: this host as a client of another host's bridge (branch `experiment/orchestrator`)
+
+A registry entry with `transport = "ws"` is an agent that runs on another host, reached through that host's `/acp/{agent_id}` bridge (section 20). Opening one connects a WebSocket instead of spawning a process.
+
+**How it fits.** `AcpConnection`'s actor was made independent of a child process: it writes to any async writer and the child is optional (`over_transport`). `peer_link.rs` carries newline-framed JSON over two in-memory pipes and one pump task that turns each line into a WebSocket text frame and back, so the actor, journal, permission handling, cancellation and request timeouts are the same code as for a local agent. The refactor was proven behavior-neutral first: the full workspace suite, including the 22 containment tests, passed unchanged.
+
+**Registry entry.** `{"id","name","transport":"ws","url":"wss://host:port/acp/<agent>","peer":"<name>","workspaceAlias":"<alias>"}`, or `remoteCwd` (an absolute folder in either OS's style) instead of an alias for a server that is not acpd. It may not carry a command, arguments, environment or folder; local agents may not carry the remote fields. Discovery reports a remote agent as available without looking for a program; reachability is only known when connecting.
+
+**Credentials (`peers.rs`, `peers.json`).** One record per peer: a name, the single origin it may be sent to, and either a bearer token or a header of the server's choosing (Goose's server wants `X-Secret-Key`). The file is owner-only, parsed strictly (unknown fields refused), size-bounded, symlinks refused, and read afresh on every connection. Summaries never include the secret and `Debug` redacts it. The registry, which the phone can edit, names a peer but never holds a secret, and a URL whose origin differs from the peer's is refused before anything is sent. TLS uses the bundled web roots and is never switched off; a plaintext server where `wss://` is expected is met with a TLS hello, not a downgrade; `ws://` is accepted only to this computer.
+
+**What this host sends and refuses.**
+- `initialize` with empty client capabilities: the other host serves its own file and terminal callbacks, so none are offered from here.
+- `session/new` with the alias and only the rights this session asked for (`_meta.acpdWorkspace`, `_meta.acpdRights`), never a local path, and `mcpServers: []`. MCP servers and saved-session load are refused locally for remote agents, so nothing that could run a command crosses the link.
+- A frame containing a newline drops the link: a second message smuggled into one frame would otherwise slip past per-frame accounting.
+- When this host removes a remote session on purpose, the close frame says so (`end-sessions`) and the bridge ends the session at once instead of keeping it for the resume window. Losing the link (no such reason) leaves it there for a reattach.
+
+**Failure behavior.** A dropped or revoked link ends the session here; the turn in flight fails with "the link to the other host was lost; the prompt was not resent". Nothing reconnects or resends on its own (tested: one connection, no retry). A delegated task ends `failed` with that reason.
+
+**Trust decision.** A remote agent's permission requests are always for a person, never a supervising agent: their paths belong to another host and cannot be checked here, and a lexical match against a local folder would be false precision. Credential-path refusal still applies. The other host's own consents and policy apply there as well.
+
+**Verified (Windows).** 14 integration tests with two real hosts in one process, a TCP proxy that can be cut, a plaintext listener, and recording fake peers; 6 peers-store unit tests; the classifier and registry cases. They cover: a remote session running in the other host's alias folder with the rights it asked for; the permission arriving here and the turn finishing; delegation from a local agent to the remote one through the orchestrator, with cancel crossing the link; no credential sent to a mismatched origin (the attacker's listener was never contacted); no TLS downgrade; the exact frames sent (empty capabilities, alias, rights, no local path, the right header); newline smuggling; link loss; revocation on the other host; remote-folder validation in both OS styles. A first run caught a real bug (a Linux peer's `/srv/work` was rejected on Windows because the local OS's `is_absolute` was used).
+
+**Mutation check.** Twelve guards broken one at a time (each run under a timeout, restored with `git`), all caught: credential sent to any origin; plain `ws://` to any host; newline inside a frame; the client not ending sessions on purpose; the bridge ignoring the end-sessions close; client capabilities offered; MCP and load allowed; remote requests classified like local ones; the scan forgetting a session is remote; a remote agent carrying a command; link loss reported generically; the handshake refusal text. Three of the first tests would have survived breakage (newline, capabilities and credential header, MCP refusal) and were strengthened before this run. One run was interrupted by hand after eight mutations and resumed from the ninth; the earlier eight are from the same commit.
+
+**Not done or not verified.**
+- ~~No `acpd peer` commands~~: added; see "The peer commands" below.
+- **No reconnect or reattach from the client** (the bridge supports reattach, the client never uses it); the decision is recorded in section 23. `GET /v1/peer/info` now exists (section 23).
+- Linux and macOS, real TLS between two machines (Linux and macOS CI now pass; the rest stands), `goose serve` as a peer, and the heartbeat's 70-second silence limit are untested.
+- A remote session is kept as interrupted metadata after a host restart but cannot be loaded.
+- The new dependency (`tokio-tungstenite` with rustls and the webpki roots) has not been reviewed; it adds no `aws-lc`.
+
+### The peer commands
+
+`acpd peer add --name N --address https://host:port --code-env VAR` pairs this host with another acpd host: that host's operator runs `acpd pair --role peer` and the code is spent at its `/v1/pair` within 60 seconds, and the credential is stored in `peers.json` bound to that origin. The code can also come from `--code` (kept in shell history, so `--code-env` is preferred) or a prompt. For a server that is not acpd, `--header NAME --secret-env VAR` stores a header credential whose secret is read from the environment, never the command line. `acpd peer list` prints names, origins, the kind of credential and the other host's device id, never a secret; `acpd peer remove NAME` forgets a peer and says it does not revoke it on the other host (`acpd revoke <id>` there, using the device id `add` printed).
+
+Rules the command follows:
+- **The one-use code is spent last.** Everything that can fail locally (the name, the address, a full store) is checked first, so a failure that could have been seen earlier does not waste the code and leave an orphaned credential on the other host.
+- **Redirects are never followed**, the reply is size-bounded (8 KiB) and must hold a 64-hex credential, and the other host's error text is never repeated; only the HTTP status is shown.
+- **Nothing secret is printed**: not the credential, not the pairing code. It prints the device id to revoke and a registry entry to write.
+- Plain `ws://`/`http://` addresses are accepted only for this computer.
+
+Verified: 7 tests run the real `acpd` binary against a real far host, including one that opens a real remote session with a credential the CLI created, and one that proves bad input is refused with the code still usable afterwards. Eight guards were broken one at a time (local checks before the code is spent, redirects, token shape, reply size, code-and-header conflict, the full-store check, code shape, device-id recording) and each was caught. Reading the tests critically first found two that would have survived (an oversized reply that was also an invalid token, and a refusal test that did not check its reason); both were strengthened before the run. An inconsistency was fixed too: `peer list` printed `device_id` where `acpd devices` uses camelCase. Windows only so far; Linux CI covered the outbound half before the CLI was added.
+
+
+## 22. Phase 1 gaps closed, and handoff (branch `experiment/orchestrator`)
+
+Written 13 October 2026 for the next agent. Everything here is experimental and off by default (`[orchestrator] enabled = false`). Local runs were on Windows only. **Historical:** later runs covered Linux, Windows and macOS CI, phases 4 and 5 are done; current status is section 16 and [TODO](../TODO.md).
+
+### What was added
+
+| Piece | Where | Behaviour |
+| --- | --- | --- |
+| Task records | `orchestrator/records.rs`, `Orchestrator::restore/persist_now/schedule_persist` | `tasks.json` in the state directory, written by a debounced writer that takes its snapshot under the write lock. Bounded to 256 records / 1 MiB; pruning keeps the newest whole trees. After a restart every non-terminal task becomes `interrupted` (nothing is restarted or resent) and is written back. An unreadable file is set aside, not overwritten; an empty list never creates a file. `SessionManager::shutdown` flushes. |
+| Phone routes | `orchestrator/views.rs`, `api.rs` | Task list/detail, cancel (a root cancels its whole subtree and the root's current turn; a finished task cannot be cancelled again), pause/resume supervision (roots only). Phone credentials only; peer and other roles are refused. `acpd tasks` lists them from the CLI. |
+| Limits | `Runtime::limit`, `run_prompt`, `start_janitor` | `idle_timeout_seconds` (default 300; any event resets it; waiting for a person is not idle), the existing deadline, `task_max_cost_usd` (default 0 = off; cumulative; only `USD` usage counts, another currency or none is unmetered), `finished_child_keep_seconds` (default 600; 0 keeps them; a child with open work below it is never swept). A forced end records its reason in the task error. A stuck agent's session is removed. |
+| Delegate hello | `call("_hello")`, `main.rs` `McpDelegate` | `acpd mcp-delegate` says hello over the control channel on start. Task detail shows `delegate: connected` or `not_connected` (only when the tools were offered). `_hello` is not in `tools/list`, so an agent cannot call it as a tool. |
+| Trace | `Ticket.traceparent`, `session.rs` | One W3C `traceparent` trace id per tree, a new span per task, sent in `_meta` on `session/new` and `session/prompt`. State changes log `trace_id`, task and state name only. |
+| Process tests | `tests/task_health.rs` | Handles-based (Windows `OpenProcess` / Unix `kill(pid,0)`) proof that an agent and a descendant end after cancel, limit, and session removal. |
+
+### Tests (all under `acpd/tests` unless noted)
+
+`task_records` 4, `task_api` 6, `task_limits` 8, `task_health` 6, plus the earlier `orchestrator` 27, `bridge` 14, `peer_link` 15, `peer_cli` 7 and 119 lib unit tests. Mock agent fixture flags used: `--usage-cost`, `--usage-currency`, `--stall-prompt`, `--ignore-cancel`, `--echo-mcp`, plus `_mock/pid` and `_mock/spawn_descendant`.
+
+### Mutation check
+
+`mut_phase1.py` (a disposable script, not in the repository) breaks one guard at a time in 23 places across records, routes, limits, sweep, hello and trace, runs the tests that should notice, and restores the file with `git checkout`. It refuses a dirty tree and kills the process tree on timeout. Never run it with uncommitted work, and never `git add -A` while it is running. Result (13 October 2026, Windows): 22 of 23 were caught on the first run. One survived, "keep 0 still sweeps", because its test waited 3.5 s while the janitor sleeps 10 s between passes when keep is 0, so it never saw a second sweep. The test now waits 11.5 s and catches the mutant (confirmed by re-applying it); the other 22 were not rerun after that change.
+
+### Honest limits
+
+- Linux CI has **not** run the phase-1 gap commits; the Unix process checks and the Unix control socket are unrun. macOS is never run (workflow skips it). (Since resolved: section 16.)
+- No real agent went through supervisor approval; Windows shell lines always rate High; request kinds and paths declared by an agent cannot be verified.
+- Real TLS between two machines, and `goose serve` as a peer, are untested.
+- Not built: token and turn budgets, client reconnect/reattach, `GET /v1/peer/info`, worktree isolation, Android UI (task tree, supervisor outcomes, `delegate` status, peer sessions).
+- The original phase-1 tree and `mcp-delegate` tests were never mutation-checked. Outbox overflow disconnect and rate limits are untested. The `tokio-tungstenite` dependency (rustls, webpki roots) has not been reviewed.
+- Enabling the orchestrator by reload does not start the control channel; restart the host.
+- Four test sessions from phase 0 (`20261013_2` to `_5`) remain in the user's Goose history; ask before deleting.
+
+### How to continue
+
+1. Read this section, then `TODO.md` ("Agent orchestrator"). Branch `experiment/orchestrator`, PR #45 (the desktop work is merged into it).
+2. Run: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`. For Linux evidence: `gh workflow run Rust --ref experiment/orchestrator` and read the result.
+3. Suggested order: Linux CI read and fixes; two-machine TLS check and `goose serve` peer test; decide client reconnect; `GET /v1/peer/info`; worktree isolation; Penpot boards then Android task tree; hardening (macOS, overflow/rate-limit tests, dependency review) before taking the PR out of draft.
+4. Keep invariants from `AGENTS.md`: literal argv, no secrets in logs, TLS never downgraded, record only verified scope.
+
+## 23. Closing phases 1 to 3 (branch `experiment/orchestrator`, 14 October 2026)
+
+What was done after section 22 to leave no known open item in phases 1 to 3 other than the ones listed under "Still open".
+
+**Linux CI.** [Rust run 38520913814](https://github.com/0xbasinas/acportal/actions/runs/38520913814) at `3f2dff3`: Linux stable (fmt, strict Clippy including the Windows target, tests), Linux Rust 1.88, Windows stable and the Linux testy job all pass; no test failed. This is the first Linux execution of the Unix control socket, the restart/limits/trace suites and the process-cleanup checks (`task_health` 6, `task_limits` 8, `task_records` 4, `task_api` 6, `orchestrator` 27, `bridge` 16, `peer_link` 15, `peer_cli` 7). The first dispatch ([run 38520451449](https://github.com/0xbasinas/acportal/actions/runs/38520451449)) failed on Linux only because the Unix branch of `Watch::gone` in `tests/task_health.rs` did not compile (a stray `&&`); Windows had never compiled that branch. It also now treats a zombie as stopped. macOS, the container job and the Windows reproducibility jobs are skipped by the workflow for pushes like this and were not run.
+
+**`GET /v1/peer/info`** (peer role only; a phone gets 403, no credential 401, orchestrator off 404). It returns `hostId`, `version`, `protocolVersion`, the shared `agents` (`id`, `name`; only ones that exist and are enabled), workspace `workspaces` aliases (never paths), the `rights` ceiling and `resumeSeconds`. It is smaller than the section 7.4 sketch (no `own_tools` or `delegable` per agent). Tests: `peer_info_tells_a_peer_what_it_may_use_and_nothing_more` (no path separator, no unshared agent, no token in the body) and `peer_info_is_not_found_when_the_bridge_is_off`.
+
+**Bridge message-rate cap.** Section 7 and 11 claimed the bridge had "the same rate limit as the existing WebSocket API", but that API has none. A peer connection is now closed with `1008` / `rate_limited` when it sends more than 100 text messages in a second (`MAX_MESSAGES_PER_SECOND` in `api/bridge.rs`; fixed window). Its sessions are kept for the resume window like any other drop. Test `a_peer_that_floods_messages_is_closed_with_rate_limited` (20 calls pass, a burst of 150 closes); disabling the check makes it fail.
+
+**Cut-off of a peer that stops reading.** `a_peer_that_stops_reading_is_cut_off_and_can_reattach` streams 300 x 256 KiB while the peer reads nothing, then checks the peer saw only part of it, the socket ended, the session was kept and `session/load` works. Two guards can end such a peer: the full 256-frame outbox (immediate, close `1013`) and a 5 s send timeout. In a debug build the flood is slower than 5 s, so the test cannot tell them apart; a mutation run removing the outbox signal in the journal forwarder passed. The behavior is pinned, the outbox signal alone is not.
+
+**Turn budget.** `[orchestrator] max_turns_per_task` (0 = off, 0..1000): a task's first prompt is turn 1 and each accepted `task_send` follow-up another. A follow-up over the limit is refused with `turn_limit` before anything is claimed, so the task stays `completed`. Test `a_task_may_be_given_only_so_many_prompts_and_a_refusal_leaves_it_usable` (also checks 0 = unlimited and the configuration bound); both the check and the counter were mutated and caught. Turn counts are in memory only and restart at 1 for a restored (already interrupted) task.
+
+**Token budget: decided against.** ACP `usage_update` reports `used` and `size`, the *context window* in use, not cumulative tokens spent, so a token budget built on it would end healthy tasks (a long context) and miss expensive ones (many short turns). Spend is bounded by `task_max_cost_usd` where the agent reports cost, and by the deadline, idle and turn limits where it does not. Section 10's wording about token budgets is superseded.
+
+**Client reconnect and reattach: decided against, for now.** A turn in flight never survives a lost link (section 19), so reconnecting could only help an idle remote session. That would need a replay shim in the pump that re-sends `initialize` and `session/load` and swallows their replies, new state between the actor and the socket, for a case the parent handles today by delegating again after the explicit `failed (link lost)`. The bridge side supports reattach, so a client can be added later without a protocol change. If you want it, it is a self-contained piece: `peer_link.rs` plus the session actor's `over_transport` path.
+
+**Mutation check of the original tree and `mcp-delegate` tests.** `mut_orig.py` (disposable, like `mut_phase1.py`) broke 38 guards one at a time in `tree.rs` (admission codes, depth, fan-out, cycle, scope, each right, the state machine, `force`, `may_manage`, cascade, `remove_tree`) and `delegate.rs` (argument validation), running the library tests and `tests/orchestrator.rs`. 35 were caught on the first run. Three survived and each was a missing test: the `terminal` right was never checked on its own in admission, a `Failed` task moving back to `Working` was never tried (only `Canceled` was shown to be final), and `task_decide` without a `decision` field was not rejected. Tests `a_child_may_not_have_any_right_its_parent_lacks`, `every_finished_state_is_final` and `a_decision_without_its_decision_field_never_reaches_the_backend` now catch all three (each mutation re-applied and confirmed). The other 35 were not rerun after those tests were added; they only add tests.
+
+### Real Goose trials (14 October 2026, Windows, Goose 1.54.0 with DeepSeek `deepseek-flash`)
+
+Both are opt-in tests in `acpd/tests/real_goose.rs` (`#[ignore]`, real model requests, key passed as `OPENAI_API_KEY` in the environment only): `goose_phase_0` and `goose_supervisor_trial`. A few cents at most; each run leaves its root and worker sessions in the operator's Goose history.
+
+1. **Delegation, `goose_phase_0` rerun.** A root Goose listed its agents, delegated "reply with exactly PONG" to a second Goose in the `sub` workspace and reported the result: task `completed`, `stop_reason end_turn`, result `PONG` marked untrusted, 10.8 s. Only the two delegation tool calls needed the phone. `session/cancel` of the root's next turn ended it in 0.06 s with `cancelled`.
+2. **Supervisor, `goose_supervisor_trial`.** The root Goose was told to delegate "create `hello.txt` containing `hi`" and to `task_decide` anything decidable. The worker's write request arrived as `kind: other` with `rawInput {path, content}` and a `\\?\` verbatim path. The host rated it **High** (`risk_too_high`, not decidable), so the task went `input_required` with a `needs_decision` entry the root could see but not decide. The root did **not** call `task_decide` and said so. After the 20 s supervisor window it escalated; the test's phone allowed it once 30 s after it first appeared, the worker wrote `hello.txt` (`hi`), and the task completed (49 s total). The root also tried to verify with `type sub\hello.txt`; that was a host shell consent for the root session itself (not a child), rated by the phone path, and the test phone refused it.
+
+What this shows and does not show:
+- The escalation path works with a real agent: High is never decidable by the supervisor, the supervisor Goose respected that, and the phone's answer let the worker continue. The approval path works too (trial 3, host-originated Medium write).
+- It is as the design predicted: Goose's own file tools declare no usable kind, so on this setup a Goose child's write is always High and only a person can approve it. **No real agent's request has yet been rated Low or Medium and approved by a supervisor**; that path is covered only by the mock agent. Rating a `write`-shaped `other` request Medium would mean trusting the agent's own `rawInput` to make approval easier, which the design deliberately avoids; that is a decision for the owner, not something to change quietly.
+- The root's summary of the outcome was partly wrong ("the request expired on its own"): a supervisor is not told when the phone later decides, only that the request is gone. Worth surfacing in the task view if this matters.
+- One run each, Windows only, one provider and model. Not a statistical claim.
+3. **Supervisor approves a real agent's request, `goose_supervisor_trial_with_write_rights`.** The same task, delegated with `rights {read, write}`. A child's rights decide which client capabilities the host offers it: read-only (the default) gave Goose no `fs/write_text_file`, so it wrote with its own tool; with write rights it raises **two** requests for one write. First its own tool gate (`write · hello.txt`, kind `other`): High, not decidable, so the phone had to allow it (30 s later in the test). Then, after that, the host's own write consent (`host-filesystem`, kind `edit`, 2 bytes, inside the workspace): **Medium and decidable**. The root Goose approved that one with `task_decide` (`applied: true, outcome: allowed`), the phone view shows `_meta.acpdAutoReview {decision: allow_once, layer: supervisor, reason: "Scoped write of hello.txt (2 bytes) in the worker sandbox matches the assigned task."}`, `hello.txt` contained `hi` and the task completed in 55 s. The test phone never answered the host consent. So a real agent's request has now been decided by a supervisor, for a host-originated write.
+
+   What it also shows: with Goose a supervisor cannot take the phone out of the loop, because Goose's own tool gate for every write is always High. The supervisor decides only the host's consent that follows it.
+
+   **A real bug found by this trial and fixed.** The first run of this variant missed the request: the root's previous `task_status` poll returned `working` just before the host consent appeared (the task flipped back to `working` for a moment when the first request was answered), and its next poll, started with a decidable request already waiting, held for its full wait and returned only after the 20 s window had expired. `task_status` with `wait_seconds` now returns at once when any request the caller may decide is already pending; requests it cannot decide still keep the hold, so a supervisor does not spin on them. Test `a_poll_returns_at_once_for_a_request_the_supervisor_can_decide_but_holds_for_one_it_cannot` (both halves mutated and caught). The timeline came from a watcher added to the trial that records what the host shows as waiting, with timestamps, next to the root's own tool calls.
+
+### Still open
+
+- Two machines over real TLS; `goose serve` as a peer. (macOS, container and cross-runner reproducibility now pass: section 16.)
+- Goose's own tool gate for a write is always High, so the phone is always needed for that first request (trial 3). Only the host's consent that follows is supervisor-decidable. Windows shell lines always rate High.
+- Phase 4 worktree isolation: done, sections 25-27. Phase 5 Android views: done, section 24.
+- Review of the `tokio-tungstenite` dependency; the outbox overflow signal alone (see above).
+- Enabling the orchestrator by reload does not start the control channel.
+
+## 24. Phase 5: Android task tree, supervisor outcomes, `delegate` status, peer sessions (14 October 2026)
+
+**Design.** Penpot boards 51-54, dark (y 0) and light (y 944), in file `7eed092c-bad6-802e-8008-bea06e03019c`, Page 1, to the right of the logo boards (x 14640 onwards; numbers 36-50 were already taken). 51 task tree, 52 task detail with supervisor outcomes, 53 root task with delegation tools not connected and the pause/resume and cancel actions, 54 connection details with the "Delegated tasks" entry and a peer session row. Added in one Penpot update (revision 52 to 53); no existing board was changed. All children were checked to sit inside their boards. Penpot could not export images through the connector, so the local previews in `.local/penpot-phase5/` are drawn from the same shape data (no text wrapping) and are not Penpot renders. Renders of 51-54 (dark and light) were made later and are at `/workspace/penpot/renders` on the build box, not in the repository. Two flaws found in the first render were fixed on 15 October 2026, in both themes, and verified by measured geometry, not by eye (Penpot's image export timed out on the server): board 53's note "Delegation tools not connected..." needed three lines (50 px) in a 36 px box and ran to 2 px from the next heading, so it now sizes to its text and the rows below it moved down 15 px (gap 17 px, as in the other rows); board 54's `</>` icon wrapped to two lines in an 18 px box, so it is now one line at 13 px (20 px wide, 8 px before its headline). Not looked at visually yet.
+
+**Off by default.** `GET /v1/status` lists the feature `orchestrator` only while `[orchestrator] enabled = true` (test `the_status_lists_the_orchestrator_feature_only_while_it_is_enabled`). The phone shows the "Delegated tasks" row on a connection only when the feature is listed, so nothing changes for a host with the orchestrator off or an older host.
+
+**What the phone shows** (`TaskScreens.kt`, models and pure logic in `core/protocol/.../Orchestration.kt`), from the existing `/v1/tasks` routes (section 22), no new host data:
+- Task tree: every tree, newest root first, sub-tasks indented under their parent (oldest first). A task whose parent was pruned becomes a root; a cycle in bad data is shown flat, never dropped or looped. Each row: state, number of requests waiting (badge), delegation-tool status and the host's fixed failure words.
+- Task detail: folder, rights, delegation tools (`connected` / `not_connected`, with what that means), outcome, reported cost, and each `needsDecision` entry with its risk and what the supervisor may do (`may decide`, or why not: `human_only`, `escalated`, `supervisor_disabled`, `paused`, `risk_too_high`, `expired`) and the supervisor window. Green when the supervisor may decide, amber when only a person can. Actions: open the task's session (to answer requests there), cancel (with the subtree), and for a root pause or resume supervision.
+- Peer sessions: a session whose agent runs on another host (`remotePeer` on the session) reads "agent · on peer NAME · status" in the connection's session list.
+
+**Limits.** The task views are read on open and on Refresh; there is no live push. The host does not report whether a tree is currently paused, so both Pause and Resume are offered. Past supervisor decisions are not listed in the task view (the host keeps no decision record for the phone); in the conversation they appear through the existing `acpdAutoReview` badge (layer `supervisor`). Inbound peer-attached sessions are not marked (the host does not report them; the phone sees `409` when it tries to control one). Not run on an emulator or device yet: see [runbook §9](emulator-runbook.md).
+
+**Tests.** JVM: `OrchestrationTest` (tree order and indentation, orphans and cycles, decoding the host's list and detail including unknown fields, outcome and state labels, `remotePeer`) and `TaskScreensTest` (row text, peer row text, task-id validation, task error messages). Gradle core and app unit tests, debug build and lint pass on Linux; Rust fmt, strict Clippy and `task_api` (7) pass.
+
+## 25. Phase 4: worktree isolation (branch `experiment/orchestrator`, 14 October 2026)
+
+Off with the orchestrator. **Superseded in part by sections 26-27:** writing tasks in a git repo now get a worktree by default (`default_isolation`, default `"worktree"`), uncommitted work is committed to the branch on release rather than kept, non-git folders fall back with a note, and the phone can merge a branch. The text below describes the first version.
+
+**Creation** (`orchestrator/worktree.rs`). `task_delegate` with `isolation: "worktree"` resolves the requested folder as before, then finds its repository (`git rev-parse --show-toplevel`) and runs `git worktree add -b acpd/task-<12 hex> <state_directory>/worktrees/<uuid> <HEAD commit>`. The task runs in the same relative folder inside the worktree (`workspace: "src"` runs in `<worktree>/src`). Admission checks the folder it was delegated in (scope, cycle, rights), then the task's scope is moved to the worktree, so supervisor classification, host file callbacks and nested delegation are all contained to it. Worktrees live under the state directory, never under a workspace root, so the parent cannot reach a child's worktree through its own folder; `Config::task_workspace` admits them for delegated tasks only (phone sessions still need a workspace root). `task_status`/`task_result` and the phone's task detail show `worktree {branch, base, path, base_dirty, outcome}`.
+
+**Refusals** (`isolation_unavailable`, before any agent starts): the folder is not in a git repository; the repository has no commits; the repository's top folder is above the delegating task's folder (a worktree would hand the child files its parent cannot see); git failed. With `default_isolation = "worktree"` the default applies only to tasks with the write right, and a folder that cannot have a worktree falls back to shared, as before. An explicit `isolation: "shared"` always wins.
+
+**Dirty parent.** The worktree is made from the committed `HEAD`. The parent's uncommitted changes are not in it, and `base_dirty: true` says so; nothing in the parent checkout is touched.
+
+**Cleanup.** A task that ends failed, cancelled or rejected releases its worktree at once. A completed task keeps it while its session lives (a `task_send` follow-up runs in the same worktree), and releases it when the session ends (finished-child sweep, root removal, host shutdown). Releasing: uncommitted or untracked changes keep the worktree as it is (`kept_dirty`); otherwise `git worktree remove`, and the branch is deleted if it has no commits beyond the base (`removed`) or kept for merging (`branch_kept`). A worktree deleted by hand is pruned. After a restart every recorded worktree of a (now interrupted) task is released by the same rule (records carry the worktree), and clean worktree folders no record knows about are removed (their branches kept, since the base is unknown); dirty ones are left and logged.
+
+**Git safety.** Literal argument lists, no shell; `GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG*` and the other repository variables removed; `core.hooksPath` pointed at an empty folder and `core.fsmonitor=false`, so a repository's own hooks or fsmonitor cannot run a program on the host when a worktree is made or inspected (test: a `post-checkout` hook that does run under plain git does not run here). `GIT_TERMINAL_PROMPT=0`, no stdin. Logs carry the branch and outcome, never paths or content.
+
+**Tests (Linux, this box; first version, later also Windows and macOS CI).** 7 unit tests with real repositories (`worktree.rs`: own checkout and branch, removal, committed work keeps the branch, uncommitted keeps the worktree, non-repo/empty/above-scope refusals, dirty parent, hooks, unrecorded worktrees, deleted-by-hand). 6 integration tests (`tests/worktrees.rs`, mock agent and control channel): two workers get separate worktrees; each writes in its own (phone-approved host write); A's writes into B's worktree and into the parent checkout are refused; A's commit survives on its branch after the root ends while the worktree goes; B cancelled with uncommitted work was `kept_dirty` (now `snapshotted`, section 26); a refused delegation and a cancelled unused one leave no worktree or branch; non-git refusal and the default fallback; repository above the scope; dirty parent; restart cleanup from records plus an unrecorded orphan. The old `isolation_unsupported` check in `tests/orchestrator.rs` now expects `isolation_unavailable` (its workspace is not a repository). Eight guards were broken one at a time (dirty check, hooks path, above-scope check, release on failure/cancel, release on session end, orphan sweep, release of a refused placement, explicit refusal); all eight were caught.
+
+**Real Goose run** (`goose_worktree_trial`, opt-in, Linux, Goose 1.53.0, DeepSeek `deepseek-flash`, key in the environment only, Goose given a scratch `HOME`/XDG folders through `ACPD_GOOSE_HOME` so the operator's Goose config is never read or written): a supervising Goose delegated two writers with `isolation: "worktree"` and write rights. 23 s, `end_turn`, under a cent. Each worker ran in its own worktree under the state directory on its own branch (`acpd/task-6c3553b81cce`, `acpd/task-e02931b8fb4d`); worktree A held only `a.txt` (`alpha`), B only `b.txt` (`beta`); the parent checkout was clean with no new files. The test phone answered 14 requests (Goose's own tool gates and the host write consents; the supervisor was told not to decide). After the root session ended both worktrees were kept, because each held an uncommitted new file: the `kept_dirty` rule of the first version. The rerun after section 26 is in section 27. One run, one model.
+
+**Limits (current, after sections 26-27).**
+- Uncommitted work is committed to the task branch on release (or kept with `worktree_uncommitted = "keep"`); the phone can merge a branch (section 27). There is no cap on kept branches and no command to list them beyond `git branch --list 'acpd/*'`.
+- Non-git folders: an explicit worktree is refused; the default falls back to shared and says so (`isolation_note`). A per-task phone consent was considered and decided against (section 26).
+- Submodules are not initialized in a worktree; LFS files are whatever the checkout gives. Large repositories make a full checkout per task.
+- Linux, Windows and macOS CI pass (section 16). On Windows a folder cannot be removed while the task's agent still runs in it; removal is retried (section 26).
+
+## 26. Phase 4 decisions, researched (14 October 2026)
+
+Survey: Claude Code ([worktrees](https://code.claude.com/docs/en/worktrees), [lost-work issue](https://github.com/anthropics/claude-code/issues/55724)), Cursor ([worktrees](https://cursor.com/docs/configuration/worktrees)), Codex ([worktrees](https://developers.openai.com/codex/app/worktrees)), Conductor ([git worktrees](https://www.conductor.build/docs/concepts/git-worktrees)), vibe-kanban ([managing workspaces](https://www.vibekanban.com/docs/workspaces/managing-workspaces)).
+
+1. **A finished child's uncommitted work** is committed as a snapshot on its `acpd/task-…` branch (author `acpd <acpd@localhost.invalid>`, no hooks, no signing), then the worktree folder is removed; outcome `snapshotted`. Reason: nothing is ever lost (the Claude Code issue above is the failure mode) and disk does not pile up; Codex does the same (snapshot before delete). `[orchestrator] worktree_uncommitted = "keep"` restores the old "keep dirty folder" behaviour.
+2. **Non-git folders** fall back to shared with the task view saying so (`isolation: "shared"`, `isolation_note`). Reason: Codex and Cursor run non-VCS projects in place; a phone consent per task would be friction for no extra safety (the scope and rights checks still apply). An explicit `isolation: "worktree"` request is still refused with `isolation_unavailable`.
+3. **Default isolation** is `worktree` for writing tasks in a git repo; read-only tasks stay shared. Reason: Cursor parallel agents, Codex, Conductor and vibe-kanban all isolate by default; read-only tasks gain nothing. Set `default_isolation = "shared"` to opt out.
+4. **CI**: the public repo's Rust workflow covers Linux, Windows and macOS on standard runners. Runs [38569965505](https://github.com/0xbasinas/acportal/actions/runs/38569965505) and [38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) pass every job (fixes found on the way are below).
+
+The phone task detail shows the worktree branch and outcome in plain words. The flaky `phone_adds_lists_and_removes_folders` test was a restart race: the old Host stayed alive through reqwest keep-alive connections, so the new Host found the session catalog owned; the fixture now drops the client and retries briefly.
+
+Found by the CI run on Windows and macOS: Windows cannot delete a folder an agent process still runs in, so removal is serialised and retried for up to two minutes (a cancelled child whose process lingers is removed once its session ends; otherwise the outcome is `cleanup_failed` and the startup sweep tries again). Test repositories turn off `core.autocrlf`. Separately, shutdown now writes the task records once and then stops writing, because a delayed write from a host that had shut down could overwrite a newer host's file (seen once on macOS).
+
+## 27. Merging a task's branch from the phone (14 October 2026)
+
+`POST /v1/tasks/{id}/merge` (phone only; the task detail shows "Merge into parent folder" behind a confirmation) merges a finished task's worktree branch into the checkout it was made from, on whatever branch that checkout has, as one `--no-ff` commit by `acpd` without hooks or signing. A completed task's worktree, still kept for follow-ups, gets its uncommitted work committed to the branch first; after a merge the task takes no follow-ups and its folder and branch are removed in the background (on Windows once its agent process ends; otherwise the startup sweep). Refusals change nothing: `task_not_finished`, `no_worktree`, `nothing_to_merge`, `parent_dirty` (uncommitted changes or untracked files in the parent's checkout), `merge_conflict` (the merge is aborted; the response lists the files), `worktree_dirty` (kept with `worktree_uncommitted = "keep"`), `already_merged`, `worktree_busy`. The outcome is `merged` with the commit in the task view and record.
+
+Real Goose trial (`goose_worktree_trial`, Goose 1.53.0, DeepSeek `deepseek-flash`, scratch Goose home, about US$0.0005, 22 s): two workers wrote `a.txt` and `b.txt` uncommitted in their own worktrees. The phone-side merge of the first committed its file to its branch (`acpd: uncommitted work of delegated task`) and merged it (`acpd: merge delegated task branch`); the parent then had `b.txt`. Ending the root released the other: its `a.txt` was committed to its branch and the folder removed; `git worktree list` showed only the main checkout. The parent's checkout was never touched by either worker.
+
+Tests: `tests/worktrees.rs` 10 integration tests (3 for the merge: success and its refusals afterwards; dirty parent and conflict change nothing; unfinished, nothing to merge, no worktree, unknown), the merge route in the `task_api` phone-only and not-found checks, and Android `OrchestrationTest`/`TaskScreensTest`. Removing the dirty-parent check or the conflict abort fails the tests. [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) passes on Linux, Windows and macOS.
+
+## 28. Protocol-uniform handling
+
+Every ACP + MCP capable agent is handled the same way. Behaviour is driven by what the protocols declare; product names (Goose, OpenCode, …) appear only in opt-in tests and examples.
+
+### What the protocols drive
+
+| Signal | Where it comes from | Host behaviour |
+| --- | --- | --- |
+| Tool call kind | ACP `toolCall.kind` (10 spec kinds) | Risk table in §8.1; unknown → High |
+| Paths / bytes | ACP `rawInput` keys the host knows (`path`, `content`, …) | Scope check, edit size; never trust agent labels |
+| Permission options | ACP option `kind` (`allow_once`, `reject_once`, `reject_always`, …) | Allow uses `allow_once` only (never `allow_always`). Deny prefers `reject_once`, then `reject_always`. No allow option → phone only. No reject option → outcome `cancelled` |
+| Host origin | Connection flag on consents the host itself raised | Classified from the host's description, not the agent's |
+| Elicitation | ACP `elicitation/create`; capability advertised only when the phone opts in | Always human-only |
+| MCP tools | Stdio MCP server injected on `session/new` when the agent is in `orchestrate` | Tools are the same for every agent; version negotiated (2025-06-18 / 2025-03-26 / 2024-11-05) |
+| Usage / cost | ACP `usage_update` with USD | Cost limit enforced only when reported that way |
+| Cancel | ACP `session/cancel` | Cancel grace then force; same for every agent |
+| Capabilities | ACP `initialize` / session capabilities | Missing `loadSession` → not resumable; agent that ignores MCP → child-only (documented fallback) |
+
+### Documented fallbacks (capability missing)
+
+- **No usable MCP setup** (agent ignores `mcpServers`, or the delegate process never says hello): session runs, but `delegate` stays `not_connected`; the agent is child-only. The host does not invent another channel.
+- **No `allow_once` among options**: supervisor cannot allow; the phone decides (or the request times out to the phone).
+- **Only `reject_always` (no `reject_once`)**: deny still works via that option.
+- **Unknown tool kind / `other`**: High.
+- **No USD usage**: cost limit does not apply.
+- **Remote agent**: no MCP injection (`session.rs`); every request is human-only because paths cannot be checked here.
+- **Stdio MCP is mandatory for delegation**: there is no HTTP-MCP fallback for `mcp-delegate`.
+
+### Optional per-agent override layer
+
+Knowledge the protocols cannot express lives in one place: `acpd/src/orchestrator/overrides.rs` (`SessionOverrides`), plus the config/registry knobs it documents. Defaults are the protocol path above.
+
+| Override | Set where | Why the protocol cannot say this |
+| --- | --- | --- |
+| `ownTools` | registry agent entry | ACP has no flag for "this agent edits outside the host's fs/terminal tools". When set, **agent-originated** permissions are human-only; host-raised consents are unchanged so a supervisor can still decide a Medium host write. |
+| `[shell_review.<id>]` | config (opt-in) | Shell-line allow/deny is host policy, not ACP. Absent = every shell line waits for the phone. Rules are general (same lexer and lists for every agent id). |
+| `orchestrate` / `delegable` | `[orchestrator]` lists | Which local agent ids get delegation tools or may be children is an operator choice, not an ACP field. |
+
+Product-specific prompts, env vars, and trial fixtures stay in `acpd/tests/real_goose.rs` and commented examples only. Production classification, admission, MCP injection, and views do not branch on agent product names.
+
+
+## 29. Review fixes (14 October 2026)
+
+A review of phases 4 and 5 and section 28 found four things, fixed in this order. Each has a test that fails without it.
+
+1. **Start-up could stall on a stuck worktree.** `Orchestrator::restore` released leftover worktrees while holding the state lock, and each could retry removal for two minutes (Windows keeps a folder locked while something has it open). It now takes the list under the lock, runs git with the lock released, and gives release a total budget of 10 s (3 s each, `RESTORE_RELEASE_BUDGET` / `RESTORE_RELEASE_EACH` in `orchestrator/mod.rs`). A folder that will not go is recorded `cleanup_failed`, and a `cleanup_failed` worktree is now tried again at the next start (before, it was never retried). A running host still retries for two minutes (`worktree::REMOVE_RETRY`). Test `a_worktree_that_will_not_go_does_not_hold_up_a_restart_and_is_tried_again_at_the_next` uses `git worktree lock`, which makes removal fail on every platform; with the budget removed it runs past a minute, with `cleanup_failed` left out of the retry set it fails at the second start.
+2. **A supervisor's refusal could become permanent.** The deny option fell back to `reject_always` when `reject_once` was not offered. In ACP that is "reject and remember", so the agent could refuse the tool from then on. It no longer does: with no `reject_once` a supervisor's `deny` gets `option_unavailable` and the phone decides (the existing path). The automatic refusal of denied requests still answers `cancelled` when no option exists, as before.
+3. **`ownTools` documentation.** Sections 13 (phase 2 gate), 14 (open items) and 18 (table) said every request of an `ownTools` agent is human-only; section 28 and the code say only its agent-originated requests are, and its host-raised consents (write, shell, terminal) follow the normal rules. The text now agrees. This is a real change in who may approve, made in `f123159` and confirmed as intended in the review; the unit test `host-originated consents stay on the protocol path` pins it.
+4. **The worktree safety comment overclaimed.** `worktree.rs` said repository configuration cannot make the host run a program. Hooks, `core.fsmonitor` and `core.sshCommand` are blocked; content filters (`filter.*.clean/smudge`, Git LFS), merge drivers and diff text converters named in the repository's own configuration still run when a worktree is checked out, snapshotted or merged. The comment now says so. It is not a new reach: whoever can change `.git/config` (a delegated agent with its own file tools) can already run programs as the host user. Not blocked, and not tested; refusing when such keys exist would be the next step if wanted.
+
+Phone: a merge conflict now lists up to five conflicting files and how many more (the host caps the list at 20, untested), the error body is read up to 8 KiB instead of 1 KiB (a conflict naming many files used to lose its code and show a generic failure), and a successful merge keeps its "Merged" notice if the refresh that follows fails. JVM test `aMergeConflictNamesTheFilesAndAManyFileConflictStaysShort`; the view-model change has no test of its own.
+
+## 30. Dependency review of the WebSocket stack, and the outbox guard (15 October 2026)
+
+**Scope.** `tokio-tungstenite` 0.29.0 (direct dependency, feature `rustls-tls-webpki-roots`) and what it pulls in on the TLS/WebSocket path. `cargo audit` and `cargo deny` are not installed here, so the check was done by reading the RustSec advisory database (through the GitHub API, 15 October 2026) for each crate on the path and comparing the patched versions with `Cargo.lock`. That is a snapshot, not continuous monitoring.
+
+**Findings.**
+- `tokio-tungstenite` 0.29.0 is also a dependency of `axum` (its `ws` feature), over the same `tungstenite` 0.29.0. Removing our direct use would not remove the crate; our direct use adds only the client side and the TLS connector. Both are at the latest compatible version. Licences: MIT or MIT/Apache-2.0 for the WebSocket crates, `webpki-roots` CDLA-Permissive-2.0, `ring` Apache-2.0 AND ISC; nothing copyleft.
+- `tungstenite`: its only advisory (RUSTSEC-2023-0065) is fixed from 0.20.1. `tokio-tungstenite`, `httparse`, `data-encoding`, `sha1`, `webpki-roots`, `rustls-pki-types`: none on file. `rustls-webpki` 0.103.15, `ring` 0.17.14, `rand` 0.9.5 and 0.10.3, `bytes`, `h2` 0.4.19, `tokio` 1.53.2, `http`: every advisory on file has a patched version at or below what is locked.
+- `rustls` was locked at 0.23.45, inside the affected range of four advisories published the day before (RUSTSEC-2026-0346 to 0349, fixed in 0.23.46). None applies to this configuration: 0346 needs a custom `ClientSessionStore` that logs session values with `Debug` (we have none); 0347 needs ECH enabled (we do not use it); 0348 needs the `brotli` feature (not enabled, no brotli crate in the tree); 0349 needs the post-quantum `X25519MLKEM768` group, which the `ring` provider we install does not offer. The lockfile is now at 0.23.46 anyway (`Cargo.lock` only, whole workspace suite passes).
+- The crypto provider is `ring`, installed explicitly before the client connects (`peer_link.rs`); no `aws-lc` anywhere. Certificates are always verified; there is no code path that disables it. The trust roots are the bundled Mozilla set (`webpki-roots`), **not the operating system's store**, so a peer behind a private CA or a self-signed certificate cannot be reached over `wss://` at all (there is no option to add a CA). That is safe, and a limitation to decide on if peers will use private certificates.
+- Client limits: `max_message_size` and `max_frame_size` are both set to the host's frame limit, the handshake has a 10 s timeout, writes 5 s, pings every 20 s with 70 s of silence allowed. `tungstenite` follows no redirects. A server's refusal text is never repeated, only its HTTP status.
+- Origin rules (`peers.rs`): `wss://` anywhere; `ws://` only when the host is the literal `localhost`, `127.0.0.1` or `[::1]`; credentials in the URL and fragments are refused; the credential is sent only to the origin its peer record names. `localhost` is accepted by name, so it relies on the resolver mapping it to loopback (RFC 6761 requires that); accepting only the IP literals would not depend on it. Low risk.
+- Two `webpki-roots` versions (0.26.11 and 1.0.9) are in the tree, one per consumer. Harmless duplication.
+
+**The outbox guard, isolated.** A bridge peer that stops reading could be ended by four things: the full 256-frame outbox, the 5 s send timeout, the ping send timeout, or the three-missed-pings silence limit. The earlier test could not tell them apart. New setting `bridge_send_timeout_seconds` (default 5, 1 to 600) now covers the frame and ping send timeouts, and the test `a_peer_that_stops_reading_is_cut_off_and_can_reattach` sets it to 600 and `bridge_ping_seconds` to 120, leaving only the outbox. Mutation: removing the outbox-full signal in the journal forwarder now makes it fail (the socket stays open and the read waits out its deadline). Removing the journal-lag signal (the `Lagged` branch beside it) does not, and no test covers that path; nor does one cover a reply (`Peer::queue`) finding the outbox full.
+
+**Left open.**
+- Add `cargo audit` or `cargo deny` to CI so the next advisory is caught on the day (a decision for you, section "Decisions" in the review answer).
+- Private-CA peers (above).
+- The journal-lag cut-off and the reply-queue overflow are untested.
+
+## 31. Worktree gaps closed, and a lost peer link is resumed (15 October 2026)
+
+Decisions recorded from the review (section 29 and 30): the Goose write-gate question is handled by the auto-approve setup (section 32); repository-configured programs in worktree git calls stay documented, not blocked; **no token budget** (decided, section 23); client reconnect is now built (below); the worktree gaps are patched as follows.
+
+### Worktree gaps
+
+| Gap | What it does now |
+| --- | --- |
+| Kept branches had no cap | `[orchestrator] max_task_branches` (default 50, 0 = no limit, 0..10000). `worktree::task_branches` counts the repository's `acpd/task-*` branches **from git itself**, so it survives the task-record pruning. At the limit, a task that wants a worktree is refused (`isolation_unavailable`, "too many unmerged task branches; merge or discard some"); the default isolation falls back to the shared folder with that note. Nothing is ever deleted to make room: unmerged agent work is the owner's to merge or discard. |
+| No way to drop kept work from the phone | `POST /v1/tasks/{id}/discard` (phone credential only) removes a finished task's worktree (forced, so uncommitted work goes too), deletes its branch and ends the task's agent. It works on a kept branch, a kept dirty worktree, a failed cleanup, or a completed task's live worktree; it refuses an open task (`task_not_finished`), a merged or discarded one, and one with nothing left (`nothing_to_discard`). The parent's checkout is never touched. New outcome `discarded`. The phone shows "Throw this work away" with a confirmation. |
+| Merge conflicts were refused with no help | The refusal now carries `branch` and `repository` (plus up to 20 conflicting files). The phone shows the exact command to run on the host: `git -C "<repository>" merge <branch>` (never built from a name containing a space or a quote). Conflicts are still refused, not resolved: nothing changes in the parent's folder. |
+| Submodules | A repository with `.gitmodules` gets no worktree (a worktree would leave them empty, and filling them would reach the network): an explicit worktree is refused with the reason; the default runs shared with a note. |
+
+Tests (all mutation-checked): `repositories_with_submodules_and_too_many_task_branches_get_no_worktree`, `the_branch_limit_counts_only_task_branches_and_zero_means_no_limit`, `the_phone_throws_a_finished_tasks_work_away_without_touching_the_parent_checkout`, `a_kept_dirty_worktree_can_be_discarded_and_an_open_or_empty_task_cannot`, the response tests in `api.rs`, and on the phone `TaskDiscardTest` and the conflict-command tests in `HostRequestErrorTest`. Each guard was broken in turn (submodule check, cap comparison, zero meaning no limit, counting every branch, forced removal, branch deletion, the open-task refusal, the command-safety check) and a test failed.
+
+### A lost peer link is resumed
+
+Before, losing the socket to another host ended the session. Now, for a `transport = "ws"` agent, the link is dialled again behind the actor's back (`peer_reconnect_seconds`, default 60, 0 = off; waits of 1, 2, 4, then 8 s). It rests on three small additions to the protocol, all opt-in so other ACP peers see nothing different:
+
+1. A client that sets `_meta.acpdReattach` in `initialize` gets `_meta.acpdReattach: true` back and a top-level **`acpdSeq`** (the journal sequence number) on every forwarded frame. The answer to `session/new` carries `_meta.acpdSeq`, the position forwarding starts from.
+2. `session/load` on a bridge session answers with `_meta.acpdReceived`: the ids of the requests (`q:<id>`) and answers (`p:<id>`) the far host received for that session (the last 1024). `_meta.acpdGap.missed` is as before.
+3. Frames the far host re-queues without a sequence number (a request still waiting, outside the replay window) are told apart by their id.
+
+How the pump uses them (`peer_link.rs`): it remembers the session id, the actor's own `initialize` parameters, the highest sequence delivered, the agent requests already delivered, and every line the actor wrote that is still unanswered. On a lost socket it holds what the actor writes (up to 256 lines), dials, repeats `initialize` and `session/load`, drops replayed frames it already delivered, delivers the ones it missed, **sends again only the unanswered lines the far host did not receive** (once), then sends the held lines. The actor sees one continuous stream. A turn that was running when the socket died carries on and its result arrives.
+
+It stops and ends the link the old way (the actor sees the agent exit, the turn fails with the same message) when: the far host does not number its frames (`initialize` without the mark: an older acpd or another ACP server); it refuses the credential (HTTP 401/403/404 while dialling, or a close with 1008, e.g. revoked or rate limited); the session is gone; the far journal evicted events the actor never saw (`missed` larger than the sequence the actor had before the replay); more than 256 lines are held; or the window runs out. A protocol violation (a frame with a newline, an oversize line) is never retried.
+
+Tests (`peer_link.rs`, with a TCP proxy that can sever connections, refuse new ones, and swallow what the dialler sends): the turn in flight finishes after a cut with one pending permission, no duplicated text and one far prompt; lines written during the outage are held and sent once; a prompt written into the dead socket is sent again exactly once (and not at all when the far host had it); the window running out ends the session; a lost journal range ends it; an unnumbered far host is never redialled; a revoked credential ends it with no further tries; plus eight unit tests of the tracker. Mutations (sequence dedupe, counter advance, replayed-request dedupe, gap check and its original wrong order, resend everything, resend nothing, resume an unnumbered host, drop the held lines) were each caught; two weak spots found by that run (a resend-everything duplicate that was invisible to integration tests, and a held-lines test that took the resend path) were fixed with a pure filter function and a deterministic outage.
+
+**Limits.** Linux and macOS not run for this; one run each of two hosts over loopback with a mock agent, not over a real network or TLS; the far host must be an acpd with this change (`session/load` reattach already existed, the numbering did not); the phone is not told "link lost, retrying" (the session just pauses, then catches up); a notification other than `session/cancel` is not tracked (there is none the actor depends on). A `session/cancel` has no id, so the far host cannot confirm it; the pump keeps the last one while a prompt is unanswered and sends it again after a reattach (cancelling twice is harmless), and the prompt's answer, even a replayed one, forgets it. Tested against a stalled turn with no request waiting (`a_cancel_written_as_the_link_died_still_stops_the_turn_after_the_link_is_back`; removing the resend makes it fail). Note that when a request *is* waiting, this side answers it `cancelled`, a tracked line that the exactly-once resend already covers.
+
+## 32. Host-side auto-approve (15 October 2026)
+
+The answer to "Goose's own write gate always needs the phone" (sections 23 and 29) and to "an intelligent auto-approve for Goose and the other agents". It is a new, general layer, not a Goose special case: `acpd/src/auto_approve.rs`, configured per agent id, **off for every agent until you turn it on**.
+
+### What it does
+
+A watcher on each qualifying session looks at every pending permission request once. If the request is safe by rule, the host answers *allow once* itself and tells the phone (the existing automatic-review mark, `_meta.acpdAutoReview`, layer `rules` or `model`, with a short reason built from facts such as `edit of src/lib.rs (120 bytes) inside the session's folder; medium risk`). **It never refuses anything.** A request it will not allow is not its to answer: the phone, or a supervising agent, decides exactly as before, and a model's objection is shown to the person as the reason it was not approved.
+
+The rules are the supervisor's classifier (`orchestrator::approvals::classify`, section 18): the request must be rated at or below the ceiling, must not be on the deny list (credential and configuration paths, anything outside the session's folder), must not be human-only (forms; an agent registered `ownTools`), and must offer an allow-once option (`allow_always` is never used). So reads and searches inside the folder (Low) and edits and renames inside it up to `max_edit_bytes` (Medium) qualify; deletes, fetches, commands, an unrecognized kind and anything over the size limit never do, at any setting. Host-raised shell and terminal consents keep their own review (`shell_review`); the host's own write consent for the file tools it offers is answered by the host's description of it.
+
+### Configuration
+
+```toml
+[auto_approve.goose]            # the agent's id in the registry
+max_risk = "medium"             # "none" (default, off) | "low" (reads) | "medium" (reads and in-folder edits)
+own_edit_shape = true           # see below
+only_in_worktree = true         # the default: only sessions in a task worktree
+# model_sees_content = false    # the model sees the relative path, size and title, not the file
+# [auto_approve.goose.model]    # optional; same settings as [shell_review.<id>.model]
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-flash"
+# api_key_env = "DEEPSEEK_API_KEY"
+```
+
+* **`only_in_worktree`** (default true) is the containment: the policy applies only when the session's folder is under the host's `worktrees` folder, which is the host's own knowledge of where it put the task, not an agent's claim. Work done there reaches the real folder only when a person merges it from the phone. Set it to false to cover ordinary phone sessions too; then an approved edit lands in the folder the session runs in.
+* **`own_edit_shape`** (default false). Some agents (Goose among them) ask permission for their own file tool with an unspecific kind (`other`) and the path and content in `rawInput`. With this on, such a request is rated as the edit it says it is. **That shape is what the agent declares, and the host cannot verify it.** An approved request does not constrain what the agent's own tool then does: a lying agent could name one path and write another. The deny list and the folder check apply to the declared path only. This is why the default is a worktree and why the switch is off until you choose it. If the agent also gets write rights, the host's own write consent follows (Medium, verified by the host) and is answered by the same layer.
+* **`model`** can only make a decision stricter: it must say `allow` for the request to be answered; anything else (ask, deny, an error, a timeout, the per-minute limit, a missing key) leaves the request to a person with the model's reason on the phone. By default it is sent the agent id, the relative path, the size and the title; `model_sees_content = true` adds the first `max_command_bytes` of the content, which then leaves this machine, so it is off unless you say so. It is never asked about a request the rules would not allow.
+* A session on another host (`transport = "ws"`) is never covered.
+
+### Checked
+
+- 12 unit tests of the pure rules (`evaluate`, `in_worktree`, `should_watch`, configuration) and 9 integration tests with the real session manager and the mock agent (`tests/auto_approve.rs`), including a fake model server that records what it is sent; 1 test through the orchestrator (`worktrees.rs`): a delegated task in a worktree is auto-approved, a shared one with the same policy is left for a person.
+- 14 guards were broken one at a time (shape without its switch, the deny rules, human-only, shell consents, the Low ceiling, the worktree check, the worktree folder itself counting, anything counting as a worktree, a model objection allowing, content always sent, the rate limit, the missing note, remote sessions, and the watcher rule) and a test failed each time. Two weak spots found that way were fixed: the remote-session rule had no test (now `should_watch`, a pure function with one), and my first "content always sent" mutant did not compile.
+- **Real Goose 1.54.0** (`goose_auto_approve_trial`, one run, Windows, DeepSeek `deepseek-flash`): the root delegated "create `hello.txt` containing `hi`" with write rights to a worker in a task worktree. Both requests the worker raised, its own write gate (`write · ...`, kind `other`, rated Medium from its declared shape) and the host's write consent (Medium), were answered by the rules; the phone was never asked about the worker, no supervisor decision was needed, the file was written (`hi`, in the task's worktree) and the whole task took 17 s, against 55 to 80 s with the phone in the loop.
+
+### Limits
+
+- The supervisor's own view (`task_status`) still rates the agent's own gate High, because the shape rule belongs to this layer; for the second or so before the host answers, a supervising agent may see it as not decidable (in the trial the root said so, and was right that it did not decide it).
+- The declared-shape trust above. The deny list and size limit are lexical on the declared path; symlinks are not followed.
+- A model reviewer sends data off the machine only as described; it was exercised only against a local fake server, not a real provider.
+- Windows only; the Android phone shows the existing automatic-review mark and was not run on a device with this change.

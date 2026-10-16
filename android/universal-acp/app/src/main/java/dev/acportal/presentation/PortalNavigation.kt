@@ -43,6 +43,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class McpRoute(val hostId:String?=null):NavKey
 @Serializable data class WorkspaceAccessRoute(val hostId:String?=null,val path:String?=null,val sessionId:String?=null):NavKey
 @Serializable data class AddAgentRoute(val hostId:String):NavKey
+@Serializable data class TasksRoute(val hostId:String):NavKey
+@Serializable data class TaskRoute(val hostId:String,val id:String):NavKey
 @Serializable data class AgentRoute(val hostId:String?=null,val agentId:String?=null):NavKey
 
 @Composable fun PortalNavigation(vm:PortalViewModel) {
@@ -54,6 +56,7 @@ import kotlinx.serialization.Serializable
     val hosts by vm.hosts.collectAsStateWithLifecycle()
     val sessions by vm.sessions.collectAsStateWithLifecycle()
     val sessionSummaries by vm.sessionSummaries.collectAsStateWithLifecycle()
+    val sharedTitles by vm.sharedTitles.collectAsStateWithLifecycle()
     val liveActivities by vm.liveActivities.collectAsStateWithLifecycle()
     val agentCatalogs by vm.agentCatalogs.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -101,14 +104,25 @@ import kotlinx.serialization.Serializable
                         }
                         entry<HostRoute> { key ->
                             LaunchedEffect(key.id) { vm.details(key.id) }
-                            HostDetailsScreen(ui.details?.takeIf { it.host.id==key.id },onBack=back,onNew={stack.add(NewSessionRoute(key.id))},onSession={info->sessions.find { it.hostId==key.id && it.id==info.id }?.let(openSession)},onRefresh={vm.details(key.id)},onForget={vm.forget(key.id,back)},onAgent={stack.add(AgentRoute(key.id,it))},loading=ui.loading)
+                            HostDetailsScreen(ui.details?.takeIf { it.host.id==key.id },onBack=back,onNew={stack.add(NewSessionRoute(key.id))},onSession={info->sessions.find { it.hostId==key.id && it.id==info.id }?.let(openSession)},onRefresh={vm.details(key.id)},onForget={vm.forget(key.id,back)},onAgent={stack.add(AgentRoute(key.id,it))},loading=ui.loading,onTasks={stack.add(TasksRoute(key.id))})
+                        }
+                        entry<TasksRoute> {key->
+                            val tasks by vm.tasks.collectAsStateWithLifecycle()
+                            LaunchedEffect(key.hostId) {vm.loadTasks(key.hostId)}
+                            TasksScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),back,{vm.loadTasks(key.hostId)},{stack.add(TaskRoute(key.hostId,it))})
+                        }
+                        entry<TaskRoute> {key->
+                            val tasks by vm.tasks.collectAsStateWithLifecycle()
+                            LaunchedEffect(key.hostId,key.id) {vm.loadTasks(key.hostId,key.id)}
+                            TaskDetailScreen(tasks.takeIf {it.hostId==key.hostId} ?: TasksUiState(key.hostId,loading=true),key.id,back,{vm.loadTasks(key.hostId,key.id)},{vm.cancelTask(key.hostId,key.id)},{vm.setTaskSupervision(key.hostId,key.id,it)},onMerge={vm.mergeTask(key.hostId,key.id)},onDiscard={vm.discardTask(key.hostId,key.id)},
+                                onSession={session->sessions.find {it.hostId==key.hostId && it.id==session}?.let(openSession)})
                         }
                         entry<NewSessionRoute> { key ->
                             LaunchedEffect(key.hostId) { if(key.fromSessions || ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
                             NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null,folderClient=ui.details?.takeIf {it.host.id==key.hostId}?.let {vm.folderClient(it.host)},onAddAgent={stack.add(AddAgentRoute(key.hostId))})
                         }
                         entry<SessionConnectionRoute> { SessionConnectionScreen(hosts,onBack=back,onPair={stack.add(PairRoute)},onChoose={vm.clearError();stack.add(NewSessionRoute(it,fromSessions=true))}) }
-                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={vm.clearError();stack.add(SessionConnectionRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries) }
+                        entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={vm.clearError();stack.add(SessionConnectionRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries,sharedTitles=sharedTitles) }
                         entry<SessionRoute> { key ->
                             val conversationState=rememberConversationUiState(key.hostId+"/"+key.id)
                             val stored=sessions.find { it.hostId==key.hostId && it.id==key.id }
@@ -116,7 +130,7 @@ import kotlinx.serialization.Serializable
                             LaunchedEffect(key.hostId,key.id,stored!=null,info?.status) { if(info?.status!="interrupted")stored?.let(vm::open) }
                             val live=ui.live?.takeIf { it.host.id==key.hostId && it.info.id==key.id }
                             if(info?.status=="interrupted") InterruptedSessionScreen(info,ui.loading,back,{vm.resume(stored,openSession)},{vm.create(stored.hostId,info.agentId,info.workspace,openSession)},onViewSaved={stack.add(SavedSessionRoute(key.hostId,key.id))})
-                            else if(live!=null && stored!=null) SessionScreen(live,stored,onBack=back,onPrompt={text,uri->vm.prompt(live,text,uri)},onCancel={vm.cancel(live)},onPermission={permission,option->vm.permission(live,permission,option)},onElicitation={permission,action,content->vm.elicitation(live,permission,action,content)},onConfigure={method,params->vm.configure(live,method,params)},onDraft={vm.draft(stored,it)},onReconnect={vm.reconnect(live)},onDisconnect={vm.disconnect(live)},onMcp={stack.add(McpRoute(key.hostId))},onAccess={stack.add(WorkspaceAccessRoute(key.hostId,live.info.workspace,key.id))},onRemoveLocal={vm.removeLocalCopy(live)},onAddAttachment={attachment,version->vm.addAttachment(live,attachment,version)},onRemoveAttachment={vm.removeAttachment(live,it)},onDismissError={vm.dismissSessionError(live)},onSessions={stack.clear();stack.add(SessionsRoute)},onPairHost={stack.clear();stack.add(HostsRoute);stack.add(PairHostRoute(key.hostId))},conversationState=conversationState)
+                            else if(live!=null && stored!=null) SessionScreen(live,stored,onBack=back,onPrompt={text,uri->vm.prompt(live,text,uri)},onCancel={vm.cancel(live)},onPermission={permission,option->vm.permission(live,permission,option)},onElicitation={permission,action,content->vm.elicitation(live,permission,action,content)},onConfigure={method,params->vm.configure(live,method,params)},onDraft={vm.draft(stored,it)},onReconnect={vm.reconnect(live)},onTakeControl={vm.takeControl(live)},onDisconnect={vm.disconnect(live)},onMcp={stack.add(McpRoute(key.hostId))},onAccess={stack.add(WorkspaceAccessRoute(key.hostId,live.info.workspace,key.id))},onRemoveLocal={vm.removeLocalCopy(live)},onAddAttachment={attachment,version->vm.addAttachment(live,attachment,version)},onRemoveAttachment={vm.removeAttachment(live,it)},onDismissError={vm.dismissSessionError(live)},onSessions={stack.clear();stack.add(SessionsRoute)},onPairHost={stack.clear();stack.add(HostsRoute);stack.add(PairHostRoute(key.hostId))},conversationState=conversationState)
                             else if(stored!=null && info!=null)SavedSessionScreen(info,stored,hosts.firstOrNull {it.id==key.hostId},ui.loading,back,{vm.draft(stored,it)},{vm.open(stored)},conversationState=conversationState)
                             else Column(Modifier.fillMaxSize()) {ScreenHeader("Session unavailable",onBack=back);EmptyState("This session is no longer saved","Return to Sessions to choose another conversation.")}
                         }

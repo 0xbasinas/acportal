@@ -17,7 +17,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    process::{Child, Command},
     sync::{broadcast, mpsc, oneshot, watch},
     time::Instant,
 };
@@ -218,6 +218,13 @@ pub struct Event {
     pub message: Value,
     pub direction: &'static str,
 }
+/// A permission request still waiting for an answer.
+#[derive(Clone, Debug)]
+pub struct PendingPermission {
+    pub message: Value,
+    /// True only for consents the host itself raised; never inferred from the message content.
+    pub host_origin: bool,
+}
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
@@ -252,6 +259,9 @@ struct Journal {
     bytes: usize,
     events: VecDeque<(Arc<Event>, usize)>,
     permissions: HashMap<String, Value>,
+    /// Keys of `permissions` the host itself created (write, shell and terminal consents), as
+    /// opposed to requests the agent sent. Nothing in a request's content can claim to be one.
+    host_consents: std::collections::HashSet<String>,
     max_events: usize,
     max_bytes: usize,
 }
@@ -294,6 +304,12 @@ impl Journal {
             gap: after > self.sequence || after.saturating_add(1) < oldest,
         }
     }
+}
+/// A locally spawned agent: its process, descendant containment and stderr pipe.
+struct LocalProcess {
+    child: Child,
+    tree: crate::process_tree::ProcessTree,
+    stderr: tokio::process::ChildStderr,
 }
 #[derive(Clone)]
 pub struct AcpConnection {
@@ -438,6 +454,35 @@ fn log_auto_review(auto: &AutoDecision) {
 /// option ids, so an answer meant for a plain command can never approve one; there is
 /// no "always" option. `announce` publishes the tool call first.
 #[allow(clippy::too_many_arguments)]
+/// Agents with their own shell tool ask permission through ACP; when the tool input carries a
+/// command line, mark paths it names outside the workspace so the approval card warns. The
+/// host cannot confine the agent's own tools; this is advisory only.
+fn annotate_agent_scope(message: &mut Value, workspace: &Path) {
+    // An agent cannot supply its own scope verdict.
+    if let Some(meta) = message["params"]["_meta"].as_object_mut() {
+        meta.remove("acpdScope");
+    }
+    let input = &message["params"]["toolCall"]["rawInput"];
+    let Some(line) = ["command", "cmd", "shellLine", "script"]
+        .iter()
+        .find_map(|key| input[*key].as_str())
+    else {
+        return;
+    };
+    let cwd = input["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|cwd| cwd.is_absolute() && cwd.starts_with(workspace))
+        .unwrap_or_else(|| workspace.to_path_buf());
+    let outside = crate::shell_review::outside_paths(line, &cwd, workspace);
+    let params = &mut message["params"];
+    if !params["_meta"].is_object() {
+        params["_meta"] = json!({});
+    }
+    params["_meta"]["acpdScope"] =
+        json!({"outsideWorkspace": outside, "sandboxed": false, "agentTool": true});
+}
+#[allow(clippy::too_many_arguments)]
 fn offer_terminal_consent(
     events: &broadcast::Sender<Weak<Event>>,
     journal: &Arc<Mutex<Journal>>,
@@ -466,6 +511,7 @@ fn offer_terminal_consent(
     if let Some(auto) = auto {
         meta["acpdAutoReview"] = auto.to_json();
     }
+    meta["acpdScope"] = json!({"outsideWorkspace": prepared.outside(), "sandboxed": prepared.sandboxed(), "shell": prepared.shell_name(), "shellNote": prepared.shell_note()});
     let consent = json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":meta,"options":options}});
     let size = consent.to_string().len();
     let inserted = {
@@ -484,6 +530,7 @@ fn offer_terminal_consent(
             history
                 .permissions
                 .insert(consent_id.to_string(), consent.clone());
+            history.host_consents.insert(consent_id.to_string());
             true
         }
     };
@@ -608,6 +655,8 @@ struct ActorContext<'a> {
     files: Option<Arc<WorkspaceFiles>>,
     access: WorkspaceAccess,
     review: Option<Arc<ShellReviewer>>,
+    /// Run host terminals in the OS sandbox when available (agent `sandbox: auto`).
+    sandbox: crate::terminal::TerminalPolicy,
 }
 
 impl AcpConnection {
@@ -684,6 +733,10 @@ impl AcpConnection {
         review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
+        let sandbox = crate::terminal::TerminalPolicy {
+            sandbox: definition.sandbox == crate::registry::Sandbox::Auto,
+            shell: definition.shell,
+        };
         let mut command = Command::new(&launch.program);
         command
             .args(&launch.prefix_args)
@@ -705,12 +758,66 @@ impl AcpConnection {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let (mut child, mut process_tree) =
-            crate::process_tree::ProcessTree::spawn(&mut command)
-                .with_context(|| format!("launch agent {}", definition.id))?;
+        let (mut child, process_tree) = crate::process_tree::ProcessTree::spawn(&mut command)
+            .with_context(|| format!("launch agent {}", definition.id))?;
         let stdin = child.stdin.take().context("agent stdin unavailable")?;
         let stdout = child.stdout.take().context("agent stdout unavailable")?;
         let stderr = child.stderr.take().context("agent stderr unavailable")?;
+        Ok(Self::start(
+            stdout,
+            stdin,
+            Some(LocalProcess {
+                child,
+                tree: process_tree,
+                stderr,
+            }),
+            limits,
+            files,
+            access,
+            review,
+            sandbox,
+        ))
+    }
+    /// A connection whose agent runs on another host: `reader` yields newline-framed JSON from
+    /// the peer and `writer` takes newline-framed JSON for it. No process, no local file or
+    /// terminal service (the peer's own host enforces and asks for those), and the link ending
+    /// closes the connection like an agent exiting.
+    pub fn over_transport<R, W>(
+        reader: R,
+        writer: W,
+        limits: RuntimeConfig,
+        access: WorkspaceAccess,
+    ) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
+        Self::start(
+            reader,
+            writer,
+            None,
+            limits,
+            None,
+            access,
+            None,
+            Default::default(),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start<R, W>(
+        stdout: R,
+        stdin: W,
+        process: Option<LocalProcess>,
+        limits: RuntimeConfig,
+        files: Option<Arc<WorkspaceFiles>>,
+        access: WorkspaceAccess,
+        review: Option<Arc<ShellReviewer>>,
+        sandbox: crate::terminal::TerminalPolicy,
+    ) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
         let (commands, receiver) = mpsc::channel(frame_queue_capacity(limits.max_frame_bytes));
         let admission = Arc::new(tokio::sync::Semaphore::new(admission_budget(
             limits.max_frame_bytes,
@@ -735,21 +842,32 @@ impl AcpConnection {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: limits.history_events,
             max_bytes: limits.history_bytes,
         }));
         // Drain without logging arbitrary stderr: agent logs may contain credentials or code.
-        let stderr_task = tokio::spawn(async move {
-            let mut stderr = stderr;
-            let mut buffer = [0u8; 4096];
-            while matches!(stderr.read(&mut buffer).await, Ok(count) if count > 0) {}
-        });
+        let (mut process, stderr_task) = match process {
+            Some(LocalProcess {
+                child,
+                tree,
+                stderr,
+            }) => {
+                let drain = tokio::spawn(async move {
+                    let mut stderr = stderr;
+                    let mut buffer = [0u8; 4096];
+                    while matches!(stderr.read(&mut buffer).await, Ok(count) if count > 0) {}
+                });
+                (Some((child, tree)), Some(drain))
+            }
+            None => (None, None),
+        };
         let journal_task = journal.clone();
         let events_task = events.clone();
         tokio::spawn(async move {
             let mut stdin = stdin;
             let reason = actor(
-                &mut child,
+                process.as_mut().map(|(child, _)| child),
                 &mut stdin,
                 frames,
                 receiver,
@@ -761,22 +879,33 @@ impl AcpConnection {
                     files,
                     access,
                     review,
+                    sandbox,
                 },
             )
             .await;
-            if process_tree.terminate().is_err() {
+            if let Some((_, tree)) = process.as_mut()
+                && tree.terminate().is_err()
+            {
                 tracing::warn!("agent descendant cleanup failed");
             }
             drop(stdin);
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            stderr_task.abort();
+            if let Some((mut child, _)) = process {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+            }
+            if let Some(task) = stderr_task {
+                task.abort();
+            }
             stdout_task.abort();
-            journal_task.lock().unwrap().permissions.clear();
+            {
+                let mut history = journal_task.lock().unwrap();
+                history.permissions.clear();
+                history.host_consents.clear();
+            }
             let _ = busy_tx.send(false);
             let _ = closed_tx.send(Some(reason));
         });
-        Ok(Self {
+        Self {
             frame_limit,
             commands,
             events,
@@ -784,7 +913,7 @@ impl AcpConnection {
             admission,
             closed,
             busy,
-        })
+        }
     }
     fn admit(&self, size: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
         let permits = u32::try_from(size).context("outbound ACP frame exceeds limit")?;
@@ -882,6 +1011,19 @@ impl AcpConnection {
     pub fn replay(&self, after: u64) -> Replay {
         self.journal.lock().unwrap().replay(after)
     }
+    /// Permission requests (and elicitations) awaiting an answer, each with whether the host
+    /// created it. Cheaper than `replay` because it copies no event history.
+    pub fn pending_permissions(&self) -> Vec<PendingPermission> {
+        let journal = self.journal.lock().unwrap();
+        journal
+            .permissions
+            .iter()
+            .map(|(key, message)| PendingPermission {
+                message: message.clone(),
+                host_origin: journal.host_consents.contains(key),
+            })
+            .collect()
+    }
     pub fn record(&self, message: Value, direction: &'static str) {
         let event = self
             .journal
@@ -959,7 +1101,9 @@ pub async fn read_sized_frame<R: AsyncRead + Unpin>(
     validate_message(&message)?;
     Ok(Some((message, bytes.len())))
 }
-async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()> {
+/// Where the actor writes ACP frames: an agent's stdin, or the pipe feeding a peer WebSocket.
+type Sink = dyn tokio::io::AsyncWrite + Unpin + Send;
+async fn write(stdin: &mut Sink, message: &Value, max: usize) -> Result<()> {
     validate_message(message)?;
     let mut bytes = serde_json::to_vec(message)?;
     bytes.push(b'\n');
@@ -978,10 +1122,12 @@ async fn write(stdin: &mut ChildStdin, message: &Value, max: usize) -> Result<()
 }
 
 async fn actor(
-    child: &mut Child,
+    // `None` for an agent on another host: there is no local process to watch, and the link
+    // ending is seen as the frame stream closing.
+    mut child: Option<&mut Child>,
     // Borrowed so the pipe stays open until descendant cleanup has looked at the tree:
     // an agent that exits on EOF would otherwise orphan its descendants first.
-    stdin: &mut ChildStdin,
+    stdin: &mut Sink,
     mut frames: mpsc::Receiver<Result<Option<(Value, usize)>>>,
     mut commands: mpsc::Receiver<(Control, Option<tokio::sync::OwnedSemaphorePermit>)>,
     context: ActorContext<'_>,
@@ -994,6 +1140,7 @@ async fn actor(
         files,
         access,
         review,
+        sandbox,
     } = context;
     let mut pending: HashMap<u64, Pending> = HashMap::new();
     let mut next_id = 0u64;
@@ -1014,7 +1161,7 @@ async fn actor(
     let reason = loop {
         tokio::select! {
             received = frames.recv() => {
-                let message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
+                let mut message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
                     Some(Ok(None)) | None => break "agent stdout closed".into(), Some(Err(_)) => break "malformed or oversized ACP frame".into() };
                 if message.get("method").is_none() {
                     if let Some(id) = message["id"].as_u64()
@@ -1024,6 +1171,7 @@ async fn actor(
                                 else if waiter.method == "session/load" {file_session_id=waiter.session_id.clone();files_ready=file_session_id.is_some();}
                                 if access.terminal && files_ready && terminals.is_none() && let (Some(files),Some(session_id))=(&files,&file_session_id) {
                                     terminals=crate::terminal::TerminalService::new(session_id,files.workspace(),((limits.max_frame_bytes-512)/6).min(65536)).ok();
+                                    if let Some(service)=terminals.as_mut() { service.set_shell(sandbox.shell); if sandbox.sandbox { service.enable_sandbox(); } }
                                 }
                             }
                             if waiter.method == "session/prompt" { let _ = busy.send(false); }
@@ -1040,7 +1188,7 @@ async fn actor(
                         waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
                     }
                 }
-                if let Some(id) = message.get("id") {
+                if let Some(id) = message.get("id").cloned() { let id = &id;
                     let denied=match message["method"].as_str() {
                         Some("fs/read_text_file")=>!access.read_files,
                         Some("fs/write_text_file")=>!access.write_files,
@@ -1067,14 +1215,18 @@ async fn actor(
                             match service.prepare(params.clone()) {
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
-                                    let rules=review.as_ref().and_then(|reviewer|reviewer.terminal_rules(&prepared,service.workspace()));
+                                    let rules=review.as_ref().and_then(|reviewer|reviewer.terminal_rules(&prepared,service.workspace())).map(|mut verdict|{
+                                        // Naming a path outside the workspace always needs a person.
+                                        if !prepared.outside().is_empty() && verdict.decision!=Decision::Deny {verdict.decision=Decision::Ask;verdict.reason="names paths outside the workspace";verdict.model_may_allow=false;}
+                                        verdict
+                                    });
                                     let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
                                     if let Some(auto)=decided {
                                         let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
                                         if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                                         continue;
                                     }
-                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
+                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && prepared.outside().is_empty() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
                                         let future=reviewer.model_future(line,&crate::shell_review::relative_cwd(service.workspace(),prepared.cwd()),verdict);
                                         let mut tool=terminal_tool(&prepared,&consent_id);
                                         tool["_meta"]=json!({"acpdAutoReview":{"decision":"reviewing","layer":"model","reason":verdict.reason}});
@@ -1151,7 +1303,7 @@ async fn actor(
                         let tool=json!({"toolCallId":tool_id,"title":format!("Write {}",prepared.path.file_name().unwrap().to_string_lossy()),"kind":"edit","status":"pending","rawInput":{"path":prepared.path},"content":[{"type":"diff","path":prepared.path,"oldText":prepared.old_text,"newText":prepared.content}]});
                         let consent=json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":{"acpdSource":"host-filesystem"},"options":[{"optionId":"acpd-write-deny","name":"Deny","kind":"reject_once"},{"optionId":"acpd-write-allow","name":"Allow write once","kind":"allow_once"}]}});
                         let consent_size=consent.to_string().len();
-                        let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());true}};
+                        let inserted={let mut history=journal.lock().unwrap();let bytes:usize=history.permissions.values().map(|value|value.to_string().len()).sum();if consent_size+256>limits.max_frame_bytes || history.permissions.len()>=128 || bytes+consent_size>limits.history_bytes {false} else {history.permissions.insert(consent_id.to_string(),consent.clone());history.host_consents.insert(consent_id.to_string());true}};
                         if !inserted {if write(stdin,&error(id.clone(),CALLBACK_UNAVAILABLE,"Host permission capacity exceeded"),limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()} continue;}
                         host_writes.insert(consent_id.to_string(),HostWrite {callback_id:id.clone(),prepared});
                         publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session_id,"update":tool_update(tool,"tool_call")}}));
@@ -1162,6 +1314,7 @@ async fn actor(
                             if write(stdin, &error(id.clone(), -32602, "Invalid permission request"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                             continue;
                         }
+                        if let Some(files)=&files { annotate_agent_scope(&mut message, files.workspace()); }
                         let inserted = {
                             let mut history = journal.lock().unwrap();
                             let key = id.to_string();
@@ -1236,7 +1389,11 @@ async fn actor(
                                 } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
                                 if write(stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
                             }
-                            journal.lock().unwrap().permissions.clear();
+                            {
+                                let mut history = journal.lock().unwrap();
+                                history.permissions.clear();
+                                history.host_consents.clear();
+                            }
                             model_reviews.abort_all();
                             for (key,(callback_id,_)) in reviewing.drain() {
                                 if failed {break}
@@ -1291,7 +1448,11 @@ async fn actor(
                         let result = write(stdin, &answer, limits.max_frame_bytes).await;
                         let failed = result.is_err();
                         if !failed {
-                            journal.lock().unwrap().permissions.remove(&id.to_string());
+                            {
+                                let mut history = journal.lock().unwrap();
+                                history.permissions.remove(&id.to_string());
+                                history.host_consents.remove(&id.to_string());
+                            }
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
                                 waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
                             }
@@ -1317,10 +1478,12 @@ async fn actor(
                 }
                 let awaiting_permission = !journal.lock().unwrap().permissions.is_empty();
                 if pending.values().any(|waiter| waiter.deadline <= Instant::now() && (waiter.method != "session/prompt" || (!awaiting_permission && terminal_waits.is_empty() && reviewing.is_empty()))) { break "agent request timed out; connection terminated to prevent ambiguous retries".into() }
-                match child.try_wait() {
-                    Ok(Some(status)) => break format!("agent exited with {status}"),
-                    Err(_) => break "agent process status failed".into(),
-                    Ok(None) => {}
+                if let Some(child) = child.as_deref_mut() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => break format!("agent exited with {status}"),
+                        Err(_) => break "agent process status failed".into(),
+                        Ok(None) => {}
+                    }
                 }
             }
             reviewed=model_reviews.join_next(),if !model_reviews.is_empty()=> {
@@ -1365,6 +1528,20 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_permission_scope_is_set_by_the_host_only() {
+        let root = std::env::temp_dir();
+        let mut forged = json!({"params":{"toolCall":{"rawInput":{}},"_meta":{"acpdScope":{"outsideWorkspace":[],"sandboxed":true}}}});
+        annotate_agent_scope(&mut forged, &root);
+        assert!(forged["params"]["_meta"].get("acpdScope").is_none());
+        let mut shell =
+            json!({"params":{"toolCall":{"rawInput":{"command":"cat ~/.ssh/id_rsa && ls"}}}});
+        annotate_agent_scope(&mut shell, &root);
+        assert_eq!(
+            shell["params"]["_meta"]["acpdScope"],
+            json!({"outsideWorkspace":["~/.ssh/id_rsa"],"sandboxed":false,"agentTool":true})
+        );
+    }
     #[test]
     fn elicitation_is_advertised_only_on_opt_in_and_answers_are_checked() {
         let default = WorkspaceAccess::default();
@@ -1557,6 +1734,7 @@ mod tests {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: 2048,
             max_bytes: 4096,
         };
@@ -1591,6 +1769,7 @@ mod tests {
             bytes: 0,
             events: VecDeque::new(),
             permissions: HashMap::new(),
+            host_consents: Default::default(),
             max_events: 1,
             max_bytes: 1024,
         };
