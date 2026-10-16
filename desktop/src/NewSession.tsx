@@ -9,18 +9,24 @@ import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
-import { type AgentSetup, hasChoices, placePopover, setupFromAcp } from './agentSetup'
+import { type AgentSetup, choiceName, hasChoices, modelFirst, placePopover, setupFromAcp } from './agentSetup'
+import { OptionsPanel } from './OptionPicker'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
 export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean }
 export type { AgentSetup } from './agentSetup'
-export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]; mode?: string; model?: string }
+export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]
+  /** Session options picked here, in the order they were picked; applied in that order once the
+   * agent is running (a provider before the model it brings). */
+  choices: OptionPick[] }
+export type OptionPick = { id: string; value: string }
 export type HostChoice = { id: string; name: string; state: string; ok: boolean }
 
 export const slug = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/^-|-$/g, '')
 export const setupKey = (agent: string): string => `acportal.agentSetup.${agent}`
 export function rememberedSetup(agent: string): AgentSetup {
-  try { return JSON.parse(localStorage.getItem(setupKey(agent)) ?? '{}') as AgentSetup } catch { return {} }
+  // Older versions saved a different shape (modes/models); it is ignored rather than guessed at.
+  try { const v = JSON.parse(localStorage.getItem(setupKey(agent)) ?? '{}') as AgentSetup; return Array.isArray(v.selectors) ? v : {} } catch { return {} }
 }
 
 /** A chip that opens an anchored list. Escape or a click outside closes it and returns focus. */
@@ -92,21 +98,36 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [branches, setBranches] = useState<string[]>()
   const [current, setCurrent] = useState<string>()
   const [query, setQuery] = useState('')
-  // Choices: what this computer saw in the agent's last session, else what the host reports
-  // for the agent (its sessions or an earlier probe), else a probe now. Nothing is made up: when all
-  // fail the form says so, offers Retry, and the agent picks for itself.
+  // Options come from the agent: what the host reports for it (its sessions or an earlier probe),
+  // else a probe now; only without either, what this computer saw in its last session. Nothing is
+  // made up: when all fail the form says so, offers Retry, and the agent picks for itself.
+  // Picks are only kept here, in order, and applied when the session starts: setting an option
+  // before that would need the agent running, and some agents save every change as their default.
+  // One option can change another's values (another provider, other models); the session's
+  // replies then bring the agent's new lists into the header.
   const [probed, setProbed] = useState<Record<string, AgentSetup | 'loading' | 'failed'>>({})
   const remembered = rememberedSetup(agent)
   const hostReported = agents.find((a) => a.id === agent)?.setup
   const probeState = probed[hostId + '/' + agent]
-  const setup: AgentSetup = hasChoices(remembered) ? remembered
-    : hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
-    : typeof probeState === 'object' ? probeState : {}
+  const setup: AgentSetup = hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
+    : typeof probeState === 'object' ? probeState
+    : hasChoices(remembered) ? remembered : {}
   const loadingSetup = probeState === 'loading'
   const retryProbe = () => setProbed((p) => { const { [hostId + '/' + agent]: _, ...rest } = p; return rest })
-  const [mode, setMode] = useState<string | undefined>(setup.mode)
-  const [model, setModel] = useState<string | undefined>(setup.model)
-  useEffect(() => { setMode(setup.mode); setModel(setup.model) }, [agent, hostId, hasChoices(setup)])
+  const [picks, setPicks] = useState<OptionPick[]>([])
+  const selectors = modelFirst(setup.selectors ?? []).filter((x) => x.choices.length)
+  const valueOf = (id: string): string | undefined => [...picks].reverse().find((p) => p.id === id)?.value ?? selectors.find((x) => x.id === id)?.current
+  // A pick other than the model can change what the other lists offer once the agent applies it.
+  const mayChangeOthers = picks.some((p) => { const x = selectors.find((y) => y.id === p.id); return x !== undefined && x.category !== 'model' && x.id !== 'model' && selectors.length > 1 })
+  // A new agent, host or folder starts from that agent's options; the last session's choices for
+  // this agent are picked again where the agent still offers them.
+  useEffect(() => {
+    setPicks((setup.selectors ?? []).flatMap((x) => {
+      const v = remembered.chosen?.[x.id]
+      return v !== undefined && v !== x.current && x.choices.some((c) => c.value === v) ? [{ id: x.id, value: v }] : []
+    }))
+  }, [hostId, agent, ws, hasChoices(setup)])
+  const pickOption = (x: { id: string }, v: string): void => setPicks((list) => [...list.filter((p) => p.id !== x.id), { id: x.id, value: v }])
   useEffect(() => {
     const key = hostId + '/' + agent
     if (!probe || !agent || !ws || hasChoices(setup) || probed[key]) return
@@ -157,7 +178,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     from.current = box.current?.getBoundingClientRect()
     setPhase('starting'); setErr(undefined); setOpen(undefined)
     localStorage.setItem('acportal.lastAgent', agent)
-    const e = await onStart({ agent, workspace: target, branch, access, text, atts, mode, model })
+    const e = await onStart({ agent, workspace: target, branch, access, text, atts, choices: picks })
     if (e) { setPhase('idle'); setErr(e) }
   }
   useLayoutEffect(() => {
@@ -169,8 +190,8 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     if (!dy || matchMedia('(prefers-reduced-motion: reduce)').matches) return
     el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' })
   }, [phase])
-  const modeName = setup.modes?.find((m) => m.id === mode)?.name
-  const modelName = setup.models?.find((m) => m.value === model)?.name ?? model
+  // The first two options (the model first) summarise the chip, as the phone's header does.
+  const summary = selectors.slice(0, 2).map((x) => choiceName(x, valueOf(x.id)) ?? `${x.name}: agent's choice`).join(' · ')
   const recent = history(target).slice(0, 4)
   const starting = phase === 'starting'
   const enabledMcp = mcp.filter((m) => m.enabled)
@@ -192,12 +213,12 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           <div className="ctx-sep" />
           <Item onPick={() => { setOpen(undefined); onMulti(text) }} sub="2-3 agents">{I.flow} Run on several agents…</Item>
         </Chip>
-        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : probeState === 'failed' && !hasChoices(setup) ? 'Models unknown' : !hasChoices(setup) ? `${agentName}'s own choice` : `${modelName ?? 'Agent picks the model'} · ${modeName ?? 'agent picks the mode'}`} title="Model and mode">
+        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : probeState === 'failed' && !hasChoices(setup) ? 'Models unknown' : !hasChoices(setup) ? `${agentName}'s own choice` : summary} title="Model and options" wide>
           {loadingSetup && <div className="hint ctx-pad" role="status">Asking {agentName} which models and modes it offers…</div>}
           {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes. The session can still start; ${agentName} then picks its own.` : `${agentName} reports no model or mode choices; it picks its own.`}</div>}
           {!loadingSetup && probeState === 'failed' && !hasChoices(setup) && <Item on={false} onPick={retryProbe}>Retry</Item>}
-          {setup.models?.length ? <><div className="ctx-h">Model</div>{setup.models.map((m) => <Item key={m.value} on={m.value === model} onPick={() => setModel(m.value)}>{m.name}</Item>)}</> : null}
-          {setup.modes?.length ? <><div className="ctx-h">Mode</div>{setup.modes.map((m) => <Item key={m.id} on={m.id === mode} onPick={() => setMode(m.id)}>{m.name}</Item>)}</> : null}
+          {mayChangeOthers && <div className="hint ctx-pad">These choices are applied when the session starts. Lists that depend on them, such as the models of another provider, then appear in the session header.</div>}
+          {selectors.length > 0 && <OptionsPanel selectors={selectors} valueOf={(x) => valueOf(x.id)} onPick={pickOption} />}
         </Chip>
         <span className="grow" />
         <span className="hint-keys">Enter to send · Shift Enter new line</span>

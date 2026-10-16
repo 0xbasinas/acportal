@@ -13,14 +13,22 @@ import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
-import { NewSessionHome, setupKey, type AgentSetup, type StartRequest } from './NewSession'
-import { hasChoices, setupFromAcp } from './agentSetup'
+import { NewSessionHome, setupKey, type AgentSetup, type OptionPick, type StartRequest } from './NewSession'
+import { type Selector, hasChoices, liveSelectors, liveValue, modelFirst, setRequest, setupFromAcp } from './agentSetup'
+import { OptionsButton } from './OptionPicker'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 /** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
 const shortPath = (p: string): string => { const t = tildify(p); const parts = t.split(/[\\/]/).filter(Boolean); return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : t }
+/** A timeline showing a value the user just picked, before the agent confirms it. */
+function pickedInto(t: Timeline | undefined, sel: Selector, v: string): Timeline {
+  const base = t ?? emptyTimeline()
+  if (sel.kind === 'mode') return { ...base, currentMode: v }
+  if (sel.kind === 'model') return { ...base, currentModel: v }
+  return { ...base, config: { ...(base.config ?? {}), [sel.id]: v } }
+}
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
 
@@ -52,7 +60,7 @@ export default function App() {
   const [multiPrompt, setMultiPrompt] = useState<string>()
   // The session being started from the composer: shown in the sidebar at once, then its first prompt.
   const [starting, setStarting] = useState<{ hostId: string; title: string; agent: string; workspace: string }>()
-  const [firstSend, setFirstSend] = useState<{ sid: string; text: string; atts: Attachment[]; mode?: string; model?: string }>()
+  const [firstSend, setFirstSend] = useState<{ sid: string; text: string; atts: Attachment[]; choices: OptionPick[] }>()
   const [branchOf, setBranchOf] = useState<Record<string, string>>({})
   const [taskDetail, setTaskDetail] = useState<Task>()
   const pendingSuggest = useRef<{ sid: string; id: number; resolve: (s: string | undefined) => void } | undefined>(undefined)
@@ -313,7 +321,7 @@ export default function App() {
     if (sid) {
       localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: title }))
       if (shared && title.trim()) void api('PUT', `/v1/shared/titles/${sid}`, { title })
-      setFirstSend({ sid, text: r.text, atts: r.atts, mode: r.mode, model: r.model })
+      setFirstSend({ sid, text: r.text, atts: r.atts, choices: r.choices })
     }
   }
   async function endSession(id: string): Promise<void> {
@@ -357,24 +365,31 @@ export default function App() {
   // Remember each agent's models and modes, so the new-session composer can offer them.
   useEffect(() => {
     if (!session) return
-    const prev = JSON.parse(localStorage.getItem(setupKey(session.agentId)) ?? '{}') as AgentSetup
-    const base = setupFromAcp(session.setup)
-    if (!hasChoices(base)) return
-    const next: AgentSetup = { ...base, mode: tl?.currentMode ?? prev.mode ?? base.mode, model: tl?.config?.[base.modelConfig ?? ''] ?? prev.model ?? base.model }
+    const selectors = liveSelectors(session.setup, tl)
+    const next: AgentSetup = setupFromAcp(null)
+    next.selectors = selectors
+    if (!hasChoices(next)) return
+    for (const s of selectors) { const v = liveValue(s, tl); if (v !== undefined) next.chosen![s.id] = v }
     localStorage.setItem(setupKey(session.agentId), JSON.stringify(next))
-  }, [session?.id, session?.setup, tl?.currentMode, tl?.config])
+  }, [session?.id, session?.setup, tl?.currentMode, tl?.currentModel, tl?.config, tl?.configOptions])
   // First prompt of a session started from the composer: once connected, apply the remembered
   // model and mode, then send it.
   useEffect(() => {
     if (!firstSend || !session || session.id !== firstSend.sid || conn[session.id]?.kind !== 'connected' || !attached.current?.endsWith(session.id)) return
     const f = firstSend
     setFirstSend(undefined)
-    const st = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string }[] }; configOptions?: { id: string; category?: string; currentValue?: string; options?: { value: string }[] }[] }
-    const mo = st.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
     const rpc = (method: string, params: Record<string, unknown>): Promise<unknown> => window.api.session.send(attached.current!, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } })
     void (async () => {
-      if (f.mode && f.mode !== st.modes?.currentModeId && st.modes?.availableModes?.some((m) => m.id === f.mode)) { await rpc('session/set_mode', { modeId: f.mode }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: f.mode } })) }
-      if (mo && f.model && f.model !== mo.currentValue && mo.options?.some((o) => o.value === f.model)) { await rpc('session/set_config_option', { configId: mo.id, value: f.model }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [mo.id]: f.model! } } })) }
+      // In the order they were picked, so a provider is set before the model it brings. Options
+      // the agent does not report are skipped; a refused value shows a notice from the reply.
+      const start = liveSelectors(session.setup)
+      for (const p of f.choices) {
+        const sel = start.find((x) => x.id === p.id)
+        if (!sel || (sel.kind !== 'config' && !sel.choices.some((c) => c.value === p.value))) continue
+        const req = setRequest(sel, p.value)
+        await rpc(req.method, req.params)
+        setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, p.value) }))
+      }
       await sendPrompt(f.text, f.atts)
     })()
   }, [firstSend, session?.id, conn[selected ?? '']?.kind])
@@ -636,10 +651,7 @@ export default function App() {
     )
   } else {
     const c = conn[session.id]
-    const setup = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string; name: string }[] }; configOptions?: { id: string; name: string; category?: string; currentValue?: string; options?: { value: string; name: string }[] }[]; models?: { currentModelId?: string } }
-    const modelOpt = setup.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
-    const modelValue = tl?.config?.[modelOpt?.id ?? ''] ?? modelOpt?.currentValue ?? setup.models?.currentModelId
-    const modeValue = tl?.currentMode ?? setup.modes?.currentModeId
+    const selectors = modelFirst(liveSelectors(session.setup, tl))
     const configure = (method: string, params: Record<string, unknown>): void => {
       if (attached.current) void window.api.session.send(attached.current, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } }).then((r) => { if (!r.ok) flash(r.error) })
     }
@@ -654,16 +666,8 @@ export default function App() {
             <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{shortPath(session.workspace)}</span></div>
           </div>
           {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
-          {setup.modes?.availableModes?.length ? (
-            <select className="select-btn" title="Agent mode" value={modeValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: v } })); configure('session/set_mode', { modeId: v }) }}>
-              {setup.modes.availableModes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          ) : null}
-          {modelOpt?.options?.length ? (
-            <select className="select-btn" title="Model" value={modelValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [modelOpt.id]: v } } })); configure('session/set_config_option', { configId: modelOpt.id, value: v }) }}>
-              {modelOpt.options.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
-            </select>
-          ) : modelValue ? <span className="select-btn">{modelValue}</span> : null}
+          <OptionsButton selectors={selectors.filter((s) => s.choices.length)} valueOf={(s) => liveValue(s, tl)} disabled={interrupted}
+            onPick={(sel, v) => { setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, v) })); const req = setRequest(sel, v); configure(req.method, req.params) }} />
           <span className="vsep" />
           <button className="icon-btn" title="Git: changes, branches, history (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>

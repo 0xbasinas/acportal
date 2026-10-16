@@ -631,6 +631,17 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .ctx-item.on { background: var(--surface-2); }
 .ctx-item .tick { color: var(--blue); display: inline-flex; }
 .ctx-item .sub { font-size: 11px; }
+.ctx-pop.right { left: auto; right: 0; }
+/* Sections keep their height (the popover scrolls) instead of shrinking into each other. */
+.opt-list { display: flex; flex-direction: column; gap: 1px; flex: none; }
+.opt-list + .opt-list { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 2px; }
+.opt-scroll { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; flex: none; }
+.opt-group { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.opt-desc { display: block; color: var(--text-3); white-space: normal; }
+.opt-row .opt-name { color: var(--text-2); flex: none; }
+.opt-row .opt-value { text-align: right; color: var(--text); }
+.opt-row .opt-chev, .opt-back-icon { display: inline-flex; color: var(--text-3); flex: none; }
+.opt-back { font-weight: 500; }
 .ctx-sep { height: 1px; background: var(--line); margin: 5px 0; }
 .ctx-input { margin: 4px; width: calc(100% - 8px); height: 32px; }
 .ctx-select { height: 28px; flex: 1; min-width: 0; width: 0; }

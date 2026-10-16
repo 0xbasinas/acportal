@@ -14,6 +14,7 @@ On `experiment/orchestrator` (PR #45), not released yet:
 - Phone/desktop handoff: Take control (`takeover`), with the replaced client watching. Shared drafts, titles and prompt history (`/v1/shared`).
 - `POST /v1/agents/{id}/probe` and `setup` on `GET /v1/agents`, for an agent's models and modes before its first session.
 - No agent defaults in the apps or CLI: the host owns the one list of known agent CLIs and their ACP arguments (`registry/known.json`, `GET /v1/agents/discover`, feature `agentDiscovery`). The phone and desktop Add agent forms show only that list; their own copies (which disagreed on Gemini's arguments) are gone. `acpd probe` and `acpd chat` need `--agent` instead of falling back to Goose. When the desktop composer cannot read an agent's models it says "Models unknown" with Retry instead of showing a default.
+- Desktop session options work like the phone's: every option the agent reports (model, provider, mode, effort, ...), one row each, a list opened per option with search for long lists. When one option changes another (a provider brings other models), the session header shows the agent's updated list from its reply. The new-session form sets nothing on the agent before the session starts; picks are applied in order at start. Generic ACP only; no agent-specific code.
 
 ## [0.1.8] - 2026-10-12
 

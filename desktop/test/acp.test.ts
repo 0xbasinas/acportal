@@ -146,3 +146,22 @@ test('pre-merge gate: green only when everything configured passed', () => {
   assert.equal(verdictOf('VERDICT: PASS\n...actually\n**VERDICT: FAIL**'), 'fail')
   assert.equal(verdictOf('no verdict here'), undefined)
 })
+
+test('the reply to an option change replaces the whole option list; a refusal shows the agent value again', () => {
+  let t = emptyTimeline()
+  t = reduce(t, ev(1, { jsonrpc: '2.0', id: 30, method: 'session/set_config_option', params: { sessionId: 's', configId: 'provider', value: 'beta' } }, 'client'))
+  const list = [
+    { id: 'provider', name: 'Provider', type: 'select', currentValue: 'beta', options: [{ value: 'alpha', name: 'Alpha' }, { value: 'beta', name: 'Beta' }] },
+    { id: 'model', name: 'Model', type: 'select', currentValue: 'b-fast', options: [{ value: 'b-fast', name: 'Beta Fast' }] }
+  ]
+  t = reduce(t, ev(2, { jsonrpc: '2.0', id: 30, result: { configOptions: list } }))
+  assert.deepEqual(t.configOptions, list)
+  assert.deepEqual(t.config, { provider: 'beta', model: 'b-fast' })
+  assert.deepEqual(t.configRequests, {})
+  // A refused change: the optimistic value is dropped and a notice says so.
+  t = { ...t, config: { ...t.config, model: 'nope' } }
+  t = reduce(t, ev(3, { jsonrpc: '2.0', id: 31, method: 'session/set_config_option', params: { sessionId: 's', configId: 'model', value: 'nope' } }, 'client'))
+  t = reduce(t, ev(4, { jsonrpc: '2.0', id: 31, error: { code: -32602, message: 'Invalid' } }))
+  assert.equal(t.config?.model, undefined)
+  assert.match(t.items.at(-1)?.kind === 'notice' ? (t.items.at(-1) as { text: string }).text : '', /did not accept that model \(-32602\)/)
+})
