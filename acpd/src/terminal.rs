@@ -28,6 +28,7 @@ struct CreateRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     #[test]
     fn sandbox_arguments_expose_only_the_workspace_writable() {
         let args: Vec<String> = sandbox_args(
@@ -47,6 +48,68 @@ mod tests {
         assert_eq!(args.last().unwrap(), "/home/u/.cargo/bin/cargo");
         assert_eq!(args[args.len() - 2], "--");
     }
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_sandbox_writes_only_the_workspace_and_cleans_up() {
+        if !crate::win_sandbox::available() {
+            eprintln!("AppContainer unavailable; skipping");
+            return;
+        }
+        // Unit tests run from target/<profile>/deps; the launcher lives in the acpd binary.
+        let exe = std::env::current_exe().unwrap();
+        let launcher = exe.parent().unwrap().parent().unwrap().join("acpd.exe");
+        if !launcher.exists() {
+            eprintln!("acpd.exe not built; skipping");
+            return;
+        }
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-winsbx-{}", std::process::id()));
+        let root = base.join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = base.join("outside.txt");
+        let profile = std::env::var("USERPROFILE").unwrap();
+        let mut service = TerminalService::new("s", &root, 8192).unwrap();
+        service.sandbox = Some(launcher);
+        let line = format!(
+            "echo in> inside.txt & (echo out> \"{}\") 2>nul & dir /b \"{}\" >nul 2>nul && echo profile-visible || echo profile-hidden & dir /b C:\\Windows\\System32\\cmd.exe",
+            outside.display(),
+            profile
+        );
+        let prepared = service
+            .prepare(serde_json::json!({"sessionId":"s","command":line}))
+            .unwrap();
+        assert!(prepared.sandboxed());
+        let created = service.create_approved(prepared).unwrap();
+        let id = created["terminalId"].as_str().unwrap().to_owned();
+        let exit = service.exit_receiver("s", &id).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), TerminalService::wait(exit))
+            .await
+            .unwrap()
+            .unwrap();
+        let text = service.output("s", &id).unwrap()["output"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(root.join("inside.txt").exists(), "{text}");
+        assert!(!outside.exists(), "{text}");
+        assert!(text.contains("profile-hidden"), "{text}");
+        assert!(
+            text.to_lowercase().contains("cmd.exe"),
+            "system dirs readable: {text}"
+        );
+        let acl = std::process::Command::new("icacls")
+            .arg(&root)
+            .output()
+            .unwrap();
+        let acl = String::from_utf8_lossy(&acl.stdout).to_string();
+        assert!(
+            !acl.contains("S-1-15-2-"),
+            "AppContainer grant left behind: {acl}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+    #[cfg(unix)]
     #[tokio::test]
     async fn sandboxed_shell_cannot_write_outside_or_see_home() {
         if sandbox_runner().is_none() {
@@ -336,6 +399,10 @@ pub fn sandbox_runner() -> Option<PathBuf> {
     static RUNNER: OnceLock<Option<PathBuf>> = OnceLock::new();
     RUNNER
         .get_or_init(|| {
+            #[cfg(windows)]
+            if crate::win_sandbox::available() {
+                return std::env::current_exe().ok();
+            }
             if !cfg!(target_os = "linux") {
                 return None;
             }
@@ -535,9 +602,22 @@ impl TerminalService {
         if cwd != prepared.cwd || !cwd.starts_with(&self.workspace) {
             bail!("terminal directory changed while awaiting consent")
         }
+        #[cfg(windows)]
+        let sandbox_profile = self
+            .sandbox
+            .as_ref()
+            .map(|_| crate::win_sandbox::profile_name());
         let mut command = match &self.sandbox {
             Some(runner) => {
                 let mut command = Command::new(runner);
+                #[cfg(windows)]
+                command.args(crate::win_sandbox::launcher_args(
+                    &self.workspace,
+                    &cwd,
+                    &prepared.executable,
+                    sandbox_profile.as_deref().unwrap_or_default(),
+                ));
+                #[cfg(not(windows))]
                 command.args(sandbox_args(&self.workspace, &cwd, &prepared.executable));
                 command
             }
@@ -579,6 +659,8 @@ impl TerminalService {
         let (exit_tx, exit) = watch::channel(None);
         let (stop, mut stop_rx) = watch::channel(false);
         let retained = output.clone();
+        #[cfg(windows)]
+        let cleanup = sandbox_profile.map(|profile| (profile, self.workspace.clone()));
         tokio::spawn(async move {
             // Retain the global slot through process exit and bounded output draining.
             let _permit = permit;
@@ -616,6 +698,14 @@ impl TerminalService {
                         deadline=Instant::now()+Duration::from_secs(5);
                     },
                 }
+            }
+            // A killed launcher cannot clean up; repeat it (idempotent) before reporting exit.
+            #[cfg(windows)]
+            if let Some((profile, workspace)) = cleanup {
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::win_sandbox::cleanup(&profile, &workspace)
+                })
+                .await;
             }
             let _ = exit_tx.send(status);
         });

@@ -22,3 +22,4 @@ pub(crate) mod session_catalog;
 pub mod shell_review;
 pub mod terminal;
 pub mod userdata;
+pub mod win_sandbox;

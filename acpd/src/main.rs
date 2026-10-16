@@ -212,6 +212,10 @@ enum DaemonAction {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(windows)]
+    if std::env::args_os().nth(1).as_deref() == Some(acpd::win_sandbox::LAUNCHER_ARG.as_ref()) {
+        std::process::exit(acpd::win_sandbox::launcher_main());
+    }
     let cli = Cli::parse();
     let profile_path = cli
         .profile

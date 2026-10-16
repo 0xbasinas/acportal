@@ -164,7 +164,12 @@ pub(super) async fn run(
         .ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?
         .canonicalize()
         .map_err(|_| ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
-    let sandbox = crate::terminal::sandbox_runner();
+    // The Windows launcher only serves terminal commands; checks there stay unconfined (and say so).
+    let sandbox = if cfg!(windows) {
+        None
+    } else {
+        crate::terminal::sandbox_runner()
+    };
     let limit = Duration::from_secs(input.timeout_secs.unwrap_or(600).clamp(5, 1800));
     tracing::info!(
         commands = input.commands.len(),
