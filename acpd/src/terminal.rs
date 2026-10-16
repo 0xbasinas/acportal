@@ -28,6 +28,18 @@ struct CreateRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_retryable_read_errors_keep_the_pipe_open() {
+        use std::io::{Error, ErrorKind};
+        assert!(transient_read_error(&Error::from(ErrorKind::WouldBlock)));
+        assert!(transient_read_error(&Error::from(ErrorKind::Interrupted)));
+        assert!(!transient_read_error(&Error::from(ErrorKind::BrokenPipe)));
+        assert!(!transient_read_error(&Error::other("closed")));
+        assert_eq!(
+            transient_read_error(&Error::from_raw_os_error(232)),
+            cfg!(windows)
+        );
+    }
     #[cfg(unix)]
     #[test]
     fn sandbox_arguments_expose_only_the_workspace_writable() {
@@ -47,141 +59,6 @@ mod tests {
         assert!(!joined.contains("--bind /home") && !joined.contains("--bind / "));
         assert_eq!(args.last().unwrap(), "/home/u/.cargo/bin/cargo");
         assert_eq!(args[args.len() - 2], "--");
-    }
-    /// TEMPORARY diagnostic for the Git Bash empty-output flake; prints a summary and fails.
-    #[cfg(windows)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn diag_git_bash_output() {
-        use std::os::windows::process::CommandExt;
-        let Some(bash) = crate::shell::windows_find_bash_for_tests() else {
-            return;
-        };
-        let inner = bash
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(r"usr\bin\bash.exe");
-        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("acpd-diag-{}", std::process::id()));
-        let root = base.join("ws");
-        std::fs::create_dir_all(&root).unwrap();
-        let line = "echo \"bash-$((40+2))\" > out.txt; cat out.txt";
-        let mut report = format!(
-            "bash={} inner={} exists={}\n",
-            bash.display(),
-            inner.display(),
-            inner.exists()
-        );
-        let direct = |exe: &Path, flags: u32, line: &str| {
-            let t = std::time::Instant::now();
-            let out = std::process::Command::new(exe)
-                .args(["--noprofile", "--norc", "-c", line])
-                .current_dir(&root)
-                .stdin(Stdio::null())
-                .creation_flags(flags)
-                .output()
-                .unwrap();
-            (
-                out.status.code(),
-                String::from_utf8_lossy(&out.stdout).into_owned(),
-                String::from_utf8_lossy(&out.stderr).into_owned(),
-                t.elapsed().as_millis(),
-            )
-        };
-        for (name, exe, flags) in [
-            ("launcher-direct", bash.clone(), 0u32),
-            ("launcher-direct-nowindow", bash.clone(), 0x0800_0000),
-            ("inner-direct-nowindow", inner.clone(), 0x0800_0000),
-        ] {
-            let mut bad = vec![];
-            for i in 0..5 {
-                let (code, out, err, ms) = direct(&exe, flags, line);
-                if !out.contains("bash-42") {
-                    bad.push(format!(
-                        "#{i} code={code:?} ms={ms} out={out:?} err={err:?}"
-                    ))
-                }
-            }
-            report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
-            println!("{report}");
-        }
-        // Concurrent: several services at once, like parallel tests.
-        let mut tasks = vec![];
-        for k in 0..6 {
-            let dir = base.join(format!("ws{k}"));
-            std::fs::create_dir_all(&dir).unwrap();
-            let line = line.to_owned();
-            tasks.push(tokio::spawn(async move {
-                let mut service = TerminalService::new("s", &dir, 8192).unwrap();
-                service.set_shell(crate::shell::ShellChoice::Bash);
-                let mut bad = vec![];
-                for i in 0..25 {
-                    let t = std::time::Instant::now();
-                    let prepared = service
-                        .prepare(serde_json::json!({"sessionId":"s","command":line}))
-                        .unwrap();
-                    let created = service.create_approved(prepared).unwrap();
-                    let id = created["terminalId"].as_str().unwrap().to_owned();
-                    let exit = service.exit_receiver("s", &id).unwrap();
-                    let status = TerminalService::wait(exit).await.unwrap();
-                    let text = service.output("s", &id).unwrap()["output"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned();
-                    let _ = service.release("s", &id).await;
-                    if !text.contains("bash-42") {
-                        bad.push(format!(
-                            "k{k}#{i} status={status} ms={} text={text:?}",
-                            t.elapsed().as_millis()
-                        ));
-                    }
-                }
-                bad
-            }));
-        }
-        let mut bad = vec![];
-        for t in tasks {
-            bad.extend(t.await.unwrap());
-        }
-        report += &format!("service-concurrent: {} bad of 150 {:?}\n", bad.len(), bad);
-        // Concurrent direct runs (threads), no job object.
-        let handles: Vec<_> = (0..6)
-            .map(|k| {
-                let dir = base.join(format!("ws{k}"));
-                let bash = bash.clone();
-                let line = line.to_owned();
-                std::thread::spawn(move || {
-                    let mut bad = vec![];
-                    for i in 0..25 {
-                        let out = std::process::Command::new(&bash)
-                            .args(["--noprofile", "--norc", "-c", &line])
-                            .current_dir(&dir)
-                            .stdin(Stdio::null())
-                            .creation_flags(0x0800_0000)
-                            .output()
-                            .unwrap();
-                        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-                        if !text.contains("bash-42") {
-                            bad.push(format!(
-                                "k{k}#{i} code={:?} out={text:?} err={:?}",
-                                out.status.code(),
-                                String::from_utf8_lossy(&out.stderr)
-                            ));
-                        }
-                    }
-                    bad
-                })
-            })
-            .collect();
-        let mut bad = vec![];
-        for h in handles {
-            bad.extend(h.join().unwrap());
-        }
-        report += &format!("direct-concurrent: {} bad of 150 {:?}\n", bad.len(), bad);
-        let _ = std::fs::remove_dir_all(&base);
-        panic!("DIAG\n{report}");
     }
     #[cfg(windows)]
     fn launcher_for_tests() -> Option<PathBuf> {
@@ -630,6 +507,15 @@ impl PreparedTerminal {
         }
     }
 }
+/// A read that may succeed later. MSYS2 programs (Git Bash) can put the pipe in
+/// non-blocking mode, so an empty pipe reads as `ERROR_NO_DATA` (232) before any
+/// output arrives; that is not end of output.
+fn transient_read_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+    ) || (cfg!(windows) && error.raw_os_error() == Some(232))
+}
 struct Output {
     bytes: VecDeque<u8>,
     limit: usize,
@@ -995,8 +881,8 @@ impl TerminalService {
                     break;
                 }
                 tokio::select! {
-                    result=stdout.read(&mut out),if !out_closed => match result {Ok(0)|Err(_)=>{out_closed=true;out_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>out_decoder.feed(&out[..count],&mut retained.lock().unwrap())},
-                    result=stderr.read(&mut err),if !err_closed => match result {Ok(0)|Err(_)=>{err_closed=true;err_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>err_decoder.feed(&err[..count],&mut retained.lock().unwrap())},
+                    result=stdout.read(&mut out),if !out_closed => match result {Err(error) if transient_read_error(&error)=>tokio::time::sleep(Duration::from_millis(10)).await,Ok(0)|Err(_)=>{out_closed=true;out_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>out_decoder.feed(&out[..count],&mut retained.lock().unwrap())},
+                    result=stderr.read(&mut err),if !err_closed => match result {Err(error) if transient_read_error(&error)=>tokio::time::sleep(Duration::from_millis(10)).await,Ok(0)|Err(_)=>{err_closed=true;err_decoder.finish(&mut retained.lock().unwrap());},Ok(count)=>err_decoder.feed(&err[..count],&mut retained.lock().unwrap())},
                     result=child.wait(),if status.is_none()=> {
                         status=Some(match result {
                             Ok(status)=> {
@@ -1006,7 +892,8 @@ impl TerminalService {
                             },
                             Err(_)=>json!({"exitCode":null,"signal":null}),
                         });
-                        let _=tree.terminate();deadline=Instant::now()+Duration::from_secs(1);
+                        // Descendants are ended now; keep draining what they already wrote until EOF.
+                        let _=tree.terminate();deadline=Instant::now()+Duration::from_secs(5);
                     },
                     _=stop_rx.changed(),if !stopping && status.is_none()=> {stopping=true;let _=tree.terminate();let _=child.start_kill();},
                     _=tokio::time::sleep_until(deadline)=> {
