@@ -36,6 +36,27 @@ pub fn plain_path(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Replace `state_directory/file` atomically through a unique owner-only temporary file.
+pub(crate) fn save_private(state_directory: &Path, file_name: &str, bytes: &[u8]) -> Result<()> {
+    std::fs::create_dir_all(state_directory).context("create state directory")?;
+    let target = state_directory.join(file_name);
+    let temporary = state_directory.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let result = (|| -> Result<()> {
+        let mut file = options.open(&temporary).context("create settings file")?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, &target).context("replace settings file")
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 impl UserData {
     pub fn load(state_directory: &Path) -> Result<Self> {
         let path = state_directory.join(FILE);
@@ -47,23 +68,7 @@ impl UserData {
     }
     /// Atomic replace through a unique owner-only temporary file in the same directory.
     pub fn save(&self, state_directory: &Path) -> Result<()> {
-        std::fs::create_dir_all(state_directory).context("create state directory")?;
-        let target = state_directory.join(FILE);
-        let temporary = state_directory.join(format!(".{FILE}.{}.tmp", uuid::Uuid::new_v4()));
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let result = (|| -> Result<()> {
-            let mut file = options.open(&temporary).context("create user settings")?;
-            file.write_all(&serde_json::to_vec_pretty(self)?)?;
-            file.sync_all()?;
-            std::fs::rename(&temporary, &target).context("replace user settings")
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&temporary);
-        }
-        result
+        save_private(state_directory, FILE, &serde_json::to_vec_pretty(self)?)
     }
     /// Adds the phone-added folders and agents. A saved agent that no longer validates is skipped
     /// with a warning so one bad entry cannot stop the host starting.

@@ -6,10 +6,10 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 
 ## Desktop branch (`experiment/desktop`, PR #46)
 
-- [ ] Phone/desktop handoff (`takeover=true`, `control_taken`, 16 October 2026): host test `takeover_moves_control_between_clients_and_the_old_one_keeps_watching` passes and desktop typecheck/tests pass. The Android build/JVM tests are unverified (no SDK in that session; check CI), and neither client has been tried by hand. Still open: the phone steps down to a "Take control" card rather than watching live like the desktop does; drafts, titles and prompt history stay on each device (see shared settings below).
+- [ ] Phone/desktop handoff and shared drafts (16 October 2026): `takeover=true`/`control_taken`, both clients watch a session another device controls with Take control, and drafts, first-prompt titles and folder prompt history are kept on the host (`/v1/shared`). Host tests `takeover_moves_control_between_clients_and_the_old_one_keeps_watching` and `drafts_titles_and_history_are_shared_between_devices_and_survive_restart` pass; desktop typecheck/tests pass. Android compile/JVM tests rely on CI (no SDK or Gradle plugin access in that session); no client tried by hand. Limits: the phone reads the host draft only when it opens a session (the desktop polls every 4 s); Android does not show host titles; attachments are not shared; MCP and checks settings are still per device.
 
 - [ ] Android: show `_meta.acpdScope` (outside-workspace paths, sandboxed, shell and `shellNote`) on the shell approval sheet; no quick approve when paths are listed.
-- [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets, prompt history) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
+- [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets; prompt history and drafts now done) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
 - [ ] Android: git view, branch/worktree picker, run on several agents, checks, approval notifications and list badges.
 - [ ] macOS sandbox for host commands.
 - [ ] Desktop: edit form for existing agents (sandbox, shell); host `[windows] shell` editable from the app.

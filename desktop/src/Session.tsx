@@ -183,11 +183,23 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
 }
 
 export type Attachment = { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }
-export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft }: {
+export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft, remote, onText }: {
   agent: string; busy: boolean; disabled?: string; onSend: (text: string, atts: Attachment[]) => void; onCancel: () => void
   history: string[]; canImage: boolean; canResource: boolean; draft?: { text: string; n: number }
+  /** The draft saved on the host (from this or another device) and a callback to save typing there. */
+  remote?: { text: string; at: number }; onText?: (text: string) => void
 }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(remote?.text ?? '')
+  // Text known to match the host copy; a newer host draft replaces the box only while it is unedited.
+  const synced = useRef(remote?.text ?? '')
+  useEffect(() => {
+    if (remote && text === synced.current && remote.text !== text) { setText(remote.text); synced.current = remote.text }
+  }, [remote?.at])
+  useEffect(() => {
+    if (!onText || text === synced.current) return
+    const t = setTimeout(() => { synced.current = text; onText(text) }, 800)
+    return () => clearTimeout(t)
+  }, [text])
   const [atts, setAtts] = useState<Attachment[]>([])
   const [err, setErr] = useState<string>()
   const [hIdx, setHIdx] = useState(-1)
@@ -201,6 +213,8 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
   const send = (): void => {
     if ((!text.trim() && !atts.length) || busy || disabled) return
     onSend(text, atts)
+    if (onText && synced.current) onText('')
+    synced.current = ''
     setText(''); setAtts([]); setHIdx(-1)
   }
   const pick = async (): Promise<void> => {

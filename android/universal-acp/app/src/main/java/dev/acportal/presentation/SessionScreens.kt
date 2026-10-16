@@ -53,8 +53,9 @@ import kotlinx.coroutines.*
     val authenticating by live.authenticating.collectAsStateWithLifecycle()
     val generation by live.localCopyGeneration.collectAsStateWithLifecycle()
     val attachments by live.attachments.collectAsStateWithLifecycle()
+    val sharedHistory by live.sharedHistory.collectAsStateWithLifecycle()
     TranscriptExportSurface(info,state) {exporting,onExport->
-        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl)
+        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl,sharedHistory=sharedHistory)
     }
 }
 
@@ -99,7 +100,7 @@ import kotlinx.coroutines.*
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null) {
+@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null,sharedHistory:List<String> = emptyList()) {
     var draft by rememberSaveable(info.id) { mutableStateOf(initialDraft) }
     val focus=LocalFocusManager.current
     val keyboard=LocalSoftwareKeyboardController.current
@@ -206,7 +207,7 @@ import kotlinx.coroutines.*
         } }
     }
     }
-    if(showHistory)PromptHistorySheet(promptHistory(state),{showHistory=false}) {text->
+    if(showHistory)PromptHistorySheet(withSharedHistory(promptHistory(state),if(state.localHistoryCleared)emptyList() else sharedHistory),{showHistory=false}) {text->
         showHistory=false
         if(draft.isNotBlank() && draft!=text)historyChoice=text
         else {draft=text;sentDraft=null;onDraft(text)}

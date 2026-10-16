@@ -1,7 +1,7 @@
 import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
 import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, Host, HostStatus, SessionInfo, Task, Workspace } from './types'
+import type { AgentInfo, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
@@ -42,6 +42,7 @@ export default function App() {
   const [confirmMerge, setConfirmMerge] = useState<Task>()
   const [mcp, setMcpState] = useState<McpServer[]>([])
   const [draft, setDraft] = useState<{ text: string; n: number }>()
+  const [shared, setShared] = useState<SharedData>()
   const [newSessionPrompt, setNewSessionPrompt] = useState<string>()
   const [branchOf, setBranchOf] = useState<Record<string, string>>({})
   const [taskDetail, setTaskDetail] = useState<Task>()
@@ -131,10 +132,11 @@ export default function App() {
     if (a.ok) setAgents(a.value)
     if (w.ok) setWorkspaces(w.value)
     if (ss.ok) setSessions(ss.value)
+    if (s.value.features?.includes('sharedDrafts')) { const sh = await api<SharedData>('GET', '/v1/shared'); if (sh.ok) setShared((old) => (old?.revision === sh.value.revision ? old : sh.value)) } else setShared(undefined)
     if (s.value.features?.includes('orchestrator')) { const t = await api<Task[]>('GET', '/v1/tasks'); if (t.ok) setTasks(t.value) }
   }, [api, hostId])
   useEffect(() => {
-    setSessions([]); setTasks([]); setAgents([]); setWorkspaces([]); setSelected(pendingSel.current); pendingSel.current = undefined; setTimelines({})
+    setSessions([]); setTasks([]); setAgents([]); setWorkspaces([]); setShared(undefined); setSelected(pendingSel.current); pendingSel.current = undefined; setTimelines({})
     void refresh()
     const t = setInterval(() => void refresh(), 4000)
     return () => clearInterval(t)
@@ -193,7 +195,7 @@ export default function App() {
   const tl = selected ? timelines[selected] : undefined
   const agentName = (id?: string): string => agents.find((a) => a.id === id)?.name ?? id ?? ''
   const rootTask = tasks.find((t) => t.session === selected && !t.parent) ?? tasks.find((t) => t.session === selected)
-  const title = (s: SessionInfo): string => timelines[s.id]?.title ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
+  const title = (s: SessionInfo): string => timelines[s.id]?.title ?? shared?.titles[s.id] ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
   const pendingIn = (sid: string): number => (timelines[sid]?.items ?? []).filter((i) => i.kind === 'permission' && i.answered === undefined).length
   const latest = useRef({ openOn, answer })
   latest.current = { openOn, answer }
@@ -204,14 +206,24 @@ export default function App() {
   }, [])
 
   const histKey = (ws?: string): string => `acportal.history.${hostId}.${ws ?? ''}`
-  const history = (ws?: string): string[] => JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
+  const history = (ws?: string): string[] => {
+    const local: string[] = JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
+    return [...new Set([...(shared?.history[ws ?? ''] ?? []), ...local])].slice(0, 50)
+  }
   async function sendPrompt(text: string, atts: Attachment[] = [], silent = false): Promise<number | undefined> {
     if (!session || !attached.current) return
     const id = ++nextId.current
-    if (text.trim() && !silent) localStorage.setItem(histKey(session.workspace), JSON.stringify([text, ...history(session.workspace).filter((h) => h !== text)].slice(0, 50)))
+    if (text.trim() && !silent) {
+      localStorage.setItem(histKey(session.workspace), JSON.stringify([text, ...history(session.workspace).filter((h) => h !== text)].slice(0, 50)))
+      if (shared && text.length <= 16 * 1024) void api('POST', '/v1/shared/history', { workspace: session.workspace, text })
+    }
     const blocks: unknown[] = [{ type: 'text', text }]
     for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
-    if (!titles()[session.id]) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: text.split('\n')[0].slice(0, 60) }))
+    if (!titles()[session.id] && !shared?.titles[session.id] && !silent) {
+      const first = text.split('\n')[0].slice(0, 60)
+      localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: first }))
+      if (shared && first.trim()) void api('PUT', `/v1/shared/titles/${session.id}`, { title: first })
+    }
     setTimelines((all) => ({ ...all, [session.id]: { ...(all[session.id] ?? emptyTimeline()), promptId: id, busy: true } }))
     const r = await window.api.session.send(attached.current, { jsonrpc: '2.0', id, method: 'session/prompt', params: { sessionId: session.acpSessionId, prompt: blocks } })
     if (!r.ok) { flash(r.error); setTimelines((all) => ({ ...all, [session.id]: { ...all[session.id], busy: false } })); return }
@@ -598,7 +610,9 @@ export default function App() {
         {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
         <Conversation t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
         <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
-          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} />
+          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} key={session.id}
+          remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
+          onText={shared ? (t) => { if (new TextEncoder().encode(t).length <= 64 * 1024) void api('PUT', `/v1/shared/drafts/${session.id}`, { text: t }) } : undefined} />
       </div>
     )
   }

@@ -6,6 +6,8 @@ sealed interface ConnectionState {
     data object Disconnected : ConnectionState
     data object Connecting : ConnectionState
     data object Connected : ConnectionState
+    /** Connected read-only because another device (desktop or phone) controls the session. */
+    data object Observing : ConnectionState
     data class Reconnecting(val attempt:Int) : ConnectionState
     data class Failed(val reason:String,val kind:ConnectionFailure=ConnectionFailure.CONNECTION) : ConnectionState
 }
@@ -24,7 +26,6 @@ interface AgentTransport {
     fun connectionState():Flow<ConnectionState>
     /** The next connect replaces another client app's control (host feature `controlTakeover`). */
     fun requestTakeover() {}
-    /** The host moved control to another device; stop until the user takes it back. */
+    /** The host moved control to another device; keep watching until the user takes it back. */
     suspend fun controlTaken() { disconnect() }
 }
-val CONTROL_TAKEN=ConnectionState.Failed("Control moved to another device, such as your computer. Take control to continue here.",ConnectionFailure.CONTROLLER_BUSY)

@@ -33,6 +33,7 @@ use uuid::Uuid;
 mod bridge;
 mod checks;
 mod git;
+mod shared;
 
 #[derive(Clone)]
 pub struct Host {
@@ -45,6 +46,8 @@ pub struct Host {
     gateways: Arc<AsyncMutex<HashMap<Uuid, Arc<Gateway>>>>,
     /// Serializes phone-initiated changes to folders (read, change, save, reload).
     user_changes: Arc<AsyncMutex<()>>,
+    /// Drafts, titles and prompt history shared by the phone and the desktop.
+    shared: Arc<Mutex<shared::Store>>,
 }
 struct Gateway {
     /// Current controller: lease generation and whether another client may take it over.
@@ -170,7 +173,6 @@ impl Host {
         // Tasks an earlier run left open are shown as failed by the restart; nothing is resumed.
         orchestrator.restore(&config.state_directory);
         Ok(Self {
-            config: Arc::new(config),
             registry: Arc::new(registry),
             sessions,
             orchestrator,
@@ -178,6 +180,8 @@ impl Host {
             security,
             gateways: Arc::new(AsyncMutex::new(HashMap::new())),
             user_changes: Arc::new(AsyncMutex::new(())),
+            shared: Arc::new(Mutex::new(shared::Store::load(&config.state_directory))),
+            config: Arc::new(config),
         })
     }
     /// The delegation orchestrator, for embedders and tests that drive it directly.
@@ -219,6 +223,16 @@ impl Host {
             .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
             .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
             .route("/v1/checks", post(checks::run))
+            .route("/v1/shared", get(shared::get))
+            .route(
+                "/v1/shared/drafts/{id}",
+                axum::routing::put(shared::put_draft),
+            )
+            .route(
+                "/v1/shared/titles/{id}",
+                axum::routing::put(shared::put_title),
+            )
+            .route("/v1/shared/history", post(shared::add_history))
             .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
@@ -402,6 +416,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "sessionWorktree",
         "checks",
         "controlTakeover",
+        "sharedDrafts",
     ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
@@ -877,6 +892,7 @@ async fn delete_session(State(host): State<Host>, Path(id): Path<Uuid>) -> ApiRe
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "session_not_found"))?;
     host.gateways.lock().await.remove(&id);
+    shared::forget_session(&host, id);
     Ok(StatusCode::NO_CONTENT)
 }
 #[derive(Deserialize)]

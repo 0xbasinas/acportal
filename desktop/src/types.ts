@@ -5,6 +5,8 @@ declare global {
   }
 }
 export type Host = { id: string; hostId: string; name: string; address: string; deviceId: string; expiresAt: number; addedAt: number }
+/** `GET /v1/shared` (feature `sharedDrafts`): what the phone and the desktop continue from. */
+export type SharedData = { revision: number; drafts: Record<string, { text: string; updatedAt: number; device: string }>; titles: Record<string, string>; history: Record<string, string[]> }
 export type HostStatus = { hostId: string; name: string; version: string; activeSessions?: number; features?: string[] }
 export type AgentInfo = { id: string; name: string; enabled?: boolean; installed?: boolean; status?: string; executable?: string; version?: string; reason?: string; ownTools?: boolean; removable?: boolean }
 export type Workspace = { path: string; name: string; removable?: boolean }

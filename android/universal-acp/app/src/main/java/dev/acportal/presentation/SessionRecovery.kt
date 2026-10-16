@@ -21,11 +21,13 @@ import dev.acportal.transport.*
 ) {
     val failure=connection as? ConnectionState.Failed
     val disconnected=connection is ConnectionState.Disconnected
-    if(failure==null && !disconnected && state.error==null && !state.sessionClosed)return
+    val watching=connection is ConnectionState.Observing && !state.sessionClosed
+    if(failure==null && !disconnected && !watching && state.error==null && !state.sessionClosed)return
     val title=when {
         failure?.kind==ConnectionFailure.AUTHORIZATION->"Pairing expired"
         failure?.kind==ConnectionFailure.SESSION_UNAVAILABLE->"Session unavailable"
         failure?.kind==ConnectionFailure.CONTROLLER_BUSY->"Session in use"
+        watching->"Watching from this phone"
         state.sessionClosed->"Session stopped"
         failure!=null || disconnected->"Connection lost"
         state.errorOrigin==SessionErrorOrigin.AUTHENTICATION->"Sign-in failed"
@@ -34,7 +36,7 @@ import dev.acportal.transport.*
         state.errorOrigin==SessionErrorOrigin.PROTOCOL->"Host event failed"
         else->"Agent request failed"
     }
-    val message=failure?.reason ?: if(state.sessionClosed)state.error ?: "Open Sessions to start or explicitly resume an agent." else if(disconnected)"Reconnect to continue. Your draft and selected files stay on this device." else state.error.orEmpty()
+    val message=failure?.reason ?: if(watching)"Another device, such as your computer, controls this session. Its progress appears here live." else if(state.sessionClosed)state.error ?: "Open Sessions to start or explicitly resume an agent." else if(disconnected)"Reconnect to continue. Your draft and selected files stay on this device." else state.error.orEmpty()
     Surface(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.heightIn(max=240.dp).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(title,Modifier.semantics {heading()},style=MaterialTheme.typography.titleSmall)
@@ -45,7 +47,7 @@ import dev.acportal.transport.*
                 when {
                     failure?.kind==ConnectionFailure.AUTHORIZATION->if(onPairHost!=null)TextButton(onPairHost,Modifier.heightIn(min=48.dp)) {Text("Pair again")} else TextButton(onSessions,Modifier.heightIn(min=48.dp)) {Text("Open Sessions")}
                     failure?.kind==ConnectionFailure.SESSION_UNAVAILABLE || state.sessionClosed || state.errorOrigin==SessionErrorOrigin.SESSION && state.error!=null->TextButton(onSessions,Modifier.heightIn(min=48.dp)) {Text("Open Sessions")}
-                    failure?.kind==ConnectionFailure.CONTROLLER_BUSY && onTakeControl!=null->TextButton(onTakeControl,Modifier.heightIn(min=48.dp)) {Text("Take control")}
+                    (watching || failure?.kind==ConnectionFailure.CONTROLLER_BUSY) && onTakeControl!=null->TextButton(onTakeControl,Modifier.heightIn(min=48.dp)) {Text("Take control")}
                     failure!=null || disconnected->TextButton(onReconnect,Modifier.heightIn(min=48.dp)) {Text("Reconnect")}
                 }
                 if(state.error!=null)TextButton(onDismiss,Modifier.heightIn(min=48.dp)) {Text("Dismiss")}
