@@ -9,10 +9,11 @@ import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
+import { type AgentSetup, hasChoices, placePopover, setupFromAcp } from './agentSetup'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
 export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean }
-export type AgentSetup = { modes?: { id: string; name: string }[]; mode?: string; modelConfig?: string; models?: { value: string; name: string }[]; model?: string }
+export type { AgentSetup } from './agentSetup'
 export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]; mode?: string; model?: string }
 export type HostChoice = { id: string; name: string; state: string; ok: boolean }
 
@@ -23,10 +24,17 @@ export function rememberedSetup(agent: string): AgentSetup {
 }
 
 /** A chip that opens an anchored list. Escape or a click outside closes it and returns focus. */
-function Chip({ id, open, setOpen, label, icon, active, children, wide, title }: { id: string; open: string | undefined; setOpen: (k: string | undefined) => void; label: ReactNode; icon?: ReactNode; active?: boolean; children: ReactNode; wide?: boolean; title?: string }) {
+function Chip({ id, open, setOpen, label, icon, active, children, wide, title, up: preferUp, busy }: { id: string; open: string | undefined; setOpen: (k: string | undefined) => void; label: ReactNode; icon?: ReactNode; active?: boolean; children: ReactNode; wide?: boolean; title?: string; up?: boolean; busy?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null)
   const pop = useRef<HTMLDivElement>(null)
   const isOpen = open === id
+  const [place, setPlace] = useState<{ up: boolean; dx: number; maxHeight: number }>()
+  useLayoutEffect(() => {
+    if (!isOpen) { setPlace(undefined); return }
+    const b = btn.current?.getBoundingClientRect(); const p = pop.current
+    if (!b || !p) return
+    setPlace(placePopover(b, { width: p.offsetWidth, height: p.scrollHeight }, { width: window.innerWidth, height: window.innerHeight }, preferUp ? 'up' : 'down'))
+  }, [isOpen])
   useEffect(() => {
     if (!isOpen) return
     const first = pop.current?.querySelector<HTMLElement>('input, [data-item]')
@@ -45,10 +53,11 @@ function Chip({ id, open, setOpen, label, icon, active, children, wide, title }:
   }
   return (
     <span className="ctx-wrap">
-      <button ref={btn} className={'ctx-chip' + (active || isOpen ? ' on' : '')} aria-haspopup="dialog" aria-expanded={isOpen} title={title} onClick={() => setOpen(isOpen ? undefined : id)}>
+      <button ref={btn} className={'ctx-chip' + (active || isOpen ? ' on' : '')} aria-haspopup="dialog" aria-expanded={isOpen} aria-busy={busy || undefined} title={title} onClick={() => setOpen(isOpen ? undefined : id)}>
         {icon}<span className="ell">{label}</span>{I.down}
       </button>
-      {isOpen && <div ref={pop} className={'ctx-pop' + (wide ? ' wide' : '')} role="dialog" aria-label={title} onKeyDown={keys}>{children}</div>}
+      {isOpen && <div ref={pop} className={'ctx-pop' + (wide ? ' wide' : '') + ((place ? place.up : preferUp) ? ' up' : ' down')} data-placement={place ? (place.up ? 'up' : 'down') : undefined}
+        style={place ? { transform: place.dx ? `translateX(${place.dx}px)` : undefined, maxHeight: Math.min(420, place.maxHeight) } : undefined} role="dialog" aria-label={title} onKeyDown={keys}>{children}</div>}
     </span>
   )
 }
@@ -59,10 +68,12 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
 }
 
-export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti }: {
+export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe }: {
   hosts: HostChoice[]; hostId: string; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; canBranch: boolean
   history: (ws: string) => string[]; initial?: { text: string; n: number }; initialFolder?: string
   onStart: (r: StartRequest) => Promise<string | undefined>; onMulti: (text: string) => void
+  /** Ask the host which models and modes an agent offers (throwaway session); undefined if it cannot. */
+  probe?: (agent: string, workspace: string) => Promise<unknown | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
@@ -81,10 +92,25 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [branches, setBranches] = useState<string[]>()
   const [current, setCurrent] = useState<string>()
   const [query, setQuery] = useState('')
-  const setup = rememberedSetup(agent)
+  // Choices: what this computer saw in the agent's last session, else what the host reports
+  // for the agent (its sessions or an earlier probe), else a probe now; defaults if all fail.
+  const [probed, setProbed] = useState<Record<string, AgentSetup | 'loading' | 'failed'>>({})
+  const remembered = rememberedSetup(agent)
+  const hostReported = agents.find((a) => a.id === agent)?.setup
+  const probeState = probed[hostId + '/' + agent]
+  const setup: AgentSetup = hasChoices(remembered) ? remembered
+    : hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
+    : typeof probeState === 'object' ? probeState : {}
+  const loadingSetup = probeState === 'loading'
   const [mode, setMode] = useState<string | undefined>(setup.mode)
   const [model, setModel] = useState<string | undefined>(setup.model)
-  useEffect(() => { const s = rememberedSetup(agent); setMode(s.mode); setModel(s.model) }, [agent])
+  useEffect(() => { setMode(setup.mode); setModel(setup.model) }, [agent, hostId, hasChoices(setup)])
+  useEffect(() => {
+    const key = hostId + '/' + agent
+    if (!probe || !agent || !ws || hasChoices(setup) || probed[key]) return
+    setProbed((p) => ({ ...p, [key]: 'loading' }))
+    probe(agent, ws).then((raw) => setProbed((p) => ({ ...p, [key]: raw === undefined ? 'failed' : setupFromAcp(raw) })), () => setProbed((p) => ({ ...p, [key]: 'failed' })))
+  }, [agent, hostId, ws, Boolean(probe)])
   const ta = useRef<HTMLTextAreaElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
@@ -157,15 +183,16 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
       <div className="ns-bar">
         <button className="icon-btn round" aria-label="Attach files" title="Attach files" onClick={() => void pick()} disabled={starting}>{I.plus}</button>
-        <Chip id="agent" open={open} setOpen={setOpen} icon={I.bot} label={agentName || 'No agent'} title="Agent">
+        <Chip id="agent" open={open} setOpen={setOpen} up icon={I.bot} label={agentName || 'No agent'} title="Agent">
           <div className="ctx-h">Agent</div>
           {usable.map((a) => <Item key={a.id} on={a.id === agent} sub={a.version} onPick={() => { setAgent(a.id); setOpen(undefined) }}>{a.name}</Item>)}
           {usable.length === 0 && <div className="hint ctx-pad">No agents on this host. Add one in Settings → Agents.</div>}
           <div className="ctx-sep" />
           <Item onPick={() => { setOpen(undefined); onMulti(text) }} sub="2-3 agents">{I.flow} Run on several agents…</Item>
         </Chip>
-        <Chip id="model" open={open} setOpen={setOpen} label={`${modelName ?? 'Default model'} · ${modeName ?? 'default mode'}`} title="Model and mode">
-          {!setup.models?.length && !setup.modes?.length && <div className="hint ctx-pad">{agentName} reports its models and modes once a session starts. The choice you make then is remembered here.</div>}
+        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : `${modelName ?? 'Default model'} · ${modeName ?? 'default mode'}`} title="Model and mode">
+          {loadingSetup && <div className="hint ctx-pad" role="status">Asking {agentName} which models and modes it offers…</div>}
+          {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes; the session starts with its defaults.` : `${agentName} offers no model or mode choices; it uses its defaults.`}</div>}
           {setup.models?.length ? <><div className="ctx-h">Model</div>{setup.models.map((m) => <Item key={m.value} on={m.value === model} onPick={() => setModel(m.value)}>{m.name}</Item>)}</> : null}
           {setup.modes?.length ? <><div className="ctx-h">Mode</div>{setup.modes.map((m) => <Item key={m.id} on={m.id === mode} onPick={() => setMode(m.id)}>{m.name}</Item>)}</> : null}
         </Chip>

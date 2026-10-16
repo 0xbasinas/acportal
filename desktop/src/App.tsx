@@ -14,6 +14,7 @@ import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
 import { NewSessionHome, setupKey, type AgentSetup, type StartRequest } from './NewSession'
+import { hasChoices, setupFromAcp } from './agentSetup'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
@@ -340,11 +341,10 @@ export default function App() {
   // Remember each agent's models and modes, so the new-session composer can offer them.
   useEffect(() => {
     if (!session) return
-    const st = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string; name: string }[] }; configOptions?: { id: string; category?: string; currentValue?: string; options?: { value: string; name: string }[] }[] }
-    const mo = st.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
-    if (!st.modes?.availableModes?.length && !mo?.options?.length) return
     const prev = JSON.parse(localStorage.getItem(setupKey(session.agentId)) ?? '{}') as AgentSetup
-    const next: AgentSetup = { modes: st.modes?.availableModes?.map((m) => ({ id: m.id, name: m.name })), mode: tl?.currentMode ?? prev.mode ?? st.modes?.currentModeId, modelConfig: mo?.id, models: mo?.options?.map((o) => ({ value: o.value, name: o.name })), model: tl?.config?.[mo?.id ?? ''] ?? prev.model ?? mo?.currentValue }
+    const base = setupFromAcp(session.setup)
+    if (!hasChoices(base)) return
+    const next: AgentSetup = { ...base, mode: tl?.currentMode ?? prev.mode ?? base.mode, model: tl?.config?.[base.modelConfig ?? ''] ?? prev.model ?? base.model }
     localStorage.setItem(setupKey(session.agentId), JSON.stringify(next))
   }, [session?.id, session?.setup, tl?.currentMode, tl?.config])
   // First prompt of a session started from the composer: once connected, apply the remembered
@@ -385,6 +385,12 @@ export default function App() {
     return c
   }, [sessions, tasks, hosts, hostId, theme, timelines, fleet, runs])
   const paletteNew = (q: string): void => openComposer(q)
+  // Ask the host for an agent's models and modes before its first session (throwaway session on
+  // the host, no prompt). Undefined when the host cannot tell; the composer then uses defaults.
+  const probeAgent = useCallback(async (agent: string, workspace: string): Promise<unknown | undefined> => {
+    const r = await api<{ setup?: unknown }>('POST', `/v1/agents/${encodeURIComponent(agent)}/probe`, { workspace })
+    return r.ok ? (r.value.setup ?? {}) : undefined
+  }, [api])
 
   useEffect(() => {
     const k = (e: KeyboardEvent): void => {
@@ -595,7 +601,8 @@ export default function App() {
       <NewSessionHome hosts={hosts.map((h) => ({ id: h.id, name: h.name, state: STATE_LABEL[fleet[h.id]?.state ?? 'connecting'], ok: fleet[h.id]?.state === 'connected' || h.id === hostId }))} hostId={hostId}
         onHost={(id) => { openOn(id); flash(`Switched to ${hosts.find((h) => h.id === id)?.name}`) }} agents={agents} workspaces={workspaces} mcp={mcp}
         canBranch={Boolean(status?.features?.includes('git')) || Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))}
-        history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }} />
+        history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }}
+        probe={status?.features?.includes('agentProbe') ? probeAgent : undefined} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)

@@ -6,7 +6,7 @@ declare global {
 }
 export type Host = { id: string; hostId: string; name: string; address: string; deviceId: string; expiresAt: number; addedAt: number }
 export type HostStatus = { hostId: string; name: string; version: string; activeSessions?: number; features?: string[] }
-export type AgentInfo = { id: string; name: string; enabled?: boolean; installed?: boolean; status?: string; executable?: string; version?: string; reason?: string; ownTools?: boolean; removable?: boolean }
+export type AgentInfo = { id: string; name: string; enabled?: boolean; installed?: boolean; status?: string; executable?: string; version?: string; reason?: string; ownTools?: boolean; removable?: boolean; setup?: unknown }
 export type Workspace = { path: string; name: string; removable?: boolean }
 export type SessionInfo = {
   id: string

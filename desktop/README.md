@@ -36,7 +36,7 @@ Design: Penpot boards 55-99, tokens from `Theme.kt`. Details: [desktop multi-hos
 cd desktop
 npm install
 npm run dev        # electron-vite dev server with HMR
-npm test           # reducer, diff and address-rule unit tests
+npm test           # unit tests (node) then composer component tests (Vitest + jsdom)
 npm run build      # typecheck + production build into out/
 npm run package:linux   # AppImage (local only; CI does not package)
 ```
@@ -49,5 +49,5 @@ For a local host: run `acpd --config <config> start`, then `acpd --config <confi
 - Checks config, MCP definitions and prompt history are stored on this computer only; a plan to share them through the host is in [HANDOFF](../HANDOFF.md#roadmap).
 - The host-wide `[windows] shell` setting is edited in the host's `config.toml`; the app sets only the per-agent override when adding an agent (no edit form for existing agents).
 - Delegated-task decisions are answered by opening the task's session (as on the phone).
-- Composer model/mode choices are the values the agent last reported (it reports them only after starting); they are applied right after start, before the first prompt.
+- Before an agent's first session the composer probes the host for its models and modes (a throwaway ACP session); older hosts without `agentProbe` fall back to the agent's defaults.
 - No signed installers; Windows/macOS packaging is not set up.
