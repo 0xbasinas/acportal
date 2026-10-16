@@ -43,6 +43,10 @@ use uuid::Uuid;
 /// Most agent text kept per task. More is dropped and reported as `truncated`.
 const RESULT_LIMIT: usize = 256 * 1024;
 const DEFAULT_RESULT_BYTES: usize = 32 * 1024;
+/// At start-up, releasing finished tasks' worktrees may take this long in all, and this long for
+/// any one, before the rest are left for the next start.
+const RESTORE_RELEASE_BUDGET: Duration = Duration::from_secs(10);
+const RESTORE_RELEASE_EACH: Duration = Duration::from_secs(3);
 
 /// Admission refused a task before any process started. Carried through `anyhow` so the session
 /// manager can return it unchanged and the orchestrator can turn it back into a stable code.
@@ -447,27 +451,52 @@ impl Orchestrator {
             }
         }
         // Every restored task is finished, so its worktree is done with: release what is still
-        // there (dirty ones are kept), then remove clean worktrees no record knows about.
+        // there (dirty ones are kept; ones an earlier start could not remove are tried again),
+        // then remove clean worktrees no record knows about. Git runs with the state lock
+        // released and under a short total budget: a folder that will not go (locked by an
+        // editor or a scanner) must not hold up the host starting. It stays `cleanup_failed`
+        // and is tried again at the next start.
         let mut released = false;
         let mut known = vec![];
         let policy = self.uncommitted_policy();
+        let mut pending: Vec<(Uuid, worktree::Worktree)> = vec![];
         {
-            let mut state = self.lock();
-            for runtime in state.runtime.values_mut() {
-                if let Some(wt) = runtime.worktree.as_mut() {
+            let state = self.lock();
+            for (id, runtime) in &state.runtime {
+                if let Some(wt) = runtime.worktree.as_ref() {
                     known.push(wt.path.clone());
                     if matches!(
                         wt.outcome,
-                        worktree::Outcome::Active | worktree::Outcome::Releasing
+                        worktree::Outcome::Active
+                            | worktree::Outcome::Releasing
+                            | worktree::Outcome::CleanupFailed
                     ) {
-                        let mut pending = wt.clone();
-                        pending.outcome = worktree::Outcome::Active;
-                        let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
-                        wt.outcome = worktree::release_with(&root, &pending, policy);
-                        released = true;
+                        let mut retry = wt.clone();
+                        retry.outcome = worktree::Outcome::Active;
+                        pending.push((*id, retry));
                     }
                 }
             }
+        }
+        let budget_ends = std::time::Instant::now() + RESTORE_RELEASE_BUDGET;
+        for (id, wt) in pending {
+            let left = budget_ends.saturating_duration_since(std::time::Instant::now());
+            let outcome = if left.is_zero() {
+                tracing::warn!(branch = %wt.branch, "worktree release deferred to the next start");
+                worktree::Outcome::CleanupFailed
+            } else {
+                let root = wt.path.parent().map(Path::to_path_buf).unwrap_or_default();
+                worktree::release_within(&root, &wt, policy, left.min(RESTORE_RELEASE_EACH))
+            };
+            if let Some(own) = self
+                .lock()
+                .runtime
+                .get_mut(&id)
+                .and_then(|runtime| runtime.worktree.as_mut())
+            {
+                own.outcome = outcome;
+            }
+            released = true;
         }
         let root = directory.join("worktrees");
         if root.is_dir() {
@@ -1219,10 +1248,12 @@ impl Orchestrator {
         if isolate {
             let root = settings.config.worktree_root();
             let (folder, within) = (scope.clone(), parent_scope.clone());
-            let made =
-                tokio::task::spawn_blocking(move || worktree::create(&root, &folder, &within))
-                    .await
-                    .unwrap_or(Err(worktree::Unavailable::GitFailed));
+            let cap = settings.config.orchestrator.max_task_branches as usize;
+            let made = tokio::task::spawn_blocking(move || {
+                worktree::create_limited(&root, &folder, &within, cap)
+            })
+            .await
+            .unwrap_or(Err(worktree::Unavailable::GitFailed));
             match made {
                 Ok(wt) => {
                     let folder = wt.task_folder();

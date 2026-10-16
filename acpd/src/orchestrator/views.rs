@@ -27,6 +27,17 @@ pub enum MergeTaskRefusal {
     /// The worktree still has uncommitted work (kept with `worktree_uncommitted = "keep"`).
     WorktreeDirty,
     AlreadyMerged,
+    /// The work was thrown away from the phone already.
+    AlreadyDiscarded,
+    /// There is no branch or worktree left to discard (it had no changes and was removed).
+    NothingKept,
+    /// The branch conflicts with the parent's checkout. The merge was aborted; the phone is told
+    /// the branch and repository so the owner can merge by hand.
+    Conflict {
+        files: Vec<String>,
+        branch: String,
+        repository: String,
+    },
     Git(super::worktree::MergeRefusal),
 }
 impl MergeTaskRefusal {
@@ -38,6 +49,9 @@ impl MergeTaskRefusal {
             Self::Busy => "worktree_busy",
             Self::WorktreeDirty => "worktree_dirty",
             Self::AlreadyMerged => "already_merged",
+            Self::AlreadyDiscarded => "already_discarded",
+            Self::NothingKept => "nothing_to_discard",
+            Self::Conflict { .. } => "merge_conflict",
             Self::Git(refusal) => refusal.code(),
         }
     }
@@ -192,6 +206,7 @@ impl Orchestrator {
                     (own, false)
                 }
                 Outcome::Merged => return Err(MergeTaskRefusal::AlreadyMerged),
+                Outcome::Discarded => return Err(MergeTaskRefusal::AlreadyDiscarded),
                 Outcome::KeptDirty => return Err(MergeTaskRefusal::WorktreeDirty),
                 Outcome::Removed => {
                     return Err(MergeTaskRefusal::Git(
@@ -237,8 +252,82 @@ impl Orchestrator {
             Err(refusal) => {
                 // Nothing merged: the worktree (if still on disk) stays as it was.
                 Self::set_worktree_outcome(&mut state, id, wt.outcome);
-                Err(MergeTaskRefusal::Git(refusal))
+                Err(match refusal {
+                    worktree::MergeRefusal::Conflict(files) => MergeTaskRefusal::Conflict {
+                        files,
+                        branch: wt.branch.clone(),
+                        repository: wt.repository.to_string_lossy().into_owned(),
+                    },
+                    other => MergeTaskRefusal::Git(other),
+                })
             }
+        };
+        drop(state);
+        self.bump();
+        answer
+    }
+
+    /// Throw away a finished task's work from the phone: remove its worktree (even with
+    /// uncommitted changes) and delete its branch. The parent's checkout is never touched. Works
+    /// on a kept branch, a kept dirty worktree, a failed cleanup, or the still-present worktree of
+    /// a completed task (which then takes no follow-ups).
+    pub async fn discard_task(&self, id: Uuid) -> Result<Value, MergeTaskRefusal> {
+        use super::worktree::{self, Outcome};
+        let (wt, previous, session) = {
+            let mut state = self.lock();
+            let node = state.tree.get(id).ok_or(MergeTaskRefusal::Unknown)?;
+            if !node.state.is_terminal() {
+                return Err(MergeTaskRefusal::NotFinished);
+            }
+            let session = state.runtime.get(&id).and_then(|runtime| runtime.session);
+            let own = state
+                .runtime
+                .get(&id)
+                .and_then(|runtime| runtime.worktree.clone())
+                .ok_or(MergeTaskRefusal::NoWorktree)?;
+            let (wt, previous) = match own.outcome {
+                Outcome::Active => (
+                    Self::take_worktree(&mut state, id).ok_or(MergeTaskRefusal::Busy)?,
+                    Outcome::Active,
+                ),
+                Outcome::BranchKept
+                | Outcome::Snapshotted
+                | Outcome::KeptDirty
+                | Outcome::CleanupFailed => {
+                    // Claimed while git runs, so a merge and a discard cannot race.
+                    Self::set_worktree_outcome(&mut state, id, Outcome::Releasing);
+                    (own.clone(), own.outcome)
+                }
+                Outcome::Merged => return Err(MergeTaskRefusal::AlreadyMerged),
+                Outcome::Discarded => return Err(MergeTaskRefusal::AlreadyDiscarded),
+                Outcome::Removed => return Err(MergeTaskRefusal::NothingKept),
+                Outcome::Releasing => return Err(MergeTaskRefusal::Busy),
+            };
+            (wt, previous, session)
+        };
+        // The work is being thrown away, so the task takes no follow-up: end its session too. The
+        // worktree is already claimed, so this does not start a release of its own, and on
+        // Windows the folder is free once the agent's process has gone.
+        if let (Some(session), Ok(manager)) = (session, self.manager()) {
+            let _ = manager.remove(session).await;
+        }
+        let root = wt
+            .path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let job = wt.clone();
+        let gone = tokio::task::spawn_blocking(move || worktree::discard(&root, &job))
+            .await
+            .unwrap_or(false);
+        let mut state = self.lock();
+        let answer = if gone {
+            Self::set_worktree_outcome(&mut state, id, Outcome::Discarded);
+            Ok(json!({"discarded": wt.branch}))
+        } else {
+            // Something would not go (on Windows, a folder an agent still has open): as it was.
+            Self::set_worktree_outcome(&mut state, id, previous);
+            Err(MergeTaskRefusal::Git(worktree::MergeRefusal::GitFailed))
         };
         drop(state);
         self.bump();

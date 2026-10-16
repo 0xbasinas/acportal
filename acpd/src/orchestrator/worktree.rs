@@ -7,8 +7,15 @@
 //! merge, an empty one is deleted. A worktree with uncommitted changes is kept and reported.
 //!
 //! Git runs with a literal argument list, no shell, no inherited `GIT_*` repository variables,
-//! hooks pointed at an empty folder and `core.fsmonitor` off, so a repository's own
-//! configuration cannot make the host run a program when a worktree is created or inspected.
+//! hooks pointed at an empty folder and `core.fsmonitor` and `core.sshCommand` off, so a
+//! repository's hooks and those two settings cannot make the host run a program.
+//!
+//! What this does not stop: programs the repository's own configuration names for content
+//! filters (`filter.*.clean`/`smudge`, e.g. Git LFS), merge drivers (`merge.*.driver`) and diff
+//! text converters. They run when a worktree is checked out, snapshotted or merged, as the host
+//! user. That is the operator's own configuration, and a delegated agent that could change it
+//! (by writing to `.git/config` with its own tools) can already run programs as that user, so
+//! this is not a new reach, but it is not blocked either.
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -25,6 +32,11 @@ pub enum Unavailable {
     /// The repository's top folder is above the delegating task's folder: a worktree would give
     /// the child files its parent cannot see.
     RepositoryOutsideScope,
+    /// The repository uses submodules, which a worktree would leave empty (git does not fill
+    /// them in, and fetching them would reach the network).
+    HasSubmodules,
+    /// The repository already holds as many unmerged task branches as the host allows.
+    TooManyBranches,
     GitFailed,
 }
 impl Unavailable {
@@ -34,6 +46,12 @@ impl Unavailable {
             Self::NoCommits => "the repository has no commits yet",
             Self::RepositoryOutsideScope => {
                 "the repository's top folder is outside the delegating task's folder"
+            }
+            Self::HasSubmodules => {
+                "the repository uses submodules, which a worktree would leave empty"
+            }
+            Self::TooManyBranches => {
+                "the repository already has too many unmerged task branches; merge or discard some"
             }
             Self::GitFailed => "git could not create the worktree",
         }
@@ -61,6 +79,8 @@ pub enum Outcome {
     CleanupFailed,
     /// The owner merged its branch into the parent's checkout from the phone; the branch is gone.
     Merged,
+    /// The owner threw its work away from the phone; the worktree and the branch are gone.
+    Discarded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,14 +270,44 @@ pub fn merge(root: &Path, worktree: &Worktree) -> Result<String, MergeRefusal> {
     Ok(commit)
 }
 
-/// Make a worktree for a task running in `folder` (inside the delegating task's `parent_scope`).
+/// Make a worktree for a task running in `folder` (inside the delegating task's `parent_scope`),
+/// with no limit on how many task branches the repository may hold.
 pub fn create(root: &Path, folder: &Path, parent_scope: &Path) -> Result<Worktree, Unavailable> {
+    create_limited(root, folder, parent_scope, 0)
+}
+
+/// How many `acpd/task-*` branches (kept, or in use) the repository holds.
+pub fn task_branches(root: &Path, repository: &Path) -> usize {
+    git(
+        root,
+        repository,
+        &["for-each-ref", "--format=%(refname)", "refs/heads/acpd/"],
+    )
+    .map(|out| out.lines().filter(|line| !line.trim().is_empty()).count())
+    .unwrap_or(0)
+}
+
+/// As [`create`], but refused with [`Unavailable::TooManyBranches`] when the repository already
+/// holds `max_branches` task branches (0 means no limit). Unmerged agent work is never deleted
+/// to make room: it is merged or discarded by its owner.
+pub fn create_limited(
+    root: &Path,
+    folder: &Path,
+    parent_scope: &Path,
+    max_branches: usize,
+) -> Result<Worktree, Unavailable> {
     let top = git(root, folder, &["rev-parse", "--show-toplevel"])
         .map_err(|_| Unavailable::NotARepository)?;
     let top = canonical(Path::new(&top));
     let folder = canonical(folder);
     if !top.starts_with(canonical(parent_scope)) {
         return Err(Unavailable::RepositoryOutsideScope);
+    }
+    if top.join(".gitmodules").is_file() {
+        return Err(Unavailable::HasSubmodules);
+    }
+    if max_branches > 0 && task_branches(root, &top) >= max_branches {
+        return Err(Unavailable::TooManyBranches);
     }
     let base = git(root, &top, &["rev-parse", "--verify", "HEAD^{commit}"])
         .map_err(|_| Unavailable::NoCommits)?;
@@ -316,7 +366,19 @@ pub enum Uncommitted {
 pub fn release(root: &Path, worktree: &Worktree) -> Outcome {
     release_with(root, worktree, Uncommitted::Commit)
 }
+/// How long removing a folder is retried (Windows keeps a folder locked while a process runs in it).
+pub const REMOVE_RETRY: std::time::Duration = std::time::Duration::from_secs(120);
 pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) -> Outcome {
+    release_within(root, worktree, uncommitted, REMOVE_RETRY)
+}
+/// As [`release_with`], but gives up removing the folder after `retry` (the caller may be
+/// holding something up, such as host start-up). A folder that stays is `CleanupFailed`.
+pub fn release_within(
+    root: &Path,
+    worktree: &Worktree,
+    uncommitted: Uncommitted,
+    retry: std::time::Duration,
+) -> Outcome {
     if worktree.outcome != Outcome::Active {
         return worktree.outcome;
     }
@@ -339,7 +401,7 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
         Ok(_) => {}
         Err(_) => return Outcome::CleanupFailed,
     }
-    if !remove_folder(root, worktree) {
+    if !remove_folder(root, worktree, retry, false) {
         return Outcome::CleanupFailed;
     }
     match branch_cleanup(root, worktree) {
@@ -348,19 +410,33 @@ pub fn release_with(root: &Path, worktree: &Worktree, uncommitted: Uncommitted) 
     }
 }
 /// `git worktree remove`, retried (see the comment inside); true once the folder is gone.
-fn remove_folder(root: &Path, worktree: &Worktree) -> bool {
+fn remove_folder(
+    root: &Path,
+    worktree: &Worktree,
+    retry: std::time::Duration,
+    force: bool,
+) -> bool {
     let target = worktree.path.to_string_lossy().into_owned();
     // Windows keeps a folder locked while an agent process still runs in it (a cancelled task's
     // process can outlive the cancel, and a removed session's process is stopped just after its
     // tree is released), and two git commands on one repository can collide on its lock files.
-    // Retry for up to two minutes, one release at a time per host, before calling it a failure.
+    // Retry for up to `retry` (two minutes unless a caller is waiting), one release at a time per
+    // host, before calling it a failure.
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let deadline = std::time::Instant::now() + retry;
     let mut removed = false;
     loop {
         let attempt = {
             let _one = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
-            git(root, &worktree.repository, &["worktree", "remove", &target])
+            if force {
+                git(
+                    root,
+                    &worktree.repository,
+                    &["worktree", "remove", "--force", &target],
+                )
+            } else {
+                git(root, &worktree.repository, &["worktree", "remove", &target])
+            }
         };
         match attempt {
             Ok(_) => {
@@ -396,7 +472,7 @@ pub fn snapshot_if_dirty(root: &Path, worktree: &Worktree) -> bool {
 /// folder that cannot go yet (Windows, while the task's agent still runs in it) is retried and
 /// otherwise left to the startup sweep. True when both are gone.
 pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
-    let folder = !worktree.path.exists() || remove_folder(root, worktree);
+    let folder = !worktree.path.exists() || remove_folder(root, worktree, REMOVE_RETRY, false);
     let branch = git(
         root,
         &worktree.repository,
@@ -404,6 +480,31 @@ pub fn discard_merged(root: &Path, worktree: &Worktree) -> bool {
     )
     .is_ok();
     folder && branch
+}
+/// Throw a finished task's work away: remove its worktree folder if it is still there (even with
+/// uncommitted changes) and delete its branch. True when both are gone. Never touches the parent's
+/// checkout. A branch that is already gone counts as deleted.
+pub fn discard(root: &Path, worktree: &Worktree) -> bool {
+    let folder = if worktree.path.exists() {
+        remove_folder(root, worktree, REMOVE_RETRY, true)
+    } else {
+        let _ = git(root, &worktree.repository, &["worktree", "prune"]);
+        true
+    };
+    let reference = format!("refs/heads/{}", worktree.branch);
+    let gone = git(
+        root,
+        &worktree.repository,
+        &["rev-parse", "--verify", "--quiet", &reference],
+    )
+    .is_err()
+        || git(
+            root,
+            &worktree.repository,
+            &["branch", "-D", &worktree.branch],
+        )
+        .is_ok();
+    folder && gone
 }
 /// Commit everything git does not ignore to the task's branch, under the host's own identity,
 /// without hooks or signing. Ignored files (build output, `.env`) are not included.
@@ -432,26 +533,52 @@ fn commit_snapshot(root: &Path, worktree: &Worktree) -> bool {
         )
         .is_ok()
 }
+/// Whether the branch exists: `None` when git could not say (it failed), which is not an answer.
+fn branch_exists(root: &Path, worktree: &Worktree) -> Option<bool> {
+    let reference = format!("refs/heads/{}", worktree.branch);
+    git(
+        root,
+        &worktree.repository,
+        &["for-each-ref", "--format=%(refname)", &reference],
+    )
+    .ok()
+    .map(|out| !out.trim().is_empty())
+}
+
 fn branch_cleanup(root: &Path, worktree: &Worktree) -> Outcome {
     let range = format!("{}..{}", worktree.base, worktree.branch);
-    match git(root, &worktree.repository, &["rev-list", "--count", &range]) {
-        Ok(count) if count == "0" => {
-            if git(
-                root,
-                &worktree.repository,
-                &["branch", "-D", &worktree.branch],
-            )
-            .is_ok()
-            {
-                Outcome::Removed
-            } else {
-                Outcome::CleanupFailed
+    for attempt in 0..5 {
+        match git(root, &worktree.repository, &["rev-list", "--count", &range]) {
+            Ok(count) if count == "0" => {
+                return if git(
+                    root,
+                    &worktree.repository,
+                    &["branch", "-D", &worktree.branch],
+                )
+                .is_ok()
+                {
+                    Outcome::Removed
+                } else {
+                    Outcome::CleanupFailed
+                };
+            }
+            Ok(_) => return Outcome::BranchKept,
+            Err(_) => {
+                // Only a branch that is not there leaves nothing to keep (it was deleted by
+                // hand). A failed count while it exists is not an answer: git can be briefly
+                // locked out by another git command on the same repository (Windows), or the
+                // base can be wrong. Ask again; if it never answers, say the cleanup failed
+                // rather than report a branch removed that is still there.
+                if branch_exists(root, worktree) == Some(false) {
+                    return Outcome::Removed;
+                }
+                if attempt < 4 {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
             }
         }
-        Ok(_) => Outcome::BranchKept,
-        // The branch is gone already (deleted by hand): nothing left to keep.
-        Err(_) => Outcome::Removed,
     }
+    Outcome::CleanupFailed
 }
 
 /// Folders under `root` that no record knows about (a host that stopped between creating a

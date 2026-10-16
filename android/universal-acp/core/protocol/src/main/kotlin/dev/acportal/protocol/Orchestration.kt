@@ -31,6 +31,8 @@ data class TaskDecision(
 @Serializable data class TaskWorktree(val branch:String,val path:String="",val baseDirty:Boolean=false,val outcome:String="active",val merged:String?=null)
 /** What the host answered to a merge: the merge commit and the branch it came from. */
 @Serializable data class TaskMergeResult(val merged:String,val branch:String)
+/** What the host answered to a discard: the branch whose work was thrown away. */
+@Serializable data class TaskDiscardResult(val discarded:String)
 @Serializable
 data class TaskDetail(
     val id:String, val parent:String?=null, val root:String, val depth:Int=0, val agent:String,
@@ -82,9 +84,12 @@ fun worktreeLabel(w:TaskWorktree):String {
         "active"->"In use";"releasing"->"Being cleaned up";"removed"->"Removed, no changes"
         "branch_kept"->"Removed; commits kept on the branch";"snapshotted"->"Removed; unsaved work committed to the branch"
         "kept_dirty"->"Kept on disk with unsaved work";"cleanup_failed"->"Cleanup failed; check git worktree list"
-        "merged"->"Merged into the parent's folder"+(w.merged?.let {" (${it.take(7)})"} ?: "");else->w.outcome}
+        "merged"->"Merged into the parent's folder"+(w.merged?.let {" (${it.take(7)})"} ?: "")
+        "discarded"->"Discarded; its work was thrown away";else->w.outcome}
     return "${w.branch} · $what"+if(w.baseDirty)" · started without the parent's unsaved changes" else ""
 }
 /** A finished task whose worktree branch may hold work the parent's folder lacks can be merged. */
 fun canMergeWorktree(state:String,w:TaskWorktree?):Boolean = w!=null && !taskIsOpen(state) && w.outcome in setOf("active","branch_kept","snapshotted")
+/** A finished task's kept work (or live worktree) can be thrown away; a merged, discarded or empty one cannot. */
+fun canDiscardWorktree(state:String,w:TaskWorktree?):Boolean = w!=null && !taskIsOpen(state) && w.outcome in setOf("active","branch_kept","snapshotted","kept_dirty","cleanup_failed")
 fun taskRightsLabel(r:TaskRights)=listOfNotNull("read".takeIf {r.read},"write".takeIf {r.write},"terminal".takeIf {r.terminal}).joinToString(", ").ifEmpty {"no rights"}

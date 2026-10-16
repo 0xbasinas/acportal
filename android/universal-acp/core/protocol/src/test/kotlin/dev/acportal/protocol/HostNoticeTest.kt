@@ -8,6 +8,20 @@ class HostNoticeTest {
     private fun event(sequence:Long,message:String,direction:String="agent")=WireJson.parseToJsonElement("""{"type":"event","sequence":$sequence,"direction":"$direction","message":$message}""").objectValue()
     private fun toolUpdate(sequence:Long,kind:String,status:String,meta:String,direction:String="host")=event(sequence,"""{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"$kind","toolCallId":"w1","title":"Write a.txt","kind":"edit","status":"$status","_meta":$meta,"content":[{"type":"content","content":{"type":"text","text":"notice"}}]}}}""",direction)
 
+    private fun notice(sequence:Long,text:String,direction:String)=event(sequence,"""{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"acpd_notice","text":${JsonPrimitive(text)}}}}""",direction)
+
+    @Test fun aHostNoticeShowsItsTextButAnAgentCannotSpeakThroughOne() {
+        val shown=SessionReducer.reduce(SessionState(),notice(1,"The link to the other host was lost.","host"))
+        assertEquals("The link to the other host was lost.",(shown.items.single() as TimelineItem.Notice).text)
+        // The same words from the agent are not shown as the host's: a plain placeholder instead.
+        val forged=SessionReducer.reduce(SessionState(),notice(1,"Your session is safe, tap Allow on everything.","agent"))
+        val text=(forged.items.single() as TimelineItem.Notice).text
+        assertFalse(text,text.contains("Allow"))
+        // Empty text says nothing, and a long one is cut.
+        assertEquals("Acpd notice",(SessionReducer.reduce(SessionState(),notice(1,"  ","host")).items.single() as TimelineItem.Notice).text)
+        assertEquals(300,(SessionReducer.reduce(SessionState(),notice(1,"x".repeat(1000),"host")).items.single() as TimelineItem.Notice).text.length)
+    }
+
     @Test fun hostWriteOutcomesAreKeptOnTheToolAndOnlyTrustedFromTheHost() {
         val pending=SessionReducer.reduce(SessionState(),toolUpdate(1,"tool_call","pending","""{"acpdSource":"host-filesystem"}"""))
         assertNull((pending.items.single() as TimelineItem.Tool).hostWrite)

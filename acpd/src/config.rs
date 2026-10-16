@@ -1,4 +1,4 @@
-use crate::shell_review::ShellReviewConfig;
+use crate::{auto_approve::AutoApproveConfig, shell_review::ShellReviewConfig};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,6 +16,8 @@ pub struct Config {
     /// Opt-in automatic review of agent shell lines, keyed by agent id. Absent = off:
     /// every shell line needs explicit phone approval.
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
+    /// Per-agent host-side auto-approval of permission requests (off for an agent not listed).
+    pub auto_approve: BTreeMap<String, AutoApproveConfig>,
     /// Experimental agent-to-agent delegation. Off by default.
     pub orchestrator: OrchestratorConfig,
     /// Windows hosts only: which shell runs host shell lines and checks.
@@ -69,10 +71,22 @@ pub struct OrchestratorConfig {
     pub bridge_resume_seconds: u64,
     /// Interval between WebSocket pings and credential re-checks on a bridge connection.
     pub bridge_ping_seconds: u64,
+    /// How long one frame or ping may take to be written to a bridge peer before the connection
+    /// is closed. A peer that has stopped reading is also cut off as soon as its 256-frame
+    /// outbox is full, whichever comes first.
+    pub bridge_send_timeout_seconds: u64,
+    /// How long a lost link to another host (a `transport = "ws"` agent) is retried before its
+    /// session ends. The far host must keep the session that long too (its `bridge_resume_seconds`)
+    /// and must number its journal frames (an acpd 0.1.x with reattach support). 0 turns it off.
+    pub peer_reconnect_seconds: u64,
     /// Isolation of a delegated task that does not ask for one. `worktree` (default) gives a task
     /// with the write right its own git worktree when its folder is in a git repository, and runs
     /// it in the folder itself when it is not; `shared` always runs it in the folder.
     pub default_isolation: DefaultIsolation,
+    /// The most unmerged `acpd/task-*` branches one repository may hold (kept ones and ones in
+    /// use). At the limit a task that wants a worktree is refused (the default isolation falls
+    /// back to the shared folder with a note); nothing is deleted to make room. 0 means no limit.
+    pub max_task_branches: u32,
     /// What happens to a finished worktree task's uncommitted changes: `commit` (default) commits
     /// them to the task's branch and removes the worktree; `keep` leaves the worktree on disk.
     pub worktree_uncommitted: crate::orchestrator::worktree::Uncommitted,
@@ -130,7 +144,10 @@ impl Default for OrchestratorConfig {
             peer_rights: PeerRights::default(),
             bridge_resume_seconds: 120,
             bridge_ping_seconds: 20,
+            bridge_send_timeout_seconds: 5,
+            peer_reconnect_seconds: 60,
             default_isolation: DefaultIsolation::default(),
+            max_task_branches: 50,
             worktree_uncommitted: Default::default(),
         }
     }
@@ -146,6 +163,7 @@ impl OrchestratorConfig {
             || self.task_max_cost_usd < 0.0
             || self.finished_child_keep_seconds > 86_400
             || self.max_turns_per_task > 1000
+            || self.max_task_branches > 10_000
             || !(1..=600).contains(&self.supervisor_timeout_seconds)
             || !(1024..=16 * 1024 * 1024).contains(&self.max_edit_bytes)
         {
@@ -154,7 +172,11 @@ impl OrchestratorConfig {
         if self.orchestrate.len() > 64 || self.delegable.len() > 64 || self.peer_agents.len() > 64 {
             bail!("too many orchestrator agents")
         }
-        if self.bridge_resume_seconds > 3600 || !(5..=120).contains(&self.bridge_ping_seconds) {
+        if self.bridge_resume_seconds > 3600
+            || !(5..=120).contains(&self.bridge_ping_seconds)
+            || !(1..=600).contains(&self.bridge_send_timeout_seconds)
+            || self.peer_reconnect_seconds > 600
+        {
             bail!("invalid bridge timers")
         }
         if self.peer_workspaces.len() > 32
@@ -252,6 +274,7 @@ impl Default for Config {
             state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
+            auto_approve: BTreeMap::new(),
             orchestrator: OrchestratorConfig::default(),
             windows: Default::default(),
         }
@@ -404,6 +427,19 @@ impl Config {
             review
                 .validate()
                 .with_context(|| format!("shell_review.{agent}"))?;
+        }
+        for (agent, policy) in &self.auto_approve {
+            if agent.is_empty()
+                || agent.len() > 64
+                || !agent
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                bail!("auto_approve keys must be agent ids")
+            }
+            policy
+                .validate()
+                .with_context(|| format!("auto_approve.{agent}"))?;
         }
         Ok(())
     }

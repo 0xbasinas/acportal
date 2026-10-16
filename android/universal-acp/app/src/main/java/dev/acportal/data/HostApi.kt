@@ -70,6 +70,7 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     suspend fun tasks(host:HostProfile): List<TaskSummary> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks",vault.read(host.credentialAlias)))
     suspend fun task(host:HostProfile,id:String): TaskDetail = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}",vault.read(host.credentialAlias)))
     suspend fun cancelTask(host:HostProfile,id:String) { execute(host.address,"/v1/tasks/${taskPath(id)}/cancel",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
+    suspend fun discardTask(host:HostProfile,id:String): TaskDiscardResult = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}/discard",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST"))
     suspend fun mergeTask(host:HostProfile,id:String): TaskMergeResult = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks/${taskPath(id)}/merge",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST"))
     suspend fun setTaskSupervision(host:HostProfile,id:String,paused:Boolean) { execute(host.address,"/v1/tasks/${taskPath(id)}/supervisor/${if(paused)"pause" else "resume"}",vault.read(host.credentialAlias),JsonObject(emptyMap()),"POST") }
     fun token(host:HostProfile): String = vault.read(host.credentialAlias)
@@ -82,8 +83,13 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
             response.use {
                 try {
                     if (!response.isSuccessful) {
-                        val code=runCatching {WireJson.parseToJsonElement(response.peekBody(1024).string()).objectValue()["error"].objectValue()["code"].text()}.getOrDefault("")
-                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath))
+                        // Up to 8 KiB, so a merge conflict naming many files still parses and keeps its code.
+                        val failure=runCatching {WireJson.parseToJsonElement(response.peekBody(8192).string()).objectValue()["error"].objectValue()}.getOrNull()
+                        val code=failure?.let {runCatching {it["code"].text()}.getOrDefault("")} ?: ""
+                        val files=failure?.get("files")?.let {runCatching {it.jsonArray.map {file->file.text()}}.getOrDefault(emptyList())} ?: emptyList()
+                        val branch=failure?.get("branch")?.let {runCatching {it.text()}.getOrDefault("")} ?: ""
+                        val repository=failure?.get("repository")?.let {runCatching {it.text()}.getOrDefault("")} ?: ""
+                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath,files,branch,repository))
                     }
                     val source = (response.body ?: error("Host returned an empty response")).source()
                     if (source.request(8L*1024*1024+1)) error("Host response exceeds size limit")
@@ -96,11 +102,18 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
     })
 }
 
-internal fun hostRequestError(status:Int,code:String,method:String,path:String):String = when {
+internal fun hostRequestError(status:Int,code:String,method:String,path:String,files:List<String> = emptyList(),branch:String="",repository:String=""):String = when {
+    path.endsWith("/merge") && code=="merge_conflict" && (files.isNotEmpty() || branch.isNotEmpty()) ->
+        "The task's branch conflicts with the parent's folder"+(if(files.isNotEmpty()) " in ${conflictFiles(files)}" else "")+". Nothing was changed; merge the branch by hand on the host."+mergeByHandCommand(branch,repository)
+    path.endsWith("/discard") && code=="already_discarded" -> "This task's work was already thrown away."
+    path.endsWith("/discard") && code=="nothing_to_discard" -> "There is nothing left to discard: the task changed nothing, or its work was merged."
+    path.endsWith("/discard") && (code=="task_not_finished" || code=="worktree_busy") -> "The task is not finished with its worktree yet. Try again shortly."
+    path.endsWith("/discard") && code=="git_failed" -> "The host could not remove the work (a folder may still be in use). Try again shortly."
     path.endsWith("/merge") && code=="parent_dirty" -> "The parent's folder has uncommitted changes. Commit or stash them on the host, then merge again."
     path.endsWith("/merge") && code=="merge_conflict" -> "The task's branch conflicts with the parent's folder. Nothing was changed; merge the branch by hand on the host."
     path.endsWith("/merge") && code=="nothing_to_merge" -> "The task's branch has nothing the parent's folder lacks."
     path.endsWith("/merge") && code=="worktree_dirty" -> "The task's worktree still has uncommitted work. Commit it there first."
+    path.endsWith("/merge") && code=="already_discarded" -> "This task's work was thrown away, so there is nothing to merge."
     path.endsWith("/merge") && code=="already_merged" -> "This task's branch was already merged."
     path.endsWith("/merge") && (code=="task_not_finished" || code=="worktree_busy") -> "The task is not finished with its worktree yet. Try again shortly."
     code=="unsupported_mcp_transport" -> "This agent does not support an enabled MCP server's transport. Disable that server or choose another transport."
@@ -113,6 +126,13 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String):
     status==400 && method=="POST" && path=="/v1/sessions" -> "The host could not start this session. Choose an existing allowed folder and check the selected agent and MCP settings, then press Start session again."
     else -> "Host request failed ($status)."
 }
+
+/** The command that merges a task's branch by hand, or nothing when the host did not say where. */
+internal fun mergeByHandCommand(branch:String,repository:String):String =
+    if(branch.isBlank()||repository.isBlank()||branch.any {it.isWhitespace()||it=='"'}||repository.contains('"')) "" else " Command: git -C \"$repository\" merge $branch"
+
+/** The first few conflicting file names, then how many more there are. */
+internal fun conflictFiles(files:List<String>):String = files.take(5).joinToString(", ")+if(files.size>5)" and ${files.size-5} more" else ""
 
 /** Task ids are UUIDs from the host; anything else is refused before a request is built. */
 internal fun taskPath(id:String):String {require(Regex("[0-9a-fA-F-]{36}").matches(id)) {"Invalid task id"};return id}

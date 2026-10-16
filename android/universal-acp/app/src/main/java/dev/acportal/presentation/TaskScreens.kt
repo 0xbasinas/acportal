@@ -47,10 +47,11 @@ internal fun taskRowSupporting(task:TaskSummary):String = listOfNotNull(
     }
 }
 
-@Composable fun TaskDetailScreen(state:TasksUiState,taskId:String,onBack:()->Unit,onRefresh:()->Unit,onCancel:()->Unit,onSupervision:(Boolean)->Unit,onSession:((String)->Unit)?,onMerge:()->Unit={}) {
+@Composable fun TaskDetailScreen(state:TasksUiState,taskId:String,onBack:()->Unit,onRefresh:()->Unit,onCancel:()->Unit,onSupervision:(Boolean)->Unit,onSession:((String)->Unit)?,onMerge:()->Unit={},onDiscard:()->Unit={}) {
     val detail=state.detail?.takeIf {it.id==taskId}
     var confirmCancel by remember {mutableStateOf(false)}
     var confirmMerge by remember {mutableStateOf(false)}
+    var confirmDiscard by remember {mutableStateOf(false)}
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(detail?.agent ?: "Task",detail?.let {taskStateLabel(it.state)},onBack,action={IconButton(onRefresh,enabled=!state.loading) {Icon(Icons.Outlined.Refresh,"Refresh task")}})
         state.error?.let {Text(it,Modifier.padding(horizontal=24.dp,vertical=8.dp),color=MaterialTheme.colorScheme.error)}
@@ -79,12 +80,16 @@ internal fun taskRowSupporting(task:TaskSummary):String = listOfNotNull(
                 TextButton({onSupervision(false)},enabled=!state.loading) {Text("Resume supervisor")}
             }}
             if(canMergeWorktree(detail.state,detail.worktree)) item {TextButton({confirmMerge=true},Modifier.padding(horizontal=12.dp).testTag("task-merge"),enabled=!state.loading) {Text("Merge into parent folder")}}
+            if(canDiscardWorktree(detail.state,detail.worktree)) item {TextButton({confirmDiscard=true},Modifier.padding(horizontal=12.dp).testTag("task-discard"),enabled=!state.loading) {Text("Throw this work away",color=MaterialTheme.colorScheme.error)}}
             if(taskIsOpen(detail.state) || detail.parent==null) item {TextButton({confirmCancel=true},Modifier.padding(horizontal=12.dp),enabled=!state.loading) {Text(if(detail.parent==null)"Cancel delegated work" else "Cancel task",color=MaterialTheme.colorScheme.error)}}
         }
     }
     if(confirmMerge) detail?.worktree?.let {w->AlertDialog(onDismissRequest={confirmMerge=false},title={Text("Merge this task's work?")},
         text={Text("Its branch ${w.branch} is merged into the parent's folder as one commit, and the branch is deleted. Any uncommitted work in its worktree is committed first. The host refuses, changing nothing, if the parent's folder has uncommitted changes or the branch conflicts. The task takes no follow-ups afterwards.")},
         confirmButton={TextButton({confirmMerge=false;onMerge()},Modifier.testTag("task-merge-confirm")) {Text("Merge")}},dismissButton={TextButton({confirmMerge=false}) {Text("Not now")}})}
+    if(confirmDiscard) detail?.worktree?.let {w->AlertDialog(onDismissRequest={confirmDiscard=false},title={Text("Throw this task's work away?")},
+        text={Text("Its worktree and its branch ${w.branch} are deleted, including any uncommitted work, and the task's agent is stopped. The parent's folder is not touched. This cannot be undone.")},
+        confirmButton={TextButton({confirmDiscard=false;onDiscard()},Modifier.testTag("task-discard-confirm")) {Text("Throw away",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({confirmDiscard=false}) {Text("Keep it")}})}
     if(confirmCancel) AlertDialog(onDismissRequest={confirmCancel=false},title={Text("Cancel this task?")},text={Text("Everything still running below it is cancelled too. Nothing is restarted.")},confirmButton={TextButton({confirmCancel=false;onCancel()}) {Text("Cancel task")}},dismissButton={TextButton({confirmCancel=false}) {Text("Keep running")}})
 }
 

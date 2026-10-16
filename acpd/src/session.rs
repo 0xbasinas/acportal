@@ -441,6 +441,7 @@ impl SessionManager {
         } else if parent.is_some() {
             bail!("delegation is not available on this host")
         }
+        let mut link_events = None;
         let connection = match launch {
             Some(launch) => AcpConnection::spawn_with_access(
                 definition,
@@ -461,9 +462,17 @@ impl SessionManager {
                     .as_deref()
                     .context("remote agent has no url")?;
                 let store = crate::peers::PeerStore::open(&config.state_directory);
-                let link =
-                    crate::peer_link::connect(&store, peer, url, config.runtime.max_frame_bytes)
-                        .await?;
+                let link = crate::peer_link::connect(
+                    &store,
+                    peer,
+                    url,
+                    config.runtime.max_frame_bytes,
+                    crate::peer_link::Resume::within_seconds(
+                        config.orchestrator.peer_reconnect_seconds,
+                    ),
+                )
+                .await?;
+                link_events = Some(link.events);
                 AcpConnection::over_transport(
                     link.reader,
                     link.writer,
@@ -580,6 +589,10 @@ impl SessionManager {
         if let Some(mut guard) = ticket {
             guard.armed = false;
             guard.orchestrator.bind(guard.task, session.metadata().id);
+        }
+        crate::auto_approve::spawn(&session, config);
+        if let Some(events) = link_events {
+            crate::peer_link::report_to(&session, events);
         }
         tracing::info!(session_id = %session.metadata().id, "session created");
         Ok(session)

@@ -574,6 +574,140 @@ async fn after_a_restart_worktrees_of_interrupted_tasks_are_released_and_unknown
     assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
 }
 
+#[test]
+fn a_branch_that_cannot_be_counted_is_never_reported_removed_while_it_exists() {
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let root = base.path().join("state/worktrees");
+
+    // Git cannot count commits against a base it does not know (standing in for any failed
+    // count), but the branch is there: that is a failed cleanup, with the branch still present,
+    // not "removed".
+    let mut wt = worktree::create(&root, &repo, &repo).unwrap();
+    wt.base = "0000000000000000000000000000000000000001".into();
+    let began = std::time::Instant::now();
+    assert_eq!(worktree::release(&root, &wt), Outcome::CleanupFailed);
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "it gave up in good time"
+    );
+    assert!(!git(&repo, &["branch", "--list", &wt.branch]).is_empty());
+
+    // The same failed count with the branch really gone (deleted by hand) is nothing left to keep.
+    let mut gone = worktree::create(&root, &repo, &repo).unwrap();
+    git(
+        &repo,
+        &[
+            "worktree",
+            "remove",
+            "--force",
+            &gone.path.to_string_lossy(),
+        ],
+    );
+    git(&repo, &["branch", "-D", &gone.branch]);
+    gone.base = "0000000000000000000000000000000000000001".into();
+    assert_eq!(worktree::release(&root, &gone), Outcome::Removed);
+
+    // And when git cannot answer at all (here: the repository is not there), whether the branch
+    // exists is unknown, which is not "gone" either.
+    let mut lost = gone.clone();
+    lost.repository = base.path().join("no-such-repository");
+    lost.path = base.path().join("no-such-worktree");
+    lost.outcome = Outcome::Active;
+    assert_eq!(worktree::release(&root, &lost), Outcome::CleanupFailed);
+}
+
+#[tokio::test]
+async fn a_worktree_that_will_not_go_does_not_hold_up_a_restart_and_is_tried_again_at_the_next() {
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(
+        repo.join("a.txt"),
+        "a
+",
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let state = base.path().join("state");
+    let root = state.join("worktrees");
+    // `git worktree remove` refuses a locked worktree on every platform, standing in for a
+    // folder a scanner or an editor holds open.
+    let stuck = worktree::create(&root, &repo, &repo).unwrap();
+    git(&repo, &["worktree", "lock", &stuck.path.to_string_lossy()]);
+    let task = Uuid::new_v4();
+    records::save(
+        &state,
+        &[TaskRecord {
+            id: task,
+            parent: Some(Uuid::new_v4()),
+            root: Uuid::new_v4(),
+            depth: 1,
+            agent: "worker".into(),
+            scope: stuck.task_folder(),
+            rights: RecordRights {
+                read: true,
+                write: true,
+                terminal: false,
+            },
+            state: "working".into(),
+            session: None,
+            created_at: 1,
+            updated_at: 1,
+            summary: None,
+            stop_reason: None,
+            trace_id: None,
+            cost_usd: None,
+            worktree: Some(stuck.clone()),
+        }],
+    )
+    .unwrap();
+    let outcome_saved = || {
+        records::load(&state).unwrap()[0]
+            .worktree
+            .as_ref()
+            .unwrap()
+            .outcome
+    };
+
+    // The first start: removal is tried for a few seconds, not the two minutes a running host
+    // would allow, then given up and recorded.
+    let manager =
+        Arc::new(SessionManager::new(Config::default(), Registry::parse("[]").unwrap()).unwrap());
+    let orchestrator = Orchestrator::new(Arc::downgrade(&manager));
+    let began = std::time::Instant::now();
+    assert_eq!(orchestrator.restore(&state), 1);
+    let took = began.elapsed();
+    assert!(
+        took < Duration::from_secs(20),
+        "start-up waited {took:?} for a worktree that would not go"
+    );
+    assert!(stuck.path.exists());
+    assert_eq!(outcome_saved(), Outcome::CleanupFailed);
+
+    // Once it can go, the next start removes it (a failed cleanup is not forgotten).
+    git(
+        &repo,
+        &["worktree", "unlock", &stuck.path.to_string_lossy()],
+    );
+    let again = Orchestrator::new(Arc::downgrade(&manager));
+    assert_eq!(again.restore(&state), 1);
+    assert!(!stuck.path.exists());
+    assert_eq!(outcome_saved(), Outcome::Removed);
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
+}
+
 #[tokio::test]
 async fn with_keep_a_cancelled_tasks_uncommitted_work_stays_in_its_worktree() {
     let fx = fixture(|config| {
@@ -703,9 +837,24 @@ async fn a_merge_is_refused_with_nothing_changed_when_the_parent_is_dirty_or_it_
     git(&repo, &["commit", "-q", "-am", "parent change"]);
     let parent_head = git(&repo, &["rev-parse", "HEAD"]);
     match fx.orchestrator.merge_task(id).await {
-        Err(acpd::orchestrator::views::MergeTaskRefusal::Git(
-            acpd::orchestrator::worktree::MergeRefusal::Conflict(files),
-        )) => assert_eq!(files, vec!["src/lib.rs".to_owned()]),
+        Err(acpd::orchestrator::views::MergeTaskRefusal::Conflict {
+            files,
+            branch,
+            repository,
+        }) => {
+            assert_eq!(files, vec!["src/lib.rs".to_owned()]);
+            // What the owner needs to merge by hand.
+            assert_eq!(
+                branch,
+                status(&sup, &task).await["worktree"]["branch"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                plain(std::path::PathBuf::from(repository)),
+                plain(repo.clone())
+            );
+        }
         other => panic!("expected a conflict, got {other:?}"),
     }
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), parent_head);
@@ -759,5 +908,231 @@ async fn only_finished_tasks_with_a_worktree_and_new_work_can_be_merged() {
         refusal_code(fx.orchestrator.merge_task(Uuid::new_v4()).await),
         "task_not_found"
     );
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn repositories_with_submodules_and_too_many_task_branches_get_no_worktree() {
+    let fx = fixture(|config| config.orchestrator.max_task_branches = 2);
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    let explicit = json!({"agent":"worker","prompt":"x","isolation":"worktree","rights":{"read":true,"write":true}});
+
+    // Submodules: a worktree would leave them empty, so it is refused, or (the default) the task
+    // runs shared and its view says why.
+    std::fs::write(
+        repo.join(".gitmodules"),
+        "[submodule \"lib\"]\n\tpath = lib\n\turl = ./lib\n",
+    )
+    .unwrap();
+    let refusal = refused(&sup, "task_delegate", explicit.clone()).await;
+    assert_eq!(refusal.code, "isolation_unavailable");
+    assert!(refusal.message.contains("submodules"), "{refusal:?}");
+    let shared = delegate(&sup, json!({})).await;
+    let view = status(&sup, &shared).await;
+    assert!(view.get("worktree").is_none());
+    assert!(
+        view["isolation_note"]
+            .as_str()
+            .unwrap()
+            .contains("submodules")
+    );
+    std::fs::remove_file(repo.join(".gitmodules")).unwrap();
+
+    // The branch limit: two unmerged task branches already in the repository (kept from earlier
+    // tasks, or made by hand) mean no third. Nothing is deleted to make room.
+    git(&repo, &["branch", "acpd/task-aaaaaaaaaaaa"]);
+    git(&repo, &["branch", "acpd/task-bbbbbbbbbbbb"]);
+    let refusal = refused(&sup, "task_delegate", explicit.clone()).await;
+    assert_eq!(refusal.code, "isolation_unavailable");
+    assert!(refusal.message.contains("too many unmerged task branches"));
+    let shared = delegate(&sup, json!({})).await;
+    let note = status(&sup, &shared).await["isolation_note"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(note.contains("too many unmerged task branches"), "{note}");
+    assert!(!git(&repo, &["branch", "--list", "acpd/task-aaaaaaaaaaaa"]).is_empty());
+    assert!(!git(&repo, &["branch", "--list", "acpd/task-bbbbbbbbbbbb"]).is_empty());
+
+    // Room again once one is gone.
+    git(&repo, &["branch", "-D", "acpd/task-bbbbbbbbbbbb"]);
+    let task = delegate(&sup, json!({"isolation":"worktree"})).await;
+    assert_eq!(status(&sup, &task).await["worktree"]["outcome"], "active");
+    fx.manager.shutdown().await;
+}
+
+#[test]
+fn the_branch_limit_counts_only_task_branches_and_zero_means_no_limit() {
+    let base = tempfile::tempdir().unwrap();
+    let repo = base.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let repo = repo.canonicalize().unwrap();
+    let root = base.path().join("state/worktrees");
+    // The user's own branches never count.
+    for name in ["feature", "acpd-notes", "main2"] {
+        git(&repo, &["branch", name]);
+    }
+    assert_eq!(worktree::task_branches(&root, &repo), 0);
+    git(&repo, &["branch", "acpd/task-111111111111"]);
+    assert_eq!(worktree::task_branches(&root, &repo), 1);
+    // At the limit: refused. One under: allowed. 0: never refused.
+    assert_eq!(
+        worktree::create_limited(&root, &repo, &repo, 1).unwrap_err(),
+        worktree::Unavailable::TooManyBranches
+    );
+    let made = worktree::create_limited(&root, &repo, &repo, 3).unwrap();
+    assert_eq!(worktree::task_branches(&root, &repo), 2);
+    assert!(worktree::create_limited(&root, &repo, &repo, 0).is_ok());
+    drop(made);
+}
+
+#[tokio::test]
+async fn the_phone_throws_a_finished_tasks_work_away_without_touching_the_parent_checkout() {
+    let fx = fixture(|_| {});
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    let task = completed_writer(&fx, &sup, "unwanted.txt", "nope\n").await;
+    let id: Uuid = task.parse().unwrap();
+    let branch = status(&sup, &task).await["worktree"]["branch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // The agent of a completed task is still running; the discard ends it.
+    let done = fx.orchestrator.discard_task(id).await.unwrap();
+    assert_eq!(done["discarded"], branch.as_str());
+    assert!(git(&repo, &["branch", "--list", &branch]).is_empty());
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
+    // The parent's folder never saw it.
+    assert!(!repo.join("unwanted.txt").exists());
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    assert_eq!(
+        status(&sup, &task).await["worktree"]["outcome"],
+        "discarded"
+    );
+    // Once discarded: not again, not merged, and no follow-up into a folder that is gone.
+    assert_eq!(
+        refusal_code(fx.orchestrator.discard_task(id).await),
+        "already_discarded"
+    );
+    assert_eq!(
+        refusal_code(fx.orchestrator.merge_task(id).await),
+        "already_discarded"
+    );
+    let follow = refused(
+        &sup,
+        "task_send",
+        json!({"task_id": task, "prompt": "more"}),
+    )
+    .await;
+    assert_eq!(follow.code, "invalid_state");
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_kept_dirty_worktree_can_be_discarded_and_an_open_or_empty_task_cannot() {
+    let fx = fixture(|config| {
+        config.orchestrator.worktree_uncommitted = worktree::Uncommitted::Keep;
+    });
+    let repo = fx.repo();
+    let root = fx.root(&repo).await;
+    let sup = agent_of(&root).await;
+    // A task still running has nothing to discard yet.
+    let task = delegate(&sup, json!({})).await;
+    let id: Uuid = task.parse().unwrap();
+    assert_eq!(
+        refusal_code(fx.orchestrator.discard_task(id).await),
+        "task_not_finished"
+    );
+    // Cancelled with uncommitted work, kept on disk: discarding removes it, force and all.
+    let session = fx.session_of_task(&sup, &task).await;
+    let path = session.metadata().workspace;
+    let own = write(&session, &path.join("draft.txt"), "wip");
+    answer(&session.connection, true, "acpd-write-allow").await;
+    own.await.unwrap().unwrap();
+    ok(&sup, "task_cancel", json!({"task_id": task})).await;
+    outcome(&sup, &task, "kept_dirty").await;
+    let branch = status(&sup, &task).await["worktree"]["branch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.orchestrator.discard_task(id).await.unwrap();
+    assert!(!path.join("draft.txt").exists());
+    assert!(git(&repo, &["branch", "--list", &branch]).is_empty());
+    assert_eq!(
+        status(&sup, &task).await["worktree"]["outcome"],
+        "discarded"
+    );
+    // A task that changed nothing was cleaned up already: there is nothing to discard.
+    let idle = delegate(&sup, json!({})).await;
+    let idle_session = fx.session_of_task(&sup, &idle).await;
+    ok(&sup, "task_cancel", json!({"task_id": idle})).await;
+    end_on_windows(&fx, &idle_session).await;
+    outcome(&sup, &idle, "removed").await;
+    assert_eq!(
+        refusal_code(fx.orchestrator.discard_task(idle.parse().unwrap()).await),
+        "nothing_to_discard"
+    );
+    // And an unknown task.
+    assert_eq!(
+        refusal_code(fx.orchestrator.discard_task(Uuid::new_v4()).await),
+        "task_not_found"
+    );
+    fx.manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_delegated_task_in_a_worktree_is_auto_approved_but_a_shared_one_is_not() {
+    // The default policy applies only to sessions in a task worktree: the host knows that from
+    // where the folder is, not from anything the agent says.
+    let fx = fixture(|config| {
+        config.auto_approve.insert(
+            "worker".into(),
+            acpd::auto_approve::AutoApproveConfig {
+                max_risk: acpd::auto_approve::AutoRisk::Medium,
+                ..Default::default()
+            },
+        );
+    });
+    let root = fx.root(&fx.repo()).await;
+    let sup = agent_of(&root).await;
+
+    // In its own worktree: the mock agent's edit request is answered by the host; no person and
+    // no supervisor is involved, and the task simply completes.
+    let isolated = delegate(&sup, json!({"isolation":"worktree"})).await;
+    reaches(&sup, &isolated, "completed").await;
+    let view = status(&sup, &isolated).await;
+    assert_eq!(view["needs_decision"], json!([]));
+    let child = fx.session_of_task(&sup, &isolated).await;
+    let reviews: Vec<Value> = child
+        .replay(0)
+        .events
+        .iter()
+        .filter_map(|event| {
+            let review = &event.message["params"]["update"]["_meta"]["acpdAutoReview"];
+            review.is_object().then(|| review.clone())
+        })
+        .collect();
+    assert_eq!(reviews.len(), 1, "{reviews:?}");
+    assert_eq!(reviews[0]["layer"], "rules");
+    assert_eq!(reviews[0]["decision"], "allow_once");
+
+    // In the shared folder with the same policy: left for the supervisor or the phone.
+    let shared = delegate(&sup, json!({"isolation":"shared"})).await;
+    reaches(&sup, &shared, "input_required").await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(status(&sup, &shared).await["state"], "input_required");
+    let waiting = status(&sup, &shared).await["needs_decision"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(waiting, 1, "the request is still there for a decision");
     fx.manager.shutdown().await;
 }
