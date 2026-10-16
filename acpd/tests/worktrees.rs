@@ -413,7 +413,14 @@ async fn an_unused_worktree_and_its_branch_are_removed_when_the_task_fails_or_is
         (left == 0).then_some(())
     })
     .await;
-    assert_eq!(git(&repo, &["branch", "--list", "acpd/*"]), "");
+    // The refused child's worktree is released in the background: its folder goes first and its
+    // branch is deleted just after, with no task outcome to wait on.
+    eventually_named("task branches deleted", || async {
+        git(&repo, &["branch", "--list", "acpd/*"])
+            .is_empty()
+            .then_some(())
+    })
+    .await;
     assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
     fx.manager.shutdown().await;
 }
