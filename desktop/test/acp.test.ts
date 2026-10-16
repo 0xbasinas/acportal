@@ -165,3 +165,16 @@ test('the reply to an option change replaces the whole option list; a refusal sh
   assert.equal(t.config?.model, undefined)
   assert.match(t.items.at(-1)?.kind === 'notice' ? (t.items.at(-1) as { text: string }).text : '', /did not accept that model \(-32602\)/)
 })
+
+test('applying an event leaves the previous timeline untouched, so a repeated update keeps it', () => {
+  // React may call a state updater twice with the same previous state (StrictMode in development).
+  const before = emptyTimeline()
+  const prompt = ev(1, { jsonrpc: '2.0', id: 9, method: 'session/prompt', params: { sessionId: 's', prompt: [{ type: 'text', text: 'Hello?' }] } }, 'client')
+  const first = reduce(before, prompt)
+  const second = reduce(before, prompt)
+  assert.equal(before.seen.size, 0)
+  assert.deepEqual(second.items, first.items)
+  assert.equal(second.items[0]?.kind, 'user')
+  // The same event applied to the new timeline is still ignored.
+  assert.equal(reduce(first, prompt), first)
+})

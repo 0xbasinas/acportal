@@ -78,11 +78,11 @@ export function reduce(t: Timeline, env: Json): Timeline {
   if (type === 'reconnect_required') return t
   if (type !== 'event' && type !== 'pending_permission') return t
   const seq = env.sequence as number | undefined
-  if (typeof seq === 'number') {
-    if (t.seen.has(seq)) return t
-    t.seen.add(seq)
-  }
-  const next: Timeline = { ...t, items: [...t.items], lastSeq: Math.max(t.lastSeq, seq ?? 0) }
+  if (typeof seq === 'number' && t.seen.has(seq)) return t
+  // A new set, never the old one changed: React may run a state update twice (StrictMode does in
+  // development), and a shared set would make the second run drop the event as already seen.
+  const seen = typeof seq === 'number' ? new Set(t.seen).add(seq) : t.seen
+  const next: Timeline = { ...t, seen, items: [...t.items], lastSeq: Math.max(t.lastSeq, seq ?? 0) }
   const m = env.message as Json
   const dir = env.direction as string | undefined
   const method = m.method as string | undefined
