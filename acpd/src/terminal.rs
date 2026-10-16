@@ -72,7 +72,7 @@ mod tests {
         let mut service = TerminalService::new("s", &root, 8192).unwrap();
         service.sandbox = Some(launcher);
         let line = format!(
-            "echo in> inside.txt & (echo out> \"{}\") 2>nul & dir /b \"{}\" >nul 2>nul && echo profile-visible || echo profile-hidden & dir /b C:\\Windows\\System32\\cmd.exe",
+            "echo in> inside.txt & (echo out> \"{}\") 2>nul & dir /b \"{}\" >nul 2>nul && echo profile-visible || echo profile-hidden & type C:\\Windows\\System32\\drivers\\etc\\hosts",
             outside.display(),
             profile
         );
@@ -94,10 +94,7 @@ mod tests {
         assert!(root.join("inside.txt").exists(), "{text}");
         assert!(!outside.exists(), "{text}");
         assert!(text.contains("profile-hidden"), "{text}");
-        assert!(
-            text.to_lowercase().contains("cmd.exe"),
-            "system dirs readable: {text}"
-        );
+        assert!(text.contains("localhost"), "system dirs readable: {text}");
         let acl = std::process::Command::new("icacls")
             .arg(&root)
             .output()

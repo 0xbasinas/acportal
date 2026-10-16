@@ -183,7 +183,8 @@ pub(super) async fn run(
     ))
 }
 
-#[cfg(test)]
+// Checks run through /bin/sh, so the tests are Unix-only.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     #[tokio::test]
