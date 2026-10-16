@@ -80,6 +80,10 @@ pub(super) fn args(op: &str, p: &HashMap<String, String>) -> Result<Vec<String>,
             if p.get("staged").is_some_and(|v| !v.is_empty()) {
                 a.push("--cached".into());
             }
+            // Against a commit or branch instead of the index (a run's changes from its base).
+            if let Some(base) = opt(p, "base")? {
+                a.push(base.into());
+            }
             a.push("--".into());
             if let Some(f) = opt(p, "file")? {
                 a.push(f.into());
@@ -175,7 +179,24 @@ pub(super) fn args(op: &str, p: &HashMap<String, String>) -> Result<Vec<String>,
             }
             a
         }
-        "worktree-remove" => vec!["worktree".into(), "remove".into(), param(p, "path")?.into()],
+        "worktree-remove" => {
+            let mut a: Vec<String> = vec!["worktree".into(), "remove".into()];
+            if p.get("force").is_some_and(|v| v == "1") {
+                a.push("--force".into());
+            }
+            a.push(param(p, "path")?.into());
+            a
+        }
+        // Stage everything in the folder, new files included (before committing a run).
+        "add-all" => s(&["add", "-A"]),
+        // Merge a branch into the current checkout as one merge commit; a conflict is
+        // reported by git and left for `merge-abort` or resolution.
+        "merge" => vec![
+            "merge".into(),
+            "--no-ff".into(),
+            "--no-edit".into(),
+            param(p, "branch")?.into(),
+        ],
         "checkout-ours" | "checkout-theirs" => vec![
             "checkout".into(),
             if op == "checkout-ours" {
@@ -228,7 +249,7 @@ pub(super) fn args(op: &str, p: &HashMap<String, String>) -> Result<Vec<String>,
 }
 
 /// The folder if it is inside a workspace root or the host's task worktrees.
-fn allowed(host: &Host, path: &FsPath) -> Option<PathBuf> {
+pub(super) fn allowed(host: &Host, path: &FsPath) -> Option<PathBuf> {
     let settings = host.sessions.launch_settings();
     if let Ok(dir) = settings.config.workspace(path) {
         return Some(dir);
@@ -405,6 +426,31 @@ fn truncate(mut s: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_operations_build_safe_arguments() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(k, x)| (k.to_string(), x.to_string()))
+                .collect::<HashMap<_, _>>()
+        };
+        let tail = |op: &str, v: &[(&str, &str)]| args(op, &p(v)).map(|a| a[4..].to_vec());
+        assert_eq!(
+            tail("merge", &[("branch", "run/a")]).unwrap(),
+            ["merge", "--no-ff", "--no-edit", "run/a"]
+        );
+        assert!(tail("merge", &[("branch", "--abort")]).is_err());
+        assert_eq!(tail("add-all", &[]).unwrap(), ["add", "-A"]);
+        assert_eq!(
+            tail("worktree-remove", &[("path", "/w/x"), ("force", "1")]).unwrap(),
+            ["worktree", "remove", "--force", "/w/x"]
+        );
+        assert_eq!(
+            tail("diff", &[("base", "main"), ("staged", "1")]).unwrap(),
+            ["diff", "-U3", "--no-ext-diff", "--cached", "main", "--"]
+        );
+        assert!(tail("diff", &[("base", "-p")]).is_err());
+    }
 
     #[test]
     fn changes_come_from_the_branch_once_the_worktree_is_gone() {

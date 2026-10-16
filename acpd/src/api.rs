@@ -34,6 +34,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 mod bridge;
+mod checks;
 mod git;
 
 #[derive(Clone)]
@@ -210,6 +211,7 @@ impl Host {
             .route("/v1/tasks/{id}/merge", post(merge_task))
             .route("/v1/tasks/{id}/supervisor/pause", post(pause_supervisor))
             .route("/v1/tasks/{id}/supervisor/resume", post(resume_supervisor))
+            .route("/v1/checks", post(checks::run))
             .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
@@ -387,7 +389,7 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     // `orchestrator` is listed only while delegation is enabled, so the phone shows the task
     // views only then.
-    let mut features = vec!["formElicitation", "git", "sessionWorktree"];
+    let mut features = vec!["formElicitation", "git", "sessionWorktree", "checks"];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
     }

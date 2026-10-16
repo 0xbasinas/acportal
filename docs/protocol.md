@@ -147,3 +147,14 @@ One controlling client lease is allowed per session. Observers explicitly reques
 Live delivery holds only weak references to journal events. If the journal evicts an event before a slow socket receives it, or the live queue overflows, the host sends `reconnect_required` with reason `consumer_lagged` and the client reconnects from its cursor; the replay reports the gap. Host-bound requests beyond a per-session byte budget of max(8 MiB, 2 × max_frame_bytes) fail immediately with a retryable error; cancellation is never refused for this reason. Ping/pong, bounded frames, backpressure and credential revalidation are implemented. Android reconnects with capped exponential backoff and jitter. Closing a transport releases its lease, not the session process. Rust network tests cover authentication, permission recovery, replay, duplicate prompts, mismatched session IDs and revocation.
 
 Android retains incoming text, image, audio, embedded resources and resource links from message chunks and tool content. The same standard blocks are used for capability-checked outgoing attachments. Optional message IDs preserve message boundaries. Session metadata patches and complete usage snapshots follow the current [prompt-turn update definitions](https://agentclientprotocol.com/protocol/v1/prompt-turn) and [session metadata semantics](https://agentclientprotocol.com/protocol/v1/session-list). Unsupported content variants remain visible through a fallback; no agent URL is fetched automatically. Media bytes are omitted from Markdown export while embedded text and resource identities remain readable.
+
+
+## Pre-merge checks (`POST /v1/checks`, feature `checks`)
+
+Body: `{"path": "<folder inside a workspace root or a task worktree>", "commands": ["python3 -m unittest -v", ...], "timeoutSecs": 600}`. There can be 1 to 8 lines of at most 2000 bytes each, with no NUL. The timeout defaults to 600 s and is clamped to 5–1800 s per line. The host runs the lines in order with `/bin/sh -c` and `CI=1` in that folder, inside its OS sandbox when one works. Afterwards it removes untracked, non-ignored files the lines created. The answer is:
+
+`{"passed": bool, "sandboxed": bool, "results": [{"command", "code": int|null, "output": "<last 32 KiB of stdout+stderr>", "ms", "truncated"?, "timedOut"?}]}`
+
+Errors: `400 invalid_commands`, `403 path_not_allowed`. A paired device can already approve any shell command an agent asks for, so this adds no new authority. The host logs only the number of lines and whether they ran sandboxed.
+
+`/v1/git/{op}` also accepts `add-all` (`git add -A`), `merge` (`{"branch"}` → `git merge --no-ff --no-edit <branch>`), `diff` with an optional `base` (`git diff [--cached] <base> --`), and `worktree-remove` with `"force": "1"`.

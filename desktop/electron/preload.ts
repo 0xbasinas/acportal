@@ -32,11 +32,12 @@ const api = {
   },
   watch: {
     sync: (targets: { hostRef: string; hostName: string; sessionId: string; title: string }[]): Promise<Result<void>> => ipcRenderer.invoke('watch:sync', targets),
-    snapshot: (): Promise<Result<Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string }>>> => ipcRenderer.invoke('watch:snapshot'),
+    snapshot: (): Promise<Result<Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string; usage?: { used?: number; size?: number; cost?: { amount: number; currency: string } }; reply?: string; turns: number }>>> => ipcRenderer.invoke('watch:snapshot'),
+    send: (hostRef: string, sessionId: string, message: unknown): Promise<Result<boolean>> => ipcRenderer.invoke('watch:send', hostRef, sessionId, message),
     focus: (key?: string): Promise<Result<void>> => ipcRenderer.invoke('watch:focus', key),
     notify: (on: boolean): Promise<Result<void>> => ipcRenderer.invoke('watch:notify', on),
     approve: (key: string, id: string | number, optionId: string): Promise<Result<void>> => ipcRenderer.invoke('watch:approve', key, id, optionId),
-    onState: (cb: (s: Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string }>) => void): (() => void) => {
+    onState: (cb: (s: Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string; usage?: { used?: number; size?: number; cost?: { amount: number; currency: string } }; reply?: string; turns: number }>) => void): (() => void) => {
       const l = (_e: IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
       ipcRenderer.on('watch:state', l)
       return () => ipcRenderer.removeListener('watch:state', l)

@@ -32,3 +32,5 @@ Each host enforces its own rules (see [security](security.md#workspace-scope-of-
 - An approval card that names paths outside the session's workspace shows a red **Outside the workspace** box listing them. Read these carefully; reject anything you did not expect.
 - A card for a host command says whether it will run in the host's sandbox ("Sandboxed to the workspace") or unconfined. Commands from an agent's own built-in tool always run unconfined; the host can only warn.
 - The sandbox is per agent (`"sandbox": "auto" | "off"` in the host's agent registry, see [agents](agents.md)) and is available on Linux hosts with bubblewrap.
+
+See also [run on several agents and the pre-merge checklist](desktop-runs-and-checks.md).

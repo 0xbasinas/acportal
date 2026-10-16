@@ -8,8 +8,8 @@ import { emptyTimeline, reduce, type Timeline } from '../src/acp'
 
 export type WatchTarget = { hostRef: string; hostName: string; sessionId: string; title: string }
 export type Pending = { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }
-export type WatchState = { pending: Pending[]; busy: boolean; conn: string }
-type Entry = { t: WatchTarget; sock: SessionSocket; tl: Timeline; ready: boolean; notified: Set<string>; busy: boolean; conn: string }
+export type WatchState = { pending: Pending[]; busy: boolean; conn: string; usage?: Timeline['usage']; reply?: string; turns: number }
+type Entry = { t: WatchTarget; sock: SessionSocket; tl: Timeline; ready: boolean; notified: Set<string>; busy: boolean; conn: string; reply?: string; turns: number }
 
 export class Watcher {
   private entries = new Map<string, Entry>()
@@ -33,7 +33,7 @@ export class Watcher {
       if (cur) { cur.t = t; continue }
       let c: { address: string; token: string }
       try { c = this.creds(t.hostRef) } catch { continue }
-      const e: Entry = { t, tl: emptyTimeline(), ready: false, notified: new Set(), busy: false, conn: 'connecting', sock: undefined as unknown as SessionSocket }
+      const e: Entry = { t, tl: emptyTimeline(), ready: false, notified: new Set(), busy: false, conn: 'connecting', turns: 0, sock: undefined as unknown as SessionSocket }
       e.sock = new SessionSocket(c.address, c.token, t.sessionId, (env) => this.onEnvelope(k, env as Record<string, unknown>), (s) => { e.conn = (s as { kind: string }).kind; this.emit() }, true)
       this.entries.set(k, e)
       e.sock.connect()
@@ -49,7 +49,12 @@ export class Watcher {
     const wasBusy = e.tl.busy
     e.tl = reduce(e.tl, env)
     // Only the pending list and busy flag are kept; drop the rest so long sessions stay small.
-    e.tl = { ...e.tl, items: e.tl.items.filter((i) => i.kind === 'permission' && i.answered === undefined) }
+    // Keep the trailing agent message too, so streamed chunks still merge into one reply.
+    const items = e.tl.items
+    const last = items[items.length - 1]
+    if (last?.kind === 'agent') e.reply = last.text.slice(-8000)
+    if (items.some((i) => i.kind === 'user')) e.turns += items.filter((i) => i.kind === 'user').length
+    e.tl = { ...e.tl, items: items.filter((i, n) => (i.kind === 'permission' && i.answered === undefined) || (n === items.length - 1 && i.kind === 'agent')) }
     const pending = this.pendingOf(e)
     if (e.ready) {
       for (const p of pending) {
@@ -60,7 +65,7 @@ export class Watcher {
       }
       if (wasBusy && !e.tl.busy) this.toast(key, e, `${e.t.hostName}: turn finished`, e.t.title)
     }
-    if (e.tl.busy !== e.busy || pending.length || env.type === 'replay_complete') { e.busy = e.tl.busy; this.emitSoon() }
+    if (e.tl.busy !== e.busy || pending.length || env.type === 'replay_complete' || last?.kind === 'agent' || env.type === 'event') { e.busy = e.tl.busy; this.emitSoon() }
   }
 
   private pendingOf(e: Entry): Pending[] {
@@ -104,13 +109,33 @@ export class Watcher {
     })
   }
 
+  /** Send one message to a session the window is not attached to over a short controlling
+   *  connection (starting a prompt in each run of a multi-agent run). */
+  async sendOnce(hostRef: string, sessionId: string, message: unknown): Promise<boolean> {
+    const c = this.creds(hostRef)
+    return await new Promise<boolean>((resolve) => {
+      let done = false
+      const s = new SessionSocket(c.address, c.token, sessionId, () => {}, (st) => {
+        const k = (st as { kind: string }).kind
+        if (k === 'connected' && !done) {
+          done = true
+          try { s.send(message) } catch { s.close(); resolve(false); return }
+          setTimeout(() => { s.close(); resolve(true) }, 800)
+        } else if (k === 'failed') { s.close(); if (!done) { done = true; resolve(false) } }
+      })
+      s.cursor = 0
+      s.connect()
+      setTimeout(() => { if (!done) { done = true; s.close(); resolve(false) } }, 15_000)
+    })
+  }
+
   private emitSoon(): void {
     if (this.timer) return
     this.timer = setTimeout(() => { this.timer = undefined; this.emit() }, 150)
   }
   snapshot(): Record<string, WatchState> {
     const out: Record<string, WatchState> = {}
-    for (const [k, e] of this.entries) out[k] = { pending: this.pendingOf(e), busy: e.busy, conn: e.conn }
+    for (const [k, e] of this.entries) out[k] = { pending: this.pendingOf(e), busy: e.busy, conn: e.conn, usage: e.tl.usage, reply: e.reply, turns: e.turns }
     return out
   }
   emit(): void { this.win()?.webContents.send('watch:state', this.snapshot()) }

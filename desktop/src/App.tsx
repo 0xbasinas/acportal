@@ -1,3 +1,5 @@
+import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
+import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, Host, HostStatus, SessionInfo, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
@@ -12,7 +14,7 @@ import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
 
-type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string }
+type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
@@ -85,8 +87,12 @@ export default function App() {
     setHostId(hid); setView({ kind: 'workspace' })
   }
   // Every live session on every connected host is watched (read-only) for approvals and turn ends.
-  type WatchState = { pending: { id: string | number; title: string; allowOnce?: string; lines: string[] }[]; busy: boolean; conn: string }
+  type WatchState = WatchSnap & { pending: { id: string | number; title: string; allowOnce?: string; lines: string[] }[] }
   const [watch, setWatch] = useState<Record<string, WatchState>>({})
+  const [runs, setRunsState] = useState<Run[]>([])
+  const [multiOpen, setMultiOpen] = useState(false)
+  useEffect(() => { void window.api.prefs.get().then((r) => { if (r.ok && Array.isArray(r.value.runs)) setRunsState(r.value.runs as Run[]) }) }, [])
+  const setRuns = (next: Run[]): void => { setRunsState(next); savePrefs({ runs: next.slice(-20) }) }
   useEffect(() => { void window.api.watch.snapshot().then((r) => { if (r.ok) setWatch(r.value) }); return window.api.watch.onState(setWatch) }, [])
   useEffect(() => {
     const targets = (hosts ?? []).flatMap((h) => fleet[h.id]?.state === 'connected'
@@ -310,6 +316,7 @@ export default function App() {
   const commands: Command[] = useMemo(() => {
     const c: Command[] = [
       { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => setNewSession(true) },
+      { id: 'multi', group: 'Actions', label: 'Run on several agents…', run: () => setMultiOpen(true) },
       { id: 'git', group: 'Actions', label: 'Open Git (changes, history, worktrees, stash)', hint: 'Ctrl G', run: () => setView({ kind: 'git' }) },
       { id: 'review', group: 'Actions', label: 'Review changes in this session', hint: 'Ctrl D', run: () => setView({ kind: 'review' }) },
       { id: 'stop', group: 'Actions', label: 'Stop the current turn', hint: 'Esc', run: () => void cancelTurn() },
@@ -321,11 +328,12 @@ export default function App() {
       { id: 'theme-sys', group: 'Appearance', label: 'Use system theme', run: () => setTheme('system') }
     ]
     for (const s of sessions) c.push({ id: 's' + s.id, group: 'Sessions', label: title(s), run: () => { setSelected(s.id); setView({ kind: 'workspace' }) } })
+    for (const r of runs) c.push({ id: 'r' + r.id, group: 'Runs', label: `${r.prompt.split('\n')[0].slice(0, 60)} · ${r.entries.length} agents · ${r.state}`, run: () => { if (r.hostId !== hostId) openOn(r.hostId); setView({ kind: 'compare', runId: r.id }) } })
     for (const t of tasks) c.push({ id: 't' + t.id, group: 'Tasks', label: `${t.worktree?.branch ?? 'task ' + t.id.slice(0, 6)} · ${t.agent} · ${stateWord(t.state)}`, run: () => setView({ kind: 'task', taskId: t.id }) })
     for (const h of hosts ?? []) if (h.id !== hostId) c.push({ id: 'h' + h.id, group: 'Hosts', label: `Switch host: ${h.name} · ${STATE_LABEL[fleet[h.id]?.state ?? 'connecting']}`, run: () => openOn(h.id) })
     for (const h of hosts ?? []) if (h.id !== hostId) for (const s of fleet[h.id]?.sessions ?? []) c.push({ id: 'o' + s.id, group: `Sessions on ${h.name}`, label: title(s), run: () => openOn(h.id, s.id) })
     return c
-  }, [sessions, tasks, hosts, hostId, theme, timelines, fleet])
+  }, [sessions, tasks, hosts, hostId, theme, timelines, fleet, runs])
   const paletteNew = (q: string): void => { setNewSessionPrompt(q); setNewSession(true) }
 
   useEffect(() => {
@@ -353,17 +361,16 @@ export default function App() {
 
   const overlays = (
     <>
+      {multiOpen && hostId && <MultiRunDialog hostId={hostId} agents={agents} workspaces={workspaces} onClose={() => setMultiOpen(false)} onStarted={(r) => { setMultiOpen(false); setRuns([...runs, r]); setView({ kind: 'compare', runId: r.id }); void refresh(); flash(`Started ${r.entries.filter((e) => e.sessionId).length} runs`) }} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} onNew={paletteNew} />}
       {newSession && hostId && <NewSession key={hostId} hostId={hostId} hostPick={hosts.length > 1 ? hosts.map((h) => ({ id: h.id, label: `${h.name} · ${STATE_LABEL[fleet[h.id]?.state ?? 'connecting']}`, ok: fleet[h.id]?.state === 'connected' })) : undefined} onHost={(id) => openOn(id)} agents={agents} workspaces={workspaces} mcp={mcp} hostBranches={Boolean(status?.features?.includes('git'))} local={Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))} firstPrompt={newSessionPrompt} onClose={() => { setNewSession(false); setNewSessionPrompt(undefined) }} onCreate={async (a, w, o) => { const e = await createSession(a, w, o); if (!e) setNewSessionPrompt(undefined); return e }} />}
       {confirmMerge && (
         <div className="overlay" onMouseDown={() => setConfirmMerge(undefined)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 17 }}>Merge into parent folder?</h3>
-            <p className="sub2">Merges <span className="mono">{confirmMerge.worktree?.branch}</span> into the checkout it was made from as one <span className="mono">--no-ff</span> commit. A conflict or uncommitted changes in the parent stop the merge and change nothing.</p>
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button className="btn-wide" onClick={() => void merge(confirmMerge)}>Merge</button>
-              <button className="btn-wide ghost" onClick={() => setConfirmMerge(undefined)}>Cancel</button>
-            </div>
+            <MergeGate hostId={hostId!} root={confirmMerge.worktree?.repository ?? confirmMerge.scope} path={confirmMerge.worktree?.path ?? confirmMerge.scope} prompt={confirmMerge.summary ?? confirmMerge.scope} agents={agents} onMerge={() => void merge(confirmMerge)} onCancel={() => setConfirmMerge(undefined)}>
+              <p className="sub2">Merges <span className="mono">{confirmMerge.worktree?.branch}</span> into the checkout it was made from as one <span className="mono">--no-ff</span> commit. A conflict or uncommitted changes in the parent stop the merge and change nothing.</p>
+            </MergeGate>
           </div>
         </div>
       )}
@@ -397,6 +404,7 @@ export default function App() {
       </div>
       <div className="side-actions">
         <button className="btn full new-btn" onClick={() => setNewSession(true)} disabled={!hosts.some((h) => fleet[h.id]?.state === 'connected') && !online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
+        <button className="btn full multi-btn" onClick={() => setMultiOpen(true)} disabled={!online} title="Same prompt to 2-3 agents, each in its own worktree; compare and merge one">{I.flow}Run on several agents</button>
         <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow">Search or run a command</span><span className="kbd">Ctrl K</span></button>
       </div>
       {hosts.length > 1 && (
@@ -406,6 +414,22 @@ export default function App() {
         </div>
       )}
       <div className="list">
+        {runs.some((r) => r.state === 'running') && (
+          <div className="runs-group">
+            <div className="group-h"><span>Runs</span></div>
+            {runs.filter((r) => r.state === 'running').map((r) => {
+              const waiting = r.entries.reduce((n, e) => n + (watch[`${r.hostId}/${e.sessionId}`]?.pending.length ?? 0), 0)
+              const working = r.entries.filter((e) => watch[`${r.hostId}/${e.sessionId}`]?.busy).length
+              return (
+                <div key={r.id} className={'row' + (view.kind === 'compare' && view.runId === r.id ? ' active' : '')} onClick={() => { if (r.hostId !== hostId) openOn(r.hostId); setView({ kind: 'compare', runId: r.id }) }} title={r.prompt}>
+                  <span className="row-ic">{I.flow}</span>
+                  <div className="grow"><div className="ell">{r.prompt.split('\n')[0]}</div><div className="sub ell">{r.entries.length} agents · {working ? `${working} working` : 'all idle'}</div></div>
+                  {waiting > 0 && <span className="badge">{waiting}</span>}
+                </div>
+              )
+            })}
+          </div>
+        )}
         {hosts.filter((h) => hostFilter === 'all' || h.id === hostFilter).map((h) => {
           const live = h.id === hostId
           const f = fleet[h.id]
@@ -479,6 +503,11 @@ export default function App() {
     center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })} suggest={suggestCommit}
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
       openSession={(path) => { setNewSessionPrompt(undefined); setNewSession(true); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
+  } else if (view.kind === 'compare' && runs.some((r) => r.id === view.runId)) {
+    const run = runs.find((r) => r.id === view.runId)!
+    center = <CompareView key={run.id} run={run} watch={watch} agents={agents} flash={flash} onBack={() => setView({ kind: 'workspace' })}
+      onOpen={(sid) => { setSelected(sid); setView({ kind: 'workspace' }) }}
+      onUpdate={(n) => { setRuns(n ? runs.map((r) => (r.id === n.id ? n : r)) : runs.filter((r) => r.id !== run.id)); void refresh() }} />
   } else if (view.kind === 'review') {
     center = <DiffReview title={session ? `Review · ${title(session)}` : 'Review changes'} subtitle={session ? `${agentName(session.agentId)} · ${tildify(session.workspace)}` : ''} diffs={tl ? changedFiles(tl).map((f) => f.diff) : []} focus={view.focus} root={session?.workspace} onBack={() => setView({ kind: 'workspace' })} task={rootTask?.worktree ? rootTask : undefined} onMerge={setConfirmMerge} merging={merging} />
   } else if (view.kind === 'task' && viewTask) {

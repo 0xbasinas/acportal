@@ -62,7 +62,7 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
         </div>
       )}
       <div className="approval-foot">
-        <span className="sub grow">{isShell ? 'Runs these exact lines once on the host.' : 'The agent waits for your answer.'}</span>
+        <span className="sub grow">{isShell ? (p.source === 'agent' ? 'The agent runs this with its own tool once you allow it; the host does not sandbox it.' : p.scope?.sandboxed ? 'Runs these exact lines once on the host, in its sandbox.' : 'Runs these exact lines once on the host.') : 'The agent waits for your answer.'}</span>
         {reject ? <button className="btn ghost" onClick={() => onAnswer(reject.optionId)}>{nice(reject.name || 'Reject')}</button> : <button className="btn ghost" onClick={() => onAnswer(null)}>Cancel</button>}
         {always && !isShell && <button className="btn" onClick={() => onAnswer(always.optionId)}>{nice(always.name)}</button>}
         {allow && <button className="btn primary" autoFocus onClick={() => onAnswer(allow.optionId)}>{nice(allow.name || 'Allow once')}</button>}

@@ -56,12 +56,14 @@ const WHY: Record<string, string> = {
   'branch-create': 'Make a new branch from a base and switch to it',
   'branch-rename': 'Give a branch a new name',
   'branch-delete': 'Delete a branch (-d refuses if it is not merged; -D forces)',
-  push: 'Publish the branch to origin and remember it as upstream'
+  push: 'Publish the branch to origin and remember it as upstream',
+  'add-all': 'Stage every change in the folder, new files included',
+  merge: 'Merge a branch into the current checkout as one merge commit (--no-ff)'
 }
 
 const OPS: Record<string, (p: Record<string, string>) => string[]> = {
   status: () => ['status', '--porcelain=v1', '-b', '-uall'],
-  diff: (p) => ['diff', ...(p.staged ? ['--cached'] : []), '-U3', '--no-ext-diff', '--', ...(p.file ? [p.file] : [])],
+  diff: (p) => ['diff', '-U3', '--no-ext-diff', ...(p.staged ? ['--cached'] : []), ...(p.base ? [p.base] : []), '--', ...(p.file ? [p.file] : [])],
   log: () => ['log', '--graph', '--all', '--date-order', '-n', '120', '--pretty=format:%h\u001f%d\u001f%s\u001f%an\u001f%cr'],
   'worktree-list': () => ['worktree', 'list', '--porcelain'],
   'stash-list': () => ['stash', 'list', '--pretty=format:%gd\u001f%s\u001f%cr'],
@@ -82,7 +84,9 @@ const OPS: Record<string, (p: Record<string, string>) => string[]> = {
   'stash-apply': (p) => ['stash', 'apply', p.ref],
   'stash-drop': (p) => ['stash', 'drop', p.ref],
   'worktree-add': (p) => ['worktree', 'add', '-b', p.branch, p.path, ...(p.base ? [p.base] : [])],
-  'worktree-remove': (p) => ['worktree', 'remove', p.path],
+  'worktree-remove': (p) => ['worktree', 'remove', ...(p.force === '1' ? ['--force'] : []), p.path],
+  'add-all': () => ['add', '-A'],
+  merge: (p) => ['merge', '--no-ff', '--no-edit', p.branch],
   'checkout-ours': (p) => ['checkout', '--ours', '--', p.file],
   'checkout-theirs': (p) => ['checkout', '--theirs', '--', p.file],
   'merge-abort': () => ['merge', '--abort'],

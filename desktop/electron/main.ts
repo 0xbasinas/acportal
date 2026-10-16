@@ -163,7 +163,8 @@ function registerIpc(): void {
     wrap(async (id: string, method: string, path: string, body?: unknown, query?: Record<string, string>) => {
       if (!path.startsWith('/v1/') || path.includes('..')) throw new Error('Invalid host route')
       const h = host(id)
-      return request(h.address, path, { method, body, query, token: unseal(h) })
+      // Pre-merge checks run test suites; the host enforces its own deadline (at most 30 min).
+      return request(h.address, path, { method, body, query, token: unseal(h), ...(path === '/v1/checks' ? { timeoutMs: 1_900_000 } : {}) })
     })
   )
   ipcMain.handle(
@@ -187,6 +188,7 @@ function registerIpc(): void {
     })
   )
   ipcMain.handle('watch:sync', wrap((targets: WatchTarget[]) => watcher.sync(targets)))
+  ipcMain.handle('watch:send', wrap((hostRef: string, sessionId: string, message: unknown) => watcher.sendOnce(hostRef, sessionId, message)))
   ipcMain.handle('watch:snapshot', wrap(() => watcher.snapshot()))
   ipcMain.handle('watch:focus', wrap((key?: string) => watcher.focus(key)))
   ipcMain.handle('watch:notify', wrap((on: boolean) => watcher.setNotify(on)))

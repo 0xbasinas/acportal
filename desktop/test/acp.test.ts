@@ -110,3 +110,31 @@ test('drag reorder moves a host onto the target position', () => {
   assert.deepEqual(moveTo(['a', 'b'], 'a', 'a'), ['a', 'b'])
   assert.deepEqual(moveTo(['a', 'b'], 'x', 'a'), ['a', 'b'])
 })
+
+import { diffTotals, gate, runBranch, splitDiff, verdictOf } from '../src/runs'
+
+test('multi-agent runs: branch names, diff split and totals', () => {
+  assert.equal(runBranch('Add a --verbose flag!', 'Goose Worker', 2, 'k3f1'), 'run/add-a-verbose-flag-k3f1-2-goose-worker')
+  assert.equal(runBranch('???', '', 1, 'a'), 'run/task-a-1-agent')
+  const d = 'diff --git a/a.py b/a.py\nindex 1..2\n--- a/a.py\n+++ b/a.py\n@@ -1 +1,2 @@\n-x\n+y\n+z\ndiff --git a/n.md b/n.md\nnew file mode 100644\n--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+hi\n'
+  const parts = splitDiff(d)
+  assert.deepEqual(parts.map((p) => [p.path, p.oldText]), [['a.py', ''], ['n.md', null]])
+  assert.deepEqual(diffTotals(d), { files: 2, add: 3, del: 1 })
+  assert.deepEqual(splitDiff(''), [])
+})
+
+test('pre-merge gate: green only when everything configured passed', () => {
+  const ok = { passed: true, sandboxed: true, results: [], at: 1 }
+  const bad = { passed: false, sandboxed: true, results: [{ command: 't', code: 1, output: '', ms: 1 }], at: 1 }
+  assert.equal(gate(undefined, undefined, undefined).state, 'none')
+  assert.equal(gate({ commands: ['t'], aiReview: false }, undefined, undefined).state, 'pending')
+  assert.equal(gate({ commands: ['t'], aiReview: false }, ok, undefined).state, 'green')
+  assert.equal(gate({ commands: ['t'], aiReview: false }, bad, undefined).state, 'red')
+  assert.equal(gate({ commands: ['t'], aiReview: true }, ok, { state: 'running' }).state, 'pending')
+  assert.equal(gate({ commands: ['t'], aiReview: true }, ok, { state: 'fail' }).state, 'red')
+  assert.equal(gate({ commands: [], aiReview: true }, undefined, { state: 'unclear' }).state, 'red')
+  assert.equal(gate({ commands: [], aiReview: true }, undefined, { state: 'pass' }).state, 'green')
+  assert.equal(verdictOf('looks fine\nVERDICT: PASS'), 'pass')
+  assert.equal(verdictOf('VERDICT: PASS\n...actually\n**VERDICT: FAIL**'), 'fail')
+  assert.equal(verdictOf('no verdict here'), undefined)
+})

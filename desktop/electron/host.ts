@@ -46,7 +46,7 @@ export class HostError extends Error {
   }
 }
 
-export function request(address: string, path: string, opts: { token?: string; method?: string; body?: unknown; query?: Record<string, string> } = {}): Promise<unknown> {
+export function request(address: string, path: string, opts: { token?: string; method?: string; body?: unknown; query?: Record<string, string>; timeoutMs?: number } = {}): Promise<unknown> {
   const base = validateAddress(address)
   const target = new URL(path, base)
   for (const [k, v] of Object.entries(opts.query ?? {})) target.searchParams.set(k, v)
@@ -59,7 +59,7 @@ export function request(address: string, path: string, opts: { token?: string; m
   }
   const lib = target.protocol === 'https:' ? https : http
   return new Promise((resolve, reject) => {
-    const req = lib.request(target, { method: opts.method ?? 'GET', headers, agent: target.protocol === 'https:' ? httpsAgent : undefined, timeout: 30_000 }, (res) => {
+    const req = lib.request(target, { method: opts.method ?? 'GET', headers, agent: target.protocol === 'https:' ? httpsAgent : undefined, timeout: opts.timeoutMs ?? 30_000 }, (res) => {
       const chunks: Buffer[] = []
       let size = 0
       res.on('data', (c: Buffer) => {
