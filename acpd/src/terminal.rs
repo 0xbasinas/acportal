@@ -48,6 +48,100 @@ mod tests {
         assert_eq!(args.last().unwrap(), "/home/u/.cargo/bin/cargo");
         assert_eq!(args[args.len() - 2], "--");
     }
+    /// TEMPORARY diagnostic for the Git Bash empty-output flake; prints a summary and fails.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn diag_git_bash_output() {
+        use std::os::windows::process::CommandExt;
+        let Some(bash) = crate::shell::windows_find_bash_for_tests() else {
+            return;
+        };
+        let inner = bash
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(r"usr\bin\bash.exe");
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-diag-{}", std::process::id()));
+        let root = base.join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let line = "echo \"bash-$((40+2))\" > out.txt; cat out.txt";
+        let mut report = format!(
+            "bash={} inner={} exists={}\n",
+            bash.display(),
+            inner.display(),
+            inner.exists()
+        );
+        let direct = |exe: &Path, flags: u32, line: &str| {
+            let t = std::time::Instant::now();
+            let out = std::process::Command::new(exe)
+                .args(["--noprofile", "--norc", "-c", line])
+                .current_dir(&root)
+                .stdin(Stdio::null())
+                .creation_flags(flags)
+                .output()
+                .unwrap();
+            (
+                out.status.code(),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+                t.elapsed().as_millis(),
+            )
+        };
+        for (name, exe, flags) in [
+            ("launcher-direct", bash.clone(), 0u32),
+            ("launcher-direct-nowindow", bash.clone(), 0x0800_0000),
+            ("inner-direct-nowindow", inner.clone(), 0x0800_0000),
+        ] {
+            let mut bad = vec![];
+            for i in 0..20 {
+                let (code, out, err, ms) = direct(&exe, flags, line);
+                if !out.contains("bash-42") {
+                    bad.push(format!(
+                        "#{i} code={code:?} ms={ms} out={out:?} err={err:?}"
+                    ))
+                }
+            }
+            report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
+        }
+        let mut service = TerminalService::new("s", &root, 8192).unwrap();
+        service.set_shell(crate::shell::ShellChoice::Bash);
+        for (name, line) in [
+            ("service-cat", line),
+            ("service-echo", "echo bash-42"),
+            (
+                "service-cat-true",
+                "echo \"bash-$((40+2))\" > out.txt; cat out.txt; true",
+            ),
+        ] {
+            let mut bad = vec![];
+            for i in 0..20 {
+                let t = std::time::Instant::now();
+                let prepared = service
+                    .prepare(serde_json::json!({"sessionId":"s","command":line}))
+                    .unwrap();
+                let created = service.create_approved(prepared).unwrap();
+                let id = created["terminalId"].as_str().unwrap().to_owned();
+                let exit = service.exit_receiver("s", &id).unwrap();
+                let status = TerminalService::wait(exit).await.unwrap();
+                let text = service.output("s", &id).unwrap()["output"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                if !text.contains("bash-42") {
+                    bad.push(format!(
+                        "#{i} status={status} ms={} text={text:?}",
+                        t.elapsed().as_millis()
+                    ))
+                }
+            }
+            report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
+        }
+        let _ = std::fs::remove_dir_all(&base);
+        panic!("DIAG\n{report}");
+    }
     #[cfg(windows)]
     fn launcher_for_tests() -> Option<PathBuf> {
         let exe = std::env::current_exe().unwrap();
