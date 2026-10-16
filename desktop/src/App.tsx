@@ -84,6 +84,29 @@ export default function App() {
     pendingSel.current = sid
     setHostId(hid); setView({ kind: 'workspace' })
   }
+  // Every live session on every connected host is watched (read-only) for approvals and turn ends.
+  type WatchState = { pending: { id: string | number; title: string; allowOnce?: string; lines: string[] }[]; busy: boolean; conn: string }
+  const [watch, setWatch] = useState<Record<string, WatchState>>({})
+  useEffect(() => { void window.api.watch.snapshot().then((r) => { if (r.ok) setWatch(r.value) }); return window.api.watch.onState(setWatch) }, [])
+  useEffect(() => {
+    const targets = (hosts ?? []).flatMap((h) => fleet[h.id]?.state === 'connected'
+      ? (fleet[h.id]?.sessions ?? []).filter((s) => s.status !== 'interrupted' && s.status !== 'failed' && s.status !== 'closed')
+        .map((s) => ({ hostRef: h.id, hostName: h.name, sessionId: s.id, title: titles()[s.id] ?? `${s.agentId} in ${baseName(s.workspace)}` }))
+      : [])
+    void window.api.watch.sync(targets)
+  }, [fleet, hosts])
+  const waitingOn = (hid: string, sid: string): number => watch[`${hid}/${sid}`]?.pending.length ?? 0
+  const waitingHost = (hid: string): number => Object.entries(watch).filter(([k]) => k.startsWith(hid + '/')).reduce((n, [, w]) => n + w.pending.length, 0)
+  // Finished delegated tasks on any host become a desktop notification.
+  const taskSeen = useRef<Record<string, string>>({})
+  useEffect(() => {
+    for (const h of hosts ?? []) for (const t of fleet[h.id]?.tasks ?? []) {
+      const k = `${h.id}/${t.id}`
+      const was = taskSeen.current[k]
+      taskSeen.current[k] = t.state
+      if (was && was !== t.state && /^(completed|failed|cancelled)$/i.test(t.state)) void window.api.notify(`${h.name}: task ${t.state.toLowerCase()}`, `${t.worktree?.branch ?? t.id.slice(0, 8)} · ${t.agent}${t.summary ? `\n${t.summary.slice(0, 140)}` : ''}`, h.id, t.session ?? undefined)
+    }
+  }, [fleet, hosts])
   const [storage, setStorage] = useState<Record<string, string>>({})
   useEffect(() => { void Promise.all((hosts ?? []).map(async (h) => [h.id, ((await window.api.storageOf(h.id)) as { ok: boolean; value?: string }).value ?? ''] as const)).then((e) => setStorage(Object.fromEntries(e))) }, [hosts])
   useEffect(() => { if (hostId) savePrefs({ host: hostId }) }, [hostId])
@@ -155,7 +178,7 @@ export default function App() {
     if (ref.current) void window.api.session.detach(ref.current)
     setTimelines((all) => ({ ...all, [sid]: emptyTimeline() }))
     const r = await window.api.session.attach(hostId, sid, 0, readOnly)
-    if (r.ok) ref.current = r.value
+    if (r.ok) { ref.current = r.value; if (ref === attached) void window.api.watch.focus(r.value) }
     else flash(r.error)
   }
   useEffect(() => { if (selected) void attach(selected, attached) }, [selected, hostId])
@@ -166,6 +189,13 @@ export default function App() {
   const rootTask = tasks.find((t) => t.session === selected && !t.parent) ?? tasks.find((t) => t.session === selected)
   const title = (s: SessionInfo): string => timelines[s.id]?.title ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
   const pendingIn = (sid: string): number => (timelines[sid]?.items ?? []).filter((i) => i.kind === 'permission' && i.answered === undefined).length
+  const latest = useRef({ openOn, answer })
+  latest.current = { openOn, answer }
+  useEffect(() => {
+    const off1 = window.api.watch.onOpen((h, sid) => latest.current.openOn(h, sid))
+    const off2 = window.api.watch.onAnswer((key, id, optionId) => { if (key === attached.current) void latest.current.answer(id, optionId) })
+    return () => { off1(); off2() }
+  }, [])
 
   const histKey = (ws?: string): string => `acportal.history.${hostId}.${ws ?? ''}`
   const history = (ws?: string): string[] => JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
@@ -362,7 +392,7 @@ export default function App() {
   const sidebar = (
     <aside className="side">
       <div className="host-head">
-        <HostSwitcher hosts={hosts} current={host} fleet={fleet} onSwitch={(h) => openOn(h.id)} onReconnect={(id) => { reconnect(id); if (!id || id === hostId) void refresh() }}
+        <HostSwitcher waiting={waitingHost} hosts={hosts} current={host} fleet={fleet} onSwitch={(h) => openOn(h.id)} onReconnect={(id) => { reconnect(id); if (!id || id === hostId) void refresh() }}
           onRepair={(h) => setView({ kind: 'pair', repair: h.id })} onSettings={() => setView({ kind: 'settings', section: 'Hosts' })} onAdd={() => setView({ kind: 'pair' })} />
       </div>
       <div className="side-actions">
@@ -391,7 +421,7 @@ export default function App() {
                   <span className={'chev-ic' + (shut ? ' shut' : '')}>{I.down}</span>
                   <span className={'dot ' + STATE_DOT[st]} />
                   <span className="grow ell">{h.name}</span>
-                  {st !== 'connected' ? <span className={'group-state s-' + st}>{STATE_LABEL[st]}</span> : <span className="count">{hs.length || ''}</span>}
+                  {st !== 'connected' ? <span className={'group-state s-' + st}>{STATE_LABEL[st]}</span> : waitingHost(h.id) > 0 ? <span className="badge" title={`${waitingHost(h.id)} waiting for approval`}>{waitingHost(h.id)}</span> : <span className="count">{hs.length || ''}</span>}
                 </div>
               )}
               {!shut && (
@@ -409,8 +439,8 @@ export default function App() {
                   {hs.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>No sessions on this host.</div>}
                   {[...hs].reverse().map((s) => {
                     const t = live ? timelines[s.id] : undefined
-                    const waiting = live ? pendingIn(s.id) : 0
-                    const sst = waiting ? 'waiting' : t?.busy ? 'running' : s.status
+                    const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
+                    const sst = waiting ? 'waiting' : (t?.busy || (!(live && s.id === selected) && watch[`${h.id}/${s.id}`]?.busy)) ? 'running' : s.status
                     const br = live ? branchOf[s.workspace] : undefined
                     return (
                       <div key={s.id} className={'row session' + (live && s.id === selected ? ' active' : '')} onClick={() => openOn(h.id, s.id)}>

@@ -29,6 +29,67 @@ struct CreateRequest {
 mod tests {
     use super::*;
     #[test]
+    fn sandbox_arguments_expose_only_the_workspace_writable() {
+        let args: Vec<String> = sandbox_args(
+            Path::new("/w"),
+            Path::new("/w/src"),
+            Path::new("/home/u/.cargo/bin/cargo"),
+        )
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+        let joined = args.join(" ");
+        assert!(joined.contains("--bind /w /w"));
+        assert!(joined.contains("--ro-bind-try /home/u/.cargo/bin/cargo /home/u/.cargo/bin/cargo"));
+        assert!(joined.contains("--tmpfs /tmp"));
+        assert!(joined.contains("--chdir /w/src"));
+        assert!(!joined.contains("--bind /home") && !joined.contains("--bind / "));
+        assert_eq!(args.last().unwrap(), "/home/u/.cargo/bin/cargo");
+        assert_eq!(args[args.len() - 2], "--");
+    }
+    #[tokio::test]
+    async fn sandboxed_shell_cannot_write_outside_or_see_home() {
+        if sandbox_runner().is_none() {
+            eprintln!("bubblewrap unavailable; skipping");
+            return;
+        }
+        // Not under /tmp, which the sandbox replaces with its own tmpfs.
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("acpd-sandbox-{}", std::process::id()));
+        let root = base.join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(base.join("sibling.txt"), "secret").unwrap();
+        let outside = base.join("outside.txt");
+        let mut service = TerminalService::new("s", &root, 4096).unwrap();
+        assert!(service.enable_sandbox());
+        let line = format!(
+            "echo in > inside.txt; echo out > {} 2>/dev/null; echo status=$?; test -e {} && echo sibling-visible || echo sibling-hidden",
+            outside.display(),
+            base.join("sibling.txt").display()
+        );
+        let prepared = service
+            .prepare(serde_json::json!({"sessionId":"s","command":line}))
+            .unwrap();
+        assert!(prepared.sandboxed());
+        assert!(!prepared.outside().is_empty());
+        let created = service.create_approved(prepared).unwrap();
+        let id = created["terminalId"].as_str().unwrap().to_owned();
+        let exit = service.exit_receiver("s", &id).unwrap();
+        tokio::time::timeout(Duration::from_secs(20), TerminalService::wait(exit))
+            .await
+            .unwrap()
+            .unwrap();
+        let text = service.output("s", &id).unwrap()["output"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(root.join("inside.txt").exists(), "{text}");
+        assert!(!outside.exists(), "{text}");
+        assert!(text.contains("sibling-hidden"), "{text}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+    #[test]
     fn split_characters_from_different_streams_are_not_corrupted() {
         let mut output = Output {
             bytes: VecDeque::new(),
@@ -93,6 +154,10 @@ pub struct PreparedTerminal {
     executable: PathBuf,
     /// True when `request.command` is a shell line that runs through [`SHELL_LABEL`].
     shell: bool,
+    /// Paths the command names outside the workspace (see `shell_review::outside_paths`).
+    outside: Vec<String>,
+    /// Will run inside the OS sandbox.
+    sandboxed: bool,
 }
 /// The fixed shell used for approved shell lines, as shown in consent.
 #[cfg(unix)]
@@ -128,6 +193,12 @@ pub fn is_shell_line(command: &str, args: &[String]) -> bool {
             || (cfg!(unix) && command.contains('\\')))
 }
 impl PreparedTerminal {
+    pub fn outside(&self) -> &[String] {
+        &self.outside
+    }
+    pub fn sandboxed(&self) -> bool {
+        self.sandboxed
+    }
     /// The exact shell line, when this request runs through the host shell.
     pub fn shell_line(&self) -> Option<&str> {
         self.shell.then_some(self.request.command.as_str())
@@ -256,6 +327,65 @@ pub struct TerminalService {
     workspace: PathBuf,
     maximum_output: usize,
     terminals: HashMap<String, Terminal>,
+    sandbox: Option<PathBuf>,
+}
+
+/// Where a working bubblewrap lives, probed once. `None` off Linux, when it is not
+/// installed, or when it cannot create namespaces here (e.g. inside some containers).
+pub fn sandbox_runner() -> Option<PathBuf> {
+    static RUNNER: OnceLock<Option<PathBuf>> = OnceLock::new();
+    RUNNER
+        .get_or_init(|| {
+            if !cfg!(target_os = "linux") {
+                return None;
+            }
+            let path = crate::registry::resolve_executable("bwrap", None)?;
+            let works = std::process::Command::new(&path)
+                .args([
+                    "--ro-bind",
+                    "/",
+                    "/",
+                    "--dev",
+                    "/dev",
+                    "--die-with-parent",
+                    "--",
+                    "true",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            works.then_some(path)
+        })
+        .clone()
+}
+
+/// bubblewrap arguments that expose system directories read-only, a private `/tmp`, and
+/// only `workspace` writable. The home directory and the rest of the filesystem are absent.
+pub fn sandbox_args(workspace: &Path, cwd: &Path, executable: &Path) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = vec![];
+    const SYSTEM: [&str; 9] = [
+        "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/nix",
+    ];
+    for dir in SYSTEM {
+        // Merged-/usr systems make /bin and friends symlinks; recreate them as links.
+        match std::fs::read_link(dir) {
+            Ok(target) => args.extend(["--symlink".into(), target.into(), dir.into()]),
+            Err(_) => args.extend(["--ro-bind-try".into(), dir.into(), dir.into()]),
+        }
+    }
+    if !executable.starts_with(workspace) && !SYSTEM.iter().any(|dir| executable.starts_with(dir)) {
+        args.extend(["--ro-bind-try".into(), executable.into(), executable.into()]);
+    }
+    for item in ["--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"] {
+        args.push(item.into());
+    }
+    args.extend(["--bind".into(), workspace.into(), workspace.into()]);
+    args.extend(["--chdir".into(), cwd.into()]);
+    args.extend(["--die-with-parent".into(), "--".into()]);
+    args.push(executable.into());
+    args
 }
 impl TerminalService {
     pub fn new(session_id: &str, workspace: &Path, maximum_output: usize) -> Result<Self> {
@@ -267,7 +397,17 @@ impl TerminalService {
             workspace: workspace.canonicalize()?,
             maximum_output,
             terminals: HashMap::new(),
+            sandbox: None,
         })
+    }
+    /// Run approved commands inside bubblewrap when it works on this host. Returns whether
+    /// the sandbox is active.
+    pub fn enable_sandbox(&mut self) -> bool {
+        self.sandbox = sandbox_runner();
+        self.sandbox.is_some()
+    }
+    pub fn sandboxed(&self) -> bool {
+        self.sandbox.is_some()
     }
     /// Canonical workspace root of this session.
     pub fn workspace(&self) -> &Path {
@@ -317,6 +457,20 @@ impl TerminalService {
             .output_byte_limit
             .unwrap_or(self.maximum_output as u64)
             .min(self.maximum_output as u64) as usize;
+        let outside = if is_shell_line(&request.command, &request.args) {
+            crate::shell_review::outside_paths(&request.command, &cwd, &self.workspace)
+        } else {
+            let quoted: Vec<String> = request
+                .args
+                .iter()
+                .map(|arg| format!("'{}'", arg.replace('\'', "'\\''")))
+                .collect();
+            crate::shell_review::outside_paths(
+                &format!("run {}", quoted.join(" ")),
+                &cwd,
+                &self.workspace,
+            )
+        };
         if is_shell_line(&request.command, &request.args) {
             // cmd.exe stops at a line break, so a multi-line command could not run as approved.
             if cfg!(windows) && request.command.contains(['\r', '\n']) {
@@ -328,6 +482,8 @@ impl TerminalService {
                 limit,
                 executable: shell_executable()?,
                 shell: true,
+                outside,
+                sandboxed: self.sandbox.is_some(),
             });
         }
         let program =
@@ -356,6 +512,8 @@ impl TerminalService {
             limit,
             executable,
             shell: false,
+            outside,
+            sandboxed: self.sandbox.is_some(),
         })
     }
     pub fn create_approved(&mut self, prepared: PreparedTerminal) -> Result<Value> {
@@ -377,7 +535,14 @@ impl TerminalService {
         if cwd != prepared.cwd || !cwd.starts_with(&self.workspace) {
             bail!("terminal directory changed while awaiting consent")
         }
-        let mut command = Command::new(&prepared.executable);
+        let mut command = match &self.sandbox {
+            Some(runner) => {
+                let mut command = Command::new(runner);
+                command.args(sandbox_args(&self.workspace, &cwd, &prepared.executable));
+                command
+            }
+            None => Command::new(&prepared.executable),
+        };
         if prepared.shell {
             // The approved line is passed as one argument and never re-parsed by the host.
             #[cfg(unix)]

@@ -1,3 +1,4 @@
+import { moveTo } from './order'
 import { useEffect, useRef, useState } from 'react'
 import type { Host } from './types'
 import { aggregate, STATE_DOT, STATE_LABEL, type Fleet, type FleetEntry } from './fleet'
@@ -19,7 +20,8 @@ export function FeatureTags({ e }: { e?: FleetEntry }) {
 }
 
 /** The top-left corner: the current host, its state, and a popover with every host. */
-export function HostSwitcher({ hosts, current, fleet, onSwitch, onReconnect, onRepair, onSettings, onAdd }: {
+export function HostSwitcher({ waiting, hosts, current, fleet, onSwitch, onReconnect, onRepair, onSettings, onAdd }: {
+  waiting: (hostRef: string) => number
   hosts: Host[]; current?: Host; fleet: Fleet
   onSwitch: (h: Host) => void; onReconnect: (id?: string) => void; onRepair: (h: Host) => void; onSettings: () => void; onAdd: () => void
 }) {
@@ -46,6 +48,7 @@ export function HostSwitcher({ hosts, current, fleet, onSwitch, onReconnect, onR
           <span className={'host-state s-' + st}>{STATE_LABEL[st]}{facts.length ? <span className="host-facts"> · {facts[0]}</span> : null}</span>
         </span>
         {hosts.length > 1 && <span className={'host-count s-' + agg.state} title={agg.label}>{hosts.filter((h) => fleet[h.id]?.state === 'connected').length}/{hosts.length}</span>}
+        {hosts.reduce((n, h) => n + waiting(h.id), 0) > 0 && <span className="badge" title="Waiting for your approval on all hosts">{hosts.reduce((n, h) => n + waiting(h.id), 0)}</span>}
         <span className="chev-ic">{I.down}</span>
       </button>
       {open && (
@@ -61,7 +64,7 @@ export function HostSwitcher({ hosts, current, fleet, onSwitch, onReconnect, onR
                   <button className="host-item-main" onClick={() => { onSwitch(h); setOpen(false) }} title={cur ? 'Current host' : `Switch to ${h.name}`}>
                     <span className={'dot ' + STATE_DOT[s]} />
                     <span className="grow">
-                      <span className="host-item-name">{h.name}{cur && <span className="cur-tag">current</span>}</span>
+                      <span className="host-item-name">{h.name}{cur && <span className="cur-tag">current</span>}{waiting(h.id) > 0 && <span className="badge sm">{waiting(h.id)} waiting</span>}</span>
                       <span className="sub mono ell">{addr(h)}</span>
                       <span className={'host-item-state s-' + s}>{STATE_LABEL[s]}{hostFacts(f).map((x) => <span key={x}> · {x}</span>)}{s !== 'connected' && f?.error ? <span className="err-txt"> · {f.error}</span> : null}</span>
                       <FeatureTags e={f} />
@@ -102,6 +105,14 @@ export function HostsSettings({ hosts, current, fleet, storage, onSwitch, onAdd,
     ;[ids[i], ids[j]] = [ids[j], ids[i]]
     await window.api.hosts.reorder(ids); onChanged()
   }
+  const [drag, setDrag] = useState<string>()
+  const [over, setOver] = useState<string>()
+  const dropOn = async (target: string): Promise<void> => {
+    const from = drag
+    setDrag(undefined); setOver(undefined)
+    if (!from || from === target) return
+    await window.api.hosts.reorder(moveTo(hosts.map((h) => h.id), from, target)); onChanged()
+  }
   const rename = async (h: Host): Promise<void> => {
     const r = await window.api.hosts.rename(h.id, name)
     if (!r.ok) { setErr(r.error); return }
@@ -115,7 +126,7 @@ export function HostsSettings({ hosts, current, fleet, storage, onSwitch, onAdd,
         {hosts.length > 1 && <button className="btn" onClick={() => onReconnect()}>{I.refresh}Reconnect all</button>}
         <button className="btn primary" onClick={onAdd}>{I.plus}Add host</button>
       </div>
-      <div className="sub" style={{ marginBottom: 6 }}>Each host is paired with its own one-use code and keeps its own token. The app connects to all of them at once; the order here is the order in the sidebar.</div>
+      <div className="sub" style={{ marginBottom: 6 }}>Each host is paired with its own one-use code and keeps its own token. The app connects to all of them at once; drag rows to set the order used in the sidebar and switcher.</div>
       <div className={'agg-line s-' + agg.state}><span className={'dot ' + STATE_DOT[agg.state]} />{agg.label}</div>
       {err && <div className="error">{err}</div>}
       {hosts.map((h, i) => {
@@ -124,7 +135,14 @@ export function HostsSettings({ hosts, current, fleet, storage, onSwitch, onAdd,
         const cur = h.id === current?.id
         const store = storage[h.id]
         return (
-          <div className="set-row host-row" key={h.id}>
+          <div className={'set-row host-row' + (drag === h.id ? ' dragging' : '') + (over === h.id && drag !== h.id ? ' drop-target' : '')} key={h.id}
+            draggable={hosts.length > 1 && editing !== h.id}
+            onDragStart={(e) => { setDrag(h.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', h.id) }}
+            onDragOver={(e) => { if (drag) { e.preventDefault(); setOver(h.id) } }}
+            onDragLeave={() => setOver((o) => (o === h.id ? undefined : o))}
+            onDrop={(e) => { e.preventDefault(); void dropOn(h.id) }}
+            onDragEnd={() => { setDrag(undefined); setOver(undefined) }}>
+            {hosts.length > 1 && <span className="drag-grip" title="Drag to reorder">{I.grip}</span>}
             <span className={'dot ' + STATE_DOT[s]} />
             <div style={{ flex: 1, minWidth: 0 }}>
               {editing === h.id
@@ -148,3 +166,4 @@ export function HostsSettings({ hosts, current, fleet, storage, onSwitch, onAdd,
     </>
   )
 }
+

@@ -30,6 +30,29 @@ const api = {
       return () => ipcRenderer.removeListener('session:state', l)
     }
   },
+  watch: {
+    sync: (targets: { hostRef: string; hostName: string; sessionId: string; title: string }[]): Promise<Result<void>> => ipcRenderer.invoke('watch:sync', targets),
+    snapshot: (): Promise<Result<Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string }>>> => ipcRenderer.invoke('watch:snapshot'),
+    focus: (key?: string): Promise<Result<void>> => ipcRenderer.invoke('watch:focus', key),
+    notify: (on: boolean): Promise<Result<void>> => ipcRenderer.invoke('watch:notify', on),
+    approve: (key: string, id: string | number, optionId: string): Promise<Result<void>> => ipcRenderer.invoke('watch:approve', key, id, optionId),
+    onState: (cb: (s: Record<string, { pending: { id: string | number; title: string; allowOnce?: string; lines: string[]; outside: string[] }[]; busy: boolean; conn: string }>) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
+      ipcRenderer.on('watch:state', l)
+      return () => ipcRenderer.removeListener('watch:state', l)
+    },
+    onOpen: (cb: (hostRef: string, sessionId?: string) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, h: string, s?: string): void => cb(h, s)
+      ipcRenderer.on('watch:open', l)
+      return () => ipcRenderer.removeListener('watch:open', l)
+    },
+    onAnswer: (cb: (key: string, id: string | number, optionId: string) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, k: string, id: string | number, o: string): void => cb(k, id, o)
+      ipcRenderer.on('watch:answer', l)
+      return () => ipcRenderer.removeListener('watch:answer', l)
+    }
+  },
+  notify: (title: string, body: string, hostRef: string, sessionId?: string): Promise<Result<void>> => ipcRenderer.invoke('notify:show', title, body, hostRef, sessionId),
   prefs: {
     get: (): Promise<Result<Record<string, unknown>>> => ipcRenderer.invoke('prefs:get'),
     set: (p: Record<string, unknown>): Promise<Result<void>> => ipcRenderer.invoke('prefs:set', p)

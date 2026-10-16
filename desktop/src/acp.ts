@@ -12,6 +12,8 @@ export type PermissionItem = {
   cwd?: string
   options: { optionId: string; name: string; kind?: string }[]
   autoReview?: { decision: string; layer?: string; reason?: string; risk?: string }
+  /** Host scope check: paths named outside the workspace, and whether it runs sandboxed. */
+  scope?: { outside: string[]; sandboxed: boolean; agentTool: boolean }
   answered?: string
   diffs: DiffBlock[]
 }
@@ -166,6 +168,7 @@ export function reduce(t: Timeline, env: Json): Timeline {
       cwd,
       options: (params.options as PermissionItem['options']) ?? [],
       autoReview: meta.acpdAutoReview as PermissionItem['autoReview'],
+      scope: scopeOf(meta.acpdScope, dir !== 'host'),
       diffs: toolContent(tc.content).diffs
     })
     return next
@@ -249,4 +252,12 @@ export function unifiedLines(u: string): DiffLine[] {
     else out.push({ kind: 'ctx', a: a++, b: b++, text: l.slice(1) })
   }
   return out
+}
+
+function scopeOf(v: unknown, agent: boolean): PermissionItem['scope'] {
+  if (!v || typeof v !== 'object') return undefined
+  const o = v as Json
+  const outside = Array.isArray(o.outsideWorkspace) ? (o.outsideWorkspace as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 16) : []
+  // The agent's own tools never run in the host sandbox, whatever the metadata says.
+  return { outside, sandboxed: !agent && o.sandboxed === true, agentTool: agent || o.agentTool === true }
 }

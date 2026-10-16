@@ -454,6 +454,35 @@ fn log_auto_review(auto: &AutoDecision) {
 /// option ids, so an answer meant for a plain command can never approve one; there is
 /// no "always" option. `announce` publishes the tool call first.
 #[allow(clippy::too_many_arguments)]
+/// Agents with their own shell tool ask permission through ACP; when the tool input carries a
+/// command line, mark paths it names outside the workspace so the approval card warns. The
+/// host cannot confine the agent's own tools; this is advisory only.
+fn annotate_agent_scope(message: &mut Value, workspace: &Path) {
+    // An agent cannot supply its own scope verdict.
+    if let Some(meta) = message["params"]["_meta"].as_object_mut() {
+        meta.remove("acpdScope");
+    }
+    let input = &message["params"]["toolCall"]["rawInput"];
+    let Some(line) = ["command", "cmd", "shellLine", "script"]
+        .iter()
+        .find_map(|key| input[*key].as_str())
+    else {
+        return;
+    };
+    let cwd = input["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|cwd| cwd.is_absolute() && cwd.starts_with(workspace))
+        .unwrap_or_else(|| workspace.to_path_buf());
+    let outside = crate::shell_review::outside_paths(line, &cwd, workspace);
+    let params = &mut message["params"];
+    if !params["_meta"].is_object() {
+        params["_meta"] = json!({});
+    }
+    params["_meta"]["acpdScope"] =
+        json!({"outsideWorkspace": outside, "sandboxed": false, "agentTool": true});
+}
+#[allow(clippy::too_many_arguments)]
 fn offer_terminal_consent(
     events: &broadcast::Sender<Weak<Event>>,
     journal: &Arc<Mutex<Journal>>,
@@ -482,6 +511,8 @@ fn offer_terminal_consent(
     if let Some(auto) = auto {
         meta["acpdAutoReview"] = auto.to_json();
     }
+    meta["acpdScope"] =
+        json!({"outsideWorkspace": prepared.outside(), "sandboxed": prepared.sandboxed()});
     let consent = json!({"jsonrpc":"2.0","id":consent_id,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":tool,"_meta":meta,"options":options}});
     let size = consent.to_string().len();
     let inserted = {
@@ -625,6 +656,8 @@ struct ActorContext<'a> {
     files: Option<Arc<WorkspaceFiles>>,
     access: WorkspaceAccess,
     review: Option<Arc<ShellReviewer>>,
+    /// Run host terminals in the OS sandbox when available (agent `sandbox: auto`).
+    sandbox: bool,
 }
 
 impl AcpConnection {
@@ -701,6 +734,7 @@ impl AcpConnection {
         review: Option<Arc<ShellReviewer>>,
     ) -> Result<Self> {
         definition.validate()?;
+        let sandbox = definition.sandbox == crate::registry::Sandbox::Auto;
         let mut command = Command::new(&launch.program);
         command
             .args(&launch.prefix_args)
@@ -739,6 +773,7 @@ impl AcpConnection {
             files,
             access,
             review,
+            sandbox,
         ))
     }
     /// A connection whose agent runs on another host: `reader` yields newline-framed JSON from
@@ -755,8 +790,9 @@ impl AcpConnection {
         R: AsyncRead + Send + Unpin + 'static,
         W: tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
-        Self::start(reader, writer, None, limits, None, access, None)
+        Self::start(reader, writer, None, limits, None, access, None, false)
     }
+    #[allow(clippy::too_many_arguments)]
     fn start<R, W>(
         stdout: R,
         stdin: W,
@@ -765,6 +801,7 @@ impl AcpConnection {
         files: Option<Arc<WorkspaceFiles>>,
         access: WorkspaceAccess,
         review: Option<Arc<ShellReviewer>>,
+        sandbox: bool,
     ) -> Self
     where
         R: AsyncRead + Send + Unpin + 'static,
@@ -831,6 +868,7 @@ impl AcpConnection {
                     files,
                     access,
                     review,
+                    sandbox,
                 },
             )
             .await;
@@ -1091,6 +1129,7 @@ async fn actor(
         files,
         access,
         review,
+        sandbox,
     } = context;
     let mut pending: HashMap<u64, Pending> = HashMap::new();
     let mut next_id = 0u64;
@@ -1111,7 +1150,7 @@ async fn actor(
     let reason = loop {
         tokio::select! {
             received = frames.recv() => {
-                let message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
+                let mut message = match received { Some(Ok(Some((value, size)))) => { log_frame("agent_to_host", &value, size); value },
                     Some(Ok(None)) | None => break "agent stdout closed".into(), Some(Err(_)) => break "malformed or oversized ACP frame".into() };
                 if message.get("method").is_none() {
                     if let Some(id) = message["id"].as_u64()
@@ -1121,6 +1160,7 @@ async fn actor(
                                 else if waiter.method == "session/load" {file_session_id=waiter.session_id.clone();files_ready=file_session_id.is_some();}
                                 if access.terminal && files_ready && terminals.is_none() && let (Some(files),Some(session_id))=(&files,&file_session_id) {
                                     terminals=crate::terminal::TerminalService::new(session_id,files.workspace(),((limits.max_frame_bytes-512)/6).min(65536)).ok();
+                                    if sandbox && let Some(service)=terminals.as_mut() { service.enable_sandbox(); }
                                 }
                             }
                             if waiter.method == "session/prompt" { let _ = busy.send(false); }
@@ -1137,7 +1177,7 @@ async fn actor(
                         waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
                     }
                 }
-                if let Some(id) = message.get("id") {
+                if let Some(id) = message.get("id").cloned() { let id = &id;
                     let denied=match message["method"].as_str() {
                         Some("fs/read_text_file")=>!access.read_files,
                         Some("fs/write_text_file")=>!access.write_files,
@@ -1164,14 +1204,18 @@ async fn actor(
                             match service.prepare(params.clone()) {
                                 Err(error)=>Err(error),Ok(prepared)=> {
                                     let consent_id=json!(format!("acpd-command-{}",uuid::Uuid::new_v4()));
-                                    let rules=review.as_ref().and_then(|reviewer|reviewer.terminal_rules(&prepared,service.workspace()));
+                                    let rules=review.as_ref().and_then(|reviewer|reviewer.terminal_rules(&prepared,service.workspace())).map(|mut verdict|{
+                                        // Naming a path outside the workspace always needs a person.
+                                        if !prepared.outside().is_empty() && verdict.decision!=Decision::Deny {verdict.decision=Decision::Ask;verdict.reason="names paths outside the workspace";verdict.model_may_allow=false;}
+                                        verdict
+                                    });
                                     let decided=rules.as_ref().filter(|verdict|verdict.decision!=Decision::Ask).map(|verdict|AutoDecision{decision:verdict.decision,layer:"rules",reason:verdict.reason.into()});
                                     if let Some(auto)=decided {
                                         let answer=apply_auto_decision(events,journal,service,&mut terminal_tools,&file_session_id,&consent_id,id.clone(),prepared,&auto,true);
                                         if write(stdin,&answer,limits.max_frame_bytes).await.is_err() {break "agent stdin failed".into()}
                                         continue;
                                     }
-                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
+                                    if let (Some(reviewer),Some(verdict),Some(line))=(&review,&rules,prepared.shell_line()) && !prepared.has_environment_overrides() && prepared.outside().is_empty() && reviewer.model_enabled() && reviewing.len()<4 && reviewer.admit_model(line) {
                                         let future=reviewer.model_future(line,&crate::shell_review::relative_cwd(service.workspace(),prepared.cwd()),verdict);
                                         let mut tool=terminal_tool(&prepared,&consent_id);
                                         tool["_meta"]=json!({"acpdAutoReview":{"decision":"reviewing","layer":"model","reason":verdict.reason}});
@@ -1259,6 +1303,7 @@ async fn actor(
                             if write(stdin, &error(id.clone(), -32602, "Invalid permission request"), limits.max_frame_bytes).await.is_err() { break "agent stdin failed".into() }
                             continue;
                         }
+                        if let Some(files)=&files { annotate_agent_scope(&mut message, files.workspace()); }
                         let inserted = {
                             let mut history = journal.lock().unwrap();
                             let key = id.to_string();
@@ -1472,6 +1517,20 @@ async fn actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_permission_scope_is_set_by_the_host_only() {
+        let root = std::env::temp_dir();
+        let mut forged = json!({"params":{"toolCall":{"rawInput":{}},"_meta":{"acpdScope":{"outsideWorkspace":[],"sandboxed":true}}}});
+        annotate_agent_scope(&mut forged, &root);
+        assert!(forged["params"]["_meta"].get("acpdScope").is_none());
+        let mut shell =
+            json!({"params":{"toolCall":{"rawInput":{"command":"cat ~/.ssh/id_rsa && ls"}}}});
+        annotate_agent_scope(&mut shell, &root);
+        assert_eq!(
+            shell["params"]["_meta"]["acpdScope"],
+            json!({"outsideWorkspace":["~/.ssh/id_rsa"],"sandboxed":false,"agentTool":true})
+        );
+    }
     #[test]
     fn elicitation_is_advertised_only_on_opt_in_and_answers_are_checked() {
         let default = WorkspaceAccess::default();

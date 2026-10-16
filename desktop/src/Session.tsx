@@ -38,6 +38,19 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
       {p.lines.length > 0 && (
         <pre className="cmd-block mono">{p.lines.map((l, i) => <div key={i}><span className="prompt">$</span>{l}</div>)}</pre>
       )}
+      {p.scope && p.scope.outside.length > 0 && (
+        <div className="scope-warn" role="alert">
+          {I.alert}
+          <div>
+            <b>Outside the workspace</b>
+            <div className="sub2">
+              {p.scope.outside.map((x) => <span key={x} className="mono chip">{x}</span>)}
+            </div>
+            <div className="sub2">{p.scope.agentTool ? "The agent's own tool runs unconfined; the host can only warn." : p.scope.sandboxed ? 'Runs in the host sandbox: only the workspace is writable and your home folder is hidden.' : 'No OS sandbox on this host: the command can reach these paths.'}</div>
+          </div>
+        </div>
+      )}
+      {p.scope && p.scope.outside.length === 0 && p.scope.sandboxed && <div className="sub2 scope-ok">{I.shield} Sandboxed to the workspace</div>}
       {p.diffs.map((d) => (
         <div style={{ marginTop: 10 }} key={d.path}><DiffView d={d} maxLines={14} /></div>
       ))}

@@ -22,6 +22,16 @@ Form elicitation is off unless the phone opts in per session. It is form mode on
 
 Terminal callbacks require the attached session and a session-owned handle. Creation resolves the executable and requires explicit host consent before launching it with literal arguments. Output, handle count, live process count and runtime are bounded. Cancellation, release and shutdown stop ordinary descendants through the same cleanup guard as agents. Writes and terminal creation during initial session setup are rejected because a controller cannot yet review consent. These restrictions are not an OS sandbox: trusted agents and approved commands run with the operator's privileges. A dedicated service account and OS sandboxing are needed for stronger containment.
 
+## Workspace scope of shell commands
+
+Three layers keep host-run commands to the session workspace. All are agent-agnostic.
+
+1. **Working directory.** `terminal/create` must name a cwd inside the workspace; it is canonicalized before consent and checked again just before the process starts.
+2. **Scope check (always on).** Every host terminal consent carries `_meta.acpdScope {outsideWorkspace: [...], sandboxed}`. The host lists absolute, `~`, `$HOME` and `..` operands (also `--flag=/path`), redirect targets and `cd` targets that resolve outside the workspace, lexically and through symlinks; relative operands after a `cd` out of the workspace also count, and a line that cannot be parsed is listed as `(unparsed command)`. A non-empty list forces a person to decide: auto-review rules cannot allow it and it is never sent to the model reviewer. The same check annotates an agent's own `session/request_permission` when its `rawInput` carries `command`, `cmd`, `shellLine` or `script` (with `agentTool: true`); there it is a warning only, because the host does not run those tools. The desktop approval card shows a red "Outside the workspace" box with the paths, and desktop notifications never offer "Approve once" for such requests.
+3. **OS sandbox (per agent, default on where supported).** See `sandbox` in [agents](agents.md). With bubblewrap, a command that names `/etc/passwd` can still read world-readable system files, but it cannot write outside the workspace or see the home directory.
+
+The scope check is heuristic: it cannot see paths built at run time (`$(...)`, variables other than `HOME`, scripts that open files themselves). The sandbox is the enforcement layer; where it is unavailable, read every command.
+
 ## Shell-line auto-review (opt-in)
 
 Off by default. Without a `[shell_review.<agent-id>]` table that sets `rules = true`, every shell line waits for an explicit phone decision, as described above. When enabled for an agent, each shell line is first classified by a deterministic rules layer and, optionally, by a model reviewer. Plain program terminals (`host-terminal`) are never auto-reviewed.

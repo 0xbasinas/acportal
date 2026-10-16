@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { reduce, emptyTimeline, changedFiles, diffLines, unifiedLines } from '../src/acp'
 import { validateAddress } from '../electron/host'
+import { moveTo } from '../src/order'
 
 const ev = (sequence: number, message: unknown, direction = 'agent') => ({ type: 'event', sequence, direction, message })
 const upd = (update: unknown) => ({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's', update } })
@@ -86,4 +87,26 @@ test('several hosts report the worst state and how many are connected', async ()
   assert.deepEqual(aggregate([h('a'), h('b')], { a: e('connected'), b: e('connected') }), { state: 'connected', label: 'All 2 hosts connected' })
   assert.deepEqual(aggregate([h('a'), h('b')], { a: e('connected'), b: e('offline') }), { state: 'offline', label: '1 of 2 hosts connected' })
   assert.equal(aggregate([h('a')], { a: e('repair') }).label, 'Needs re-pair')
+})
+
+test('scope metadata on permission requests becomes an outside-workspace warning', () => {
+  const req = { jsonrpc: '2.0', id: 'p9', method: 'session/request_permission', params: { toolCall: { title: 'Run', rawInput: { shellLine: 'cat /etc/passwd' } }, options: [], _meta: { acpdSource: 'host-shell-command', acpdScope: { outsideWorkspace: ['/etc/passwd', 7], sandboxed: true } } } }
+  const t = reduce(emptyTimeline(), ev(1, req, 'host'))
+  const p = t.items.find((i) => i.kind === 'permission')
+  assert.ok(p && p.kind === 'permission')
+  assert.deepEqual(p.scope, { outside: ['/etc/passwd'], sandboxed: true, agentTool: false })
+  // An agent-direction request can never claim the host sandbox.
+  const forged = reduce(emptyTimeline(), ev(1, req)).items.find((i) => i.kind === 'permission')
+  assert.ok(forged && forged.kind === 'permission')
+  assert.deepEqual(forged.scope, { outside: ['/etc/passwd'], sandboxed: false, agentTool: true })
+  const plain = reduce(emptyTimeline(), ev(1, { ...req, id: 'p10', params: { ...req.params, _meta: {} } }))
+  const q = plain.items.find((i) => i.kind === 'permission')
+  assert.ok(q && q.kind === 'permission' && q.scope === undefined)
+})
+
+test('drag reorder moves a host onto the target position', () => {
+  assert.deepEqual(moveTo(['a', 'b', 'c', 'd'], 'a', 'c'), ['b', 'c', 'a', 'd'])
+  assert.deepEqual(moveTo(['a', 'b', 'c', 'd'], 'd', 'b'), ['a', 'd', 'b', 'c'])
+  assert.deepEqual(moveTo(['a', 'b'], 'a', 'a'), ['a', 'b'])
+  assert.deepEqual(moveTo(['a', 'b'], 'x', 'a'), ['a', 'b'])
 })

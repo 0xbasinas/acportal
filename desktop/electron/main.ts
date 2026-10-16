@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { request, validateAddress, SessionSocket, HostError } from './host'
 import { sealWithFileKey, openWithFileKey } from './secrets'
 import { registerGit } from './git'
+import { Watcher, type WatchTarget } from './watch'
+import { Notification } from 'electron'
 import { dialog } from 'electron'
 import { readFile, stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
@@ -97,6 +99,7 @@ function wrap<A extends unknown[], R>(fn: (...a: A) => Promise<R> | R) {
 }
 
 const sockets = new Map<string, SessionSocket>()
+const watcher = new Watcher(() => win, (ref) => { const h = host(ref); return { address: h.address, token: unseal(h) } })
 
 function registerIpc(): void {
   ipcMain.handle('app:get-version', () => app.getVersion())
@@ -183,6 +186,17 @@ function registerIpc(): void {
       return key
     })
   )
+  ipcMain.handle('watch:sync', wrap((targets: WatchTarget[]) => watcher.sync(targets)))
+  ipcMain.handle('watch:snapshot', wrap(() => watcher.snapshot()))
+  ipcMain.handle('watch:focus', wrap((key?: string) => watcher.focus(key)))
+  ipcMain.handle('watch:notify', wrap((on: boolean) => watcher.setNotify(on)))
+  ipcMain.handle('watch:approve', wrap((key: string, id: string | number, optionId: string) => watcher.approve(key, id, optionId)))
+  ipcMain.handle('notify:show', wrap((title: string, body: string, hostRef: string, sessionId?: string) => {
+    if (!Notification.isSupported() || win?.isFocused()) return
+    const n = new Notification({ title, body })
+    n.on('click', () => { if (!win) return; win.show(); win.focus(); win.webContents.send('watch:open', hostRef, sessionId) })
+    n.show()
+  }))
   ipcMain.handle('session:send', wrap((key: string, msg: unknown) => {
     const s = sockets.get(key)
     if (!s) throw new Error('Not attached')
@@ -270,6 +284,7 @@ function createWindow(): void {
   if (!app.isPackaged && devUrl) void win.loadURL(devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
   win.on('closed', () => {
+    watcher.closeAll()
     for (const s of sockets.values()) s.close()
     sockets.clear()
     win = null

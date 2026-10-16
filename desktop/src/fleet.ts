@@ -2,7 +2,7 @@
 // new-session dialog can show all of them at once. The active host keeps its own faster loop
 // in App (timelines, tasks); this one only needs status, agents, folders and sessions.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentInfo, Host, HostStatus, SessionInfo, Workspace } from './types'
+import type { AgentInfo, Host, HostStatus, SessionInfo, Task, Workspace } from './types'
 
 export type HostState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'repair'
 export type FleetEntry = {
@@ -12,6 +12,7 @@ export type FleetEntry = {
   agents: AgentInfo[]
   sessions: SessionInfo[]
   workspaces: Workspace[]
+  tasks?: Task[]
   error?: string
   failures: number
   checkedAt?: number
@@ -35,10 +36,11 @@ export async function probe(h: Host, prev: FleetEntry = EMPTY): Promise<FleetEnt
     const wasUp = prev.state === 'connected' || prev.state === 'reconnecting'
     return { ...prev, state: wasUp && failures <= GRACE ? 'reconnecting' : 'offline', error: s.error, failures, checkedAt: Date.now(), latency: undefined }
   }
-  const [a, w, ss] = await Promise.all([call<AgentInfo[]>(h.id, '/v1/agents'), call<Workspace[]>(h.id, '/v1/workspaces'), call<SessionInfo[]>(h.id, '/v1/sessions')])
+  const [a, w, ss, tk] = await Promise.all([call<AgentInfo[]>(h.id, '/v1/agents'), call<Workspace[]>(h.id, '/v1/workspaces'), call<SessionInfo[]>(h.id, '/v1/sessions'),
+    s.value.features?.includes('orchestrator') ? call<Task[]>(h.id, '/v1/tasks') : Promise.resolve(undefined)])
   return {
     state: 'connected', latency, status: s.value, failures: 0, checkedAt: Date.now(),
-    agents: a.ok ? a.value : prev.agents, workspaces: w.ok ? w.value : prev.workspaces, sessions: ss.ok ? ss.value : prev.sessions
+    agents: a.ok ? a.value : prev.agents, workspaces: w.ok ? w.value : prev.workspaces, sessions: ss.ok ? ss.value : prev.sessions, tasks: tk && tk.ok ? tk.value : prev.tasks
   }
 }
 
