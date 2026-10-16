@@ -16,9 +16,9 @@ async function sendPrompt(hostId: string, s: { id: string; acpSessionId: string 
   return r.ok && r.value
 }
 
-export function MultiRunDialog({ hostId, agents, workspaces, onClose, onStarted }: { hostId: string; agents: AgentInfo[]; workspaces: Workspace[]; onClose: () => void; onStarted: (r: Run) => void }) {
+export function MultiRunDialog({ hostId, agents, workspaces, initialPrompt, onClose, onStarted }: { hostId: string; agents: AgentInfo[]; workspaces: Workspace[]; initialPrompt?: string; onClose: () => void; onStarted: (r: Run) => void }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const [root, setRoot] = useState(workspaces[0]?.path ?? '')
   const [sub, setSub] = useState('')
   const [base, setBase] = useState('')
