@@ -14,12 +14,13 @@ data class SessionListSummary(val title: String, val activity: SessionActivityTi
 
 fun sessionKey(stored: StoredSession) = "${stored.hostId}/${stored.id}"
 
+const val SESSION_TITLE_PLACEHOLDER = "Agent session"
 fun sessionListSummary(stored: StoredSession, info: SessionInfo = storedSessionInfo(stored)): SessionListSummary {
     val cached = storedSessionState(stored)
     val texts = cached.items.asSequence().filterIsInstance<TimelineItem.Text>()
     val title = cached.sessionInfo["title"].text().takeIf { it.isNotBlank() }?.lineSequence()?.firstOrNull()?.take(64)
         ?: texts.firstOrNull { it.role == "user" }?.text?.lineSequence()?.firstOrNull()?.take(64)
-        ?: "Agent session"
+        ?: SESSION_TITLE_PLACEHOLDER
     val search = StringBuilder()
     for (part in sequenceOf(info.workspace, info.agentId, title) + texts.map { it.text }) {
         if (search.length >= SESSION_SEARCH_MAX_CHARS) break

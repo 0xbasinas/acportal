@@ -75,6 +75,7 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     /** Drafts, titles and folder prompt history shared with the desktop (host feature `sharedDrafts`). */
     suspend fun shared(host:HostProfile): JsonObject = execute(host.address,"/v1/shared",vault.read(host.credentialAlias)).jsonObject
     suspend fun putDraft(host:HostProfile,id:String,text:String) { execute(host.address,"/v1/shared/drafts/$id",vault.read(host.credentialAlias),buildJsonObject {put("text",text)},"PUT") }
+    suspend fun putTitle(host:HostProfile,id:String,title:String) { execute(host.address,"/v1/shared/titles/$id",vault.read(host.credentialAlias),buildJsonObject {put("title",title)},"PUT") }
     suspend fun addHistory(host:HostProfile,workspace:String,text:String) { execute(host.address,"/v1/shared/history",vault.read(host.credentialAlias),buildJsonObject {put("workspace",workspace);put("text",text)},"POST") }
     fun token(host:HostProfile): String = vault.read(host.credentialAlias)
 }
