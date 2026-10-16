@@ -96,7 +96,7 @@ mod tests {
             ("inner-direct-nowindow", inner.clone(), 0x0800_0000),
         ] {
             let mut bad = vec![];
-            for i in 0..50 {
+            for i in 0..5 {
                 let (code, out, err, ms) = direct(&exe, flags, line);
                 if !out.contains("bash-42") {
                     bad.push(format!(
@@ -107,41 +107,79 @@ mod tests {
             report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
             println!("{report}");
         }
-        let mut service = TerminalService::new("s", &root, 8192).unwrap();
-        service.set_shell(crate::shell::ShellChoice::Bash);
-        for (name, line) in [
-            ("service-cat", line),
-            ("service-echo", "echo bash-42"),
-            (
-                "service-cat-true",
-                "echo \"bash-$((40+2))\" > out.txt; cat out.txt; true",
-            ),
-        ] {
-            let mut bad = vec![];
-            for i in 0..50 {
-                let t = std::time::Instant::now();
-                let prepared = service
-                    .prepare(serde_json::json!({"sessionId":"s","command":line}))
-                    .unwrap();
-                let created = service.create_approved(prepared).unwrap();
-                let id = created["terminalId"].as_str().unwrap().to_owned();
-                let exit = service.exit_receiver("s", &id).unwrap();
-                let status = TerminalService::wait(exit).await.unwrap();
-                let text = service.output("s", &id).unwrap()["output"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned();
-                let _ = service.release("s", &id).await;
-                if !text.contains("bash-42") {
-                    bad.push(format!(
-                        "#{i} status={status} ms={} text={text:?}",
-                        t.elapsed().as_millis()
-                    ))
+        // Concurrent: several services at once, like parallel tests.
+        let mut tasks = vec![];
+        for k in 0..6 {
+            let dir = base.join(format!("ws{k}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let line = line.to_owned();
+            tasks.push(tokio::spawn(async move {
+                let mut service = TerminalService::new("s", &dir, 8192).unwrap();
+                service.set_shell(crate::shell::ShellChoice::Bash);
+                let mut bad = vec![];
+                for i in 0..25 {
+                    let t = std::time::Instant::now();
+                    let prepared = service
+                        .prepare(serde_json::json!({"sessionId":"s","command":line}))
+                        .unwrap();
+                    let created = service.create_approved(prepared).unwrap();
+                    let id = created["terminalId"].as_str().unwrap().to_owned();
+                    let exit = service.exit_receiver("s", &id).unwrap();
+                    let status = TerminalService::wait(exit).await.unwrap();
+                    let text = service.output("s", &id).unwrap()["output"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned();
+                    let _ = service.release("s", &id).await;
+                    if !text.contains("bash-42") {
+                        bad.push(format!(
+                            "k{k}#{i} status={status} ms={} text={text:?}",
+                            t.elapsed().as_millis()
+                        ));
+                    }
                 }
-            }
-            report += &format!("{name}: {} bad {:?}\n", bad.len(), bad);
-            println!("{report}");
+                bad
+            }));
         }
+        let mut bad = vec![];
+        for t in tasks {
+            bad.extend(t.await.unwrap());
+        }
+        report += &format!("service-concurrent: {} bad of 150 {:?}\n", bad.len(), bad);
+        // Concurrent direct runs (threads), no job object.
+        let handles: Vec<_> = (0..6)
+            .map(|k| {
+                let dir = base.join(format!("ws{k}"));
+                let bash = bash.clone();
+                let line = line.to_owned();
+                std::thread::spawn(move || {
+                    let mut bad = vec![];
+                    for i in 0..25 {
+                        let out = std::process::Command::new(&bash)
+                            .args(["--noprofile", "--norc", "-c", &line])
+                            .current_dir(&dir)
+                            .stdin(Stdio::null())
+                            .creation_flags(0x0800_0000)
+                            .output()
+                            .unwrap();
+                        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+                        if !text.contains("bash-42") {
+                            bad.push(format!(
+                                "k{k}#{i} code={:?} out={text:?} err={:?}",
+                                out.status.code(),
+                                String::from_utf8_lossy(&out.stderr)
+                            ));
+                        }
+                    }
+                    bad
+                })
+            })
+            .collect();
+        let mut bad = vec![];
+        for h in handles {
+            bad.extend(h.join().unwrap());
+        }
+        report += &format!("direct-concurrent: {} bad of 150 {:?}\n", bad.len(), bad);
         let _ = std::fs::remove_dir_all(&base);
         panic!("DIAG\n{report}");
     }
