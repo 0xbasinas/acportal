@@ -68,6 +68,14 @@ mod tests {
     }
     #[cfg(windows)]
     async fn run_line(service: &mut TerminalService, line: &str) -> (PreparedInfo, String) {
+        let (info, text, _) = run_line_status(service, line).await;
+        (info, text)
+    }
+    #[cfg(windows)]
+    async fn run_line_status(
+        service: &mut TerminalService,
+        line: &str,
+    ) -> (PreparedInfo, String, serde_json::Value) {
         let prepared = service
             .prepare(serde_json::json!({"sessionId":"s","command":line}))
             .unwrap();
@@ -78,7 +86,7 @@ mod tests {
         let created = service.create_approved(prepared).unwrap();
         let id = created["terminalId"].as_str().unwrap().to_owned();
         let exit = service.exit_receiver("s", &id).unwrap();
-        tokio::time::timeout(Duration::from_secs(60), TerminalService::wait(exit))
+        let status = tokio::time::timeout(Duration::from_secs(60), TerminalService::wait(exit))
             .await
             .unwrap()
             .unwrap();
@@ -86,7 +94,7 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        (info, text)
+        (info, text, status)
     }
     #[cfg(windows)]
     struct PreparedInfo {
@@ -179,13 +187,23 @@ mod tests {
         assert!(text.contains("ps-ok"), "{text}");
         if crate::shell::windows_find_bash_for_tests().is_some() {
             service.set_shell(crate::shell::ShellChoice::Bash);
-            let (info, text) = run_line(
-                &mut service,
-                "echo \"bash-$((40+2))\" > out.txt; cat out.txt",
-            )
-            .await;
-            assert_eq!((info.shell.as_deref(), info.note), (Some("bash"), None));
-            assert!(text.contains("bash-42"), "{text}");
+            // Git Bash (MSYS2) sometimes fails to start while the suite runs many tests at once
+            // and then prints nothing. The cause was never reproduced, so allow one more try and
+            // report every attempt's exit status and output if both come back wrong.
+            let line = "echo \"bash-$((40+2))\" > out.txt; cat out.txt";
+            let mut attempts = Vec::new();
+            for _ in 0..2 {
+                let (info, text, status) = run_line_status(&mut service, line).await;
+                assert_eq!((info.shell.as_deref(), info.note), (Some("bash"), None));
+                let good = text.contains("bash-42");
+                attempts.push(format!("status {status} output {text:?}"));
+                if good {
+                    break;
+                }
+                if attempts.len() == 2 {
+                    panic!("bash printed nothing useful twice: {attempts:#?}");
+                }
+            }
             if let Some(launcher) = launcher_for_tests() {
                 // Sandboxed: bash is replaced by PowerShell, with a note on the card.
                 service.sandbox = Some(launcher);
