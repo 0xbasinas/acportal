@@ -32,6 +32,10 @@ struct Options {
     /// Path named in that request's rawInput (default `example.rs`).
     #[arg(long, default_value = "example.rs")]
     permission_path: String,
+    /// Text for the request's rawInput `content` (default none): with it the request looks like a
+    /// file write from the agent's own tool.
+    #[arg(long, default_value = "")]
+    permission_content: String,
     /// A prompt that says nothing and never ends on its own (it still ends if cancelled).
     #[arg(long)]
     stall_prompt: bool,
@@ -260,6 +264,7 @@ async fn main() -> anyhow::Result<()> {
                 let delay = options.delay_ms;
                 let permission_kind = options.permission_kind.clone();
                 let permission_path = options.permission_path.clone();
+                let permission_content = options.permission_content.clone();
                 let terminal_delay = options.terminal_exit_delay_ms;
                 let usage = (options.usage_cost >= 0.0)
                     .then(|| (options.usage_cost, options.usage_currency.clone()));
@@ -282,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
                             &session,
                             &permission_id,
                             delay,
-                            (&permission_kind, &permission_path),
+                            (&permission_kind, &permission_path, &permission_content),
                             usage
                                 .as_ref()
                                 .map(|(amount, currency)| (*amount, currency.as_str())),
@@ -485,13 +490,22 @@ async fn terminal_turn(
     update(out,session,json!({"sessionUpdate":"tool_call_update","toolCallId":format!("native-terminal-{token}"),"status":if exit["exitCode"]==0 {"completed"}else{"failed"}})).await?;
     Ok(())
 }
+/// What the request's rawInput holds: the path, and the content when one was asked for.
+fn raw_input(path: &str, content: &str) -> Value {
+    if content.is_empty() {
+        json!({"path": path})
+    } else {
+        json!({"path": path, "content": content})
+    }
+}
+
 async fn turn(
     out: &mpsc::Sender<Value>,
     waiters: &PermissionWaiters,
     session: &str,
     permission_id: &str,
     delay: u64,
-    (kind, path): (&str, &str),
+    (kind, path, content): (&str, &str, &str),
     usage: Option<(f64, &str)>,
 ) -> anyhow::Result<bool> {
     if let Some((amount, currency)) = usage {
@@ -520,7 +534,7 @@ async fn turn(
         .await
         .insert(json!(permission_id).to_string(), decision);
     out.send(json!({"jsonrpc":"2.0","id":permission_id,"method":"session/request_permission","params":{
-        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":kind,"rawInput":{"path":path}},
+        "sessionId":session,"toolCall":{"toolCallId":"edit-1","title":"Propose a mock file change","kind":kind,"rawInput":raw_input(path, content)},
         "options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}})).await?;
     let decision = result.await?;
     if decision["outcome"]["outcome"] == "cancelled" {

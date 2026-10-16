@@ -340,7 +340,7 @@ async fn escalating_phone(
 #[tokio::test]
 #[ignore = "uses a real Goose and real model requests; see the file comment"]
 async fn goose_supervisor_trial() {
-    supervisor_trial("", "TRIAL-REPORT").await;
+    supervisor_trial("", "TRIAL-REPORT", false).await;
 }
 
 #[tokio::test]
@@ -349,11 +349,26 @@ async fn goose_supervisor_trial_with_write_rights() {
     supervisor_trial(
         " and rights {\"read\": true, \"write\": true}",
         "TRIAL-REPORT-WRITE",
+        false,
     )
     .await;
 }
 
-async fn supervisor_trial(rights_clause: &str, label: &str) {
+/// The same task with the host-side auto-approve on for the worker (a git repository, so the
+/// worker runs in a task worktree, which is what the default policy requires): nobody should be
+/// asked, the supervisor and the phone alike.
+#[tokio::test]
+#[ignore = "uses a real Goose and real model requests; see the file comment"]
+async fn goose_auto_approve_trial() {
+    supervisor_trial(
+        " and rights {\"read\": true, \"write\": true}",
+        "TRIAL-REPORT-AUTO",
+        true,
+    )
+    .await;
+}
+
+async fn supervisor_trial(rights_clause: &str, label: &str, auto: bool) {
     assert!(
         std::env::var_os("OPENAI_API_KEY").is_some(),
         "set OPENAI_API_KEY in the environment for the provider (not in a file)"
@@ -361,7 +376,34 @@ async fn supervisor_trial(rights_clause: &str, label: &str) {
     let workspace = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(workspace.path().join("sub")).unwrap();
     let state = tempfile::tempdir().unwrap();
-    let config = Config {
+    if auto {
+        // A repository with a commit, so a writer's task gets its own worktree.
+        std::fs::write(workspace.path().join("sub").join("README.md"), "project\n").unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "core.autocrlf", "false"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "first",
+            ],
+        ] {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(workspace.path())
+                .args(&args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+    }
+    let mut config = Config {
         workspace_roots: vec![workspace.path().into()],
         runtime: RuntimeConfig {
             request_timeout_seconds: 300,
@@ -379,6 +421,17 @@ async fn supervisor_trial(rights_clause: &str, label: &str) {
         },
         ..Default::default()
     };
+    if auto {
+        config.state_directory = state.path().to_path_buf();
+        config.auto_approve.insert(
+            "worker".into(),
+            acpd::auto_approve::AutoApproveConfig {
+                max_risk: acpd::auto_approve::AutoRisk::Medium,
+                own_edit_shape: true,
+                ..Default::default()
+            },
+        );
+    }
     let registry =
         Registry::parse(&serde_json::to_string(&vec![agent("goose"), agent("worker")]).unwrap())
             .unwrap();
@@ -477,11 +530,24 @@ async fn supervisor_trial(rights_clause: &str, label: &str) {
     }
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let file = workspace.path().join("sub").join("hello.txt");
+    // A completed task keeps its worktree (a follow-up may come), so the file is still there.
+    let branch_file = auto.then(|| {
+        let root = state.path().join("worktrees");
+        let found = std::fs::read_dir(&root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("sub").join("hello.txt"))
+            .find(|path| path.is_file());
+        json!({"in_a_task_worktree": found.is_some(),
+               "content": found.and_then(|path| std::fs::read_to_string(path).ok())})
+    });
     let report = json!({
         "outcome": outcome,
         "seconds": begun.elapsed().as_secs_f32(),
         "file_exists": file.exists(),
         "file_content": std::fs::read_to_string(&file).ok(),
+        "branch_file": branch_file,
         "parent": digest(&root),
         "workers": workers,
         "auto_review_events": reviews,

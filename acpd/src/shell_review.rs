@@ -129,31 +129,28 @@ fn default_line_bytes() -> usize {
 const RETIRED_DEEPSEEK_MODELS: [&str; 3] =
     ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"];
 
-impl ShellReviewConfig {
-    pub fn validate(&self) -> Result<()> {
-        let Some(model) = &self.model else {
-            return Ok(());
-        };
-        if !self.rules {
-            bail!("shell_review model requires rules = true")
-        }
-        let url = reqwest::Url::parse(&model.base_url).context("shell_review base_url")?;
+impl ModelReviewConfig {
+    /// `label` names the setting in messages (`shell_review`, `auto_approve.<agent>`).
+    pub fn validate(&self, label: &str) -> Result<()> {
+        let model = self;
+        let url =
+            reqwest::Url::parse(&model.base_url).with_context(|| format!("{label} base_url"))?;
         let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
         if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
-            bail!("shell_review base_url must use https (http only for loopback)")
+            bail!("{label} base_url must use https (http only for loopback)")
         }
         if !url.username().is_empty() || url.password().is_some() {
-            bail!("shell_review base_url must not contain credentials")
+            bail!("{label} base_url must not contain credentials")
         }
         if model.model.trim().is_empty() || model.model.len() > 128 {
-            bail!("shell_review model name is required")
+            bail!("{label} model name is required")
         }
         if url
             .host_str()
             .is_some_and(|host| host.ends_with("deepseek.com"))
             && RETIRED_DEEPSEEK_MODELS.contains(&model.model.as_str())
         {
-            bail!("shell_review model is a retired DeepSeek model; use deepseek-flash")
+            bail!("{label} model is a retired DeepSeek model; use deepseek-flash")
         }
         if model.api_key_env.is_empty()
             || model.api_key_env.len() > 128
@@ -162,18 +159,30 @@ impl ShellReviewConfig {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         {
-            bail!("shell_review api_key_env must be an environment variable name")
+            bail!("{label} api_key_env must be an environment variable name")
         }
         if !(1..=60).contains(&model.timeout_seconds) {
-            bail!("shell_review timeout_seconds must be 1..60")
+            bail!("{label} timeout_seconds must be 1..60")
         }
         if !(1..=60).contains(&model.max_requests_per_minute) {
-            bail!("shell_review max_requests_per_minute must be 1..60")
+            bail!("{label} max_requests_per_minute must be 1..60")
         }
         if !(64..=8192).contains(&model.max_command_bytes) {
-            bail!("shell_review max_command_bytes must be 64..8192")
+            bail!("{label} max_command_bytes must be 64..8192")
         }
         Ok(())
+    }
+}
+
+impl ShellReviewConfig {
+    pub fn validate(&self) -> Result<()> {
+        let Some(model) = &self.model else {
+            return Ok(());
+        };
+        if !self.rules {
+            bail!("shell_review model requires rules = true")
+        }
+        model.validate("shell_review")
     }
 }
 

@@ -126,6 +126,7 @@ class PortalRepository(
     private suspend fun savedHost(hostId:String)=dao.host(hostId) ?: error("Host is no longer saved")
     suspend fun tasks(hostId:String):List<TaskSummary> = withContext(Dispatchers.IO) {api.tasks(savedHost(hostId))}
     suspend fun task(hostId:String,id:String):TaskDetail = withContext(Dispatchers.IO) {api.task(savedHost(hostId),id)}
+    suspend fun discardTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.discardTask(savedHost(hostId),id)}
     suspend fun mergeTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.mergeTask(savedHost(hostId),id)}
     suspend fun cancelTask(hostId:String,id:String) = withContext(Dispatchers.IO) {api.cancelTask(savedHost(hostId),id)}
     suspend fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = withContext(Dispatchers.IO) {api.setTaskSupervision(savedHost(hostId),id,paused)}

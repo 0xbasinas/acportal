@@ -10,6 +10,24 @@
 - 15 October 2026: live approvals across hosts, workspace scope checks, bubblewrap sandbox, drag reorder (`ced3af6`).
 - Earlier on the branch: multi-host desktop, UI overhaul, scoped `/v1/git`, session branch/worktree, form questions, attachments, prompt history, MCP and agent editing, git view with Learn mode (`6f55ca2` and before).
 
+## 15 October 2026 host-side auto-approve
+
+- New `[auto_approve.<agent>]` ([design section 32](docs/orchestrator-design.md#32-host-side-auto-approve-15-october-2026)): the host answers allow-once to safe permission requests (reads, in-folder edits within the size limit) by the supervisor's classifier, never refuses, applies by default only to sessions in a task worktree, optional model that can only make it stricter; own-tool write requests qualify with `own_edit_shape`. 12 unit + 9 integration + 1 orchestrator tests, 14 guards mutation-checked. A real Goose in a worktree: both its write gate and the host's write consent answered by the rules, no phone entry for the worker, 17 s (was 55-80 s). One run, Windows.
+
+## 15 October 2026 worktree gaps and peer-link reconnect
+
+- Worktree gaps ([design section 31](docs/orchestrator-design.md#31-worktree-gaps-closed-and-a-lost-peer-link-is-resumed-15-october-2026)): `max_task_branches` cap counted from git, discard from the phone (forced, ends the agent), merge-conflict command on the phone, submodule repositories refused. Host tests, phone JVM tests (106 app, 76 core) and lint pass; every guard mutation-checked.
+- Peer-link reconnect: a lost socket is replaced behind the actor with reattach, deduplicated replay and exactly-once resend (opt-in `acpdSeq`/`acpdReceived`); 22 integration and 9 unit tests, nine mutations caught. Windows only, loopback only.
+
+## 15 October 2026 dependency review, outbox test, two untested bits
+
+- `tokio-tungstenite`/TLS review ([design section 30](docs/orchestrator-design.md#30-dependency-review-of-the-websocket-stack-and-the-outbox-guard-15-october-2026)): RustSec checked for every crate on the path; `rustls` 0.23.45 was in the range of four advisories published 14 October (none applies here); `Cargo.lock` now has 0.23.46. New `bridge_send_timeout_seconds`; the bridge cut-off test now fails when the outbox-full signal is removed (the lag signal beside it is still untested).
+- Merge-conflict response (20-file cap) and the phone's merge-then-refresh are now functions with tests; mutation-checked. CI at `a58256e`: Rust (Linux stable, 1.88, Windows, testy) and Android debug build + JVM tests pass. Penpot boards 53 and 54 not touched: Penpot was not connected.
+
+## 14 October 2026 review fixes for orchestrator phases 4-5
+
+- Reviewed `d1d52b3`..`f123159`. Local Windows: fmt, strict Clippy, whole-workspace Rust tests, Android build, 76 core + 95 app JVM tests and lint all pass at `f123159`. Fixed and tested (mutation-checked): start-up stall on a stuck worktree, supervisor refusal using `reject_always`, merge-conflict file list and notice on the phone, `ownTools` documentation, worktree safety comment. See [design section 29](docs/orchestrator-design.md#29-review-fixes-14-october-2026). Not run: a device, instrumented tests, Linux/macOS CI for `f123159` and later.
+
 ## 13 October 2026 orchestrator experiment (branch `experiment/orchestrator`, draft PR #45)
 
 - 14 October 2026: [Rust run 38578927776](https://github.com/0xbasinas/acportal/actions/runs/38578927776) at `eb8f409` passes every job with the extras on: Linux stable and 1.88, Windows, macOS, container smoke and Windows reproducibility; this covers the phone merge on Windows and macOS. Docs synced the same day (TODO, HANDOFF, AGENTS, README, design sections 16-27, runbook §9, PR #45 description).

@@ -1070,17 +1070,22 @@ async fn peer_info_is_not_found_when_the_bridge_is_off() {
 
 #[tokio::test]
 async fn a_peer_that_stops_reading_is_cut_off_and_can_reattach() {
-    let h = Harness::start().await;
+    // Everything else that could end this connection is set out of reach: a 10-minute send
+    // timeout and a 2-minute ping (so six minutes of silence). What is left is the full outbox.
+    let h = Harness::start_with(|config| {
+        config.orchestrator.bridge_send_timeout_seconds = 600;
+        config.orchestrator.bridge_ping_seconds = 120;
+    })
+    .await;
     let (token, _) = h.pair(Role::Peer, "Laptop").await;
     let mut c = h.peer(&token).await;
     let session = c.new_session().await;
     let id = h.host.sessions.list().await[0].id;
     let host_session = h.host.sessions.get(id).await.unwrap();
-    // The peer reads nothing while the agent streams far more (300 x 256 KiB) than the socket and
-    // the 256-frame outbox can hold. Two guards can end this: the full outbox (immediately) and a
-    // 5 s send timeout on the socket. In a debug build the flood is slower than 5 s, so this test
-    // cannot tell them apart (a mutation run showed it passes with the outbox signal removed); it
-    // pins the behavior: a peer that stops reading is cut off, not buffered for without bound.
+    // The peer reads nothing while the agent streams far more (300 x 256 KiB) than the socket
+    // buffers and the 256-frame outbox can hold. With the other limits out of reach, only the
+    // outbox filling can cut it off (a mutation run removing that signal makes this test fail:
+    // the socket then stays open and the read below waits out its deadline).
     let text = "z".repeat(256 * 1024);
     for _ in 0..300 {
         host_session
@@ -1138,5 +1143,83 @@ async fn a_peer_that_floods_messages_is_closed_with_rate_limited() {
         }
     }
     assert_eq!(closed, Some((1008, "rate_limited".to_owned())));
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn journal_sequence_numbers_go_only_to_a_client_that_asks_and_survive_a_reattach() {
+    let h = Harness::start().await;
+    let (token, _) = h.pair(Role::Peer, "Laptop").await;
+
+    // A client that does not ask sees nothing new anywhere.
+    let mut plain = h.peer(&token).await;
+    let session = plain.new_session().await;
+    plain.prompt(&session).await;
+    plain.wait_for(is_permission).await;
+    assert!(
+        plain
+            .seen
+            .iter()
+            .all(|frame| frame.get("acpdSeq").is_none()),
+        "a plain client got a sequence number"
+    );
+    drop(plain);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    h.stop().await;
+
+    // One that asks gets them: on forwarded frames, with the starting position in the answer to
+    // session/new, and the same numbers again when it reattaches.
+    let h = Harness::start().await;
+    let (token, _) = h.pair(Role::Peer, "Laptop").await;
+    let ask =
+        json!({"protocolVersion": 1, "clientCapabilities": {}, "_meta": {"acpdReattach": true}});
+    let mut c = h.connect(&token).await;
+    let init = c.call("initialize", ask.clone()).await;
+    assert_eq!(init["result"]["_meta"]["acpdReattach"], true, "{init}");
+    let created = c
+        .call(
+            "session/new",
+            json!({"cwd": "/ignored", "mcpServers": [], "_meta": {"acpdWorkspace": "shared"}}),
+        )
+        .await;
+    let session = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    let start = created["result"]["_meta"]["acpdSeq"]
+        .as_u64()
+        .expect("a starting position");
+    c.prompt(&session).await;
+    let request = c.wait_for(is_permission).await;
+    let first = request["acpdSeq"]
+        .as_u64()
+        .expect("the request is numbered");
+    assert!(first > start, "{first} after {start}");
+    let numbers: Vec<u64> = c
+        .seen
+        .iter()
+        .chain(std::iter::once(&request))
+        .filter_map(|frame| frame["acpdSeq"].as_u64())
+        .collect();
+    assert!(
+        numbers.len() >= 2 && numbers.windows(2).all(|w| w[0] < w[1]),
+        "{numbers:?}"
+    );
+    drop(c);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let mut again = h.connect(&token).await;
+    again.call("initialize", ask).await;
+    let load = again
+        .call(
+            "session/load",
+            json!({"sessionId": session, "cwd": "/x", "mcpServers": []}),
+        )
+        .await;
+    assert!(load["result"].is_object(), "{load}");
+    // Replayed frames keep the numbers they had, so a client can tell what it already holds.
+    let replayed = again
+        .seen
+        .iter()
+        .find(|f| f["id"] == request["id"])
+        .expect("request replayed");
+    assert_eq!(replayed["acpdSeq"], request["acpdSeq"]);
     h.stop().await;
 }

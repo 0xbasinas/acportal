@@ -125,7 +125,8 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         val detail=taskId?.let {repository.task(hostId,it)}
         tasks.update {it.copy(tasks=list,detail=detail)}
     }
-    fun mergeTask(hostId:String,id:String) = tasksWork(hostId) {val merged=repository.mergeTask(hostId,id);tasks.update {it.copy(tasks=repository.tasks(hostId),detail=repository.task(hostId,id),notice="Merged ${merged.branch} into the parent's folder (${merged.merged.take(7)}).")}}
+    fun mergeTask(hostId:String,id:String) = tasksWork(hostId) {mergeAndRefresh(tasks,{repository.mergeTask(hostId,id)},{repository.tasks(hostId)},{repository.task(hostId,id)})}
+    fun discardTask(hostId:String,id:String) = tasksWork(hostId) {discardAndRefresh(tasks,{repository.discardTask(hostId,id)},{repository.tasks(hostId)},{repository.task(hostId,id)})}
     fun cancelTask(hostId:String,id:String) = tasksWork(hostId) {repository.cancelTask(hostId,id);tasks.update {it.copy(tasks=repository.tasks(hostId),detail=repository.task(hostId,id))}}
     fun setTaskSupervision(hostId:String,id:String,paused:Boolean) = tasksWork(hostId) {repository.setTaskSupervision(hostId,id,paused);tasks.update {it.copy(detail=repository.task(hostId,id))}}
     fun forget(hostId:String,onDone:()->Unit) = work { repository.forget(hostId);mcpEdits.remove(hostId)?.close();onDone() }

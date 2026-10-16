@@ -141,6 +141,12 @@ object SessionReducer {
             "config_option_update" -> next = next.copy(configOptions = update["configOptions"].arrayValue())
             "session_info_update" -> next=next.copy(sessionInfo=JsonObject(next.sessionInfo+update.filterKeys {it!="sessionUpdate"}))
             "usage_update" -> next=next.copy(usage=JsonObject(update.filterKeys {it!="sessionUpdate"}))
+            // Something the host wants said in the conversation (a lost link to another host). Only the host's word counts: an agent cannot put its own text in a notice.
+            "acpd_notice" -> {
+                val text=update["text"].text().trim().take(300)
+                next = if(envelope["direction"].text()=="host" && text.isNotEmpty()) next.copy(items = next.items + TimelineItem.Notice("notice-$sequence", text))
+                    else next.copy(items = next.items + TimelineItem.Notice("unknown-$sequence", "Acpd notice"))
+            }
             else -> next = next.copy(items = next.items + TimelineItem.Notice("unknown-$sequence", kind.replace('_', ' ').replaceFirstChar(Char::uppercase)))
         }
         return bounded(next)

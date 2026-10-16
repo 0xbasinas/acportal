@@ -64,7 +64,7 @@ const KINDS: [&str; 10] = [
     "switch_mode",
     "other",
 ];
-const PATH_KEYS: [&str; 7] = [
+pub(crate) const PATH_KEYS: [&str; 7] = [
     "path",
     "file_path",
     "filePath",
@@ -73,7 +73,7 @@ const PATH_KEYS: [&str; 7] = [
     "files",
     "target",
 ];
-const CONTENT_KEYS: [&str; 5] = ["content", "new_string", "newText", "text", "contents"];
+pub(crate) const CONTENT_KEYS: [&str; 5] = ["content", "new_string", "newText", "text", "contents"];
 
 /// Replace control characters and cut to `max` characters, so agent text is safe to show.
 pub fn clean(text: &str, max: usize) -> String {
@@ -160,12 +160,14 @@ fn allow_option_id(options: &[(String, String)]) -> Option<String> {
         .find(|(_, k)| k.as_str() == "allow_once")
         .map(|(id, _)| id.clone())
 }
-/// Option id for a refuse. Prefers `reject_once`, then `reject_always` (both end this request).
+/// Option id for a one-time refuse. Never picks `reject_always`: ACP defines it as "reject and
+/// remember", so the agent may then refuse that tool for good, and a supervisor's refusal is
+/// about this one request. With no `reject_once` offered there is no option to pick: a
+/// supervisor's `deny` is answered `option_unavailable` and the phone decides.
 fn reject_option_id(options: &[(String, String)]) -> Option<String> {
     options
         .iter()
         .find(|(_, k)| k.as_str() == "reject_once")
-        .or_else(|| options.iter().find(|(_, k)| k.as_str() == "reject_always"))
         .map(|(id, _)| id.clone())
 }
 
@@ -605,14 +607,13 @@ mod tests {
             write.human_only.is_none() && write.risk == Risk::Medium,
             "own_tools must not blanket host consents: {write:?}"
         );
-        // Only reject_always offered: still usable as a deny.
+        // Only reject_always offered: it would be remembered, so it is not used for a deny.
         let deny_only = agent_request(Some("edit"), json!({"path": "a.rs", "content": "x"}));
         let mut deny_only = deny_only;
         deny_only["params"]["options"] =
             json!([{"optionId": "never", "name": "Never", "kind": "reject_always"}]);
         let class = run(&deny_only, false, false);
-        assert_eq!(class.reject_option.as_deref(), Some("never"));
-        assert!(class.allow_option.is_none());
+        assert!(class.reject_option.is_none() && class.allow_option.is_none());
     }
 
     #[test]
