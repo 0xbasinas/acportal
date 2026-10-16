@@ -17,6 +17,11 @@ class WebSocketTransport(
     private val state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private var job:Job? = null
     @Volatile private var socket:WebSocket? = null
+    @Volatile private var takeover=false
+    // After holding control, a reconnect reclaims it: the host may still hold the dropped socket's lease.
+    @Volatile private var controlled=false
+    override fun requestTakeover() { takeover=true }
+    override suspend fun controlTaken() { controlled=false;disconnect();state.value=CONTROL_TAKEN }
     override fun messages():Flow<ByteArray> = incoming.messages()
     override fun connectionState():StateFlow<ConnectionState> = state.asStateFlow()
     override suspend fun connect() {
@@ -29,10 +34,10 @@ class WebSocketTransport(
                     val completed = CompletableDeferred<Int?>()
                     val opened = CompletableDeferred<Unit>()
                     val base = validateAddress(address)
-                    val endpoint = base.newBuilder().encodedPath("/v1/sessions/$sessionId/connect").addQueryParameter("after",cursor().toString()).apply {if(readOnly)addQueryParameter("readOnly","true")}.build().toString().replaceFirst("https:","wss:").replaceFirst("http:","ws:")
+                    val endpoint = base.newBuilder().encodedPath("/v1/sessions/$sessionId/connect").addQueryParameter("after",cursor().toString()).apply {if(readOnly)addQueryParameter("readOnly","true") else if(takeover || controlled)addQueryParameter("takeover","true")}.build().toString().replaceFirst("https:","wss:").replaceFirst("http:","ws:")
                     val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").header("Sec-WebSocket-Protocol","acpd.v1").build()
                     val current = client.newWebSocket(request,object:WebSocketListener() {
-                        override fun onOpen(webSocket:WebSocket,response:Response) { socket=webSocket; state.value=ConnectionState.Connected;opened.complete(Unit) }
+                        override fun onOpen(webSocket:WebSocket,response:Response) { socket=webSocket;takeover=false;controlled=!readOnly; state.value=ConnectionState.Connected;opened.complete(Unit) }
                         override fun onMessage(webSocket:WebSocket,text:String) {
                             val bytes = text.toByteArray()
                             if (bytes.size > 1024*1024+4096 || !incoming.offer(bytes)) { webSocket.cancel();completed.complete(null) }

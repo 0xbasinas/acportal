@@ -13,7 +13,7 @@ enum class ConnectionFailure { CONNECTION, AUTHORIZATION, SESSION_UNAVAILABLE, C
 fun terminalConnectionFailure(code:Int?):ConnectionState.Failed? = when(code) {
     401,403->ConnectionState.Failed("Credentials expired. Pair the host again.",ConnectionFailure.AUTHORIZATION)
     404->ConnectionState.Failed("Session is no longer available. Open Sessions to continue.",ConnectionFailure.SESSION_UNAVAILABLE)
-    409->ConnectionState.Failed("Another client controls this session. Disconnect it before reconnecting.",ConnectionFailure.CONTROLLER_BUSY)
+    409->ConnectionState.Failed("Another device, such as your computer, controls this session. Take control to continue here.",ConnectionFailure.CONTROLLER_BUSY)
     else->null
 }
 interface AgentTransport {
@@ -22,4 +22,9 @@ interface AgentTransport {
     suspend fun send(message:ByteArray)
     fun messages():Flow<ByteArray>
     fun connectionState():Flow<ConnectionState>
+    /** The next connect replaces another client app's control (host feature `controlTakeover`). */
+    fun requestTakeover() {}
+    /** The host moved control to another device; stop until the user takes it back. */
+    suspend fun controlTaken() { disconnect() }
 }
+val CONTROL_TAKEN=ConnectionState.Failed("Control moved to another device, such as your computer. Take control to continue here.",ConnectionFailure.CONTROLLER_BUSY)

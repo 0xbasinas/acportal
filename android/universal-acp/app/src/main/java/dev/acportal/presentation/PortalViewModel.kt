@@ -93,6 +93,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     fun cancel(live:LiveSession) = work { repository.cancel(live) }
     fun dismissSessionError(live:LiveSession) = repository.dismissSessionError(live)
     fun reconnect(live:LiveSession) = work { repository.reconnect(live) }
+    fun takeControl(live:LiveSession) = work { repository.takeControl(live) }
     fun disconnect(live:LiveSession) = work { repository.disconnect(live) }
     fun removeLocalCopy(live:LiveSession) = work {repository.removeLocalCopy(live)}
     fun permission(live:LiveSession,permission:Permission,optionId:String) = work { repository.permission(live,permission,optionId) }

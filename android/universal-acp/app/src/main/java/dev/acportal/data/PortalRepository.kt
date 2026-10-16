@@ -170,6 +170,7 @@ class PortalRepository(
                     val envelope=WireJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).objectValue()
                     live.state.update { SessionReducer.reduce(it,envelope) }
                     val message=envelope["message"].objectValue()
+                    if(envelope["type"].text()=="control_taken")live.transportActions.withLock {live.manuallyDetached=true;transport.controlTaken()}
                     if(envelope["type"].text()=="session_closed")live.transportActions.withLock {live.manuallyDetached=true;transport.disconnect()}
                     if(message["method"]==null && message["id"].text()==live.authenticationRequestId) {
                         live.authenticationRequestId=null
@@ -234,6 +235,8 @@ class PortalRepository(
         live.state.update { SessionReducer.limitMetadata(it,it.copy(modes=info.setup["modes"].objectValue(),models=info.setup["models"].objectValue(),configOptions=info.setup["configOptions"].arrayValue(),error=if(becameReady)null else it.error)) }
     }
     suspend fun reconnect(live:LiveSession) = live.transportActions.withLock { check(!live.state.value.sessionClosed) {"This agent session stopped. Open Sessions to continue."};live.manuallyDetached=false;live.transport.disconnect();live.transport.connect() }
+    /** Continue here a session another device (desktop or phone) controls; history replays from the cursor. */
+    suspend fun takeControl(live:LiveSession) = live.transportActions.withLock { check(!live.state.value.sessionClosed) {"This agent session stopped. Open Sessions to continue."};live.manuallyDetached=false;live.transport.disconnect();live.transport.requestTakeover();live.transport.connect() }
     suspend fun disconnect(live:LiveSession) = live.transportActions.withLock { live.manuallyDetached=true;live.transport.disconnect() }
     fun addAttachment(live:LiveSession,attachment:PromptAttachment,version:Long=live.localCopyGeneration.value) = synchronized(live.attachmentLock) {
         require(version==live.localCopyGeneration.value) {"File selection expired. Choose the file again."}

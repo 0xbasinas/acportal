@@ -179,11 +179,11 @@ export default function App() {
     return () => { off1(); off2() }
   }, [])
 
-  async function attach(sid: string, ref: typeof attached, readOnly = false): Promise<void> {
-    if (!hostId || ref.current === `${hostId}/${sid}`) return
+  async function attach(sid: string, ref: typeof attached, readOnly = false, takeover = false): Promise<void> {
+    if (!hostId || (ref.current === `${hostId}/${sid}` && !takeover)) return
     if (ref.current) void window.api.session.detach(ref.current)
     setTimelines((all) => ({ ...all, [sid]: emptyTimeline() }))
-    const r = await window.api.session.attach(hostId, sid, 0, readOnly)
+    const r = await window.api.session.attach(hostId, sid, 0, readOnly, takeover)
     if (r.ok) { ref.current = r.value; if (ref === attached) void window.api.watch.focus(r.value) }
     else flash(r.error)
   }
@@ -584,14 +584,20 @@ export default function App() {
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
           <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
-        {c && c.kind !== 'connected' && (
+        {c?.kind === 'observing' && (
+          <div className="banner">
+            {I.alert}<span>Another device (your phone or another computer) is controlling this session. You are watching it live.</span>
+            <button className="btn" onClick={() => void attach(session.id, attached, false, true)}>Take control</button>
+          </div>
+        )}
+        {c && c.kind !== 'connected' && c.kind !== 'observing' && (
           <div className={'banner' + (c.kind === 'failed' ? ' red' : '')}>
             {I.alert}<span>{c.kind === 'reconnecting' ? `Reconnecting (attempt ${c.attempt})… the turn keeps running on the host.` : c.kind === 'failed' ? c.reason : c.kind === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
           </div>
         )}
         {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
         <Conversation t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
-        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
+        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
           history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} />
       </div>
     )

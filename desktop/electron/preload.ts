@@ -16,7 +16,7 @@ const api = {
       ipcRenderer.invoke('hosts:api', id, method, path, body, query)
   },
   session: {
-    attach: (hostId: string, sessionId: string, after: number, readOnly = false): Promise<Result<string>> => ipcRenderer.invoke('session:attach', hostId, sessionId, after, readOnly),
+    attach: (hostId: string, sessionId: string, after: number, readOnly = false, takeover = false): Promise<Result<string>> => ipcRenderer.invoke('session:attach', hostId, sessionId, after, readOnly, takeover),
     send: (key: string, msg: unknown): Promise<Result<void>> => ipcRenderer.invoke('session:send', key, msg),
     detach: (key: string): Promise<Result<void>> => ipcRenderer.invoke('session:detach', key),
     onEnvelope: (cb: (key: string, env: unknown) => void): (() => void) => {

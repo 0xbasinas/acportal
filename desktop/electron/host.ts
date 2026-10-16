@@ -104,7 +104,7 @@ function tlsMessage(e: Error & { code?: string }): Error {
   return e
 }
 
-export type ConnState = { kind: 'connecting' } | { kind: 'connected' } | { kind: 'reconnecting'; attempt: number } | { kind: 'disconnected' } | { kind: 'failed'; reason: string }
+export type ConnState = { kind: 'connecting' } | { kind: 'connected' } | { kind: 'observing' } | { kind: 'reconnecting'; attempt: number } | { kind: 'disconnected' } | { kind: 'failed'; reason: string }
 
 /** One controlling WebSocket attachment to a host session, with replay from a cursor. */
 export class SessionSocket {
@@ -113,6 +113,9 @@ export class SessionSocket {
   private attempt = 0
   private timer?: NodeJS.Timeout
   cursor = 0
+  /** Downgraded to watching because another device (phone or desktop) holds control. */
+  private observing = false
+  private controlled = false
 
   constructor(
     private address: string,
@@ -120,7 +123,8 @@ export class SessionSocket {
     private sessionId: string,
     private onMessage: (envelope: unknown) => void,
     private onState: (s: ConnState) => void,
-    private readOnly = false
+    private readOnly = false,
+    private takeover = false
   ) {}
 
   connect(): void {
@@ -133,6 +137,9 @@ export class SessionSocket {
     const url = new URL(`/v1/sessions/${encodeURIComponent(this.sessionId)}/connect`, base)
     url.searchParams.set('after', String(this.cursor))
     if (this.readOnly) url.searchParams.set('readOnly', 'true')
+    // Reclaiming our own lease after a dropped socket is a takeover too: the host may not have
+    // noticed the old socket close yet.
+    else if (this.takeover || this.controlled) url.searchParams.set('takeover', 'true')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     this.onState(this.attempt === 0 ? { kind: 'connecting' } : { kind: 'reconnecting', attempt: this.attempt })
     const ws = new WebSocket(url, 'acpd.v1', {
@@ -145,16 +152,24 @@ export class SessionSocket {
     this.ws = ws
     let opened = false
     let terminal: string | undefined
+    let watch = false
     ws.on('open', () => {
       opened = true
       this.attempt = 0
-      this.onState({ kind: 'connected' })
+      this.takeover = false
+      if (!this.readOnly) this.controlled = true
+      this.onState(this.observing ? { kind: 'observing' } : { kind: 'connected' })
     })
     ws.on('message', (data, isBinary) => {
       if (isBinary) return ws.close(1003, 'Use JSON text frames')
       try {
         const env = JSON.parse(data.toString()) as { type?: string; sequence?: number }
         if (env.type === 'event' && typeof env.sequence === 'number') this.cursor = Math.max(this.cursor, env.sequence)
+        if (env.type === 'control_taken') {
+          this.readOnly = this.observing = true
+          this.controlled = false
+          this.onState({ kind: 'observing' })
+        }
         this.onMessage(env)
       } catch {
         /* ignore malformed frame */
@@ -164,7 +179,11 @@ export class SessionSocket {
       const code = res.statusCode ?? 0
       if (code === 401 || code === 403) terminal = 'This device is no longer paired with the host'
       else if (code === 404 || code === 410) terminal = 'The session no longer exists on the host'
-      else if (code === 409) terminal = 'Another device is controlling this session'
+      else if (code === 409 && !this.readOnly) {
+        // Another device has control: keep following the conversation as an observer.
+        this.readOnly = this.observing = true
+        watch = true
+      } else if (code === 409) terminal = 'Another device is controlling this session'
       ws.terminate()
     })
     ws.on('error', () => {})
@@ -173,6 +192,7 @@ export class SessionSocket {
       this.ws = undefined
       if (this.stopped) return this.onState({ kind: 'disconnected' })
       if (terminal) return this.onState({ kind: 'failed', reason: terminal })
+      if (watch) return this.open()
       if (opened) this.attempt = 0
       this.attempt++
       this.onState({ kind: 'reconnecting', attempt: this.attempt })
@@ -182,6 +202,7 @@ export class SessionSocket {
   }
 
   send(message: unknown): void {
+    if (this.observing) throw new Error('Another device is controlling this session. Take control to send.')
     if (this.readOnly) throw new Error('This connection is read-only')
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('Wait for the connection to recover before sending')
     this.ws.send(JSON.stringify(message))

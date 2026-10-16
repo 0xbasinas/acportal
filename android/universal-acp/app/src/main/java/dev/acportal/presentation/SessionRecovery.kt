@@ -17,7 +17,7 @@ import dev.acportal.transport.*
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun SessionRecovery(
     state:SessionState,connection:ConnectionState,onDismiss:()->Unit,onReconnect:()->Unit,
-    onSessions:()->Unit,onPairHost:(()->Unit)?=null,
+    onSessions:()->Unit,onPairHost:(()->Unit)?=null,onTakeControl:(()->Unit)?=null,
 ) {
     val failure=connection as? ConnectionState.Failed
     val disconnected=connection is ConnectionState.Disconnected
@@ -45,6 +45,7 @@ import dev.acportal.transport.*
                 when {
                     failure?.kind==ConnectionFailure.AUTHORIZATION->if(onPairHost!=null)TextButton(onPairHost,Modifier.heightIn(min=48.dp)) {Text("Pair again")} else TextButton(onSessions,Modifier.heightIn(min=48.dp)) {Text("Open Sessions")}
                     failure?.kind==ConnectionFailure.SESSION_UNAVAILABLE || state.sessionClosed || state.errorOrigin==SessionErrorOrigin.SESSION && state.error!=null->TextButton(onSessions,Modifier.heightIn(min=48.dp)) {Text("Open Sessions")}
+                    failure?.kind==ConnectionFailure.CONTROLLER_BUSY && onTakeControl!=null->TextButton(onTakeControl,Modifier.heightIn(min=48.dp)) {Text("Take control")}
                     failure!=null || disconnected->TextButton(onReconnect,Modifier.heightIn(min=48.dp)) {Text("Reconnect")}
                 }
                 if(state.error!=null)TextButton(onDismiss,Modifier.heightIn(min=48.dp)) {Text("Dismiss")}

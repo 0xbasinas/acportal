@@ -6,6 +6,8 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 
 ## Desktop branch (`experiment/desktop`, PR #46)
 
+- [ ] Phone/desktop handoff (`takeover=true`, `control_taken`, 16 October 2026): host test `takeover_moves_control_between_clients_and_the_old_one_keeps_watching` passes and desktop typecheck/tests pass. The Android build/JVM tests are unverified (no SDK in that session; check CI), and neither client has been tried by hand. Still open: the phone steps down to a "Take control" card rather than watching live like the desktop does; drafts, titles and prompt history stay on each device (see shared settings below).
+
 - [ ] Android: show `_meta.acpdScope` (outside-workspace paths, sandboxed, shell and `shellNote`) on the shell approval sheet; no quick approve when paths are listed.
 - [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets, prompt history) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
 - [ ] Android: git view, branch/worktree picker, run on several agents, checks, approval notifications and list badges.

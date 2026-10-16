@@ -1166,3 +1166,64 @@ async fn non_loopback_plaintext_and_partial_tls_configuration_are_rejected() {
     config.server.tls_private_key = Some("key.pem".into());
     assert!(config.validate().is_ok());
 }
+
+#[tokio::test]
+async fn takeover_moves_control_between_clients_and_the_old_one_keeps_watching() {
+    let fixture = Fixture::start().await;
+    let session = fixture.create().await;
+    let id = session["id"].as_str().unwrap();
+    let open = |query: &str| {
+        let mut request = format!(
+            "{}/v1/sessions/{id}/connect?{query}",
+            fixture.base.replace("http:", "ws:")
+        )
+        .into_client_request()
+        .unwrap();
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", fixture.token).parse().unwrap(),
+        );
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", "acpd.v1".parse().unwrap());
+        tokio_tungstenite::connect_async(request)
+    };
+    let refused = |result: Result<_, tokio_tungstenite::tungstenite::Error>| matches!(result, Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status().as_u16() == 409);
+    let mut desktop = fixture.connect(id, 0).await;
+    receive(&mut desktop, |value| value["type"] == "replay_complete").await;
+    assert!(refused(open("after=0").await.map(|_| ())));
+    let (mut phone, _) = open("after=0&takeover=true").await.unwrap();
+    receive(&mut desktop, |value| value["type"] == "control_taken").await;
+    receive(&mut phone, |value| value["type"] == "replay_complete").await;
+    // The replaced client is an observer now.
+    send(&mut desktop, json!({"jsonrpc":"2.0","id":"late","method":"session/cancel","params":{"sessionId":session["acpSessionId"]}})).await;
+    receive(&mut desktop, |value| {
+        value["type"] == "error" && value["code"] == "read_only"
+    })
+    .await;
+    // The new controller prompts; the observer sees the same events.
+    send(&mut phone, json!({"jsonrpc":"2.0","id":"phone-1","method":"session/prompt","params":{"sessionId":session["acpSessionId"],"prompt":[{"type":"text","text":"handoff"}]}})).await;
+    let permission = receive(&mut phone, |value| {
+        value["message"]["method"] == "session/request_permission"
+    })
+    .await;
+    receive(&mut desktop, |value| {
+        value["sequence"] == permission["sequence"]
+    })
+    .await;
+    // Closing the replaced client must not release the new controller's lease.
+    desktop.close(None).await.unwrap();
+    drop(desktop);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(refused(open("after=0").await.map(|_| ())));
+    send(&mut phone, json!({"jsonrpc":"2.0","id":permission["message"]["id"],"result":{"outcome":{"outcome":"selected","optionId":"allow"}}})).await;
+    receive(&mut phone, |value| {
+        value["message"]["id"] == "phone-1" && value["message"].get("result").is_some()
+    })
+    .await;
+    // Taking control back works the same way.
+    let (mut back, _) = open("after=0&takeover=true").await.unwrap();
+    receive(&mut phone, |value| value["type"] == "control_taken").await;
+    receive(&mut back, |value| value["type"] == "replay_complete").await;
+    fixture.stop().await;
+}

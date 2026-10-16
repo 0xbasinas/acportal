@@ -24,10 +24,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 use tokio::sync::Mutex as AsyncMutex;
@@ -50,7 +47,10 @@ pub struct Host {
     user_changes: Arc<AsyncMutex<()>>,
 }
 struct Gateway {
-    controller: AtomicBool,
+    /// Current controller: lease generation and whether another client may take it over.
+    controller: Mutex<Option<(u64, bool)>>,
+    /// Broadcasts the controlling generation (0 = none) so a replaced controller can step down.
+    owner: tokio::sync::watch::Sender<u64>,
     requests: Mutex<VecDeque<CachedRequest>>,
     cache_bytes: usize,
     result_reserve: usize,
@@ -122,12 +122,19 @@ mod cache_tests {
 }
 struct Lease {
     gateway: Arc<Gateway>,
+    generation: u64,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.gateway.controller.store(false, Ordering::Release);
+        let mut controller = self.gateway.controller.lock().unwrap();
+        // A lease that was taken over must not release its successor.
+        if controller.is_some_and(|(generation, _)| generation == self.generation) {
+            *controller = None;
+            self.gateway.owner.send_replace(0);
+        }
     }
 }
+static LEASE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 #[derive(Clone)]
 struct Authorized {
     device: Device,
@@ -389,7 +396,13 @@ async fn pair(State(host): State<Host>, Json(input): Json<PairInput>) -> ApiResu
 async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     // `orchestrator` is listed only while delegation is enabled, so the phone shows the task
     // views only then.
-    let mut features = vec!["formElicitation", "git", "sessionWorktree", "checks"];
+    let mut features = vec![
+        "formElicitation",
+        "git",
+        "sessionWorktree",
+        "checks",
+        "controlTakeover",
+    ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
     }
@@ -995,6 +1008,10 @@ struct ConnectInput {
     after: u64,
     #[serde(default)]
     read_only: bool,
+    /// Take control from another client app (desktop or phone) that holds the lease. The
+    /// replaced client receives `control_taken` and continues as an observer.
+    #[serde(default)]
+    takeover: bool,
 }
 async fn connect(
     State(host): State<Host>,
@@ -1023,16 +1040,10 @@ async fn connect(
     let lease = if input.read_only {
         None
     } else {
-        if gateway
-            .controller
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err(ApiError(StatusCode::CONFLICT, "session_has_controller"));
-        }
-        Some(Lease {
-            gateway: gateway.clone(),
-        })
+        Some(
+            acquire_lease(&gateway, true, input.takeover)
+                .ok_or(ApiError(StatusCode::CONFLICT, "session_has_controller"))?,
+        )
     };
     let limit = host.config.runtime.max_frame_bytes;
     Ok(ws
@@ -1052,7 +1063,8 @@ async fn gateway_for(host: &Host, id: Uuid) -> Arc<Gateway> {
         .entry(id)
         .or_insert_with(|| {
             Arc::new(Gateway {
-                controller: AtomicBool::new(false),
+                controller: Mutex::new(None),
+                owner: tokio::sync::watch::Sender::new(0),
                 requests: Mutex::new(VecDeque::new()),
                 cache_bytes: (8 * 1024 * 1024).max(host.config.runtime.max_frame_bytes * 4 + 4096),
                 result_reserve: host.config.runtime.max_frame_bytes * 2 + 1024,
@@ -1061,14 +1073,26 @@ async fn gateway_for(host: &Host, id: Uuid) -> Arc<Gateway> {
         .clone()
 }
 /// Take the controller lease, or `None` if someone else (a phone, a peer) already has it.
+/// Peer bridge leases never yield to a takeover.
 fn take_lease(gateway: &Arc<Gateway>) -> Option<Lease> {
-    gateway
-        .controller
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .ok()
-        .map(|_| Lease {
-            gateway: gateway.clone(),
-        })
+    acquire_lease(gateway, false, false)
+}
+/// Take the lease. With `takeover`, a yielding holder (a client app) is replaced; a peer
+/// bridge holder is not.
+fn acquire_lease(gateway: &Arc<Gateway>, yields: bool, takeover: bool) -> Option<Lease> {
+    let mut controller = gateway.controller.lock().unwrap();
+    match *controller {
+        None => {}
+        Some((_, true)) if takeover => {}
+        Some(_) => return None,
+    }
+    let generation = LEASE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    *controller = Some((generation, yields));
+    gateway.owner.send_replace(generation);
+    Some(Lease {
+        gateway: gateway.clone(),
+        generation,
+    })
 }
 async fn send_json(
     socket: &mut futures_util::stream::SplitSink<WebSocket, Message>,
@@ -1088,10 +1112,11 @@ async fn socket_session(
     host: Host,
     session: Arc<AcpSession>,
     gateway: Arc<Gateway>,
-    _lease: Option<Lease>,
+    mut lease: Option<Lease>,
     auth: Authorized,
     input: ConnectInput,
 ) {
+    let mut owner = gateway.owner.subscribe();
     let mut events = session.connection.subscribe();
     let replay = session.replay(input.after);
     let mut cursor = replay.latest_sequence;
@@ -1140,7 +1165,7 @@ async fn socket_session(
                 last_received = tokio::time::Instant::now();
                 match message {
                     Some(Ok(Message::Text(text))) => {
-                        if input.read_only { let _ = send_json(&mut outgoing, json!({"type":"error","code":"read_only"})).await; continue }
+                        if lease.is_none() { let _ = send_json(&mut outgoing, json!({"type":"error","code":"read_only"})).await; continue }
                         let value = serde_json::from_str::<Value>(&text);
                         let value = match value { Ok(value) if validate_message(&value).is_ok() => value, _ => { let _ = send_json(&mut outgoing, json!({"type":"error","code":"invalid_acp_message"})).await; continue } };
                         let security = host.security.clone(); let token = auth.token.clone();
@@ -1160,6 +1185,14 @@ async fn socket_session(
                 }
                 if last_received.elapsed() > Duration::from_secs(40) { break }
                 if !matches!(tokio::time::timeout(Duration::from_secs(5), outgoing.send(Message::Ping(vec![].into()))).await, Ok(Ok(()))) { break }
+            }
+            changed = owner.changed(), if lease.is_some() => {
+                let replaced = changed.is_err() || lease.as_ref().is_some_and(|lease| *owner.borrow_and_update() != lease.generation);
+                if replaced {
+                    // Step down to an observer; the successor already holds the lease.
+                    lease = None;
+                    if !send_json(&mut outgoing, json!({"type":"control_taken"})).await { break }
+                }
             }
             reason = session.connection.wait_closed() => {
                 // All already-published outcomes are replayable after a close.
