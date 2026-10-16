@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ElicitSchema, Item, PermissionItem, Timeline } from './acp'
-import { DiffView, Empty, I } from './ui'
+import { DiffView, Empty, I, PathRoot } from './ui'
 import { Markdown } from './Markdown'
 
 const nice = (n: string): string => (/^[a-z]+(_[a-z]+)+$/.test(n) ? n.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : n)
@@ -19,7 +19,7 @@ export function Permission({ p, onAnswer }: { p: PermissionItem; onAnswer: (opti
     return (
       <div className="answered">
         <span className={'ans-ic ' + (rejected ? 'red' : 'green')}>{rejected ? I.close : I.check}</span>
-        <span className="mono tool-title">{p.lines[0] ?? p.title}</span>
+        <span className={(p.lines.length ? 'mono ' : '') + 'tool-title'}>{p.lines[0] ?? p.title}</span>
         <span className="sub">{p.source === 'agent' ? 'agent' : 'host'} · {p.answered === 'cancelled' ? 'Cancelled' : nice(chosen?.name ?? p.answered ?? '')}</span>
       </div>
     )
@@ -123,7 +123,7 @@ function Row({ item, agent, onAnswer, onReview, onElicit }: { item: Item; agent:
   }
 }
 
-export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit }: { t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
+export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit, root }: { root?: string; t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   useEffect(() => {
@@ -131,6 +131,7 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit 
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [t])
   return (
+    <PathRoot.Provider value={root}>
     <div className="scroll" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
       <div className="convo">
         {t.gap && <div className="sub amber">Older history was trimmed by the host; this view starts later.</div>}
@@ -139,6 +140,7 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit 
         {t.busy && <div className="working"><span className="pulse" />{agent} is working…</div>}
       </div>
     </div>
+    </PathRoot.Provider>
   )
 }
 
@@ -183,11 +185,23 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
 }
 
 export type Attachment = { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }
-export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft }: {
+export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft, remote, onText }: {
   agent: string; busy: boolean; disabled?: string; onSend: (text: string, atts: Attachment[]) => void; onCancel: () => void
   history: string[]; canImage: boolean; canResource: boolean; draft?: { text: string; n: number }
+  /** The draft saved on the host (from this or another device) and a callback to save typing there. */
+  remote?: { text: string; at: number }; onText?: (text: string) => void
 }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(remote?.text ?? '')
+  // Text known to match the host copy; a newer host draft replaces the box only while it is unedited.
+  const synced = useRef(remote?.text ?? '')
+  useEffect(() => {
+    if (remote && text === synced.current && remote.text !== text) { setText(remote.text); synced.current = remote.text }
+  }, [remote?.at])
+  useEffect(() => {
+    if (!onText || text === synced.current) return
+    const t = setTimeout(() => { synced.current = text; onText(text) }, 800)
+    return () => clearTimeout(t)
+  }, [text])
   const [atts, setAtts] = useState<Attachment[]>([])
   const [err, setErr] = useState<string>()
   const [hIdx, setHIdx] = useState(-1)
@@ -201,6 +215,8 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
   const send = (): void => {
     if ((!text.trim() && !atts.length) || busy || disabled) return
     onSend(text, atts)
+    if (onText && synced.current) onText('')
+    synced.current = ''
     setText(''); setAtts([]); setHIdx(-1)
   }
   const pick = async (): Promise<void> => {

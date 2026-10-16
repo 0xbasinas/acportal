@@ -8,6 +8,7 @@ fun connectionDiagnostic(state:ConnectionState,time:Long=System.currentTimeMilli
         ConnectionState.Disconnected -> ConnectionDiagnostic(time,"Info","Disconnected from host")
         ConnectionState.Connecting -> ConnectionDiagnostic(time,"Info","Connecting to host")
         ConnectionState.Connected -> ConnectionDiagnostic(time,"Info","WebSocket connected")
+        ConnectionState.Observing -> ConnectionDiagnostic(time,"Info","Watching; another device has control")
         is ConnectionState.Reconnecting -> ConnectionDiagnostic(time,"Warning","Reconnecting, attempt ${state.attempt}")
         is ConnectionState.Failed -> ConnectionDiagnostic(time,"Error","Connection unavailable. Review connection status.")
     }

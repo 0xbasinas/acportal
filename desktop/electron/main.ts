@@ -169,7 +169,7 @@ function registerIpc(): void {
   )
   ipcMain.handle(
     'session:attach',
-    wrap((hostRef: string, sessionId: string, after: number, readOnly: boolean) => {
+    wrap((hostRef: string, sessionId: string, after: number, readOnly: boolean, takeover = false) => {
       const key = `${hostRef}/${sessionId}`
       sockets.get(key)?.close()
       const h = host(hostRef)
@@ -179,7 +179,8 @@ function registerIpc(): void {
         sessionId,
         (env) => win?.webContents.send('session:envelope', key, env),
         (state) => win?.webContents.send('session:state', key, state),
-        readOnly
+        readOnly,
+        takeover
       )
       sock.cursor = after
       sockets.set(key, sock)

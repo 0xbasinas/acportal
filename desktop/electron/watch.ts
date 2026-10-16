@@ -101,7 +101,7 @@ export class Watcher {
           done = true
           try { s.send({ jsonrpc: '2.0', id, result: { outcome: { outcome: 'selected', optionId } } }) } catch { /* reported by the watcher state */ }
           setTimeout(() => { s.close(); resolve() }, 600)
-        } else if (k === 'failed') { s.close(); resolve() }
+        } else if (k === 'failed' || k === 'observing') { s.close(); resolve() }
       })
       s.cursor = e.tl.lastSeq
       s.connect()
@@ -121,7 +121,7 @@ export class Watcher {
           done = true
           try { s.send(message) } catch { s.close(); resolve(false); return }
           setTimeout(() => { s.close(); resolve(true) }, 800)
-        } else if (k === 'failed') { s.close(); if (!done) { done = true; resolve(false) } }
+        } else if (k === 'failed' || k === 'observing') { s.close(); if (!done) { done = true; resolve(false) } }
       })
       s.cursor = 0
       s.connect()

@@ -339,7 +339,10 @@ button.branch-pill:hover { color: var(--text); border-color: var(--line-strong);
 .modal-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .modal-foot .btn { height: 34px; padding: 0 14px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px; }
+/* Long folder paths must not widen a dialog; the select clips with an ellipsis instead. */
+.grid2 > * { min-width: 0; }
+select.input { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .inline { display: flex; gap: 8px; align-items: center; }
 .inline .input { flex: 1; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
@@ -347,6 +350,8 @@ button.branch-pill:hover { color: var(--text); border-color: var(--line-strong);
 .input { height: 36px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 9px; padding: 0 12px; outline: 0; transition: border-color .12s, box-shadow .12s; }
 .input:hover { border-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
 .input:focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent); }
+/* Multi-line inputs follow their rows attribute instead of the one-line control height. */
+textarea.input { height: auto; min-height: 36px; padding: 8px 12px; line-height: 1.5; resize: vertical; }
 .input.area { height: 104px; padding: 10px 12px; resize: vertical; width: 100%; line-height: 1.5; margin-top: 12px; }
 select.input { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%); background-position: calc(100% - 15px) 16px, calc(100% - 11px) 16px; background-size: 4px 4px; background-repeat: no-repeat; }
 .error { color: var(--red); font-size: 12px; margin-top: 10px; }

@@ -1166,3 +1166,166 @@ async fn non_loopback_plaintext_and_partial_tls_configuration_are_rejected() {
     config.server.tls_private_key = Some("key.pem".into());
     assert!(config.validate().is_ok());
 }
+
+#[tokio::test]
+async fn takeover_moves_control_between_clients_and_the_old_one_keeps_watching() {
+    let fixture = Fixture::start().await;
+    let session = fixture.create().await;
+    let id = session["id"].as_str().unwrap();
+    let open = |query: &str| {
+        let mut request = format!(
+            "{}/v1/sessions/{id}/connect?{query}",
+            fixture.base.replace("http:", "ws:")
+        )
+        .into_client_request()
+        .unwrap();
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", fixture.token).parse().unwrap(),
+        );
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", "acpd.v1".parse().unwrap());
+        tokio_tungstenite::connect_async(request)
+    };
+    let refused = |result: Result<_, tokio_tungstenite::tungstenite::Error>| matches!(result, Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status().as_u16() == 409);
+    let mut desktop = fixture.connect(id, 0).await;
+    receive(&mut desktop, |value| value["type"] == "replay_complete").await;
+    assert!(refused(open("after=0").await.map(|_| ())));
+    let (mut phone, _) = open("after=0&takeover=true").await.unwrap();
+    receive(&mut desktop, |value| value["type"] == "control_taken").await;
+    receive(&mut phone, |value| value["type"] == "replay_complete").await;
+    // The replaced client is an observer now.
+    send(&mut desktop, json!({"jsonrpc":"2.0","id":"late","method":"session/cancel","params":{"sessionId":session["acpSessionId"]}})).await;
+    receive(&mut desktop, |value| {
+        value["type"] == "error" && value["code"] == "read_only"
+    })
+    .await;
+    // The new controller prompts; the observer sees the same events.
+    send(&mut phone, json!({"jsonrpc":"2.0","id":"phone-1","method":"session/prompt","params":{"sessionId":session["acpSessionId"],"prompt":[{"type":"text","text":"handoff"}]}})).await;
+    let permission = receive(&mut phone, |value| {
+        value["message"]["method"] == "session/request_permission"
+    })
+    .await;
+    receive(&mut desktop, |value| {
+        value["sequence"] == permission["sequence"]
+    })
+    .await;
+    // Closing the replaced client must not release the new controller's lease.
+    desktop.close(None).await.unwrap();
+    drop(desktop);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(refused(open("after=0").await.map(|_| ())));
+    send(&mut phone, json!({"jsonrpc":"2.0","id":permission["message"]["id"],"result":{"outcome":{"outcome":"selected","optionId":"allow"}}})).await;
+    receive(&mut phone, |value| {
+        value["message"]["id"] == "phone-1" && value["message"].get("result").is_some()
+    })
+    .await;
+    // Taking control back works the same way.
+    let (mut back, _) = open("after=0&takeover=true").await.unwrap();
+    receive(&mut phone, |value| value["type"] == "control_taken").await;
+    receive(&mut back, |value| value["type"] == "replay_complete").await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn drafts_titles_and_history_are_shared_between_devices_and_survive_restart() {
+    let fixture = Fixture::start().await;
+    let session = fixture.create().await;
+    let id = session["id"].as_str().unwrap().to_string();
+    let call = |method: reqwest::Method, path: &str| {
+        fixture
+            .client
+            .request(method, format!("{}{path}", fixture.base))
+            .bearer_auth(&fixture.token)
+    };
+    let draft = call(reqwest::Method::PUT, &format!("/v1/shared/drafts/{id}"))
+        .json(&json!({"text":"half-written prompt"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(draft.status(), reqwest::StatusCode::OK);
+    call(reqwest::Method::PUT, &format!("/v1/shared/titles/{id}"))
+        .json(&json!({"title":"  Fix the calculator  "}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    for text in ["first", "second", "first"] {
+        call(reqwest::Method::POST, "/v1/shared/history")
+            .json(&json!({"workspace":"/w","text":text}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
+    let too_big = call(reqwest::Method::PUT, &format!("/v1/shared/drafts/{id}"))
+        .json(&json!({"text":"x".repeat(64 * 1024 + 1)}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(too_big.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    let fixture = fixture.restart().await;
+    let shared: Value = fixture
+        .client
+        .get(format!("{}/v1/shared", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(shared["drafts"][&id]["text"], "half-written prompt");
+    assert!(shared["drafts"][&id]["updatedAt"].as_u64().unwrap() > 0);
+    assert_eq!(shared["titles"][&id], "Fix the calculator");
+    assert_eq!(shared["history"]["/w"], json!(["first", "second"]));
+    assert_eq!(shared["revision"], 5);
+    // An empty draft clears it.
+    fixture
+        .client
+        .put(format!("{}/v1/shared/drafts/{id}", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"text":""}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let shared: Value = fixture
+        .client
+        .get(format!("{}/v1/shared", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(shared["drafts"].get(&id).is_none());
+    assert_eq!(shared["titles"][&id], "Fix the calculator");
+    // Removing the session forgets its title.
+    fixture
+        .client
+        .delete(format!("{}/v1/sessions/{id}", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let shared: Value = fixture
+        .client
+        .get(format!("{}/v1/shared", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(shared["titles"].get(&id).is_none());
+    fixture.stop().await;
+}

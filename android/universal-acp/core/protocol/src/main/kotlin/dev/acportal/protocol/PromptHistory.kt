@@ -14,3 +14,9 @@ fun promptHistory(state:SessionState):List<PromptHistoryEntry> = state.items.asR
     .take(20)
     .map {PromptHistoryEntry(it.id,it.promptText!!)}
     .toList()
+
+/** This session's prompts first, then the folder's prompts shared through the host (from the desktop or another phone). */
+fun withSharedHistory(entries:List<PromptHistoryEntry>,shared:List<String>):List<PromptHistoryEntry> {
+    val seen=entries.mapTo(HashSet()) {it.text}
+    return entries+shared.asSequence().filter {it.isNotBlank() && seen.add(it)}.take(50).mapIndexed {index,text->PromptHistoryEntry("shared-$index",text)}.toList()
+}

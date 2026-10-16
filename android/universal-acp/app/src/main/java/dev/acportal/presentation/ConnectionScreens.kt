@@ -116,6 +116,7 @@ import java.util.Locale
     Text(when(connection) {
         ConnectionState.Connected->"• Connected"
         ConnectionState.Connecting->"Connecting"
+        ConnectionState.Observing->"Watching; another device has control"
         ConnectionState.Disconnected->"Disconnected"
         is ConnectionState.Reconnecting->"Reconnecting"
         is ConnectionState.Failed->"Unavailable"

@@ -17,6 +17,13 @@ class WebSocketTransport(
     private val state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private var job:Job? = null
     @Volatile private var socket:WebSocket? = null
+    @Volatile private var takeover=false
+    // After holding control, a reconnect reclaims it: the host may still hold the dropped socket's lease.
+    @Volatile private var controlled=false
+    // Watching read-only because another device holds control (HTTP 409 or control_taken).
+    @Volatile private var watching=false
+    override fun requestTakeover() { takeover=true;watching=false }
+    override suspend fun controlTaken() { controlled=false;watching=true;state.value=ConnectionState.Observing }
     override fun messages():Flow<ByteArray> = incoming.messages()
     override fun connectionState():StateFlow<ConnectionState> = state.asStateFlow()
     override suspend fun connect() {
@@ -29,10 +36,10 @@ class WebSocketTransport(
                     val completed = CompletableDeferred<Int?>()
                     val opened = CompletableDeferred<Unit>()
                     val base = validateAddress(address)
-                    val endpoint = base.newBuilder().encodedPath("/v1/sessions/$sessionId/connect").addQueryParameter("after",cursor().toString()).apply {if(readOnly)addQueryParameter("readOnly","true")}.build().toString().replaceFirst("https:","wss:").replaceFirst("http:","ws:")
+                    val endpoint = base.newBuilder().encodedPath("/v1/sessions/$sessionId/connect").addQueryParameter("after",cursor().toString()).apply {if(readOnly || watching)addQueryParameter("readOnly","true") else if(takeover || controlled)addQueryParameter("takeover","true")}.build().toString().replaceFirst("https:","wss:").replaceFirst("http:","ws:")
                     val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").header("Sec-WebSocket-Protocol","acpd.v1").build()
                     val current = client.newWebSocket(request,object:WebSocketListener() {
-                        override fun onOpen(webSocket:WebSocket,response:Response) { socket=webSocket; state.value=ConnectionState.Connected;opened.complete(Unit) }
+                        override fun onOpen(webSocket:WebSocket,response:Response) { socket=webSocket;takeover=false;controlled=!readOnly && !watching; state.value=if(watching)ConnectionState.Observing else ConnectionState.Connected;opened.complete(Unit) }
                         override fun onMessage(webSocket:WebSocket,text:String) {
                             val bytes = text.toByteArray()
                             if (bytes.size > 1024*1024+4096 || !incoming.offer(bytes)) { webSocket.cancel();completed.complete(null) }
@@ -46,6 +53,8 @@ class WebSocketTransport(
                     val code = try { withTimeout(20_000) { selectOpenOrClose(opened,completed) };completed.await() }
                         catch (_:TimeoutCancellationException) { null }
                         finally { current.cancel();socket=null }
+                    // Another device controls the session: follow it read-only instead of failing.
+                    if(code==409 && !readOnly && !watching) {watching=true;continue}
                     terminalConnectionFailure(code)?.let {state.value=it;return@launch}
                     if(opened.isCompleted)attempt=0
                     attempt++
@@ -62,6 +71,7 @@ class WebSocketTransport(
     override suspend fun disconnect() { job?.cancelAndJoin();job=null;socket?.close(1000,"Client detached");socket=null;state.value=ConnectionState.Disconnected }
     override suspend fun send(message:ByteArray) {
         check(!readOnly) {"This connection is read-only"}
+        check(!watching) {"Another device controls this session. Take control to send from this phone."}
         val current = socket
         check(state.value == ConnectionState.Connected && current != null) { "Wait for the connection to recover before sending" }
         sender.send(current,message)

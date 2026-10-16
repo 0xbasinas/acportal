@@ -1,7 +1,7 @@
 import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
 import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, Host, HostStatus, SessionInfo, Task, Workspace } from './types'
+import type { AgentInfo, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
@@ -18,6 +18,9 @@ import { hasChoices, setupFromAcp } from './agentSetup'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+/** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
+const shortPath = (p: string): string => { const t = tildify(p); const parts = t.split(/[\\/]/).filter(Boolean); return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : t }
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
 
@@ -43,6 +46,7 @@ export default function App() {
   const [confirmMerge, setConfirmMerge] = useState<Task>()
   const [mcp, setMcpState] = useState<McpServer[]>([])
   const [draft, setDraft] = useState<{ text: string; n: number }>()
+  const [shared, setShared] = useState<SharedData>()
   const [compose, setCompose] = useState<{ text: string; n: number }>()
   const [composeFolder, setComposeFolder] = useState<string>()
   const [multiPrompt, setMultiPrompt] = useState<string>()
@@ -137,10 +141,11 @@ export default function App() {
     if (a.ok) setAgents(a.value)
     if (w.ok) setWorkspaces(w.value)
     if (ss.ok) setSessions(ss.value)
+    if (s.value.features?.includes('sharedDrafts')) { const sh = await api<SharedData>('GET', '/v1/shared'); if (sh.ok) setShared((old) => (old?.revision === sh.value.revision ? old : sh.value)) } else setShared(undefined)
     if (s.value.features?.includes('orchestrator')) { const t = await api<Task[]>('GET', '/v1/tasks'); if (t.ok) setTasks(t.value) }
   }, [api, hostId])
   useEffect(() => {
-    setSessions([]); setTasks([]); setAgents([]); setWorkspaces([]); setSelected(pendingSel.current); pendingSel.current = undefined; setTimelines({})
+    setSessions([]); setTasks([]); setAgents([]); setWorkspaces([]); setShared(undefined); setSelected(pendingSel.current); pendingSel.current = undefined; setTimelines({})
     void refresh()
     const t = setInterval(() => void refresh(), 4000)
     return () => clearInterval(t)
@@ -185,11 +190,11 @@ export default function App() {
     return () => { off1(); off2() }
   }, [])
 
-  async function attach(sid: string, ref: typeof attached, readOnly = false): Promise<void> {
-    if (!hostId || ref.current === `${hostId}/${sid}`) return
+  async function attach(sid: string, ref: typeof attached, readOnly = false, takeover = false): Promise<void> {
+    if (!hostId || (ref.current === `${hostId}/${sid}` && !takeover)) return
     if (ref.current) void window.api.session.detach(ref.current)
     setTimelines((all) => ({ ...all, [sid]: emptyTimeline() }))
-    const r = await window.api.session.attach(hostId, sid, 0, readOnly)
+    const r = await window.api.session.attach(hostId, sid, 0, readOnly, takeover)
     if (r.ok) { ref.current = r.value; if (ref === attached) void window.api.watch.focus(r.value) }
     else flash(r.error)
   }
@@ -199,7 +204,7 @@ export default function App() {
   const tl = selected ? timelines[selected] : undefined
   const agentName = (id?: string): string => agents.find((a) => a.id === id)?.name ?? id ?? ''
   const rootTask = tasks.find((t) => t.session === selected && !t.parent) ?? tasks.find((t) => t.session === selected)
-  const title = (s: SessionInfo): string => timelines[s.id]?.title ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
+  const title = (s: SessionInfo): string => timelines[s.id]?.title ?? shared?.titles[s.id] ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
   const pendingIn = (sid: string): number => (timelines[sid]?.items ?? []).filter((i) => i.kind === 'permission' && i.answered === undefined).length
   const latest = useRef({ openOn, answer })
   latest.current = { openOn, answer }
@@ -210,14 +215,24 @@ export default function App() {
   }, [])
 
   const histKey = (ws?: string): string => `acportal.history.${hostId}.${ws ?? ''}`
-  const history = (ws?: string): string[] => JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
+  const history = (ws?: string): string[] => {
+    const local: string[] = JSON.parse(localStorage.getItem(histKey(ws)) ?? '[]')
+    return [...new Set([...(shared?.history[ws ?? ''] ?? []), ...local])].slice(0, 50)
+  }
   async function sendPrompt(text: string, atts: Attachment[] = [], silent = false): Promise<number | undefined> {
     if (!session || !attached.current) return
     const id = ++nextId.current
-    if (text.trim() && !silent) localStorage.setItem(histKey(session.workspace), JSON.stringify([text, ...history(session.workspace).filter((h) => h !== text)].slice(0, 50)))
+    if (text.trim() && !silent) {
+      localStorage.setItem(histKey(session.workspace), JSON.stringify([text, ...history(session.workspace).filter((h) => h !== text)].slice(0, 50)))
+      if (shared && text.length <= 16 * 1024) void api('POST', '/v1/shared/history', { workspace: session.workspace, text })
+    }
     const blocks: unknown[] = [{ type: 'text', text }]
     for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
-    if (!titles()[session.id]) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: text.split('\n')[0].slice(0, 60) }))
+    if (!titles()[session.id] && !shared?.titles[session.id] && !silent) {
+      const first = text.split('\n')[0].slice(0, 60)
+      localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: first }))
+      if (shared && first.trim()) void api('PUT', `/v1/shared/titles/${session.id}`, { title: first })
+    }
     setTimelines((all) => ({ ...all, [session.id]: { ...(all[session.id] ?? emptyTimeline()), promptId: id, busy: true } }))
     const r = await window.api.session.send(attached.current, { jsonrpc: '2.0', id, method: 'session/prompt', params: { sessionId: session.acpSessionId, prompt: blocks } })
     if (!r.ok) { flash(r.error); setTimelines((all) => ({ ...all, [session.id]: { ...all[session.id], busy: false } })); return }
@@ -297,6 +312,7 @@ export default function App() {
     const sid = lastCreated.current
     if (sid) {
       localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: title }))
+      if (shared && title.trim()) void api('PUT', `/v1/shared/titles/${sid}`, { title })
       setFirstSend({ sid, text: r.text, atts: r.atts, mode: r.mode, model: r.model })
     }
   }
@@ -460,7 +476,7 @@ export default function App() {
       <div className="side-actions">
         <button className={'btn full new-btn' + (!session && view.kind === 'workspace' && online ? ' on' : '')} onClick={() => openComposer()} disabled={!hosts.some((h) => fleet[h.id]?.state === 'connected') && !online}>{I.plus}New session<span className="kbd">Ctrl N</span></button>
         <button className="btn full multi-btn" onClick={() => setMultiOpen(true)} disabled={!online} title="Same prompt to 2-3 agents, each in its own worktree; compare and merge one">{I.flow}Run on several agents</button>
-        <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow">Search or run a command</span><span className="kbd">Ctrl K</span></button>
+        <button className="side-search" onClick={() => setPalette(true)}>{I.search}<span className="grow" title="Search sessions or run a command">Search or command</span><span className="kbd">Ctrl K</span></button>
       </div>
       {hosts.length > 1 && (
         <div className="host-filter" role="tablist" aria-label="Filter by host">
@@ -614,7 +630,7 @@ export default function App() {
             {repair ? <button className="btn primary" onClick={() => setView({ kind: 'pair', repair: hostId })}>Pair again</button> : <button className="btn primary" onClick={() => openComposer()} disabled={!online}>{I.plus}New session</button>}
             <button className="btn" onClick={() => setPalette(true)}>{I.cmd}Commands <span className="kbd">Ctrl K</span></button>
           </>}>
-          {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${host?.name ?? 'this host'} · ${agents.filter((a) => a.enabled !== false).length} agents ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
+          {online ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} on ${host?.name ?? 'this host'} · ${plural(agents.filter((a) => a.enabled !== false).length, 'agent')} ready` : repair ? 'Run acpd pair on the host and enter the new code.' : 'Waiting for the host to answer. Check that acpd is running and reachable.'}
         </Empty>
       </div>
     )
@@ -635,7 +651,7 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-title">
             <h1>{title(session)}</h1>
-            <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{tildify(session.workspace)}</span></div>
+            <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{shortPath(session.workspace)}</span></div>
           </div>
           {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
           {setup.modes?.availableModes?.length ? (
@@ -653,15 +669,23 @@ export default function App() {
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
           <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
-        {c && c.kind !== 'connected' && (
+        {c?.kind === 'observing' && (
+          <div className="banner">
+            {I.alert}<span>Another device (your phone or another computer) is controlling this session. You are watching it live.</span>
+            <button className="btn" onClick={() => void attach(session.id, attached, false, true)}>Take control</button>
+          </div>
+        )}
+        {c && c.kind !== 'connected' && c.kind !== 'observing' && (
           <div className={'banner' + (c.kind === 'failed' ? ' red' : '')}>
             {I.alert}<span>{c.kind === 'reconnecting' ? `Reconnecting (attempt ${c.attempt})… the turn keeps running on the host.` : c.kind === 'failed' ? c.reason : c.kind === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
           </div>
         )}
         {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
-        <Conversation t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
-        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
-          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} />
+        <Conversation root={session.workspace} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
+          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} key={session.id}
+          remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
+          onText={shared ? (t) => { if (new TextEncoder().encode(t).length <= 64 * 1024) void api('PUT', `/v1/shared/drafts/${session.id}`, { text: t }) } : undefined} />
       </div>
     )
   }

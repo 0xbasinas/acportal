@@ -24,4 +24,10 @@ class PromptHistoryTest {
         assertTrue(promptHistory(state).isEmpty())
         assertEquals("one\ntwo",promptText(WireJson.parseToJsonElement("""[{"type":"text","text":"one"},{"type":"resource_link","uri":"file:///secret"},{"type":"text","text":"two"}]""").arrayValue()))
     }
+    @Test fun sharedHistoryFollowsThisSessionsPromptsWithoutDuplicates() {
+        val own=listOf(PromptHistoryEntry("a","Run the tests"))
+        val merged=withSharedHistory(own,listOf("Fix the bug","Run the tests"," ","Fix the bug"))
+        assertEquals(listOf("Run the tests","Fix the bug"),merged.map {it.text})
+        assertEquals("a",merged.first().id);assertTrue(merged[1].id.startsWith("shared-"))
+    }
 }

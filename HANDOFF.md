@@ -37,6 +37,7 @@ State: the host keeps its config in `config.toml` and `agents.json` (hand-writte
 | Scope check (paths outside the workspace) | `acpd/src/shell_review.rs` (`outside_paths`), `connection.rs` (`annotate_agent_scope`) | [security](docs/security.md) |
 | OS sandbox for approved commands | `acpd/src/terminal.rs` (bwrap), `src/win_sandbox.rs` (AppContainer) | [security](docs/security.md), [agents](docs/agents.md) |
 | Windows shell choice | `acpd/src/shell.rs`, `src/config.rs` (`[windows]`), `src/registry.rs` (`shell`) | [agents](docs/agents.md#windows-shell) |
+| Phone/desktop handoff: take control of a session from the other device; the replaced client keeps watching live. Shared drafts, titles and folder prompt history (`/v1/shared`, `acpd/src/api/shared.rs`) | `acpd/src/api.rs` (`acquire_lease`, `control_taken`), `desktop/electron/host.ts`, `transport/WebSocketTransport.kt`, `SessionRecovery.kt` | [protocol](docs/protocol.md) |
 | Delegated tasks, supervisor, worktree merge | `acpd/src/orchestrator/` | [orchestrator-design](docs/orchestrator-design.md) |
 
 ### Host API (summary)
