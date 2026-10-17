@@ -12,6 +12,13 @@ import { dialog } from 'electron'
 import { readFile, stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 
+/** Height of the app's title bar (index.css --titlebar) and the window buttons' colours per theme. */
+const TITLE_BAR_HEIGHT = 36
+function titleBarColours(): Electron.TitleBarOverlayOptions {
+  const dark = nativeTheme.shouldUseDarkColors
+  return { color: dark ? '#0A0A0A' : '#FAFAFA', symbolColor: dark ? '#EDEDED' : '#171719', height: TITLE_BAR_HEIGHT }
+}
+
 type StoredHost = { id: string; hostId: string; name: string; address: string; deviceId: string; secret: string; expiresAt: number; addedAt: number }
 type PublicHost = Omit<StoredHost, 'secret'>
 
@@ -275,9 +282,18 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#0A0A0A',
     title: 'acportal',
+    // The app draws its own title bar (logo, title); the system keeps its window buttons, drawn
+    // over the bar in the theme's colours (Windows, Linux) or as traffic lights (macOS).
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 11 } } : { titleBarOverlay: titleBarColours() }),
+    ...(process.platform === 'win32' ? { icon: join(__dirname, '../../resources/icon.ico') } : {}),
     webPreferences: { preload: join(__dirname, '../preload/preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
   })
   win.once('ready-to-show', () => win?.show())
+  // Follow the theme (the app sets nativeTheme.themeSource from its preference).
+  const recolour = (): void => { if (process.platform !== 'darwin') win?.setTitleBarOverlay(titleBarColours()) }
+  nativeTheme.on('updated', recolour)
+  win.on('closed', () => nativeTheme.removeListener('updated', recolour))
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:')) void shell.openExternal(url)
     return { action: 'deny' }

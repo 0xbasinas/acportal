@@ -9,7 +9,7 @@ import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
-import { type AgentSetup, choiceName, hasChoices, modelFirst, placePopover, setupFromAcp } from './agentSetup'
+import { type AgentSetup, choiceName, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
 import { OptionsPanel } from './OptionPicker'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
@@ -22,6 +22,8 @@ export type StartRequest = { agent: string; workspace: string; branch: BranchPic
 export type OptionPick = { id: string; value: string }
 export type HostChoice = { id: string; name: string; state: string; ok: boolean }
 
+/** The folder choice for a session in no project: the host makes a new empty folder at start. */
+export const NO_PROJECT = '\u0000no-project'
 export const slug = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/^-|-$/g, '')
 export const setupKey = (agent: string): string => `acportal.agentSetup.${agent}`
 export function rememberedSetup(agent: string): AgentSetup {
@@ -74,18 +76,20 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
 }
 
-export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe }: {
+export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch }: {
   hosts: HostChoice[]; hostId: string; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; canBranch: boolean
   history: (ws: string) => string[]; initial?: { text: string; n: number }; initialFolder?: string
   onStart: (r: StartRequest) => Promise<string | undefined>; onMulti: (text: string) => void
   /** Ask the host which models and modes an agent offers (throwaway session); undefined if it cannot. */
   probe?: (agent: string, workspace: string) => Promise<unknown | undefined>
+  /** A new empty folder for a session outside every project (hosts with `scratchSessions`). */
+  newScratch?: () => Promise<string | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
   const [ws, setWs] = useState(initialFolder ?? workspaces[0]?.path ?? '')
   const [sub, setSub] = useState('')
-  useEffect(() => { if (!workspaces.some((w) => w.path === ws)) setWs(workspaces[0]?.path ?? '') }, [workspaces])
+  useEffect(() => { if (ws !== NO_PROJECT && !workspaces.some((w) => w.path === ws)) setWs(workspaces[0]?.path ?? (newScratch ? NO_PROJECT : '')) }, [workspaces, Boolean(newScratch)])
   useEffect(() => { if (initialFolder) setWs(initialFolder) }, [initialFolder])
   useEffect(() => { if (usable.length && !usable.some((x) => x.id === agent)) setAgent(usable[0].id) }, [agents])
   const [text, setText] = useState('')
@@ -115,7 +119,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const loadingSetup = probeState === 'loading'
   const retryProbe = () => setProbed((p) => { const { [hostId + '/' + agent]: _, ...rest } = p; return rest })
   const [picks, setPicks] = useState<OptionPick[]>([])
-  const selectors = modelFirst(setup.selectors ?? []).filter((x) => x.choices.length)
+  const selectors = arranged(setup.selectors ?? []).filter((x) => x.choices.length)
   const valueOf = (id: string): string | undefined => [...picks].reverse().find((p) => p.id === id)?.value ?? selectors.find((x) => x.id === id)?.current
   // A pick other than the model can change what the other lists offer once the agent applies it.
   const mayChangeOthers = picks.some((p) => { const x = selectors.find((y) => y.id === p.id); return x !== undefined && x.category !== 'model' && x.id !== 'model' && selectors.length > 1 })
@@ -130,7 +134,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const pickOption = (x: { id: string }, v: string): void => setPicks((list) => [...list.filter((p) => p.id !== x.id), { id: x.id, value: v }])
   useEffect(() => {
     const key = hostId + '/' + agent
-    if (!probe || !agent || !ws || hasChoices(setup) || probed[key]) return
+    if (!probe || !agent || !ws || ws === NO_PROJECT || hasChoices(setup) || probed[key]) return
     setProbed((p) => ({ ...p, [key]: 'loading' }))
     probe(agent, ws).then((raw) => setProbed((p) => ({ ...p, [key]: raw === undefined ? 'failed' : setupFromAcp(raw) })), () => setProbed((p) => ({ ...p, [key]: 'failed' })))
   }, [agent, hostId, ws, Boolean(probe), probeState === undefined])
@@ -145,7 +149,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   useEffect(() => {
     let stop = false
     setBranches(undefined); setCurrent(undefined)
-    if (!canBranch || !target) return
+    if (!canBranch || !target || ws === NO_PROJECT) return
     const t = setTimeout(async () => {
       const r = await window.api.git.run(hostId, target, 'branch-list')
       if (stop) return
@@ -178,7 +182,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     from.current = box.current?.getBoundingClientRect()
     setPhase('starting'); setErr(undefined); setOpen(undefined)
     localStorage.setItem('acportal.lastAgent', agent)
-    const e = await onStart({ agent, workspace: target, branch, access, text, atts, choices: picks })
+    // No project: the host makes the folder now, so nothing is left behind if starting is cancelled earlier.
+    const workspace = ws === NO_PROJECT ? await newScratch?.() : target
+    if (!workspace) { setPhase('idle'); setErr('The host could not make a folder for this session.'); return }
+    const e = await onStart({ agent, workspace, branch: ws === NO_PROJECT ? { mode: 'current', name: '', worktree: false } : branch, access, text, atts, choices: picks })
     if (e) { setPhase('idle'); setErr(e) }
   }
   useLayoutEffect(() => {
@@ -192,7 +199,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   }, [phase])
   // The first two options (the model first) summarise the chip, as the phone's header does.
   const summary = selectors.slice(0, 2).map((x) => choiceName(x, valueOf(x.id)) ?? `${x.name}: agent's choice`).join(' · ')
-  const recent = history(target).slice(0, 4)
+  const recent = ws === NO_PROJECT ? [] : history(target).slice(0, 4)
   const starting = phase === 'starting'
   const enabledMcp = mcp.filter((m) => m.enabled)
   const accessLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
@@ -234,13 +241,17 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         {hosts.map((h) => <Item key={h.id} on={h.id === hostId} sub={h.state} onPick={() => { setOpen(undefined); if (h.id !== hostId && h.ok) onHost(h.id) }}>{h.name}</Item>)}
         <div className="hint ctx-pad">Choosing another host switches the whole window to it.</div>
       </Chip>
-      <Chip id="folder" open={open} setOpen={setOpen} icon={I.folder} label={tildify(target) || 'Folder'} title="Folder" wide>
+      <Chip id="folder" open={open} setOpen={setOpen} icon={I.folder} label={ws === NO_PROJECT ? 'No project' : tildify(target) || 'Folder'} title="Folder" wide>
         <div className="ctx-h">Folder</div>
         {workspaces.map((w) => <Item key={w.path} on={w.path === ws} onPick={() => setWs(w.path)}><span className="mono">{tildify(w.path)}</span></Item>)}
-        {workspaces.length === 0 && <div className="hint ctx-pad">No folders are allowed on this host yet (Settings → Workspaces).</div>}
-        <div className="ctx-sep" />
-        <label className="ctx-h" htmlFor="ns-sub">Sub-folder (optional)</label>
-        <input id="ns-sub" className="input mono ctx-input" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(undefined) }} />
+        {workspaces.length === 0 && <div className="hint ctx-pad">No project folders are allowed on this host yet (Settings → Workspaces).</div>}
+        {newScratch && <Item on={ws === NO_PROJECT} onPick={() => setWs(NO_PROJECT)} sub="new empty folder">No project</Item>}
+        {ws !== NO_PROJECT && <>
+          <div className="ctx-sep" />
+          <label className="ctx-h" htmlFor="ns-sub">Sub-folder (optional)</label>
+          <input id="ns-sub" className="input mono ctx-input" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(undefined) }} />
+        </>}
+        {ws === NO_PROJECT && <div className="hint ctx-pad">The host makes a new empty folder for this session, outside every project. Use it for questions and one-off tasks.</div>}
       </Chip>
       <Chip id="branch" open={open} setOpen={setOpen} icon={I.branch} label={branchLabel + (branch.worktree ? ' · worktree' : '')} title="Branch" active={branch.mode !== 'current'} wide>
         {!canBranch ? <div className="hint ctx-pad">This host does not run git for the app; the session starts on whatever branch the folder is on.</div>

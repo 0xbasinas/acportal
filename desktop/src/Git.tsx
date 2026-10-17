@@ -28,9 +28,12 @@ function GraphGlyphs({ g }: { g: string }) {
 // GitHub compare URLs keep the slashes of a branch name.
 const refPath = (r: string) => r.split("/").map(encodeURIComponent).join("/")
 
-export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession, confirmDanger }: {
+export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, askAgent, openSession, confirmDanger }: {
   hostId: string; repos: { path: string; label: string }[]; onBack: () => void
-  suggest: (diff: string) => Promise<string | undefined>; askAgent: (prompt: string) => void; openSession: (path: string) => void
+  /** A commit message for what is staged in `path`, from `agentId` (absent on older hosts). */
+  suggest?: (path: string, agentId: string) => Promise<{ message?: string; error?: string }>
+  agents: { id: string; name: string }[]; defaultAgent?: string
+  askAgent: (prompt: string) => void; openSession: (path: string) => void
   confirmDanger?: (text: string) => boolean
 }) {
   const sure = confirmDanger ?? ((t: string) => confirm(t))
@@ -50,6 +53,9 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
   const [stashes, setStashes] = useState<{ ref: string; msg: string; when: string }[]>([])
   const [conflictDiffs, setConflictDiffs] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState('')
+  // Which agent writes suggested commit messages; remembered across visits.
+  const [msgAgent, setMsgAgent] = useState(() => localStorage.getItem('acportal.commitAgent') ?? defaultAgent ?? agents[0]?.id ?? '')
+  useEffect(() => { if (agents.length && !agents.some((a) => a.id === msgAgent)) setMsgAgent(defaultAgent && agents.some((a) => a.id === defaultAgent) ? defaultAgent : agents[0].id) }, [agents])
   const [err, setErr] = useState<string>()
   const [note, setNote] = useState<string>()
   const [undo, setUndo] = useState<Step[]>([])
@@ -256,13 +262,22 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
               <textarea className="input area" placeholder="Summary of the change (first line ≤ 72 chars)" value={msg} onChange={(e) => setMsg(e.target.value)} />
               <div className={'counter' + (msg.split('\n')[0].length > 72 ? ' amber' : '')}>{msg.split('\n')[0].length}/72</div>
               <div className="btn-row">
-                <button className="btn" disabled={!staged.length || busy} title="Ask the current session's agent for a message from the staged diff (one small model request)" onClick={async () => {
-                  setBusy(true); setNote('Asking the agent for a commit message…')
-                  const d = (await git('diff', { staged: '1' })) ?? ''
-                  const s = await suggest(d.slice(0, 12000))
-                  setBusy(false)
-                  if (s) { setMsg(s); setNote('Suggested by the agent; edit before committing') } else setNote('No suggestion (open a session to use this)')
-                }}>{I.spark}Suggest</button>
+                <button className="btn" disabled={!staged.length || busy || !suggest || !msgAgent}
+                  title={suggest ? 'Ask the agent for a message from the staged changes, in a throwaway session (one small model request)' : 'Needs a newer acpd on the host'}
+                  onClick={async () => {
+                    if (!suggest) return
+                    const name = agents.find((a) => a.id === msgAgent)?.name ?? msgAgent
+                    setBusy(true); setErr(undefined); setNote(`Asking ${name} for a commit message…`)
+                    const r = await suggest(cwd, msgAgent)
+                    setBusy(false)
+                    if (r.message) { setMsg(r.message); setNote(`Suggested by ${name}; edit before committing`) } else setNote(r.error ?? 'No suggestion')
+                  }}>{I.spark}Suggest</button>
+                {agents.length > 1 && (
+                  <select className="select-btn" aria-label="Agent that writes the message" title="Agent that writes the message" value={msgAgent} disabled={busy}
+                    onChange={(e) => { setMsgAgent(e.target.value); try { localStorage.setItem('acportal.commitAgent', e.target.value) } catch { /* ignore */ } }}>
+                    {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                )}
                 <span style={{ flex: 1 }} />
                 <GitBtn learn={learn} primary label={`Commit to ${current || 'branch'}`} disabled={!canCommit || !msg.trim() || busy} cmd={`git commit -m "${msg.split('\n')[0].slice(0, 40)}"`} why={W('commit')}
                   onClick={async () => {

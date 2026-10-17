@@ -4,7 +4,7 @@
 // picking a value returns to the rows. Opening or searching sends nothing; only a pick calls `onPick`.
 import { useEffect, useRef, useState } from 'react'
 import { I } from './ui'
-import { type Choice, type Selector, SEARCH_ABOVE, choiceName, filterChoices } from './agentSetup'
+import { type Choice, type Selector, SEARCH_ABOVE, choiceName, filterChoices, sections } from './agentSetup'
 
 /** Rows drawn at most per list. */
 const ROW_LIMIT = 200
@@ -49,8 +49,9 @@ export function ChoiceList({ selector, value, onPick, heading, onBack }: { selec
   )
 }
 
-/** One row per option with its current value; a row opens that option's list. With a single
- * option its list is shown straight away. */
+/** One row per option with its current value, under Model / Mode / More options headings when
+ * there is more than one section; a row opens that option's list. With a single option its list
+ * is shown straight away. */
 export function OptionsPanel({ selectors, valueOf, onPick }: { selectors: Selector[]; valueOf: (s: Selector) => string | undefined; onPick: (s: Selector, value: string) => void }) {
   const [which, setWhich] = useState<string>()
   const box = useRef<HTMLDivElement>(null)
@@ -73,15 +74,20 @@ export function OptionsPanel({ selectors, valueOf, onPick }: { selectors: Select
   }
   return (
     <div ref={box} className="opt-list" role="group" aria-label="Session options">
-      {selectors.map((s) => {
-        const key = s.kind + ':' + s.id
-        const value = choiceName(s, valueOf(s)) ?? "agent's choice"
-        return (
-          <button key={key} data-item data-row={key} className="ctx-item opt-row" aria-label={`${s.name}: ${value}`} onClick={() => setWhich(key)}>
-            <span className="opt-name">{s.name}</span><span className="grow ell opt-value">{value}</span><span className="opt-chev">{I.chev}</span>
-          </button>
-        )
-      })}
+      {sections(selectors).map((section, i, all) => (
+        <div key={section.title} role="group" aria-label={section.title} className={i ? 'opt-section' : undefined}>
+          {all.length > 1 && <div className="ctx-h">{section.title}</div>}
+          {section.selectors.map((s) => {
+            const key = s.kind + ':' + s.id
+            const value = choiceName(s, valueOf(s)) ?? "agent's choice"
+            return (
+              <button key={key} data-item data-row={key} className="ctx-item opt-row" aria-label={`${s.name}: ${value}`} onClick={() => setWhich(key)}>
+                <span className="opt-name">{s.name}</span><span className="grow ell opt-value">{value}</span><span className="opt-chev">{I.chev}</span>
+              </button>
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }

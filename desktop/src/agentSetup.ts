@@ -87,8 +87,21 @@ export function setupFromAcp(raw: unknown, chosen?: Record<string, string>): Age
   return { selectors: selectorsFromAcp(raw), chosen: chosen ?? {} }
 }
 export const hasChoices = (s?: AgentSetup): boolean => Boolean(s?.selectors?.some((x) => x.choices.length))
-/** The model selector first (by category or id), then the rest in the agent's order. */
-export const modelFirst = (list: Selector[]): Selector[] => [...list].sort((a, b) => Number(b.category === 'model' || b.id === 'model') - Number(a.category === 'model' || a.id === 'model'))
+/** Options shown together, as the ACP spec suggests: the model with what tunes it
+ * (`model_config`, `thought_level`), then the mode, then the agent's other options. Within a
+ * section the agent's order is kept, except that the model itself comes first. */
+export type Section = { title: 'Model' | 'Mode' | 'More options'; selectors: Selector[] }
+const isModel = (s: Selector): boolean => s.category === 'model' || s.kind === 'model' || (!s.category && s.id === 'model')
+const MODEL_SECTION = new Set(['model_config', 'thought_level'])
+export function sections(list: Selector[]): Section[] {
+  const model = list.filter(isModel).concat(list.filter((s) => !isModel(s) && MODEL_SECTION.has(s.category ?? '')))
+  const mode = list.filter((s) => !model.includes(s) && (s.category === 'mode' || s.kind === 'mode'))
+  const more = list.filter((s) => !model.includes(s) && !mode.includes(s))
+  const out: Section[] = [{ title: 'Model', selectors: model }, { title: 'Mode', selectors: mode }, { title: 'More options', selectors: more }]
+  return out.filter((x) => x.selectors.length)
+}
+/** The options in section order (model section first). */
+export const arranged = (list: Selector[]): Selector[] => sections(list).flatMap((x) => x.selectors)
 
 /** Where an anchored dropdown goes: below (or above) its chip, flipped when the preferred side
  * has no room and the other has more, shifted left so it stays inside the window. */

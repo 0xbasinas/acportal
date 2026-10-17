@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Host } from './types'
 import { I } from './ui'
+import { Logo } from './TitleBar'
 
 export function Pairing({ onPaired, onCancel, initialAddress, repairName, replaceId }: { replaceId?: string; onPaired: (h: Host) => void; onCancel?: () => void; initialAddress?: string; repairName?: string }) {
   const [address, setAddress] = useState(initialAddress ?? '')
@@ -27,7 +28,7 @@ export function Pairing({ onPaired, onCancel, initialAddress, repairName, replac
   return (
     <div className="pair-wrap">
       <div className="pair-left">
-        <div className="logo">{I.term}</div>
+        <div className="pair-logo"><Logo size={44} /></div>
         <h1 className="pair-title">{repairName ? `Pair ${repairName} again` : 'Pair with a host'}</h1>
         <p className="sub2" style={{ marginTop: 8 }}>
           acportal desktop drives the agents on a machine running <span className="mono">acpd</span>, the same way the Android app does.

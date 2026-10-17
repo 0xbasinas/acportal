@@ -2,7 +2,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NewSessionHome, type StartRequest } from '../src/NewSession'
-import { filterChoices, liveSelectors, liveValue, modelFirst, placePopover, selectorsFromAcp, setRequest, setupFromAcp } from '../src/agentSetup'
+import { filterChoices, liveSelectors, liveValue, arranged, placePopover, sections, selectorsFromAcp, setRequest, setupFromAcp } from '../src/agentSetup'
 import type { AgentInfo } from '../src/types'
 
 const agents: AgentInfo[] = [{ id: 'goose', name: 'Goose', status: 'available' }, { id: 'mock', name: 'Mock', status: 'available' }]
@@ -289,6 +289,52 @@ describe('options that change other options', () => {
   })
 })
 
+describe('model section', () => {
+  // In the agent's order: an uncategorised provider, the mode, the model, its effort and context.
+  const agentOptions = { configOptions: [
+    { id: 'provider', name: 'Provider', type: 'select', currentValue: 'p1', options: [{ value: 'p1', name: 'P1' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask', options: [{ value: 'ask', name: 'Ask' }] },
+    { id: 'effort', name: 'Thinking effort', category: 'thought_level', type: 'select', currentValue: 'off', options: [{ value: 'off', name: 'Off' }] },
+    { id: 'm', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ value: 'a', name: 'Model A' }] },
+    { id: 'ctx', name: 'Context size', category: 'model_config', type: 'select', currentValue: '200k', options: [{ value: '200k', name: '200K' }] }
+  ] }
+  it('puts the model with what tunes it first, then the mode, then the rest in agent order', () => {
+    const list = sections(selectorsFromAcp(agentOptions))
+    expect(list.map((x) => [x.title, x.selectors.map((s) => s.id)])).toEqual([['Model', ['m', 'effort', 'ctx']], ['Mode', ['mode']], ['More options', ['provider']]])
+    expect(arranged(selectorsFromAcp(agentOptions)).map((s) => s.id)).toEqual(['m', 'effort', 'ctx', 'mode', 'provider'])
+    // One section has no heading; legacy fields still sort into Model and Mode.
+    expect(sections(selectorsFromAcp({ models: { currentModelId: 'x', availableModels: [{ modelId: 'x' }] }, modes: { currentModeId: 'a', availableModes: [{ id: 'a', name: 'A' }] } })).map((x) => x.title)).toEqual(['Model', 'Mode'])
+  })
+  it('shows the sections as headings in the options dropdown', () => {
+    setup({ probe: vi.fn(), agents: [{ ...agents[0], setup: agentOptions }] })
+    fireEvent.click(chip(/Model A · Off/))
+    const dialog = screen.getByRole('dialog', { name: 'Model and options' })
+    expect(dialog.textContent).toMatch(/Model.*Model A.*Thinking effort.*Context size.*Mode.*Ask.*More options.*Provider/)
+    expect(screen.getByRole('group', { name: 'More options' }).textContent).toMatch(/Provider/)
+  })
+})
+
+describe('no project', () => {
+  it('starts in a new empty folder the host makes at start, on the folder as it is', async () => {
+    const newScratch = vi.fn(async () => 'C:/state/scratch/1792240000-ab12cd')
+    const { onStart } = setup({ newScratch })
+    fireEvent.click(chip(/project/))
+    fireEvent.click(screen.getByText('No project'))
+    expect(chip(/No project/)).toBeTruthy()
+    expect(newScratch).not.toHaveBeenCalled()
+    fireEvent.change(prompt(), { target: { value: 'what is a monad?' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(newScratch).toHaveBeenCalledTimes(1)
+    expect(onStart.mock.calls[0][0]).toMatchObject({ workspace: 'C:/state/scratch/1792240000-ab12cd', branch: { mode: 'current', worktree: false } })
+  })
+  it('is not offered by hosts without scratch folders, and a failed folder keeps the prompt', async () => {
+    setup()
+    fireEvent.click(chip(/project/))
+    expect(screen.queryByText('No project')).toBeNull()
+  })
+})
+
 describe('reading session options like the phone', () => {
   it('every select configOption by its own name, with groups, and how each is set', () => {
     const list = selectorsFromAcp({ configOptions: [
@@ -298,7 +344,7 @@ describe('reading session options like the phone', () => {
     ] })
     expect(list.map((x) => x.id)).toEqual(['effort', 'm'])
     expect(list[1].choices).toEqual([{ value: 'a', name: 'A', description: 'fast', group: 'Provider G' }])
-    expect(modelFirst(list)[0].id).toBe('m')
+    expect(arranged(list)[0].id).toBe('m')
     expect(setRequest(list[0], 'low')).toEqual({ method: 'session/set_config_option', params: { configId: 'effort', value: 'low' } })
   })
   it('falls back to the older models and modes fields only without configOptions', () => {

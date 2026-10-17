@@ -117,6 +117,8 @@ pub struct Discovery {
     pub status: AgentStatus,
     pub reason: Option<String>,
     pub own_tools: bool,
+    /// Whether host-approved commands run in the OS sandbox (`auto`) or unconfined (`off`).
+    pub sandbox: Sandbox,
     /// How to start it (an npm shim becomes node plus its script). Never sent to the phone.
     #[serde(skip)]
     pub launch: Option<crate::discovery::Launch>,
@@ -221,6 +223,7 @@ impl AgentDefinition {
                 },
                 reason: validation,
                 own_tools: self.own_tools,
+                sandbox: self.sandbox,
                 launch: None,
             };
         }
@@ -244,6 +247,7 @@ impl AgentDefinition {
             status,
             reason: validation,
             own_tools: self.own_tools,
+            sandbox: self.sandbox,
             launch,
         }
     }

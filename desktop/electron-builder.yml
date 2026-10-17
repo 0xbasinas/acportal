@@ -5,6 +5,9 @@ directories:
 files:
   - out/**/*
   - package.json
+  - resources/**/*
+win:
+  icon: resources/icon.ico
 asar: true
 linux:
   target: [AppImage]

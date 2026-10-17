@@ -171,39 +171,45 @@ pub async fn agent_check(
     result
 }
 
+/// For a session no person is watching (doctor checks, one-off host prompts): answer every
+/// permission request with the agent's own reject option (or cancel) so a turn cannot block.
+/// Abort the returned task when the turn is over.
+pub(crate) fn refuse_permissions(
+    session: std::sync::Arc<crate::session::AcpSession>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            for permission in session.connection.replay(0).pending_permissions {
+                let reject = permission["params"]["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|option| {
+                        option["kind"]
+                            .as_str()
+                            .is_some_and(|kind| kind.starts_with("reject"))
+                    })
+                    .map(|option| option["optionId"].clone());
+                let outcome = match reject {
+                    Some(id) => serde_json::json!({"outcome":"selected","optionId":id}),
+                    None => serde_json::json!({"outcome":"cancelled"}),
+                };
+                let _ = session
+                    .connection
+                    .permission(permission["id"].clone(), outcome)
+                    .await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+}
+
 async fn provider_prompt_check(
     session: &std::sync::Arc<crate::session::AcpSession>,
     config: &Config,
 ) -> (String, bool) {
     // No phone is attached: refuse every permission request so the turn cannot block.
-    let refuser = {
-        let session = session.clone();
-        tokio::spawn(async move {
-            loop {
-                for permission in session.connection.replay(0).pending_permissions {
-                    let reject = permission["params"]["options"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .find(|option| {
-                            option["kind"]
-                                .as_str()
-                                .is_some_and(|kind| kind.starts_with("reject"))
-                        })
-                        .map(|option| option["optionId"].clone());
-                    let outcome = match reject {
-                        Some(id) => serde_json::json!({"outcome":"selected","optionId":id}),
-                        None => serde_json::json!({"outcome":"cancelled"}),
-                    };
-                    let _ = session
-                        .connection
-                        .permission(permission["id"].clone(), outcome)
-                        .await;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        })
-    };
+    let refuser = refuse_permissions(session.clone());
     let deadline =
         std::time::Duration::from_secs(config.runtime.request_timeout_seconds.saturating_add(5));
     let result = tokio::time::timeout(deadline, session.prompt(PROMPT_CHECK_TEXT)).await;

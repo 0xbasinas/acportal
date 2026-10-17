@@ -367,11 +367,15 @@ async fn main() -> Result<()> {
                 );
             }
             let host = Host::new(config, registry)?;
-            if selected_file.exists() {
-                acpd::daemon::serve(host, selected_file, cli.registry.clone(), control_path).await?
+            let served = if selected_file.exists() {
+                acpd::daemon::serve(host, selected_file, cli.registry.clone(), control_path).await
             } else {
-                host.serve().await?
-            }
+                host.serve().await
+            };
+            // Windows sandbox: remove the workspace grants and profiles this host created.
+            #[cfg(windows)]
+            let _ = tokio::task::spawn_blocking(acpd::win_sandbox::release_workspaces).await;
+            served?
         }
         Commands::Start { background: true } | Commands::Daemon { .. } => {
             unreachable!("daemon command handled before host initialization")
