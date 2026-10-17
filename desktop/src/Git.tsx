@@ -1,5 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import { Branch, Compare, FileDiff, GraphRow, Status, Worktree, githubRepo, parseBranches, parseCompare, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
+import { Branch, Compare, DagRow, FileDiff, GraphRow, Status, Worktree, githubRepo, layoutDag, parseBranches, parseCompare, parseDag, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
+import { prBase, prBlockedReason, prCommand } from './pr'
 import { Empty, I, baseName, tildify } from './ui'
 
 type LogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
@@ -21,6 +22,34 @@ function GitBtn({ label, cmd, why, onClick, primary, danger, learn, disabled, ic
 }
 
 const GRAPH_COLORS = ['var(--text)', 'var(--green)', 'var(--amber)', '#8fb7ff', 'var(--red)', '#c6aff5']
+// The drawn graph: one SVG cell per row, lanes as columns, so lines join from row to row.
+const LANE = 14
+const ROW = 28
+const LANE_COLORS = ['var(--green)', '#8fb7ff', 'var(--amber)', '#c6aff5', '#5fd3e6', 'var(--red)', '#e8a2c8']
+const laneColor = (n: number): string => LANE_COLORS[n % LANE_COLORS.length]
+/** At most this many lanes are drawn; wider histories are cut at the right edge. */
+const MAX_LANES = 12
+export function DagCell({ row, lanes }: { row: DagRow; lanes: number }) {
+  const width = Math.min(Math.max(lanes, 1), MAX_LANES) * LANE + 4
+  const x = (lane: number): number => 2 + LANE / 2 + lane * LANE
+  const mid = ROW / 2
+  const head = /(^|, )HEAD( ->|$|,)/.test(row.commit.refs)
+  const line = { strokeWidth: 2, strokeLinecap: 'round' as const, fill: 'none' }
+  return (
+    <svg className="dag" width={width} height={ROW} viewBox={`0 0 ${width} ${ROW}`} aria-hidden="true">
+      {row.through.map((t) => <line key={'t' + t.lane} x1={x(t.lane)} y1={0} x2={x(t.lane)} y2={ROW} stroke={laneColor(t.color)} {...line} />)}
+      {row.into.map((t) => t.from === row.col
+        ? <line key={'i' + t.from} x1={x(t.from)} y1={0} x2={x(t.from)} y2={mid} stroke={laneColor(t.color)} {...line} />
+        : <path key={'i' + t.from} d={`M${x(t.from)} 0 C${x(t.from)} ${mid * 0.9} ${x(row.col)} ${mid * 0.3} ${x(row.col)} ${mid}`} stroke={laneColor(t.color)} {...line} />)}
+      {row.out.map((o) => o.to === row.col
+        ? <line key={'o' + o.to} x1={x(o.to)} y1={mid} x2={x(o.to)} y2={ROW} stroke={laneColor(o.color)} {...line} />
+        : <path key={'o' + o.to} d={`M${x(row.col)} ${mid} C${x(row.col)} ${ROW - mid * 0.3} ${x(o.to)} ${ROW - mid * 0.9} ${x(o.to)} ${ROW}`} stroke={laneColor(o.color)} {...line} />)}
+      {head && <circle cx={x(row.col)} cy={mid} r={7} fill="none" stroke={laneColor(row.color)} strokeWidth={1.5} opacity={0.55} />}
+      <circle cx={x(row.col)} cy={mid} r={row.merge ? 3.5 : 4} fill={row.merge ? 'var(--bg)' : laneColor(row.color)} stroke={laneColor(row.color)} strokeWidth={row.merge ? 2 : 0} />
+    </svg>
+  )
+}
+
 function GraphGlyphs({ g }: { g: string }) {
   return <span className="graph">{[...g].map((ch, i) => <span key={i} style={{ color: ch === '*' ? 'var(--text)' : GRAPH_COLORS[Math.floor(i / 2) % GRAPH_COLORS.length] }}>{ch === '*' ? '●' : ch}</span>)}</span>
 }
@@ -28,10 +57,19 @@ function GraphGlyphs({ g }: { g: string }) {
 // GitHub compare URLs keep the slashes of a branch name.
 const refPath = (r: string) => r.split("/").map(encodeURIComponent).join("/")
 
-export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession, confirmDanger }: {
+export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, askAgent, openSession, confirmDanger, pullRequests, ghCli, suggestPr, createPr }: {
   hostId: string; repos: { path: string; label: string }[]; onBack: () => void
-  suggest: (diff: string) => Promise<string | undefined>; askAgent: (prompt: string) => void; openSession: (path: string) => void
+  /** A commit message for what is staged in `path`, from `agentId` (absent on older hosts). */
+  suggest?: (path: string, agentId: string) => Promise<{ message?: string; error?: string }>
+  agents: { id: string; name: string }[]; defaultAgent?: string
+  askAgent: (prompt: string) => void; openSession: (path: string) => void
   confirmDanger?: (text: string) => boolean
+  /** Host advertises `POST /v1/pull-requests`. */
+  pullRequests?: boolean
+  /** `GET /v1/status` `gh`: whether the host found the `gh` program. */
+  ghCli?: 'found' | 'missing'
+  suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; existing?: boolean; error?: string }>
 }) {
   const sure = confirmDanger ?? ((t: string) => confirm(t))
   const [available, setAvailable] = useState<'host' | 'local' | false>()
@@ -44,12 +82,17 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
   const [unstaged, setUnstaged] = useState<FileDiff[]>([])
   const [staged, setStaged] = useState<FileDiff[]>([])
   const [graph, setGraph] = useState<GraphRow[]>([])
+  // Drawn graph from `log-dag`; undefined on hosts without it (then the ASCII graph is shown).
+  const [dag, setDag] = useState<{ rows: DagRow[]; lanes: number }>()
   const [worktrees, setWorktrees] = useState<Worktree[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [remote, setRemote] = useState<string>()
   const [stashes, setStashes] = useState<{ ref: string; msg: string; when: string }[]>([])
   const [conflictDiffs, setConflictDiffs] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState('')
+  // Which agent writes suggested commit messages; remembered across visits.
+  const [msgAgent, setMsgAgent] = useState(() => localStorage.getItem('acportal.commitAgent') ?? defaultAgent ?? agents[0]?.id ?? '')
+  useEffect(() => { if (agents.length && !agents.some((a) => a.id === msgAgent)) setMsgAgent(defaultAgent && agents.some((a) => a.id === defaultAgent) ? defaultAgent : agents[0].id) }, [agents])
   const [err, setErr] = useState<string>()
   const [note, setNote] = useState<string>()
   const [undo, setUndo] = useState<Step[]>([])
@@ -79,7 +122,10 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
     if (s === undefined) return
     const st = parseStatus(s)
     setStatus(st)
-    const [m, d, ds, l, w, b, sl, ru] = await Promise.all([git('merging'), git('diff'), git('diff', { staged: '1' }), git('log'), git('worktree-list'), git('branch-list'), git('stash-list'), window.api.git.run(hostId, cwd, 'remote-url')])
+    // log-dag without the error banner: an older host does not have it and the ASCII log is used.
+    const drawn = await window.api.git.run(hostId, cwd, 'log-dag')
+    const [m, d, ds, l, w, b, sl, ru] = await Promise.all([git('merging'), git('diff'), git('diff', { staged: '1' }), drawn.ok ? Promise.resolve('') : git('log'), git('worktree-list'), git('branch-list'), git('stash-list'), window.api.git.run(hostId, cwd, 'remote-url')])
+    setDag(drawn.ok ? layoutDag(parseDag(drawn.value.out)) : undefined)
     setMerging((m ?? '').trim() === 'yes')
     setUnstaged(parseDiff(d ?? '')); setStaged(parseDiff(ds ?? '')); setGraph(parseGraph(l ?? '')); setWorktrees(parseWorktrees(w ?? '')); setBranches(parseBranches(b ?? ''))
     setStashes((sl ?? '').split('\n').filter(Boolean).map((x) => { const [ref, mm, when] = x.split('\u001f'); return { ref, msg: mm, when } }))
@@ -256,13 +302,22 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
               <textarea className="input area" placeholder="Summary of the change (first line ≤ 72 chars)" value={msg} onChange={(e) => setMsg(e.target.value)} />
               <div className={'counter' + (msg.split('\n')[0].length > 72 ? ' amber' : '')}>{msg.split('\n')[0].length}/72</div>
               <div className="btn-row">
-                <button className="btn" disabled={!staged.length || busy} title="Ask the current session's agent for a message from the staged diff (one small model request)" onClick={async () => {
-                  setBusy(true); setNote('Asking the agent for a commit message…')
-                  const d = (await git('diff', { staged: '1' })) ?? ''
-                  const s = await suggest(d.slice(0, 12000))
-                  setBusy(false)
-                  if (s) { setMsg(s); setNote('Suggested by the agent; edit before committing') } else setNote('No suggestion (open a session to use this)')
-                }}>{I.spark}Suggest</button>
+                <button className="btn" disabled={!staged.length || busy || !suggest || !msgAgent}
+                  title={suggest ? 'Ask the agent for a message from the staged changes, in a throwaway session (one small model request)' : 'Needs a newer acpd on the host'}
+                  onClick={async () => {
+                    if (!suggest) return
+                    const name = agents.find((a) => a.id === msgAgent)?.name ?? msgAgent
+                    setBusy(true); setErr(undefined); setNote(`Asking ${name} for a commit message…`)
+                    const r = await suggest(cwd, msgAgent)
+                    setBusy(false)
+                    if (r.message) { setMsg(r.message); setNote(`Suggested by ${name}; edit before committing`) } else setNote(r.error ?? 'No suggestion')
+                  }}>{I.spark}Suggest</button>
+                {agents.length > 1 && (
+                  <select className="select-btn" aria-label="Agent that writes the message" title="Agent that writes the message" value={msgAgent} disabled={busy}
+                    onChange={(e) => { setMsgAgent(e.target.value); try { localStorage.setItem('acportal.commitAgent', e.target.value) } catch { /* ignore */ } }}>
+                    {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                )}
                 <span style={{ flex: 1 }} />
                 <GitBtn learn={learn} primary label={`Commit to ${current || 'branch'}`} disabled={!canCommit || !msg.trim() || busy} cmd={`git commit -m "${msg.split('\n')[0].slice(0, 40)}"`} why={W('commit')}
                   onClick={async () => {
@@ -283,11 +338,21 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
         )}
         {tab === 'Branches' && (
           <Branches branches={branches} current={current} status={status} learn={learn} W={W} gh={gh} git={git} sure={sure}
-            act={act} onCompareError={setErr} />
+            act={act} onCompareError={setErr} cwd={cwd} pullRequests={pullRequests} ghCli={ghCli}
+            suggestPr={suggestPr} createPr={createPr} msgAgent={msgAgent} />
         )}
         {tab === 'History' && (
           <div className="mono graph-list">
-            {graph.map((r, i) => (
+            {dag && dag.rows.map((r) => (
+              <div key={r.commit.hash} className="graph-row dag-row" title={`git show ${r.commit.hash.slice(0, 7)}`}>
+                <DagCell row={r} lanes={dag.lanes} />
+                <span className="sub">{r.commit.hash.slice(0, 7)}</span>
+                {r.commit.refs && r.commit.refs.split(', ').map((ref) => <span key={ref} className={'ref' + (ref.startsWith('HEAD') ? ' head' : ref.includes('/') && !ref.startsWith('acpd/') && !ref.startsWith('acportal/') ? ' remote' : '')}>{ref.replace('HEAD -> ', '')}</span>)}
+                <span className="subj">{r.commit.subject}</span>
+                <span className="sub">{r.commit.author} · {r.commit.when}</span>
+              </div>
+            ))}
+            {!dag && graph.map((r, i) => (
               <div key={i} className="graph-row" title={r.hash ? `git show ${r.hash}` : ''}>
                 <GraphGlyphs g={r.graph} />
                 {r.hash && <>
@@ -399,11 +464,45 @@ function BranchMenu({ branches, current, learn, onSwitch, onCreate, onAll, onClo
   )
 }
 
-function Branches({ branches, current, status, learn, W, gh, git, act, sure, onCompareError }: {
+/** Editable pull-request title and body. The `gh` line is display only; the host builds the real argv. */
+export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, link, owner, onOwner, onTitle, onBody, onDraft, onSuggest, onCreate }: {
+  learn: boolean; title: string; body: string; draft: boolean; base: string; head: string; busy: boolean; canSuggest: boolean; note?: string
+  /** The pull request this branch now has. Shown as a button; nothing opens by itself. */
+  link?: { url: string; existing: boolean }
+  /** Optional fork owner: the pull request is then from `owner:branch` (a fork). */
+  owner?: string; onOwner?: (v: string) => void
+  onTitle: (v: string) => void; onBody: (v: string) => void; onDraft: (v: boolean) => void; onSuggest: () => void; onCreate: () => void
+}) {
+  const cmd = prCommand({ title: title || 'Title', base, head: owner?.trim() ? `${owner.trim()}:${head}` : head, draft })
+  return (
+    <div className="pr-offer" style={{ marginTop: 12 }}>
+      <input className="input" aria-label="Pull request title" placeholder="Title" value={title} onChange={(e) => onTitle(e.target.value)} />
+      <textarea className="input area" aria-label="Pull request body" placeholder="What changed and why" value={body} onChange={(e) => onBody(e.target.value)} style={{ marginTop: 8 }} />
+      {onOwner && <input className="input" aria-label="Fork owner" placeholder="Fork owner (only for a pull request from a fork)" value={owner ?? ''} onChange={(e) => onOwner(e.target.value)} style={{ marginTop: 8 }} />}
+      <label className="sub" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <input type="checkbox" checked={draft} onChange={(e) => onDraft(e.target.checked)} /> Draft
+      </label>
+      <div className="btn-row">
+        <button className="btn" disabled={!canSuggest || busy} title={canSuggest ? 'Ask the agent for a title and description from commits since the base' : 'Pick an agent on the Changes tab'} onClick={onSuggest}>{I.spark}Suggest</button>
+        <GitBtn learn={false} primary label="Open pull request" disabled={!title.trim() || busy} cmd={cmd}
+          why="Creates the pull request with gh on the host. The description is read from stdin." onClick={onCreate} />
+      </div>
+      <code className="learn-cmd">$ {cmd}</code>
+      {learn && <div className="hint">This line is what the host runs. The description is not in it; gh reads that from stdin.</div>}
+      {link && <div className="btn-row"><button className="btn" onClick={() => window.open(link.url)}>{link.existing ? 'View the existing pull request' : 'View pull request'}</button><span className="hint mono">{link.url}</span></div>}
+      {note && <div className="hint">{note}</div>}
+    </div>
+  )
+}
+
+function Branches({ branches, current, status, learn, W, gh, git, act, sure, onCompareError, cwd, pullRequests, ghCli, suggestPr, createPr, msgAgent }: {
   branches: Branch[]; current: string; status?: Status; learn: boolean; W: (op: string) => string; gh?: string; sure: (t: string) => boolean
   git: (op: string, p?: Record<string, string>) => Promise<string | undefined>
   act: (label: string, op: string, params?: Record<string, string>, input?: string, inverse?: { cmd: string; run: () => Promise<unknown> }) => Promise<boolean>
   onCompareError: (e?: string) => void
+  cwd: string; pullRequests?: boolean; ghCli?: 'found' | 'missing'; msgAgent: string
+  suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; existing?: boolean; error?: string }>
 }) {
   const local = branches.filter((b) => !b.remote)
   const remotes = branches.filter((b) => b.remote)
@@ -413,6 +512,16 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   const [renaming, setRenaming] = useState<string>()
   const [newName, setNewName] = useState('')
   const [create, setCreate] = useState('')
+  const [offer, setOffer] = useState(false)
+  const [prTitle, setPrTitle] = useState('')
+  const [prBody, setPrBody] = useState('')
+  const [draft, setDraft] = useState(false)
+  const [prBusy, setPrBusy] = useState(false)
+  const [prNote, setPrNote] = useState<string>()
+  const [prOwner, setPrOwner] = useState('')
+  const [prLink, setPrLink] = useState<{ url: string; existing: boolean }>()
+  // A title, description and link belong to one branch. Switching branch starts the form over.
+  useEffect(() => { setOffer(false); setPrTitle(''); setPrBody(''); setDraft(false); setPrNote(undefined); setPrLink(undefined); setPrOwner('') }, [current, cwd])
   useEffect(() => { if (!base && defaultBase) setBase(defaultBase) }, [defaultBase])
   const compare = async (): Promise<void> => {
     const out = await git('compare', { base })
@@ -420,6 +529,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   }
   const published = Boolean(status?.upstream)
   const prUrl = gh && current && base && current !== base ? `${gh}/compare/${refPath(base.replace(/^origin\//, ''))}...${refPath(current)}?expand=1` : undefined
+  const prBlocked = prBlockedReason(Boolean(pullRequests), ghCli)
   return (
     <div className="narrow">
       <div className="card" style={{ marginBottom: 16 }}>
@@ -432,10 +542,41 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
           <GitBtn learn={learn} icon={I.compare} label="Compare" disabled={!base || base === current} cmd={`git log --left-right ${base}...HEAD`} why={W('compare')} onClick={() => void compare()} />
           <span style={{ flex: 1 }} />
           <GitBtn learn={learn} icon={I.upload} primary={!published || Boolean(status?.ahead)} label={published ? 'Push' : 'Publish branch'} disabled={!current} cmd={`git push --set-upstream origin ${current}`} why={W('push')}
-            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current })} />
-          {prUrl && <button className="btn" title={prUrl} onClick={() => window.open(prUrl)}>{I.pr}Open pull request</button>}
+            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current }).then((ok) => { if (ok && pullRequests) setOffer(true) })} />
+          {pullRequests ? (
+            <GitBtn learn={learn} icon={I.pr} label="Open pull request" disabled={Boolean(prBlocked) || !current || !base || base === current}
+              cmd={prCommand({ title: prTitle || 'Title', base: prBase(base), head: current, draft })}
+              why={prBlocked ?? 'Open a pull request with gh on the host. The description is read from stdin.'}
+              onClick={() => setOffer(true)} />
+          ) : (
+            prUrl && <button className="btn" title={prUrl} onClick={() => window.open(prUrl)}>{I.pr}Open pull request</button>
+          )}
+          {pullRequests && prUrl && <button className="btn ghost" title={prUrl} onClick={() => window.open(prUrl)}>Compare on GitHub</button>}
         </div>
         {!gh && <div className="hint" style={{ marginTop: 8 }}>{status ? 'Pull request links appear when origin is on GitHub.' : ''} Push uses the host's own git credentials; the app stores none.</div>}
+        {prBlocked && <div className="hint" style={{ marginTop: 8 }}>{prBlocked}</div>}
+        {offer && pullRequests && !prBlocked && (
+          <PullRequestForm learn={learn} title={prTitle} body={prBody} draft={draft} base={prBase(base)} head={current} busy={prBusy}
+            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote} link={prLink} owner={prOwner} onOwner={setPrOwner}
+            onTitle={setPrTitle} onBody={setPrBody} onDraft={setDraft}
+            onSuggest={() => {
+              if (!suggestPr || !msgAgent) return
+              setPrBusy(true); setPrNote('Asking for a title and description…')
+              void suggestPr(cwd, msgAgent, prBase(base)).then((r) => {
+                setPrBusy(false)
+                if (r.title) { setPrTitle(r.title); setPrBody(r.body ?? ''); setPrNote('Suggested. Edit it before opening the pull request.') }
+                else setPrNote(r.error ?? 'No suggestion')
+              })
+            }}
+            onCreate={() => {
+              if (!createPr || !prTitle.trim()) return
+              setPrBusy(true); setPrNote(undefined); setPrLink(undefined)
+              void createPr({ path: cwd, base: prBase(base), head: prOwner.trim() ? `${prOwner.trim()}:${current}` : current, title: prTitle.trim(), body: prBody, draft }).then((r) => {
+                setPrBusy(false)
+                if (r.url) { setPrLink({ url: r.url, existing: Boolean(r.existing) }); setPrNote(r.existing ? 'This branch already has a pull request.' : 'Pull request opened.') } else setPrNote(r.error ?? 'Could not open the pull request')
+              })
+            }} />
+        )}
         {cmp && cmp.branch === current && (
           <div className="compare">
             <div><div className="group-h"><span>Only on {cmp.branch}</span><span className="count">{cmp.c.ahead.length}</span></div>

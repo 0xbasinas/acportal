@@ -12,7 +12,7 @@ type Wrap = <A extends unknown[], R>(fn: (...a: A) => Promise<R> | R) => (e: unk
 export type GitLogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
 
 const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
-const READ_ONLY = new Set(['status', 'diff', 'log', 'worktree-list', 'stash-list', 'rev-parse', 'show', 'branch-list', 'conflicts', 'reflog', 'merging', 'compare', 'remote-url'])
+const READ_ONLY = new Set(['status', 'diff', 'log', 'log-dag', 'worktree-list', 'stash-list', 'rev-parse', 'show', 'branch-list', 'conflicts', 'reflog', 'merging', 'compare', 'remote-url'])
 const QUIET = new Set(['remote-url', 'rev-parse', 'merging'])
 
 function run(cwd: string, args: string[], input?: string): Promise<{ out: string; err: string; code: number }> {
@@ -29,6 +29,7 @@ const WHY: Record<string, string> = {
   status: 'Show which files changed, which are staged, and the current branch',
   diff: 'Show the line changes not yet staged (add --cached for staged ones)',
   log: 'Show the commit history as a graph of branches',
+  'log-dag': 'Show the commit history with each commit\'s parents, to draw the branch graph',
   'worktree-list': 'List every working folder attached to this repository',
   'stash-list': 'List work you set aside with git stash',
   add: 'Stage a file: put its current contents into the next commit',
@@ -65,6 +66,7 @@ const OPS: Record<string, (p: Record<string, string>) => string[]> = {
   status: () => ['status', '--porcelain=v1', '-b', '-uall'],
   diff: (p) => ['diff', '-U3', '--no-ext-diff', ...(p.staged ? ['--cached'] : []), ...(p.base ? [p.base] : []), '--', ...(p.file ? [p.file] : [])],
   log: () => ['log', '--graph', '--all', '--date-order', '-n', '120', '--pretty=format:%h\u001f%d\u001f%s\u001f%an\u001f%cr'],
+  'log-dag': () => ['log', '--all', '--date-order', '-n', '300', '--pretty=format:%H\u001f%P\u001f%d\u001f%s\u001f%an\u001f%cr'],
   'worktree-list': () => ['worktree', 'list', '--porcelain'],
   'stash-list': () => ['stash', 'list', '--pretty=format:%gd\u001f%s\u001f%cr'],
   'branch-list': () => ['branch', '--all', '--format=%(refname:short)\u001f%(objectname:short)\u001f%(HEAD)\u001f%(upstream:track)\u001f%(committerdate:relative)'],

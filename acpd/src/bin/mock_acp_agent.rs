@@ -26,6 +26,12 @@ struct Options {
     /// Report modes and a model config option in `session/new`, like agents that offer them.
     #[arg(long)]
     setup_choices: bool,
+    /// Advertise `session/list` and `session/close`; closing is appended to the file named by
+    /// `--close-log`, and listing answers with a fixed set that includes a session of another folder.
+    #[arg(long)]
+    session_capabilities: bool,
+    #[arg(long, default_value = "")]
+    close_log: String,
     /// Kind of the permission request the mock raises each turn (default `edit`).
     #[arg(long, default_value = "edit")]
     permission_kind: String,
@@ -160,7 +166,7 @@ async fn main() -> anyhow::Result<()> {
                     _ => {}
                 }
                 out.send(response(id, json!({"protocolVersion":if options.fault.as_deref() == Some("v2") {2} else {1},
-                    "agentCapabilities":{"loadSession":!options.no_resume,"promptCapabilities":{"image":options.prompt_media,"audio":options.prompt_media,"embeddedContext":options.prompt_media},"mcpCapabilities":{"http":options.mcp_http,"sse":options.mcp_sse}},"agentInfo":{"name":"mock-acp-agent","version":"0.1.0"},"authMethods":if options.require_auth {json!([{"id":"mock-login","name":"Mock sign-in","description":"Sign in to the test agent"}])}else{json!([])}}))).await?;
+                    "agentCapabilities":{"loadSession":!options.no_resume,"promptCapabilities":{"image":options.prompt_media,"audio":options.prompt_media,"embeddedContext":options.prompt_media},"mcpCapabilities":{"http":options.mcp_http,"sse":options.mcp_sse},"sessionCapabilities":if options.session_capabilities {json!({"list":{},"close":{}})}else{json!({})}},"agentInfo":{"name":"mock-acp-agent","version":"0.1.0"},"authMethods":if options.require_auth {json!([{"id":"mock-login","name":"Mock sign-in","description":"Sign in to the test agent"}])}else{json!([])}}))).await?;
             }
             "authenticate" => {
                 if params["methodId"] == "mock-login" {
@@ -306,6 +312,36 @@ async fn main() -> anyhow::Result<()> {
                         .send(response(id, json!({"stopReason":stop_reason})))
                         .await;
                 });
+            }
+            "session/close" => {
+                if !options.close_log.is_empty() {
+                    let line = format!(
+                        "{}
+",
+                        params["sessionId"].as_str().unwrap_or_default()
+                    );
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&options.close_log)
+                        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+                }
+                out.send(response(id, json!({}))).await?;
+            }
+            "session/list" => {
+                let cwd = params["cwd"].clone();
+                let long = "T".repeat(5000);
+                let page = match params["cursor"].as_str() {
+                    None => json!({"sessions":[
+                        {"sessionId":"old-1","cwd":cwd,"title":"First chat","updatedAt":"2026-10-01T10:00:00Z"},
+                        {"sessionId":"elsewhere","cwd":"/somewhere/else","title":"Not this folder"},
+                        {"sessionId":"old-long","cwd":cwd,"title":long}
+                    ],"nextCursor":"page-2"}),
+                    Some(_) => {
+                        json!({"sessions":[{"sessionId":"old-2","cwd":cwd,"updatedAt":"2026-10-02T10:00:00Z"}]})
+                    }
+                };
+                out.send(response(id, page)).await?;
             }
             "session/cancel" if options.ignore_cancel => {}
             "session/cancel" => {

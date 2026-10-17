@@ -57,6 +57,28 @@ pub struct AcpSession {
     catalog: Option<Arc<SessionCatalog>>,
     pub connection: AcpConnection,
 }
+/// Whether the agent said at `initialize` that it supports `session/close`.
+pub fn supports_close(initialization: &Value) -> bool {
+    initialization["agentCapabilities"]["sessionCapabilities"]["close"].is_object()
+}
+
+/// Ask an agent that advertises `session/close` to end the session before its process is stopped,
+/// so it can free what it holds. The ACP method cancels work and releases resources; the saved
+/// history stays loadable (checked against Goose 1.54.0). Never required: a refusal, a timeout or a
+/// missing capability just means the process is stopped as before. Agents on another host are left
+/// to their own host.
+async fn close_politely(session: &AcpSession) {
+    let metadata = session.metadata();
+    if metadata.remote_peer.is_some() || !supports_close(&metadata.initialization) {
+        return;
+    }
+    let request = session.connection.request(
+        "session/close",
+        json!({ "sessionId": metadata.acp_session_id }),
+    );
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), request).await;
+}
+
 impl AcpSession {
     pub fn metadata(&self) -> SessionMetadata {
         let mut metadata = self.metadata.lock().unwrap().clone();
@@ -450,7 +472,11 @@ impl SessionManager {
                 config.runtime.clone(),
                 &workspace,
                 access,
-                config.shell_review.get(agent_id),
+                // Manual approval keeps the host's shell rules and model reviewer out of this session.
+                config
+                    .shell_review
+                    .get(agent_id)
+                    .filter(|_| !access.manual_approval),
             )?,
             None => {
                 let peer = definition
@@ -652,6 +678,7 @@ impl SessionManager {
         self.retained.lock().await.remove(&id);
         self.sessions.lock().await.remove(&id);
         if let Some(session) = &session {
+            close_politely(session).await;
             session.connection.shutdown().await;
         }
         Ok(())

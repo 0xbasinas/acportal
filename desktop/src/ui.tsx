@@ -1,6 +1,6 @@
 import { ReactNode, createContext, useContext } from 'react'
 import {
-  ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal,
+  ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderMinus, FolderOpen, GitBranch, GitCommitHorizontal,
   GitCompareArrows, GitMerge, GripVertical, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
   Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network, ChevronUp, Filter
 } from 'lucide-react'
@@ -13,7 +13,7 @@ export const I = {
   back: <ArrowLeft {...ic} />, refresh: <RotateCw {...ic} />, plus: <Plus {...ic} />, gear: <Gear {...ic} />, chev: <ChevronRight {...ic} />, down: <ChevronDown {...ic} size={13} />,
   branch: <GitBranch {...ic} />, tool: <Wrench {...ic} size={13} />, sub: <CornerDownRight {...ic} size={13} />, tree: <Network {...ic} size={13} />, send: <ArrowUp {...ic} size={16} strokeWidth={2.25} />,
   clock: <History {...ic} />, close: <X {...ic} />, check: <Check {...ic} size={13} />, alert: <CircleAlert {...ic} />, shield: <ShieldAlert {...ic} size={16} />, grip: <GripVertical {...ic} size={14} />, attach: <Paperclip {...ic} />,
-  term: <Terminal {...ic} size={13} />, file: <FileCode2 {...ic} size={13} />, newfile: <FilePlus2 {...ic} size={13} />, folder: <FolderOpen {...ic} />, repo: <FolderGit2 {...ic} />, commit: <GitCommitHorizontal {...ic} />,
+  term: <Terminal {...ic} size={13} />, file: <FileCode2 {...ic} size={13} />, newfile: <FilePlus2 {...ic} size={13} />, folder: <FolderOpen {...ic} />, noProject: <FolderMinus {...ic} />, repo: <FolderGit2 {...ic} />, commit: <GitCommitHorizontal {...ic} />,
   compare: <GitCompareArrows {...ic} />, merge: <GitMerge {...ic} />, pr: <GitPullRequest {...ic} />, undo: <Undo2 {...ic} />, redo: <Redo2 {...ic} />, upload: <Upload {...ic} />, pencil: <Pencil {...ic} size={13} />,
   trash: <Trash2 {...ic} size={13} />, search: <Search {...ic} />, server: <Server {...ic} />, spark: <Sparkles {...ic} />, stop: <Square {...ic} size={12} fill="currentColor" />, inbox: <Inbox {...ic} size={28} strokeWidth={1.25} />,
   cmd: <Command {...ic} />, flow: <Workflow {...ic} />, stash: <Archive {...ic} />, learn: <GraduationCap {...ic} />, chat: <MessageSquare {...ic} size={28} strokeWidth={1.25} />, bot: <Bot {...ic} size={13} />

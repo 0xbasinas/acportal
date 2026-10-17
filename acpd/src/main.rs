@@ -17,7 +17,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[command(
     version,
     about = "Agent-agnostic ACP host core and local client",
-    after_help = "Everyday workflow:\n  acpd setup --config PATH --address https://YOUR-HOST\n  acpd start                 Keep this terminal open\n  acpd pair                  Scan in the Android app\n  acpd pair --manual          Manual code only\n  acpd doctor                Check the saved configuration"
+    after_help = "Everyday workflow:\n  acpd setup --config PATH --address https://YOUR-HOST\n  acpd start                 Keep this terminal open\n  acpd service install       Start at logon under this account\n  acpd pair                  Scan in the Android app\n  acpd pair --manual          Manual code only\n  acpd doctor                Check the saved configuration"
 )]
 struct Cli {
     #[arg(long, global = true)]
@@ -27,6 +27,10 @@ struct Cli {
     /// Saved operator setup. Defaults to launcher.json in the acpd config directory.
     #[arg(long, global = true)]
     profile: Option<PathBuf>,
+    /// Windows: detach from the console this process was started with. The logon task uses it so
+    /// that no console window stays open. Accepted and ignored elsewhere.
+    #[arg(long, global = true, hide = true)]
+    no_console: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -50,6 +54,11 @@ enum Commands {
     Daemon {
         #[command(subcommand)]
         action: DaemonAction,
+    },
+    /// Register this host to start at logon under the current account.
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
     },
     #[command(hide = true)]
     DaemonWorker,
@@ -123,15 +132,17 @@ enum Commands {
     Config,
     /// Verify ACP initialization without sending a prompt or starting a model request.
     Probe {
-        #[arg(long, default_value = "goose")]
-        agent: String,
+        /// Agent id from the registry (see `acpd agents`). There is no default agent.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
     },
     /// Run a local ACP session. Permission choices always require interactive input.
     Chat {
-        #[arg(long, default_value = "goose")]
-        agent: String,
+        /// Agent id from the registry (see `acpd agents`). There is no default agent.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
         #[arg(long)]
@@ -210,6 +221,17 @@ enum DaemonAction {
     /// Validate and atomically reload settings for future sessions.
     Reload,
 }
+#[derive(Subcommand, Clone, Copy)]
+enum ServiceAction {
+    /// Write the user service and start it. Requires `acpd setup`.
+    Install,
+    /// Show whether the service this command installed is running.
+    Status,
+    /// Stop and start the service this command installed.
+    Restart,
+    /// Remove the service this command installed. Keeps config, state and devices.
+    Uninstall,
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(windows)]
@@ -218,6 +240,11 @@ async fn main() -> Result<()> {
     }
     acpd::win_sandbox::enable_launcher();
     let cli = Cli::parse();
+    #[cfg(windows)]
+    if cli.no_console {
+        // SAFETY: no arguments; it only detaches this process from its console.
+        unsafe { windows_sys::Win32::System::Console::FreeConsole() };
+    }
     let profile_path = cli
         .profile
         .clone()
@@ -267,6 +294,15 @@ async fn main() -> Result<()> {
             "Setup saved. Run acpd start, then acpd pair in a second terminal.\nSetup keeps your existing config, workspace roots and credentials unchanged."
         );
         return Ok(());
+    }
+    if let Commands::Service { action } = &cli.command {
+        let action = match action {
+            ServiceAction::Install => acpd::service::Action::Install,
+            ServiceAction::Status => acpd::service::Action::Status,
+            ServiceAction::Restart => acpd::service::Action::Restart,
+            ServiceAction::Uninstall => acpd::service::Action::Uninstall,
+        };
+        return acpd::service::execute(action, &profile_path);
     }
     let saved = if profile_path.exists()
         && (cli.config.is_none() || matches!(&cli.command, Commands::Pair { address: None, .. }))
@@ -357,6 +393,7 @@ async fn main() -> Result<()> {
     let foreground = matches!(&cli.command, Commands::Start { background: false });
     match cli.command {
         Commands::Setup { .. } => unreachable!("setup handled before host initialization"),
+        Commands::Service { .. } => unreachable!("service handled before host initialization"),
         Commands::McpDelegate => unreachable!("mcp-delegate handled before host initialization"),
         Commands::Start { background: false } | Commands::DaemonWorker => {
             if foreground {
@@ -365,11 +402,15 @@ async fn main() -> Result<()> {
                 );
             }
             let host = Host::new(config, registry)?;
-            if selected_file.exists() {
-                acpd::daemon::serve(host, selected_file, cli.registry.clone(), control_path).await?
+            let served = if selected_file.exists() {
+                acpd::daemon::serve(host, selected_file, cli.registry.clone(), control_path).await
             } else {
-                host.serve().await?
-            }
+                host.serve().await
+            };
+            // Windows sandbox: remove the workspace grants and profiles this host created.
+            #[cfg(windows)]
+            let _ = tokio::task::spawn_blocking(acpd::win_sandbox::release_workspaces).await;
+            served?
         }
         Commands::Start { background: true } | Commands::Daemon { .. } => {
             unreachable!("daemon command handled before host initialization")
@@ -574,6 +615,10 @@ async fn main() -> Result<()> {
                 println!("{message}");
                 healthy &= passed;
             }
+            let gh = acpd::discovery::resolve("gh", None).map(|launch| launch.program);
+            let (message, passed) = acpd::doctor::github_cli_line(gh.as_deref());
+            println!("{message}");
+            healthy &= passed;
             for root in &config.workspace_roots {
                 healthy &= config.workspace(root).is_ok();
             }
@@ -616,6 +661,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Probe { agent, workspace } => {
+            let agent = required_agent(agent, &registry)?;
             let workspace = config.workspace(&workspace)?;
             let definition = registry.get(&agent)?;
             if !definition.enabled {
@@ -645,6 +691,7 @@ async fn main() -> Result<()> {
             prompt,
             load,
         } => {
+            let agent = required_agent(agent, &registry)?;
             let manager = SessionManager::new(config, registry)?;
             let result = async {
                 let session = match load {
@@ -672,6 +719,25 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The `--agent` the operator chose. Without one, the error lists the registered agents instead of
+/// picking one.
+fn required_agent(agent: Option<String>, registry: &Registry) -> Result<String> {
+    if let Some(agent) = agent {
+        return Ok(agent);
+    }
+    let ids: Vec<String> = registry
+        .discover()
+        .into_iter()
+        .map(|agent| agent.id)
+        .collect();
+    if ids.is_empty() {
+        bail!(
+            "--agent is required, and no agents are registered; add one from the desktop or phone app, or in agents.json"
+        )
+    }
+    bail!("--agent is required; registered agents: {}", ids.join(", "))
 }
 
 fn operator_input(label: &str) -> Result<String> {

@@ -1,8 +1,8 @@
 // Component tests for the new-session composer (jsdom, no layout: geometry is stubbed).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NewSessionHome, type StartRequest } from '../src/NewSession'
-import { placePopover, setupFromAcp } from '../src/agentSetup'
+import { filterChoices, liveSelectors, liveValue, arranged, placePopover, sections, selectorsFromAcp, setRequest, setupFromAcp } from '../src/agentSetup'
 import type { AgentInfo } from '../src/types'
 
 const agents: AgentInfo[] = [{ id: 'goose', name: 'Goose', status: 'available' }, { id: 'mock', name: 'Mock', status: 'available' }]
@@ -39,6 +39,27 @@ const chip = (name: RegExp): HTMLElement => {
   return b
 }
 const prompt = () => screen.getByLabelText('Prompt for the new session') as HTMLTextAreaElement
+
+describe('agent profiles', () => {
+  it('groups a profile under its base and leaves a missing base at the top', () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    setup({ agents: [
+      { id: 'goose', name: 'Goose', status: 'available' },
+      { id: 'goose-work', name: 'Goose work', status: 'available', profileOf: 'goose', profileLabel: 'Work' },
+      { id: 'mock', name: 'Mock', status: 'available' },
+      { id: 'orphan', name: 'Orphan', status: 'available', profileOf: 'gone', profileLabel: 'Lost' },
+    ] })
+    fireEvent.click(chip(/Goose/))
+    const dialog = screen.getByRole('dialog', { name: 'Agent' })
+    const rows = [...dialog.querySelectorAll<HTMLElement>('[data-item]')]
+    expect(rows.map((row) => row.textContent?.replace('profile', '').trim())).toEqual(['Goose', 'Work', 'Mock', 'Lost', 'Run on several agents…2-3 agents'])
+    expect(rows[1].getAttribute('data-profile-of')).toBe('goose')
+    expect(rows[3].getAttribute('data-profile-of')).toBeNull()
+    fireEvent.click(rows[1])
+    expect(chip(/Work/)).toBeTruthy()
+    localStorage.removeItem('acportal.lastAgent')
+  })
+})
 
 describe('chips and dropdowns', () => {
   it('opens a dropdown, moves with the arrow keys, and Escape closes it and returns focus', async () => {
@@ -181,8 +202,15 @@ describe('send', () => {
   })
 })
 
-describe('models and modes before the first session', () => {
-  const raw = { modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'code', name: 'Code' }] }, configOptions: [{ id: 'model', category: 'model', currentValue: 'small', options: [{ value: 'small', name: 'Small' }, { value: 'large', name: 'Large' }] }] }
+describe('models and options before the first session', () => {
+  // Agents with configOptions report the mode there too; the older `modes` field is then ignored.
+  const raw = {
+    modes: { currentModeId: 'legacy', availableModes: [{ id: 'legacy', name: 'Legacy mode' }] },
+    configOptions: [
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'small', options: [{ value: 'small', name: 'Small' }, { value: 'large', name: 'Large' }] },
+      { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask', options: [{ value: 'ask', name: 'Ask' }, { value: 'code', name: 'Code' }] }
+    ]
+  }
   it('probes the host, shows a loading state, then offers the reported choices', async () => {
     let resolve!: (v: unknown) => void
     const probe = vi.fn(() => new Promise<unknown>((r) => { resolve = r }))
@@ -191,12 +219,18 @@ describe('models and modes before the first session', () => {
     expect(probe).toHaveBeenCalledWith('goose', '/w/project')
     await act(async () => resolve(raw))
     fireEvent.click(chip(/Small · Ask/))
+    expect(screen.queryByText('Legacy mode')).toBeNull()
+    // Like the phone: one row per option with its value; a row opens only that list.
+    expect(screen.queryByText('Large')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Model: Small' }))
     fireEvent.click(screen.getByText('Large'))
+    fireEvent.click(screen.getByRole('button', { name: 'Mode: Ask' }))
     fireEvent.click(screen.getByText('Code'))
+    expect(screen.getByRole('button', { name: 'Model: Large' })).toBeTruthy()
     fireEvent.change(prompt(), { target: { value: 'go' } })
     fireEvent.keyDown(prompt(), { key: 'Enter' })
     await waitFor(() => expect(onStart).toHaveBeenCalled())
-    expect(onStart.mock.calls[0][0]).toMatchObject({ model: 'large', mode: 'code' })
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'model', value: 'large' }, { id: 'mode', value: 'code' }])
   })
   it('uses what the host already reports for the agent without probing', () => {
     const probe = vi.fn()
@@ -204,15 +238,256 @@ describe('models and modes before the first session', () => {
     expect(probe).not.toHaveBeenCalled()
     expect(chip(/Small · Ask/)).toBeTruthy()
   })
-  it('falls back to defaults when the probe fails', async () => {
-    setup({ probe: vi.fn(async () => undefined) })
-    await waitFor(() => chip(/Default model · default mode/))
-    fireEvent.click(chip(/Default model/))
-    expect(screen.getByRole('dialog', { name: 'Model and mode' }).textContent).toMatch(/Could not read Goose/)
+  it('says the models are unknown when the probe fails, invents none, and retries on request', async () => {
+    const probe = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(raw)
+    setup({ probe })
+    await waitFor(() => chip(/Models unknown/))
+    fireEvent.click(chip(/Models unknown/))
+    const dialog = screen.getByRole('dialog', { name: 'Model and options' })
+    expect(dialog.textContent).toMatch(/Could not read Goose/)
+    expect(dialog.textContent).not.toMatch(/Default model/)
+    fireEvent.click(screen.getByText('Retry'))
+    await waitFor(() => chip(/Small · Ask/))
+    expect(probe).toHaveBeenCalledTimes(2)
   })
-  it('setupFromAcp keeps a chosen value over the reported one', () => {
-    expect(setupFromAcp(raw, { model: 'large' })).toMatchObject({ mode: 'ask', model: 'large', modelConfig: 'model', models: [{ value: 'small' }, { value: 'large' }] })
-    expect(setupFromAcp(null)).toMatchObject({ modes: undefined, models: undefined })
+  it('Escape in an option list goes back to the rows; Back does too', () => {
+    const many = { configOptions: [
+      { id: 'provider', name: 'Provider', type: 'select', currentValue: 'p0', options: Array.from({ length: 85 }, (_, i) => ({ value: 'p' + i, name: 'Provider ' + i })) },
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ value: 'a', name: 'Model A' }] }
+    ] }
+    setup({ probe: vi.fn(), agents: [{ ...agents[0], setup: many }] })
+    fireEvent.click(chip(/Model A · Provider 0/))
+    expect(screen.queryByText('Provider 5')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Provider: Provider 0' }))
+    const search = screen.getByRole('textbox', { name: 'Search Provider' })
+    fireEvent.keyDown(search, { key: 'Escape' })
+    expect(screen.getByRole('button', { name: 'Model: Model A' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Provider: Provider 0' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to options (Provider)' }))
+    expect(screen.queryByRole('textbox', { name: 'Search Provider' })).toBeNull()
+  })
+  it('a long grouped model list gets a search box; Enter picks the first match', async () => {
+    const options = ['openai', 'anthropic', 'deepseek'].map((provider) => ({ group: provider, name: provider, options: Array.from({ length: 20 }, (_, i) => ({ value: provider + '/m' + i, name: provider + ' model ' + i })) }))
+    const big = { configOptions: [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'openai/m0', options }] }
+    const { onStart } = setup({ probe: vi.fn(), agents: [{ ...agents[0], setup: big }] })
+    fireEvent.click(chip(/openai model 0/))
+    expect(screen.getByText('anthropic')).toBeTruthy()
+    const search = screen.getByRole('textbox', { name: 'Search Model' })
+    fireEvent.change(search, { target: { value: 'deepseek model 7' } })
+    expect(screen.getByText('1 of 60')).toBeTruthy()
+    expect(screen.queryByText('openai model 1')).toBeNull()
+    fireEvent.keyDown(search, { key: 'Enter' })
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'model', value: 'deepseek/m7' }])
+  })
+})
+
+describe('options that change other options', () => {
+  // Any agent: a provider can bring other models. Before the session nothing is set on the agent;
+  // picks are kept in order and applied at start, and the session's replies bring the new lists.
+  const options = { configOptions: [
+    { id: 'provider', name: 'Provider', type: 'select', currentValue: 'alpha', options: [{ value: 'alpha', name: 'Alpha' }, { value: 'beta', name: 'Beta' }] },
+    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'small', options: [{ value: 'small', name: 'Small' }, { value: 'large', name: 'Large' }] }
+  ] }
+  it('keeps picks in order without asking the agent, explains when lists may change, and starts with them', async () => {
+    const probe = vi.fn()
+    const { onStart } = setup({ probe, agents: [{ ...agents[0], setup: options }] })
+    fireEvent.click(chip(/Small · Alpha/))
+    fireEvent.click(screen.getByRole('button', { name: 'Model: Small' }))
+    fireEvent.click(screen.getByText('Large'))
+    expect(screen.queryByText(/applied when the session starts/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Provider: Alpha' }))
+    fireEvent.click(screen.getByText('Beta'))
+    expect(screen.getByText(/applied when the session starts/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Provider: Beta' })).toBeTruthy()
+    expect(probe).not.toHaveBeenCalled()
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'model', value: 'large' }, { id: 'provider', value: 'beta' }])
+  })
+})
+
+describe('permission presets', () => {
+  const presets = [
+    { id: 'supervised', label: 'Supervised', effects: ['Each write asks you before it runs.', 'Each command asks you before it runs.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+    { id: 'auto-review', label: 'Auto-review', effects: ['Some command lines may be allowed or refused by the host\'s shell rules. Undecided lines still ask.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+  ]
+  const modeAgent: AgentInfo = {
+    ...agents[0],
+    setup: { modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'full-access', name: 'Full access' }] } },
+  }
+  const loadPresets = vi.fn(async () => presets)
+
+  it('shows presets first, keeps the agent mode separate, and a missing remembered id grants nothing', async () => {
+    localStorage.setItem('acportal.preset.goose', 'full-access')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    const dialog = screen.getByRole('dialog', { name: 'Access rights' })
+    const presetButtons = [...dialog.querySelectorAll<HTMLElement>('[data-preset]')]
+    expect(presetButtons.map((button) => button.getAttribute('data-preset'))).toEqual(['supervised', 'auto-review'])
+    expect(dialog.querySelector('[data-preset="full-access"]')).toBeNull()
+    expect(dialog.textContent).toContain('Each write asks you before it runs.')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-preset="auto-review"]')!)
+    expect(dialog.textContent).toContain('Undecided lines still ask')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-mode="full-access"]')!)
+    expect(chip(/Auto-review/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, mcp: true })
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'mode', value: 'full-access' }])
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('remembers a preset per agent and custom toggles leave that preset', async () => {
+    localStorage.setItem('acportal.preset.goose', 'auto-review')
+    setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Auto-review/)).toBeTruthy())
+    fireEvent.click(chip(/Auto-review/))
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(localStorage.getItem('acportal.preset.goose')).toBe('custom')
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('Ask for everything starts the session with manual approval and plain Supervised does not', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['The host\'s auto-approve and shell rules do not act in this session. Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'one' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1))
+    expect(onStart.mock.calls[0][0].access.manual).toBeFalsy()
+  })
+
+  it('picking Ask for everything sets the manual flag, and a custom toggle keeps it visible', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByRole('dialog', { name: 'Access rights' }).querySelector<HTMLElement>('[data-preset="ask-all"]')!)
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(screen.getByText(/auto-approve and shell rules are off for this session/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'two' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, manual: true })
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('applies the next agent preset when the agent changes', async () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent, agents[1]] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByText('Write files'))
+    expect(chip(/Custom/)).toBeTruthy()
+    fireEvent.click(chip(/Goose/))
+    fireEvent.click(screen.getByText('Mock'))
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].agent).toBe('mock')
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true })
+    localStorage.removeItem('acportal.lastAgent')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+  })
+})
+
+describe('model section', () => {
+  // In the agent's order: an uncategorised provider, the mode, the model, its effort and context.
+  const agentOptions = { configOptions: [
+    { id: 'provider', name: 'Provider', type: 'select', currentValue: 'p1', options: [{ value: 'p1', name: 'P1' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask', options: [{ value: 'ask', name: 'Ask' }] },
+    { id: 'effort', name: 'Thinking effort', category: 'thought_level', type: 'select', currentValue: 'off', options: [{ value: 'off', name: 'Off' }] },
+    { id: 'm', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ value: 'a', name: 'Model A' }] },
+    { id: 'ctx', name: 'Context size', category: 'model_config', type: 'select', currentValue: '200k', options: [{ value: '200k', name: '200K' }] }
+  ] }
+  it('puts the model with what tunes it first, then the mode, then the rest in agent order', () => {
+    const list = sections(selectorsFromAcp(agentOptions))
+    expect(list.map((x) => [x.title, x.selectors.map((s) => s.id)])).toEqual([['Model', ['m', 'effort', 'ctx']], ['Mode', ['mode']], ['More options', ['provider']]])
+    expect(arranged(selectorsFromAcp(agentOptions)).map((s) => s.id)).toEqual(['m', 'effort', 'ctx', 'mode', 'provider'])
+    // One section has no heading; legacy fields still sort into Model and Mode.
+    expect(sections(selectorsFromAcp({ models: { currentModelId: 'x', availableModels: [{ modelId: 'x' }] }, modes: { currentModeId: 'a', availableModes: [{ id: 'a', name: 'A' }] } })).map((x) => x.title)).toEqual(['Model', 'Mode'])
+  })
+  it('shows the sections as headings in the options dropdown', () => {
+    setup({ probe: vi.fn(), agents: [{ ...agents[0], setup: agentOptions }] })
+    fireEvent.click(chip(/Model A · Off/))
+    const dialog = screen.getByRole('dialog', { name: 'Model and options' })
+    expect(dialog.textContent).toMatch(/Model.*Model A.*Thinking effort.*Context size.*Mode.*Ask.*More options.*Provider/)
+    expect(screen.getByRole('group', { name: 'More options' }).textContent).toMatch(/Provider/)
+  })
+})
+
+describe('no project', () => {
+  it('starts in a new empty folder the host makes at start, on the folder as it is', async () => {
+    const newScratch = vi.fn(async () => 'C:/state/scratch/1792240000-ab12cd')
+    const { onStart } = setup({ newScratch })
+    fireEvent.click(chip(/project/))
+    fireEvent.click(screen.getByText('No project'))
+    expect(chip(/No project/)).toBeTruthy()
+    expect(newScratch).not.toHaveBeenCalled()
+    fireEvent.change(prompt(), { target: { value: 'what is a monad?' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(newScratch).toHaveBeenCalledTimes(1)
+    expect(onStart.mock.calls[0][0]).toMatchObject({ workspace: 'C:/state/scratch/1792240000-ab12cd', branch: { mode: 'current', worktree: false } })
+  })
+  it('is not offered by hosts without scratch folders, and a failed folder keeps the prompt', async () => {
+    setup()
+    fireEvent.click(chip(/project/))
+    expect(screen.queryByText('No project')).toBeNull()
+  })
+})
+
+describe('reading session options like the phone', () => {
+  it('every select configOption by its own name, with groups, and how each is set', () => {
+    const list = selectorsFromAcp({ configOptions: [
+      { id: 'effort', name: 'Reasoning effort', type: 'select', currentValue: 'high', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
+      { id: 'm', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ group: 'g', name: 'Provider G', options: [{ value: 'a', name: 'A', description: 'fast' }] }] },
+      { id: 'flag', name: 'Some toggle', type: 'boolean', currentValue: true }
+    ] })
+    expect(list.map((x) => x.id)).toEqual(['effort', 'm', 'flag']) // an on/off option is read now; it shows as a switch
+    expect(list[1].choices).toEqual([{ value: 'a', name: 'A', description: 'fast', group: 'Provider G' }])
+    expect(arranged(list)[0].id).toBe('m')
+    expect(setRequest(list[0], 'low')).toEqual({ method: 'session/set_config_option', params: { configId: 'effort', value: 'low' } })
+  })
+  it('falls back to the older models and modes fields only without configOptions', () => {
+    const list = selectorsFromAcp({ models: { currentModelId: 'x', availableModels: [{ modelId: 'x', name: 'X' }, { modelId: 'y' }] }, modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] } })
+    expect(list.map((x) => [x.kind, x.current])).toEqual([['model', 'x'], ['mode', 'ask']])
+    expect(list[0].choices[1]).toEqual({ value: 'y', name: 'y', description: undefined })
+    expect(setRequest(list[0], 'y')).toEqual({ method: 'session/set_model', params: { modelId: 'y' } })
+    expect(setRequest(list[1], 'ask')).toEqual({ method: 'session/set_mode', params: { modeId: 'ask' } })
+    expect(selectorsFromAcp(null)).toEqual([])
+  })
+  it('search matches name, value and group; live values win over the starting ones', () => {
+    const choices = [{ value: 'p/a', name: 'Alpha', group: 'Prov' }, { value: 'q/b', name: 'Beta', group: 'Other' }]
+    expect(filterChoices(choices, 'prov').map((c) => c.value)).toEqual(['p/a'])
+    expect(filterChoices(choices, 'q/').map((c) => c.value)).toEqual(['q/b'])
+    const [model] = selectorsFromAcp({ configOptions: [{ id: 'model', type: 'select', currentValue: 'p/a', options: choices }] })
+    expect(liveValue(model, { config: { model: 'q/b' } })).toBe('q/b')
+    expect(liveSelectors({ configOptions: [] }, { configOptions: [{ id: 'model', type: 'select', options: choices }] })[0].choices).toHaveLength(2)
+    expect(setupFromAcp(null)).toEqual({ selectors: [], chosen: {} })
   })
 })
 
@@ -242,5 +517,46 @@ describe('dropdown placement', () => {
     expect(pop.dataset.placement).toBe('up')
     expect(pop.className).toContain(' up')
     expect(pop.style.transform).toBe('translateX(-188px)')
+  })
+})
+
+describe('earlier sessions of an agent', () => {
+  const listed = { listSupported: true, loadSupported: true, sessions: [{ sessionId: 'old-1', title: 'First chat', updatedAt: '2026-10-01T10:00:00Z' }, { sessionId: 'old-2' }] }
+
+  it('is hidden on a host without the feature and asks nothing until opened', async () => {
+    setup()
+    expect(screen.queryByRole('button', { name: /Earlier/ })).toBeNull()
+    const loadEarlier = vi.fn(async () => listed)
+    cleanup()
+    setup({ loadEarlier, openEarlier: vi.fn(async () => undefined) })
+    expect(loadEarlier).not.toHaveBeenCalled()
+    fireEvent.click(chip(/Earlier/))
+    await waitFor(() => expect(loadEarlier).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('First chat')).toBeTruthy()
+    expect(screen.getByText('old-2')).toBeTruthy()
+  })
+
+  it('opens the picked session with its id and says so when the agent cannot list or reopen', async () => {
+    const openEarlier = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => listed), openEarlier })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    await waitFor(() => expect(openEarlier).toHaveBeenCalledOnce())
+    expect(openEarlier.mock.calls[0][2]).toBe('old-1')
+    // The composer's current access (including Ask for everything) goes with it.
+    expect((openEarlier.mock.calls[0] as unknown[])[3]).toMatchObject({ read: true, write: true, terminal: true })
+    cleanup()
+
+    const noOpen = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => ({ ...listed, loadSupported: false })), openEarlier: noOpen })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    expect(screen.getByText(/cannot reopen them/)).toBeTruthy()
+    expect(noOpen).not.toHaveBeenCalled()
+    cleanup()
+
+    setup({ loadEarlier: vi.fn(async () => ({ listSupported: false, loadSupported: true, sessions: [] })) })
+    fireEvent.click(chip(/Earlier/))
+    expect(await screen.findByText(/does not list its earlier sessions/)).toBeTruthy()
   })
 })

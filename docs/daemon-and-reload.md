@@ -12,7 +12,7 @@ From `C:/Users/basin/acportal/target/debug` on this development machine:
 .\acpd.exe pair
 ```
 
-The start command waits for listener/TLS initialization and then returns. The host runs without keeping the launching terminal open. `acpd daemon start` is an alias for background startup. This is a detached user process, not a Windows service, boot task, automatic crash-restart policy or systemd installation. Agent/provider configuration remains that of the launching operator.
+The start command waits for listener/TLS initialization and then returns. The host runs without keeping the launching terminal open. `acpd daemon start` is an alias for background startup. This is a detached user process, not a Windows service, boot task, automatic crash-restart policy or systemd installation. Logon registration is the separate `acpd service` command, described in [installation](installation.md#run-the-host-at-logon). Agent/provider configuration remains that of the launching operator.
 
 Edit the existing host TOML or agent registry, then explicitly apply it:
 

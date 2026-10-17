@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import dev.acportal.data.AgentClient
 import dev.acportal.data.AgentRegistration
 import dev.acportal.protocol.AgentCheck
-import dev.acportal.protocol.LocatedAgent
+import dev.acportal.protocol.KnownAgent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -58,19 +58,19 @@ internal fun parseEnvironment(text:String):Pair<Map<String,String>,String?> {
     val (env,badEnvironment)=remember(environment) {parseEnvironment(environment)}
     val id=agentIdFromName(name)
     val ready=name.isNotBlank() && id.isNotEmpty() && command.isNotBlank() && badEnvironment==null
-    var located by remember {mutableStateOf<Map<String,LocatedAgent>?>(null)}
+    var known by remember {mutableStateOf<List<KnownAgent>?>(null)}
     var scanning by remember {mutableStateOf(true)}
     var scanFailed by remember {mutableStateOf(false)}
     var scanRound by remember {mutableIntStateOf(0)}
     LaunchedEffect(scanRound) {
         scanning=true;scanFailed=false
-        try {located=client.locate(agentSuggestions.map {it.command}.distinct()).associateBy {it.command}}
+        try {known=client.discover()}
         catch(cancelled:CancellationException) {throw cancelled}
         catch(failure:Exception) {scanFailed=true}
         scanning=false
     }
     fun changed() {check=null;error=null}
-    fun use(suggestion:AgentSuggestion) {
+    fun use(suggestion:KnownAgent) {
         name=suggestion.name;command=suggestion.command;args=suggestion.args.joinToString("\n")
         environment=suggestion.env.entries.joinToString("\n") {"${it.key}=${it.value}"};ownTools=suggestion.ownTools
         changed()
@@ -88,7 +88,7 @@ internal fun parseEnvironment(text:String):Pair<Map<String,String>,String?> {
         ScreenHeader("Add agent",hostLabel,onBack)
         Column(Modifier.weight(1f).testTag("add-agent-body").verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Text("Register the command-line agent you want to use on $hostLabel. It runs on that computer, with that computer's files.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            // Which popular agents are really installed on that computer (PATH and the usual user install folders).
+            // The agents the host knows how to start, and which are really installed there (PATH and the usual user install folders).
             Text("Agents on $hostLabel",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
             if(scanning) {
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp),modifier=Modifier.testTag("agent-scan-progress")) {
@@ -96,29 +96,29 @@ internal fun parseEnvironment(text:String):Pair<Map<String,String>,String?> {
                     Text("Looking for installed agents…",style=MaterialTheme.typography.bodyMedium)
                 }
             } else if(scanFailed) {
-                Text("Could not look for installed agents. You can still pick one below or type its command.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("agent-scan-failed"))
+                Text("Could not ask $hostLabel which agents it has. Type the command below, or scan again.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("agent-scan-failed"))
             } else {
-                val (here,elsewhere)=agentSuggestions.partition {located?.get(it.command)?.found==true}
+                val (here,elsewhere)=known.orEmpty().partition {it.found}
                 if(here.isNotEmpty()) {
                     LazyRow(Modifier.testTag("agent-found"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        items(here,key={"found:"+it.name}) {suggestion->AssistChip({use(suggestion)},{Text(suggestion.name)},Modifier.testTag("suggest:${suggestion.name}"),leadingIcon={Icon(Icons.Outlined.Check,"Installed",Modifier.size(18.dp))})}
+                        items(here,key={"found:"+it.id}) {suggestion->AssistChip({use(suggestion)},{Text(if(suggestion.registered)"${suggestion.name} · added" else suggestion.name)},Modifier.testTag("suggest:${suggestion.name}"),leadingIcon={Icon(Icons.Outlined.Check,"Installed",Modifier.size(18.dp))})}
                     }
-                    located?.get(here.first().command)?.executable?.let {Text("Found: $it",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    here.first().executable?.let {Text("Found: $it",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 } else {
-                    Text("None of the popular agents were found on this computer. Install one, then scan again, or type its command below.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.testTag("agent-none-found"))
+                    Text("None of the agents $hostLabel knows were found there. Install one, then scan again, or type its command below.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.testTag("agent-none-found"))
                 }
                 if(elsewhere.isNotEmpty()) {
                     Text("Not installed here (install first, then check it)",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     LazyRow(Modifier.testTag("agent-suggestions"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        items(elsewhere,key={it.name}) {suggestion->AssistChip({use(suggestion)},{Text(suggestion.name)},Modifier.testTag("suggest:${suggestion.name}"))}
+                        items(elsewhere,key={it.id}) {suggestion->AssistChip({use(suggestion)},{Text(suggestion.name)},Modifier.testTag("suggest:${suggestion.name}"))}
                     }
                 }
             }
             TextButton({scanRound++},Modifier.testTag("agent-scan-again"),enabled=!scanning) {Text(if(scanning)"Scanning…" else "Scan again")}
-            Text("Choosing one only fills in the form below, following the ACP agent registry. Nothing is installed or saved.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(name,{name=it.take(64);changed()},Modifier.fillMaxWidth().testTag("agent-name"),label={Text("Name")},placeholder={Text("Goose")},singleLine=true,keyboardOptions=KeyboardOptions(imeAction=ImeAction.Next),supportingText={if(id.isNotEmpty())Text("ID: $id")})
-            OutlinedTextField(command,{command=it.take(1024);changed()},Modifier.fillMaxWidth().testTag("agent-command"),label={Text("Command")},placeholder={Text("goose")},singleLine=true,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false,imeAction=ImeAction.Next),supportingText={Text("A program name on that computer's PATH, or its full path.")})
-            OutlinedTextField(args,{args=it.take(4096);error=null},Modifier.fillMaxWidth().testTag("agent-args"),label={Text("Arguments")},placeholder={Text("acp")},minLines=2,maxLines=6,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false),supportingText={Text("One argument per line. Most agents need one that starts ACP mode.")})
+            Text("Choosing one only fills in the form below with what $hostLabel suggests. Nothing is installed or saved.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(name,{name=it.take(64);changed()},Modifier.fillMaxWidth().testTag("agent-name"),label={Text("Name")},placeholder={Text("Agent name")},singleLine=true,keyboardOptions=KeyboardOptions(imeAction=ImeAction.Next),supportingText={if(id.isNotEmpty())Text("ID: $id")})
+            OutlinedTextField(command,{command=it.take(1024);changed()},Modifier.fillMaxWidth().testTag("agent-command"),label={Text("Command")},placeholder={Text("Program name or full path")},singleLine=true,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false,imeAction=ImeAction.Next),supportingText={Text("A program name on that computer's PATH, or its full path.")})
+            OutlinedTextField(args,{args=it.take(4096);error=null},Modifier.fillMaxWidth().testTag("agent-args"),label={Text("Arguments")},placeholder={Text("--acp")},minLines=2,maxLines=6,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false),supportingText={Text("One argument per line. Most agents need one that starts ACP mode.")})
             OutlinedTextField(environment,{environment=it.take(8192);changed()},Modifier.fillMaxWidth().testTag("agent-env"),label={Text("Environment (optional)")},placeholder={Text("NAME=value")},minLines=2,maxLines=6,isError=badEnvironment!=null,keyboardOptions=KeyboardOptions(autoCorrectEnabled=false),supportingText={Text(if(badEnvironment!=null)"Use NAME=value, one per line." else "One NAME=value per line. Saved on that computer; avoid secrets you can set in the agent's own configuration.")})
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

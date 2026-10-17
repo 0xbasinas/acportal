@@ -5,7 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import dev.acportal.data.AgentClient
 import dev.acportal.data.AgentRegistration
 import dev.acportal.protocol.AgentCheck
-import dev.acportal.protocol.LocatedAgent
+import dev.acportal.protocol.KnownAgent
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -13,12 +13,18 @@ import org.junit.Test
 class AddAgentScreenUiTest {
     @get:Rule val compose=createComposeRule()
 
-    private class Fake(val installed:Boolean,val onHost:Set<String> = setOf("goose"),var scanFailures:Int=0):AgentClient {
+    // What a host would list; the app itself has no list of agents.
+    private val catalog=listOf(
+        KnownAgent("goose","Goose","goose",listOf("acp"),mapOf("GOOSE_MODE" to "approve")),
+        KnownAgent("gemini","Gemini CLI","gemini",listOf("--acp")),
+        KnownAgent("opencode","OpenCode","opencode",listOf("acp"),ownTools=true),
+    )
+    private inner class Fake(val installed:Boolean,val onHost:Set<String> = setOf("goose"),var scanFailures:Int=0):AgentClient {
         val checked=mutableListOf<String>();var saved:AgentRegistration?=null;var scans=0
-        override suspend fun locate(commands:List<String>):List<LocatedAgent> {
+        override suspend fun discover():List<KnownAgent> {
             scans++
             if(scanFailures>0) {scanFailures--;error("offline")}
-            return commands.map {if(it in onHost)LocatedAgent(it,true,"/home/me/.local/bin/$it") else LocatedAgent(it)}
+            return catalog.map {if(it.command in onHost)it.copy(found=true,executable="/home/me/.local/bin/${it.command}") else it}
         }
         override suspend fun check(command:String,env:Map<String,String>):AgentCheck {checked+=command;return if(installed)AgentCheck(true,"/usr/bin/$command",true,"goose 1.53.0") else AgentCheck(false)}
         override suspend fun add(registration:AgentRegistration) {saved=registration}

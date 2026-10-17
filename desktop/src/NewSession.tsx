@@ -3,24 +3,33 @@
 // folder, branch, access rights and the worktree switch, each opening a small anchored list.
 // Sending docks the composer at the bottom (220 ms, none with reduced motion) while the
 // session starts; the context folds into a header line.
-import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { AgentInfo, Workspace } from './types'
+import { Fragment, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { AgentInfo, EarlierSessions, Workspace } from './types'
 import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
-import { type AgentSetup, hasChoices, placePopover, setupFromAcp } from './agentSetup'
+import { type AgentSetup, choiceName, groupAgents, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
+import { OptionsPanel } from './OptionPicker'
+import { applyPreset, presetKey, sameRights, type Preset } from './presets'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
-export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean }
+export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean; manual?: boolean }
 export type { AgentSetup } from './agentSetup'
-export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]; mode?: string; model?: string }
+export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]
+  /** Session options picked here, in the order they were picked; applied in that order once the
+   * agent is running (a provider before the model it brings). */
+  choices: OptionPick[] }
+export type OptionPick = { id: string; value: string }
 export type HostChoice = { id: string; name: string; state: string; ok: boolean }
 
+/** The folder choice for a session in no project: the host makes a new empty folder at start. */
+export const NO_PROJECT = '\u0000no-project'
 export const slug = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32).replace(/^-|-$/g, '')
 export const setupKey = (agent: string): string => `acportal.agentSetup.${agent}`
 export function rememberedSetup(agent: string): AgentSetup {
-  try { return JSON.parse(localStorage.getItem(setupKey(agent)) ?? '{}') as AgentSetup } catch { return {} }
+  // Older versions saved a different shape (modes/models); it is ignored rather than guessed at.
+  try { const v = JSON.parse(localStorage.getItem(setupKey(agent)) ?? '{}') as AgentSetup; return Array.isArray(v.selectors) ? v : {} } catch { return {} }
 }
 
 /** A chip that opens an anchored list. Escape or a click outside closes it and returns focus. */
@@ -61,25 +70,33 @@ function Chip({ id, open, setOpen, label, icon, active, children, wide, title, u
     </span>
   )
 }
-function Item({ on, children, onPick, sub }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode }) {
-  return <button data-item className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
+function Item({ on, children, onPick, sub, preset, mode, profileOf }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode; preset?: string; mode?: string; profileOf?: string }) {
+  return <button data-item data-preset={preset} data-mode={mode} data-profile-of={profileOf} className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
 }
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
 }
 
-export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe }: {
+export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch, loadPresets, loadEarlier, openEarlier }: {
   hosts: HostChoice[]; hostId: string; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; canBranch: boolean
   history: (ws: string) => string[]; initial?: { text: string; n: number }; initialFolder?: string
   onStart: (r: StartRequest) => Promise<string | undefined>; onMulti: (text: string) => void
   /** Ask the host which models and modes an agent offers (throwaway session); undefined if it cannot. */
   probe?: (agent: string, workspace: string) => Promise<unknown | undefined>
+  /** A new empty folder for a session outside every project (hosts with `scratchSessions`). */
+  newScratch?: () => Promise<string | undefined>
+  /** Hosts that advertise `presets`. Undefined on an older host, which keeps the toggles only. */
+  loadPresets?: (agent: string) => Promise<Preset[] | undefined>
+  /** Hosts that advertise `agentSessionList`: what this agent remembers for a folder, read-only. */
+  loadEarlier?: (agent: string, workspace: string) => Promise<EarlierSessions | undefined>
+  /** Open one of those with the agent's `session/load`; returns an error text, or nothing. */
+  openEarlier?: (agent: string, workspace: string, sessionId: string, access: Access) => Promise<string | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
   const [ws, setWs] = useState(initialFolder ?? workspaces[0]?.path ?? '')
   const [sub, setSub] = useState('')
-  useEffect(() => { if (!workspaces.some((w) => w.path === ws)) setWs(workspaces[0]?.path ?? '') }, [workspaces])
+  useEffect(() => { if (ws !== NO_PROJECT && !workspaces.some((w) => w.path === ws)) setWs(workspaces[0]?.path ?? (newScratch ? NO_PROJECT : '')) }, [workspaces, Boolean(newScratch)])
   useEffect(() => { if (initialFolder) setWs(initialFolder) }, [initialFolder])
   useEffect(() => { if (usable.length && !usable.some((x) => x.id === agent)) setAgent(usable[0].id) }, [agents])
   const [text, setText] = useState('')
@@ -88,41 +105,63 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [err, setErr] = useState<string>()
   const [phase, setPhase] = useState<'idle' | 'starting'>('idle')
   const [access, setAccess] = useState<Access>({ read: true, write: true, terminal: true, mcp: true })
+  const [presetList, setPresetList] = useState<Preset[]>([])
+  const [presetId, setPresetId] = useState<string>()
+  const [presetsLoading, setPresetsLoading] = useState(false)
+  const presetTouch = useRef(false)
   const [branch, setBranch] = useState<BranchPick>({ mode: 'current', name: '', worktree: false })
   const [branches, setBranches] = useState<string[]>()
   const [current, setCurrent] = useState<string>()
   const [query, setQuery] = useState('')
-  // Choices: what this computer saw in the agent's last session, else what the host reports
-  // for the agent (its sessions or an earlier probe), else a probe now; defaults if all fail.
+  // Options come from the agent: what the host reports for it (its sessions or an earlier probe),
+  // else a probe now; only without either, what this computer saw in its last session. Nothing is
+  // made up: when all fail the form says so, offers Retry, and the agent picks for itself.
+  // Picks are only kept here, in order, and applied when the session starts: setting an option
+  // before that would need the agent running, and some agents save every change as their default.
+  // One option can change another's values (another provider, other models); the session's
+  // replies then bring the agent's new lists into the header.
   const [probed, setProbed] = useState<Record<string, AgentSetup | 'loading' | 'failed'>>({})
   const remembered = rememberedSetup(agent)
   const hostReported = agents.find((a) => a.id === agent)?.setup
   const probeState = probed[hostId + '/' + agent]
-  const setup: AgentSetup = hasChoices(remembered) ? remembered
-    : hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
-    : typeof probeState === 'object' ? probeState : {}
+  const setup: AgentSetup = hostReported && hasChoices(setupFromAcp(hostReported)) ? setupFromAcp(hostReported)
+    : typeof probeState === 'object' ? probeState
+    : hasChoices(remembered) ? remembered : {}
   const loadingSetup = probeState === 'loading'
-  const [mode, setMode] = useState<string | undefined>(setup.mode)
-  const [model, setModel] = useState<string | undefined>(setup.model)
-  useEffect(() => { setMode(setup.mode); setModel(setup.model) }, [agent, hostId, hasChoices(setup)])
+  const retryProbe = () => setProbed((p) => { const { [hostId + '/' + agent]: _, ...rest } = p; return rest })
+  const [picks, setPicks] = useState<OptionPick[]>([])
+  const selectors = arranged(setup.selectors ?? []).filter((x) => x.choices.length)
+  const valueOf = (id: string): string | undefined => [...picks].reverse().find((p) => p.id === id)?.value ?? selectors.find((x) => x.id === id)?.current
+  // A pick other than the model can change what the other lists offer once the agent applies it.
+  const mayChangeOthers = picks.some((p) => { const x = selectors.find((y) => y.id === p.id); return x !== undefined && x.category !== 'model' && x.id !== 'model' && selectors.length > 1 })
+  // A new agent, host or folder starts from that agent's options; the last session's choices for
+  // this agent are picked again where the agent still offers them.
+  useEffect(() => {
+    setPicks((setup.selectors ?? []).flatMap((x) => {
+      const v = remembered.chosen?.[x.id]
+      return v !== undefined && v !== x.current && x.choices.some((c) => c.value === v) ? [{ id: x.id, value: v }] : []
+    }))
+  }, [hostId, agent, ws, hasChoices(setup)])
+  const pickOption = (x: { id: string }, v: string): void => setPicks((list) => [...list.filter((p) => p.id !== x.id), { id: x.id, value: v }])
   useEffect(() => {
     const key = hostId + '/' + agent
-    if (!probe || !agent || !ws || hasChoices(setup) || probed[key]) return
+    if (!probe || !agent || !ws || ws === NO_PROJECT || hasChoices(setup) || probed[key]) return
     setProbed((p) => ({ ...p, [key]: 'loading' }))
     probe(agent, ws).then((raw) => setProbed((p) => ({ ...p, [key]: raw === undefined ? 'failed' : setupFromAcp(raw) })), () => setProbed((p) => ({ ...p, [key]: 'failed' })))
-  }, [agent, hostId, ws, Boolean(probe)])
+  }, [agent, hostId, ws, Boolean(probe), probeState === undefined])
   const ta = useRef<HTMLTextAreaElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
   const host = hosts.find((h) => h.id === hostId)
-  const agentName = usable.find((a) => a.id === agent)?.name ?? agent
+  const selectedAgent = usable.find((a) => a.id === agent)
+  const agentName = selectedAgent?.profileLabel || selectedAgent?.name || agent
   useEffect(() => { if (initial) { setText(initial.text); ta.current?.focus() } }, [initial?.n])
   useEffect(() => { ta.current?.focus() }, [])
   useEffect(() => { const el = ta.current; if (el) { el.style.height = 'auto'; el.style.height = Math.min(220, el.scrollHeight) + 'px' } }, [text])
   useEffect(() => {
     let stop = false
     setBranches(undefined); setCurrent(undefined)
-    if (!canBranch || !target) return
+    if (!canBranch || !target || ws === NO_PROJECT) return
     const t = setTimeout(async () => {
       const r = await window.api.git.run(hostId, target, 'branch-list')
       if (stop) return
@@ -155,7 +194,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     from.current = box.current?.getBoundingClientRect()
     setPhase('starting'); setErr(undefined); setOpen(undefined)
     localStorage.setItem('acportal.lastAgent', agent)
-    const e = await onStart({ agent, workspace: target, branch, access, text, atts, mode, model })
+    // No project: the host makes the folder now, so nothing is left behind if starting is cancelled earlier.
+    const workspace = ws === NO_PROJECT ? await newScratch?.() : target
+    if (!workspace) { setPhase('idle'); setErr('The host could not make a folder for this session.'); return }
+    const e = await onStart({ agent, workspace, branch: ws === NO_PROJECT ? { mode: 'current', name: '', worktree: false } : branch, access, text, atts, choices: picks })
     if (e) { setPhase('idle'); setErr(e) }
   }
   useLayoutEffect(() => {
@@ -167,12 +209,61 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     if (!dy || matchMedia('(prefers-reduced-motion: reduce)').matches) return
     el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' })
   }, [phase])
-  const modeName = setup.modes?.find((m) => m.id === mode)?.name
-  const modelName = setup.models?.find((m) => m.value === model)?.name ?? model
-  const recent = history(target).slice(0, 4)
+  // The first two options (the model first) summarise the chip, as the phone's header does.
+  const summary = selectors.slice(0, 2).map((x) => choiceName(x, valueOf(x.id)) ?? `${x.name}: agent's choice`).join(' · ')
+  const recent = ws === NO_PROJECT ? [] : history(target).slice(0, 4)
   const starting = phase === 'starting'
   const enabledMcp = mcp.filter((m) => m.enabled)
-  const accessLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
+  const rightsLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
+  const chosenPreset = presetList.find((p) => p.id === presetId)
+  const accessLabel = presetList.length ? (chosenPreset?.label ?? 'Custom') : rightsLabel
+  useEffect(() => {
+    presetTouch.current = false
+    setPresetList([])
+    setPresetId(undefined)
+    if (!loadPresets || !agent) { setPresetsLoading(false); return }
+    let stop = false
+    setPresetsLoading(true)
+    loadPresets(agent).then((list) => {
+      if (stop || presetTouch.current) return
+      const presets = list ?? []
+      setPresetList(presets)
+      setPresetsLoading(false)
+      let remembered: string | null = null
+      try { remembered = localStorage.getItem(presetKey(agent)) } catch { remembered = null }
+      const hit = remembered ? presets.find((p) => p.id === remembered) : undefined
+      // A remembered id that the host no longer offers is ignored. The flags are
+      // whatever this preset advertises, including after switching agents.
+      const chosen = hit ?? presets.find((preset) => preset.id === 'supervised')
+      if (!chosen) return
+      setPresetId(chosen.id)
+      setAccess((current) => applyPreset(current, chosen))
+    }, () => { if (!stop) setPresetsLoading(false) })
+    return () => { stop = true }
+  }, [agent, loadPresets])
+  const [earlier, setEarlier] = useState<{ state: 'loading' | 'done' | 'failed'; data?: EarlierSessions }>()
+  useEffect(() => {
+    if (open !== 'earlier' || !loadEarlier || !agent || ws === NO_PROJECT) return
+    let stop = false
+    setEarlier({ state: 'loading' })
+    void loadEarlier(agent, target).then((data) => { if (!stop) setEarlier(data ? { state: 'done', data } : { state: 'failed' }) })
+    return () => { stop = true }
+  }, [open, agent, target, ws, loadEarlier])
+  const pickPreset = (preset: Preset): void => {
+    presetTouch.current = true
+    setPresetId(preset.id)
+    setAccess((current) => applyPreset(current, preset))
+    try { localStorage.setItem(presetKey(agent), preset.id) } catch { /* ignore */ }
+  }
+  const toggleRight = (key: 'read' | 'write' | 'terminal'): void => {
+    presetTouch.current = true
+    const next = { ...access, [key]: !access[key] }
+    const match = presetList.find((preset) => sameRights(next, preset))
+    setAccess(next)
+    setPresetId(match?.id)
+    try { localStorage.setItem(presetKey(agent), match?.id ?? 'custom') } catch { /* ignore */ }
+  }
+  const mode = selectors.find((selector) => selector.kind === 'mode' || selector.category === 'mode')
 
   const composer = (
     <div ref={box} className={'ns-composer' + (starting ? ' docked' : '')} onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpen(undefined) }}>
@@ -185,16 +276,20 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         <button className="icon-btn round" aria-label="Attach files" title="Attach files" onClick={() => void pick()} disabled={starting}>{I.plus}</button>
         <Chip id="agent" open={open} setOpen={setOpen} up icon={I.bot} label={agentName || 'No agent'} title="Agent">
           <div className="ctx-h">Agent</div>
-          {usable.map((a) => <Item key={a.id} on={a.id === agent} sub={a.version} onPick={() => { setAgent(a.id); setOpen(undefined) }}>{a.name}</Item>)}
+          {groupAgents(usable).map((group) => <Fragment key={group.base.id}>
+            <Item on={group.base.id === agent} sub={group.base.version} onPick={() => { setAgent(group.base.id); setOpen(undefined) }}>{group.base.profileLabel || group.base.name}</Item>
+            {group.profiles.map((profile) => <Item key={profile.id} profileOf={group.base.id} on={profile.id === agent} sub="profile" onPick={() => { setAgent(profile.id); setOpen(undefined) }}>{profile.profileLabel || profile.name}</Item>)}
+          </Fragment>)}
           {usable.length === 0 && <div className="hint ctx-pad">No agents on this host. Add one in Settings → Agents.</div>}
           <div className="ctx-sep" />
           <Item onPick={() => { setOpen(undefined); onMulti(text) }} sub="2-3 agents">{I.flow} Run on several agents…</Item>
         </Chip>
-        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : `${modelName ?? 'Default model'} · ${modeName ?? 'default mode'}`} title="Model and mode">
+        <Chip id="model" open={open} setOpen={setOpen} up busy={loadingSetup} label={loadingSetup ? 'Reading models…' : probeState === 'failed' && !hasChoices(setup) ? 'Models unknown' : !hasChoices(setup) ? `${agentName}'s own choice` : summary} title="Model and options" wide>
           {loadingSetup && <div className="hint ctx-pad" role="status">Asking {agentName} which models and modes it offers…</div>}
-          {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes; the session starts with its defaults.` : `${agentName} offers no model or mode choices; it uses its defaults.`}</div>}
-          {setup.models?.length ? <><div className="ctx-h">Model</div>{setup.models.map((m) => <Item key={m.value} on={m.value === model} onPick={() => setModel(m.value)}>{m.name}</Item>)}</> : null}
-          {setup.modes?.length ? <><div className="ctx-h">Mode</div>{setup.modes.map((m) => <Item key={m.id} on={m.id === mode} onPick={() => setMode(m.id)}>{m.name}</Item>)}</> : null}
+          {!loadingSetup && !hasChoices(setup) && <div className="hint ctx-pad">{probeState === 'failed' ? `Could not read ${agentName}'s models and modes. The session can still start; ${agentName} then picks its own.` : `${agentName} reports no model or mode choices; it picks its own.`}</div>}
+          {!loadingSetup && probeState === 'failed' && !hasChoices(setup) && <Item on={false} onPick={retryProbe}>Retry</Item>}
+          {mayChangeOthers && <div className="hint ctx-pad">These choices are applied when the session starts. Lists that depend on them, such as the models of another provider, then appear in the session header.</div>}
+          {selectors.length > 0 && <OptionsPanel selectors={selectors} valueOf={(x) => valueOf(x.id)} onPick={pickOption} />}
         </Chip>
         <span className="grow" />
         <span className="hint-keys">Enter to send · Shift Enter new line</span>
@@ -210,13 +305,17 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         {hosts.map((h) => <Item key={h.id} on={h.id === hostId} sub={h.state} onPick={() => { setOpen(undefined); if (h.id !== hostId && h.ok) onHost(h.id) }}>{h.name}</Item>)}
         <div className="hint ctx-pad">Choosing another host switches the whole window to it.</div>
       </Chip>
-      <Chip id="folder" open={open} setOpen={setOpen} icon={I.folder} label={tildify(target) || 'Folder'} title="Folder" wide>
+      <Chip id="folder" open={open} setOpen={setOpen} icon={I.folder} label={ws === NO_PROJECT ? 'No project' : tildify(target) || 'Folder'} title="Folder" wide>
         <div className="ctx-h">Folder</div>
         {workspaces.map((w) => <Item key={w.path} on={w.path === ws} onPick={() => setWs(w.path)}><span className="mono">{tildify(w.path)}</span></Item>)}
-        {workspaces.length === 0 && <div className="hint ctx-pad">No folders are allowed on this host yet (Settings → Workspaces).</div>}
-        <div className="ctx-sep" />
-        <label className="ctx-h" htmlFor="ns-sub">Sub-folder (optional)</label>
-        <input id="ns-sub" className="input mono ctx-input" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(undefined) }} />
+        {workspaces.length === 0 && <div className="hint ctx-pad">No project folders are allowed on this host yet (Settings → Workspaces).</div>}
+        {newScratch && <Item on={ws === NO_PROJECT} onPick={() => setWs(NO_PROJECT)} sub="new empty folder">No project</Item>}
+        {ws !== NO_PROJECT && <>
+          <div className="ctx-sep" />
+          <label className="ctx-h" htmlFor="ns-sub">Sub-folder (optional)</label>
+          <input id="ns-sub" className="input mono ctx-input" placeholder="e.g. calc" value={sub} onChange={(e) => setSub(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(undefined) }} />
+        </>}
+        {ws === NO_PROJECT && <div className="hint ctx-pad">The host makes a new empty folder for this session, outside every project. Use it for questions and one-off tasks.</div>}
       </Chip>
       <Chip id="branch" open={open} setOpen={setOpen} icon={I.branch} label={branchLabel + (branch.worktree ? ' · worktree' : '')} title="Branch" active={branch.mode !== 'current'} wide>
         {!canBranch ? <div className="hint ctx-pad">This host does not run git for the app; the session starts on whatever branch the folder is on.</div>
@@ -248,11 +347,40 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           )}
       </Chip>
       <Chip id="access" open={open} setOpen={setOpen} icon={I.shield} label={accessLabel} title="Access rights">
-        <div className="ctx-h">Rights for this session</div>
-        {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => setAccess({ ...access, [k]: !access[k] })}>{l}</Item>)}
+        {presetList.length > 0 && <>
+          <div className="ctx-h">Preset</div>
+          {presetList.map((preset) => <Item key={preset.id} preset={preset.id} on={preset.id === presetId} onPick={() => pickPreset(preset)}>{preset.label}</Item>)}
+          {chosenPreset?.effects.map((line) => <div key={line} className="hint ctx-pad">{line}</div>)}
+          {mode && <>
+            <div className="ctx-h">{mode.name}</div>
+            <div className="hint ctx-pad">The agent's own mode. It is separate from the preset.</div>
+            {mode.choices.map((choice) => <Item key={choice.value} mode={choice.value} on={valueOf(mode.id) === choice.value} onPick={() => pickOption(mode, choice.value)}>{choice.name}</Item>)}
+          </>}
+          <div className="ctx-h">Custom</div>
+        </>}
+        {presetsLoading && <div className="hint ctx-pad" role="status">Reading presets…</div>}
+        {presetList.length === 0 && !presetsLoading && <div className="ctx-h">Rights for this session</div>}
+        {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => toggleRight(k)}>{l}</Item>)}
         <Item on={access.mcp && enabledMcp.length > 0} sub={enabledMcp.length ? String(enabledMcp.length) : 'none'} onPick={() => setAccess({ ...access, mcp: !access.mcp })}>MCP servers</Item>
-        <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>
+        {access.manual && !chosenPreset && <div className="hint ctx-pad">The host's auto-approve and shell rules are off for this session.</div>}
+        {!chosenPreset && <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>}
       </Chip>
+      {loadEarlier && ws !== NO_PROJECT && (
+        <Chip id="earlier" open={open} setOpen={setOpen} icon={I.clock} label="Earlier" title="Earlier sessions of this agent in this folder" wide>
+          <div className="ctx-h">Earlier sessions</div>
+          {earlier?.state === 'loading' && <div className="hint ctx-pad" role="status">Asking {agentName}…</div>}
+          {earlier?.state === 'failed' && <div className="hint ctx-pad">Could not read {agentName}'s sessions.</div>}
+          {earlier?.state === 'done' && !earlier.data?.listSupported && <div className="hint ctx-pad">{agentName} does not list its earlier sessions.</div>}
+          {earlier?.state === 'done' && earlier.data?.listSupported && earlier.data.sessions.length === 0 && <div className="hint ctx-pad">Nothing remembered for this folder.</div>}
+          {earlier?.state === 'done' && earlier.data?.listSupported && !earlier.data.loadSupported && earlier.data.sessions.length > 0 && <div className="hint ctx-pad">{agentName} cannot reopen them, so this list is for reference.</div>}
+          {earlier?.state === 'done' && earlier.data?.sessions.map((s) => (
+            <Item key={s.sessionId} data-earlier={s.sessionId} sub={s.updatedAt ? new Date(s.updatedAt).toLocaleString() : undefined}
+              onPick={() => { if (!earlier.data?.loadSupported || !openEarlier) return; setOpen(undefined); void openEarlier(agent, target, s.sessionId, access).then((e) => { if (e) setErr(e) }) }}>
+              {s.title || s.sessionId}
+            </Item>
+          ))}
+        </Chip>
+      )}
       <span className="ctx-switch" title={isRepo ? 'Start in its own git worktree' : 'Needs a git repository'}>
         <span>Worktree</span>
         <Switch label="Own worktree" on={branch.worktree} onChange={(v) => { if (!isRepo) return; setBranch(v && branch.mode === 'current' ? { mode: 'new', name: newName, base: current, worktree: true } : { ...branch, worktree: v }) }} />

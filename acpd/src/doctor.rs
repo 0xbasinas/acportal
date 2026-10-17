@@ -63,6 +63,26 @@ pub fn operational_checks(config: &Config) -> Vec<(String, bool)> {
     ]
 }
 
+/// Whether `gh` can be started. No network call: `gh auth status` on gh 2.94.0 asks GitHub
+/// for token scopes (`GetScopes` in cli/cli `pkg/cmd/auth/status/status.go`, read 17 October 2026).
+/// Sign-in is reported later, as the exit code of `gh pr create`.
+pub fn github_cli_line(program: Option<&std::path::Path>) -> (String, bool) {
+    match program {
+        Some(path) => (
+            format!(
+                "GitHub CLI: found at {}. Sign-in is not checked here",
+                path.display()
+            ),
+            true,
+        ),
+        None => (
+            "GitHub CLI: not found. Opening a pull request needs gh on PATH; sign-in is not checked here"
+                .into(),
+            true,
+        ),
+    }
+}
+
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -109,6 +129,8 @@ pub async fn agent_check(
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
     };
     let opened = manager
         .open_configured(agent, workspace, None, Vec::new(), access)
@@ -171,39 +193,45 @@ pub async fn agent_check(
     result
 }
 
+/// For a session no person is watching (doctor checks, one-off host prompts): answer every
+/// permission request with the agent's own reject option (or cancel) so a turn cannot block.
+/// Abort the returned task when the turn is over.
+pub(crate) fn refuse_permissions(
+    session: std::sync::Arc<crate::session::AcpSession>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            for permission in session.connection.replay(0).pending_permissions {
+                let reject = permission["params"]["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|option| {
+                        option["kind"]
+                            .as_str()
+                            .is_some_and(|kind| kind.starts_with("reject"))
+                    })
+                    .map(|option| option["optionId"].clone());
+                let outcome = match reject {
+                    Some(id) => serde_json::json!({"outcome":"selected","optionId":id}),
+                    None => serde_json::json!({"outcome":"cancelled"}),
+                };
+                let _ = session
+                    .connection
+                    .permission(permission["id"].clone(), outcome)
+                    .await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+}
+
 async fn provider_prompt_check(
     session: &std::sync::Arc<crate::session::AcpSession>,
     config: &Config,
 ) -> (String, bool) {
     // No phone is attached: refuse every permission request so the turn cannot block.
-    let refuser = {
-        let session = session.clone();
-        tokio::spawn(async move {
-            loop {
-                for permission in session.connection.replay(0).pending_permissions {
-                    let reject = permission["params"]["options"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .find(|option| {
-                            option["kind"]
-                                .as_str()
-                                .is_some_and(|kind| kind.starts_with("reject"))
-                        })
-                        .map(|option| option["optionId"].clone());
-                    let outcome = match reject {
-                        Some(id) => serde_json::json!({"outcome":"selected","optionId":id}),
-                        None => serde_json::json!({"outcome":"cancelled"}),
-                    };
-                    let _ = session
-                        .connection
-                        .permission(permission["id"].clone(), outcome)
-                        .await;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        })
-    };
+    let refuser = refuse_permissions(session.clone());
     let deadline =
         std::time::Duration::from_secs(config.runtime.request_timeout_seconds.saturating_add(5));
     let result = tokio::time::timeout(deadline, session.prompt(PROMPT_CHECK_TEXT)).await;
@@ -604,6 +632,18 @@ mod tests {
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         drop(listener);
         assert!(operational_checks(&config)[0].1);
+    }
+
+    #[test]
+    fn github_cli_line_reports_presence_without_a_path_lookup() {
+        let (found, ok) = github_cli_line(Some(Path::new("/usr/bin/gh")));
+        assert!(ok);
+        assert!(found.contains("found at"));
+        assert!(found.contains("/usr/bin/gh"));
+        assert!(!found.contains("token"));
+        let (missing, ok) = github_cli_line(None);
+        assert!(ok);
+        assert!(missing.contains("not found"));
     }
 
     #[test]

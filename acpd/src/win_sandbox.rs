@@ -3,26 +3,35 @@
 //! The approach follows Chromium's and Codex CLI's AppContainer sandboxes. acpd runs itself
 //! as a small launcher (`acpd __acpd-sandbox-exec …`) with the terminal's pipes. The launcher:
 //!
-//! 1. creates a fresh AppContainer profile named by the host (`acpd.sbx.<pid>.<n>`),
+//! 1. uses the workspace's AppContainer profile (`acpd.sbx.ws.<hash of the folder>`), one per
+//!    workspace for the host's lifetime, creating it when missing,
 //! 2. grants that AppContainer SID modify rights on the workspace folder (inherited by
-//!    everything below it); nothing else on disk is granted, so the user profile and other
-//!    folders stay closed while system folders stay readable through ALL APPLICATION PACKAGES,
+//!    everything below it) unless it already has them; nothing else on disk is granted, so the
+//!    user profile and other folders stay closed while system folders stay readable through
+//!    ALL APPLICATION PACKAGES. Windows writes an inherited grant onto every existing file, which
+//!    takes tens of seconds in a large folder (a repository with build output), so it is done
+//!    once per workspace, not per command: the host starts it in the background when a
+//!    sandboxed session opens, and a command that comes first does it in its own launcher,
 //! 3. starts the approved command in the AppContainer with the `internetClient` and
 //!    `privateNetworkClientServer` capabilities, matching the Linux sandbox which keeps the
 //!    network (outbound loopback to the host's own services stays blocked by Windows),
 //! 4. puts it in a kill-on-close job object (the host's own job around the launcher
 //!    already kills the whole tree on stop or timeout), waits, and exits with its code,
-//! 5. removes the ACL entry and deletes the profile.
+//! 5. leaves the grant in place for the next command.
 //!
-//! The host runs the same cleanup again after the launcher ends, so a killed launcher does
-//! not leave the grant behind. The command line after the marker is passed to
-//! `CreateProcessW` unchanged, so `cmd /D /S /C "<line>"` runs exactly as approved.
+//! The host removes each workspace's grant and profile when it stops
+//! ([`release_workspaces`]). A host that crashes leaves them behind; the next host uses the
+//! same profile name for the same folder and removes them when it stops. The command line
+//! after the marker is passed to `CreateProcessW` unchanged, so `cmd /D /S /C "<line>"` runs
+//! exactly as approved.
 use std::path::{Path, PathBuf};
 
 /// First argument that turns acpd into the launcher.
 pub const LAUNCHER_ARG: &str = "__acpd-sandbox-exec";
 /// Separates launcher options from the command line it runs verbatim.
 pub const MARKER: &str = "--acpd-sandbox--";
+/// Launcher option: the profile is the workspace's shared one, so its grant is kept.
+pub const SHARED: &str = "--shared";
 
 /// The raw command line after the marker token, exactly as written (cross-platform helper).
 pub fn tail_after_marker(command_line: &str) -> Option<&str> {
@@ -53,7 +62,37 @@ pub fn launcher_enabled() -> bool {
     LAUNCHER.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// A profile name unique to this terminal.
+/// The AppContainer profile of a workspace: the same name for the same folder (case and a
+/// `\\?\` prefix ignored), so every command there shares one grant. 64-bit FNV-1a of the path.
+pub fn workspace_profile(workspace: &Path) -> String {
+    let text = plain_path(workspace).to_string_lossy().to_lowercase();
+    let text = text.trim_end_matches(['\\', '/']);
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("acpd.sbx.ws.{hash:016x}")
+}
+
+/// Workspaces whose profile this host may have granted, so [`release_workspaces`] can remove
+/// them when the host stops.
+fn used_workspaces() -> &'static std::sync::Mutex<std::collections::BTreeSet<PathBuf>> {
+    static USED: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    USED.get_or_init(Default::default)
+}
+
+/// Note that sandboxed commands run in `workspace`; returns its profile name.
+pub fn use_workspace(workspace: &Path) -> String {
+    used_workspaces()
+        .lock()
+        .unwrap()
+        .insert(plain_path(workspace));
+    workspace_profile(workspace)
+}
+
+/// A throwaway profile name (used to probe whether AppContainers work here).
 pub fn profile_name() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -79,6 +118,8 @@ pub fn launcher_args(
         LAUNCHER_ARG.into(),
         "--profile".into(),
         profile.into(),
+        // The workspace profile is shared: keep its grant after the command.
+        SHARED.into(),
         "--workspace".into(),
         workspace.into(),
         "--cwd".into(),
@@ -99,7 +140,9 @@ pub fn plain_path(path: &Path) -> PathBuf {
 }
 
 #[cfg(windows)]
-pub use imp::{available, cleanup, launcher_main};
+pub use imp::{
+    available, cleanup, launcher_main, prepare_workspace, release_workspace, release_workspaces,
+};
 
 #[cfg(windows)]
 mod imp {
@@ -108,13 +151,13 @@ mod imp {
     use windows_sys::Win32::{
         Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, LocalFree, WAIT_OBJECT_0},
         Security::{
-            ACL,
+            ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
             Authorization::{
                 ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
                 REVOKE_ACCESS, SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW,
                 TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
             },
-            DACL_SECURITY_INFORMATION, FreeSid,
+            DACL_SECURITY_INFORMATION, EqualSid, FreeSid, GetAce,
             Isolation::{
                 CreateAppContainerProfile, DeleteAppContainerProfile,
                 DeriveAppContainerSidFromAppContainerName,
@@ -243,6 +286,86 @@ mod imp {
         ok
     }
 
+    /// Whether `folder`'s own DACL already has an allow entry for `sid` with modify rights.
+    /// Reads only the folder, so it is quick even when the folder is huge.
+    fn has_access(folder: &Path, sid: PSID) -> bool {
+        let path = wide(folder);
+        let mut dacl: *mut ACL = null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+        let got = unsafe {
+            GetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                &mut dacl,
+                null_mut(),
+                &mut descriptor,
+            )
+        };
+        if got != ERROR_SUCCESS {
+            return false;
+        }
+        let wanted = FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE;
+        let mut found = false;
+        if !dacl.is_null() {
+            let count = unsafe { (*dacl).AceCount };
+            for index in 0..u32::from(count) {
+                let mut ace: *mut std::ffi::c_void = null_mut();
+                if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+                    continue;
+                }
+                let header = unsafe { &*(ace as *const ACE_HEADER) };
+                // ACCESS_ALLOWED_ACE_TYPE = 0
+                if header.AceType != 0 {
+                    continue;
+                }
+                let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
+                let ace_sid = (&allowed.SidStart) as *const u32 as PSID;
+                if unsafe { EqualSid(ace_sid, sid) } != 0 && allowed.Mask & wanted == wanted {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        unsafe { LocalFree(descriptor as _) };
+        found
+    }
+
+    /// Create the workspace's profile and grant it the folder unless it already has it.
+    /// Slow the first time in a large folder; quick once granted.
+    fn ensure(profile: &str, workspace: &Path) -> Result<Sid, String> {
+        let sid = container(profile, true).ok_or("could not create the AppContainer profile")?;
+        if !has_access(workspace, sid.0) && !set_access(workspace, sid.0, true) {
+            return Err("could not grant the sandbox access to the workspace".into());
+        }
+        Ok(sid)
+    }
+
+    /// Grant the workspace's profile ahead of its first command (blocking; run it off the
+    /// async runtime). Errors are left for the command's own launcher to report.
+    pub fn prepare_workspace(workspace: &Path) {
+        let workspace = plain_path(workspace);
+        let profile = use_workspace(&workspace);
+        let _ = ensure(&profile, &workspace);
+    }
+
+    /// Remove one workspace's grant and profile (blocking).
+    pub fn release_workspace(workspace: &Path) {
+        let workspace = plain_path(workspace);
+        used_workspaces().lock().unwrap().remove(&workspace);
+        cleanup(&workspace_profile(&workspace), &workspace);
+    }
+
+    /// Remove the grant and profile of every workspace this host used (blocking).
+    pub fn release_workspaces() {
+        let used = std::mem::take(&mut *used_workspaces().lock().unwrap());
+        for workspace in used {
+            cleanup(&workspace_profile(&workspace), &workspace);
+        }
+    }
+
     /// Remove the workspace grant and the profile. Safe to call more than once.
     pub fn cleanup(profile: &str, workspace: &Path) {
         if let Some(sid) = container(profile, false) {
@@ -284,10 +407,7 @@ mod imp {
         executable: &Path,
         line: &str,
     ) -> Result<u32, String> {
-        let sid = container(profile, true).ok_or("could not create the AppContainer profile")?;
-        if !set_access(workspace, sid.0, true) {
-            return Err("could not grant the sandbox access to the workspace".into());
-        }
+        let sid = ensure(profile, workspace)?;
         // internetClient, privateNetworkClientServer: network like the Linux sandbox.
         let caps: Vec<PSID> = ["S-1-15-3-1", "S-1-15-3-3"]
             .iter()
@@ -430,7 +550,11 @@ mod imp {
                 126
             }
         };
-        cleanup(&profile, &workspace);
+        // A shared workspace profile keeps its grant for the next command; the host removes
+        // it when it stops. A one-off profile is removed now.
+        if !args.iter().any(|a| a == SHARED) {
+            cleanup(&profile, &workspace);
+        }
         code
     }
 }
@@ -463,5 +587,12 @@ mod tests {
         assert_eq!(args.first().unwrap(), LAUNCHER_ARG);
         assert_eq!(args[args.len() - 2], MARKER);
         assert!(profile_name().starts_with("acpd.sbx.") && profile_name() != profile_name());
+        assert!(args.iter().any(|a| a == SHARED));
+        // One profile per folder: case, a verbatim prefix and a trailing slash do not matter;
+        // another folder gets another profile; the name stays within Windows' 64 characters.
+        let a = workspace_profile(Path::new(r"C:\Work\Repo"));
+        assert_eq!(a, workspace_profile(Path::new(r"\\?\c:\work\repo\")));
+        assert_ne!(a, workspace_profile(Path::new(r"C:\Work\Other")));
+        assert!(a.starts_with("acpd.sbx.ws.") && a.len() <= 64);
     }
 }

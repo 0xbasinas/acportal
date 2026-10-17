@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import type { AgentInfo, Host, HostStatus, Workspace } from './types'
+import { groupAgents } from './agentSetup'
 import { I, tildify } from './ui'
 
 export type Theme = 'dark' | 'light' | 'system'
@@ -21,6 +22,7 @@ export function Settings(props: {
   const [version, setVersion] = useState('')
   const [storage, setStorage] = useState('')
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<string>()
   useEffect(() => {
     void window.api.getVersion().then(setVersion)
     void window.api.secureStorage().then(setStorage)
@@ -53,19 +55,33 @@ export function Settings(props: {
               <button className="pill" onClick={() => setAdding(!adding)}>{I.plus} Add agent</button>
             </div>
             <div className="sub" style={{ marginBottom: 14 }}>Agents registered on {props.current?.name ?? 'the host'}. Any agent that speaks ACP over stdio.</div>
-            {adding && <AddAgent api={props.api} onDone={() => { setAdding(false); props.onAgentsChanged() }} />}
+            {adding && <AgentForm api={props.api} onDone={() => { setAdding(false); props.onAgentsChanged() }} onCancel={() => setAdding(false)} />}
             {props.agents.length === 0 && <div className="sub2">{props.online ? 'The host lists no agents.' : 'Host offline.'}</div>}
-            {props.agents.map((a) => (
-              <div className="set-row" key={a.id}>
-                <span className="sub">{I.gear}</span>
-                <div style={{ flex: 1 }}>
-                  <div>{a.name}</div>
-                  <div className={'sub' + (a.status === 'available' || a.installed ? '' : ' amber')}>
-                    <span className="mono">{a.id}</span>{a.version ? ` · ${a.version}` : ''}{a.ownTools ? ' · own tools' : ''} · {a.enabled === false ? 'Disabled in the registry' : a.status ?? (a.installed ? 'Available' : 'Missing')}{a.reason ? ` · ${a.reason}` : ''}
+            {groupAgents(props.agents).flatMap((group) => [{ agent: group.base, nested: false }, ...group.profiles.map((agent) => ({ agent, nested: true }))]).map(({ agent: a, nested }) => (
+              <div key={a.id} style={nested ? { marginLeft: 28 } : undefined}>
+                <div className="set-row" data-profile-of={a.profileOf}>
+                  <span className="sub">{I.gear}</span>
+                  <div style={{ flex: 1 }}>
+                    <div>{a.profileLabel || a.name}</div>
+                    <div className={'sub' + (a.status === 'available' || a.installed ? '' : ' amber')}>
+                      <span className="mono">{a.id}</span>{a.profileOf ? ` · profile of ${a.profileOf}` : ''}{a.version ? ` · ${a.version}` : ''}{a.ownTools ? ' · own tools' : ''}{a.sandbox === 'off' ? ' · sandbox off' : ''} · {a.enabled === false ? 'Disabled' : a.status ?? (a.installed ? 'Available' : 'Missing')}{a.reason ? ` · ${a.reason}` : ''}
+                    </div>
+                    {!a.removable && <div className="sub">Defined in the host's agents.json; change it there.</div>}
                   </div>
+                  {a.removable && <button className="pill" aria-expanded={editing === a.id} onClick={() => setEditing(editing === a.id ? undefined : a.id)}>{editing === a.id ? 'Close' : 'Edit'}</button>}
+                  {a.removable && <button className="pill" onClick={async () => { if (!confirm(`Remove ${a.name} from the host?`)) return; const r = await props.api('DELETE', `/v1/agents/${encodeURIComponent(a.id)}`); if (!r.ok) alert(r.error); props.onAgentsChanged() }}>Remove</button>}
+                  <button role="switch" aria-checked={a.enabled !== false} aria-label={`${a.name} enabled`} disabled={!a.removable} title={a.removable ? 'Enabled on the host' : "Enabled in the host's agents.json"}
+                    className={'toggle' + (a.enabled !== false ? ' on' : '')} style={{ cursor: a.removable ? 'pointer' : 'default' }}
+                    onClick={async () => {
+                      // Read the saved definition, flip `enabled` and save it back.
+                      const d = await props.api<Record<string, unknown>>('GET', `/v1/agents/${encodeURIComponent(a.id)}`)
+                      if (!d.ok) return alert(d.error)
+                      const r = await props.api('POST', '/v1/agents', { ...d.value, enabled: a.enabled === false })
+                      if (!r.ok) alert(r.error)
+                      props.onAgentsChanged()
+                    }} />
                 </div>
-                {a.removable && <button className="pill" onClick={async () => { if (!confirm(`Remove ${a.name} from the host?`)) return; const r = await props.api('DELETE', `/v1/agents/${encodeURIComponent(a.id)}`); if (!r.ok) alert(r.error); props.onAgentsChanged() }}>Remove</button>}
-                <span className={'toggle' + (a.enabled !== false ? ' on' : '')} title="Enabled in the host registry (edit on the host)" />
+                {editing === a.id && <AgentForm api={props.api} editId={a.id} onDone={() => { setEditing(undefined); props.onAgentsChanged() }} onCancel={() => setEditing(undefined)} />}
               </div>
             ))}
           </>
@@ -201,37 +217,74 @@ function McpEditor({ servers, setServers }: { servers: McpServer[]; setServers: 
   )
 }
 
-function AddAgent({ api, onDone }: { api: <T>(m: string, p: string, b?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string }>; onDone: () => void }) {
-  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto' })
+type KnownAgent = { id: string; name: string; command: string; args: string[]; env: Record<string, string>; ownTools: boolean; found: boolean; registered: boolean; executable?: string }
+
+type SavedAgent = { id: string; name: string; command: string; args?: string[]; env?: Record<string, string>; ownTools?: boolean; sandbox?: string; shell?: string; enabled?: boolean; profileOf?: string; profileLabel?: string }
+/** Arguments as typed: space separated, with "double quotes" around an argument that has spaces. */
+export const splitArgs = (s: string): string[] => [...s.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2])
+export const joinArgs = (args: string[]): string => args.map((a) => (/\s/.test(a) || a === '' ? `"${a}"` : a)).join(' ')
+
+/** Add an agent, or with `editId` change one added from an app (`GET /v1/agents/{id}`, then
+ * `POST /v1/agents` with the same id replaces it on the host). */
+function AgentForm({ api, onDone, onCancel, editId }: { api: <T>(m: string, p: string, b?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string }>; onDone: () => void; onCancel: () => void; editId?: string }) {
+  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto', profileOf: '', profileLabel: '' })
+  const [enabled, setEnabled] = useState(true)
+  const [loaded, setLoaded] = useState(!editId)
   const [check, setCheck] = useState<string>()
   const [err, setErr] = useState<string>()
-  const [found, setFound] = useState<{ command: string; found: boolean; executable?: string }[]>()
-  useEffect(() => { void api<{ command: string; found: boolean; executable?: string }[]>('POST', '/v1/agents/locate', { commands: ['claude-code-acp', 'codex-acp', 'gemini', 'opencode', 'goose', 'qwen', 'kiro-cli'] }).then((r) => r.ok && setFound(r.value.filter((x) => x.found))) }, [])
+  // The host's own list of agent CLIs it knows how to start (GET /v1/agents/discover); the app keeps none.
+  const [known, setKnown] = useState<KnownAgent[] | 'failed'>()
+  const scan = () => { setKnown(undefined); void api<KnownAgent[]>('GET', '/v1/agents/discover').then((r) => setKnown(r.ok ? r.value : 'failed')) }
+  useEffect(() => {
+    if (!editId) return scan()
+    void api<SavedAgent>('GET', `/v1/agents/${encodeURIComponent(editId)}`).then((r) => {
+      if (!r.ok) { setErr(r.error); return }
+      const a = r.value
+      setF({ id: a.id, name: a.name, command: a.command, args: joinArgs(a.args ?? []), env: Object.entries(a.env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: Boolean(a.ownTools), sandbox: a.sandbox ?? 'auto', shell: a.shell ?? 'auto', profileOf: a.profileOf ?? '', profileLabel: a.profileLabel ?? '' })
+      setEnabled(a.enabled !== false)
+      setLoaded(true)
+    })
+  }, [editId])
+  const use = (a: KnownAgent) => setF({ ...f, id: a.id, name: a.name, command: a.executable ?? a.command, args: a.args.join(' '), env: Object.entries(a.env).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: a.ownTools, profileOf: '', profileLabel: '' })
   const envObj = (): Record<string, string> => Object.fromEntries(pairs(f.env).map((p) => [p.name, p.value]))
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      <h3>Add an agent to the host</h3>
-      <div className="sub2">Registered in the host's user settings. Provider keys belong in the host's environment, not here.</div>
-      {found && found.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}><span className="sub">Found on the host:</span>{found.map((x) => <button key={x.command} className="pill" onClick={() => setF({ ...f, id: x.command.replace(/[^\w-]/g, ''), name: x.command, command: x.executable ?? x.command, args: x.command === 'gemini' ? '--experimental-acp' : x.command === 'goose' || x.command === 'opencode' ? 'acp' : '' })}>{x.command}</button>)}</div>}
+      <h3>{editId ? `Edit ${f.name || editId}` : 'Add an agent to the host'}</h3>
+      <div className="sub2">{editId ? 'Changes apply to new sessions; running sessions keep their settings.' : "Registered in the host's user settings."} Provider keys belong in the host's environment, not here.</div>
+      {editId && !loaded && !err && <div className="sub" role="status">Reading the agent's settings…</div>}
+      {!editId && <><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+        {known === undefined && <span className="sub" role="status">Looking for agents on the host…</span>}
+        {known === 'failed' && <span className="sub">The host did not list agents (older acpd?). Type the command below.</span>}
+        {Array.isArray(known) && (known.some((a) => a.found)
+          ? <><span className="sub">Installed on the host:</span>{known.filter((a) => a.found).map((a) => <button key={a.id} className="pill" title={a.executable} onClick={() => use(a)}>{a.name}{a.registered ? ' · added' : ''}</button>)}</>
+          : <span className="sub">None of the agents the host knows were found. Install one, then scan again, or type its command.</span>)}
+        {known !== undefined && <button className="pill" onClick={scan}>Scan again</button>}
+      </div>
+      {Array.isArray(known) && known.some((a) => !a.found) && <div className="sub2">Not installed: {known.filter((a) => !a.found).map((a) => a.name).join(', ')}</div>}</>}
+      {loaded && <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div className="field"><label>Id</label><input className="input mono" value={f.id} onChange={(e) => setF({ ...f, id: e.target.value })} /></div>
+        <div className="field"><label>Id</label><input className="input mono" value={f.id} readOnly={Boolean(editId)} onChange={(e) => setF({ ...f, id: e.target.value })} /></div>
         <div className="field"><label>Name</label><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
       </div>
-      <div className="field"><label>Command</label><input className="input mono" placeholder="/usr/local/bin/claude-code-acp" value={f.command} onChange={(e) => setF({ ...f, command: e.target.value })} /></div>
-      <div className="field"><label>Arguments (space separated)</label><input className="input mono" value={f.args} onChange={(e) => setF({ ...f, args: e.target.value })} /></div>
+      <div className="field"><label>Command</label><input className="input mono" placeholder="program name or full path" value={f.command} onChange={(e) => setF({ ...f, command: e.target.value })} /></div>
+      <div className="field"><label>Arguments (space separated; "quote" an argument with spaces)</label><input className="input mono" value={f.args} onChange={(e) => setF({ ...f, args: e.target.value })} /></div>
       <div className="field"><label>Environment (NAME=value per line, non-secret settings)</label><textarea className="input mono" style={{ height: 60, padding: 10 }} value={f.env} onChange={(e) => setF({ ...f, env: e.target.value })} /></div>
       <div className="set-row"><span className={'toggle' + (f.ownTools ? ' on' : '')} style={{ cursor: 'pointer' }} onClick={() => setF({ ...f, ownTools: !f.ownTools })} /><span>The agent edits files with its own tools (host consents cannot see those edits)</span></div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div className="field"><label>Host commands sandbox</label><select className="input" value={f.sandbox} onChange={(e) => setF({ ...f, sandbox: e.target.value })}><option value="auto">Auto (sandbox where the host supports it)</option><option value="off">Off (full access as the host user)</option></select></div>
+        <div className="field"><label>Run approved commands in a sandbox</label><select className="input" aria-label="Sandbox" value={f.sandbox} onChange={(e) => setF({ ...f, sandbox: e.target.value })}><option value="auto">On (only the workspace is writable, where the host supports it)</option><option value="off">Off (full access as the host user)</option></select></div>
         <div className="field"><label>Shell on Windows hosts</label><select className="input" value={f.shell} onChange={(e) => setF({ ...f, shell: e.target.value })}><option value="auto">Host setting</option><option value="cmd">cmd.exe</option><option value="pwsh">PowerShell</option><option value="bash">Git Bash (only with sandbox off)</option></select></div>
       </div>
       {f.shell === 'bash' && f.sandbox === 'auto' && <div className="sub2">Git Bash cannot run inside the Windows sandbox: sandboxed lines run in PowerShell instead. Set the sandbox to Off to use Git Bash.</div>}
+      {f.sandbox === 'off' && <div className="sub2 amber">Without the sandbox, every command you approve can change any file the host user can.</div>}
+      {editId && <div className="set-row"><span role="switch" aria-checked={enabled} aria-label="Enabled" className={'toggle' + (enabled ? ' on' : '')} style={{ cursor: 'pointer' }} onClick={() => setEnabled(!enabled)} /><span>Enabled: offered for new sessions</span></div>}
       {check && <div className="sub2">{check}</div>}
       {err && <div className="error">{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="pill" disabled={!f.command} onClick={async () => { const r = await api<{ found: boolean; executable: boolean; versionOk: boolean; version?: string }>('POST', '/v1/agents/check', { command: f.command, env: envObj() }); setCheck(r.ok ? (r.value.found ? `Found${r.value.version ? ' · ' + r.value.version : ''}${r.value.versionOk ? '' : ' · --version failed'}` : 'Not found on the host') : r.error) }}>Check on host</button>
-        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: f.args.split(' ').filter(Boolean), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}), ...(f.sandbox !== 'auto' ? { sandbox: f.sandbox } : {}), ...(f.shell !== 'auto' ? { shell: f.shell } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>Add agent</button>
+        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: splitArgs(f.args), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}), ...(f.sandbox !== 'auto' ? { sandbox: f.sandbox } : {}), ...(f.shell !== 'auto' ? { shell: f.shell } : {}), ...(f.profileOf ? { profileOf: f.profileOf } : {}), ...(f.profileLabel ? { profileLabel: f.profileLabel } : {}), ...(editId && !enabled ? { enabled: false } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>{editId ? 'Save changes' : 'Add agent'}</button>
+        <button className="pill" onClick={onCancel}>Cancel</button>
       </div>
+      </>}
     </div>
   )
 }

@@ -45,10 +45,16 @@ npm run package:linux   # AppImage (local only; CI does not package)
 For a local host: run `acpd --config <config> start`, then `acpd --config <config> pair` and enter
 `http://127.0.0.1:<port>` and the code.
 
+On Windows, `./scripts/dev-desktop.ps1` does all of this from the repository root: it builds acpd,
+starts OmniRoute (`omniroute-serve`, else `omniroute serve --no-open`; `-SkipOmniRoute` to leave it
+out) and a host with no default agents (its own config in `.local/dev-host`) in their own windows,
+installs the packages (including the Electron download that npm's `ignore-scripts` skips), opens a
+terminal with a pairing code and runs the app.
+
 ## Known gaps
 
 - Checks config and MCP definitions are stored on this computer only; drafts, titles and prompt history are shared through the host (`/v1/shared`). A plan for the rest is in [HANDOFF](../HANDOFF.md#roadmap).
-- The host-wide `[windows] shell` setting is edited in the host's `config.toml`; the app sets only the per-agent override when adding an agent (no edit form for existing agents).
+- The host-wide `[windows] shell` setting is edited in the host's `config.toml`; agents added from the apps can be edited in Settings → Agents (per-agent shell and sandbox), agents from the host's `agents.json` only on the host.
 - Delegated-task decisions are answered by opening the task's session (as on the phone).
 - Before an agent's first session the composer probes the host for its models and modes (a throwaway ACP session); older hosts without `agentProbe` fall back to the agent's defaults.
 - No signed installers; Windows/macOS packaging is not set up.

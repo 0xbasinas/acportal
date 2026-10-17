@@ -40,6 +40,7 @@ pub(super) const READ_ONLY: &[&str] = &[
     "status",
     "diff",
     "log",
+    "log-dag",
     "worktree-list",
     "stash-list",
     "branch-list",
@@ -98,6 +99,16 @@ pub(super) fn args(op: &str, p: &HashMap<String, String>) -> Result<Vec<String>,
             "-n",
             "120",
             "--pretty=format:%h\u{1f}%d\u{1f}%s\u{1f}%an\u{1f}%cr",
+        ]),
+        // The history with each commit's parents, for clients that draw the graph themselves:
+        // full hash, parent hashes, refs, subject, author, relative time.
+        "log-dag" => s(&[
+            "log",
+            "--all",
+            "--date-order",
+            "-n",
+            "300",
+            "--pretty=format:%H\u{1f}%P\u{1f}%d\u{1f}%s\u{1f}%an\u{1f}%cr",
         ]),
         "worktree-list" => s(&["worktree", "list", "--porcelain"]),
         "stash-list" => s(&["stash", "list", "--pretty=format:%gd\u{1f}%s\u{1f}%cr"]),
@@ -264,7 +275,7 @@ pub(super) fn allowed(host: &Host, path: &FsPath) -> Option<PathBuf> {
     (real.is_dir() && real.starts_with(worktrees)).then_some(real)
 }
 
-fn ref_ok(name: &str) -> bool {
+pub(super) fn ref_ok(name: &str) -> bool {
     std::process::Command::new("git")
         .args(["check-ref-format", "--branch", name])
         .stdout(Stdio::null())
@@ -359,6 +370,284 @@ pub(super) async fn run(
     })))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct CommitMessageInput {
+    path: PathBuf,
+    agent_id: String,
+    /// `commit` (default) or `pullRequest`. Older clients omit it.
+    #[serde(default)]
+    kind: String,
+    /// Base branch for a pull-request suggestion. Ignored for a commit message.
+    #[serde(default)]
+    base: Option<String>,
+}
+
+/// Most of the staged diff given to the agent; the file summary always covers everything.
+const MESSAGE_DIFF_BYTES: usize = 24 * 1024;
+
+/// Read-only git for the commit-message prompt; `None` when git fails.
+async fn git_text(cwd: &FsPath, args: &[&str]) -> Option<String> {
+    let mut command = tokio::process::Command::new("git");
+    command
+        .args(["-c", "core.quotepath=off", "-c", "color.ui=never"])
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    for name in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] {
+        command.env_remove(name);
+    }
+    let output = tokio::time::timeout(Duration::from_secs(30), command.output())
+        .await
+        .ok()?
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The text of the prompt that asks for a commit message (also used by tests).
+pub(super) fn commit_message_prompt(subjects: &str, files: &str, diff: &str) -> String {
+    let mut diff = diff.to_string();
+    if diff.len() > MESSAGE_DIFF_BYTES {
+        let mut cut = MESSAGE_DIFF_BYTES;
+        while !diff.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        diff.truncate(cut);
+        diff.push_str("\n… (diff cut; the file summary above lists every change)\n");
+    }
+    format!(
+        "Write a git commit message for the staged changes below. Match the style of this \
+         repository's recent commit subjects (for example an `Area: summary` prefix if they use \
+         one). First line: an imperative summary of at most 72 characters. Then, only if it \
+         helps, a blank line and a short body wrapped at 72 characters that says what changed \
+         and why. Reply with only the message: no code fences, no quotes, no tools.\n\n\
+         Recent commit subjects:\n{}\n\nStaged files:\n{}\n\nStaged diff:\n{}",
+        if subjects.trim().is_empty() {
+            "(none yet)"
+        } else {
+            subjects.trim_end()
+        },
+        files.trim_end(),
+        diff
+    )
+}
+
+/// Title line, then an optional body, from the same cleaning as a commit message.
+pub(super) fn split_pull_request(text: &str) -> (String, String) {
+    let text = clean_commit_message(text);
+    let mut lines = text.lines();
+    let title: String = lines
+        .next()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(256)
+        .collect();
+    let body = lines.collect::<Vec<_>>().join("\n");
+    let body = body.trim().to_string();
+    (title, body)
+}
+
+/// Prompt for a pull-request title and body. Same bounds as a commit message.
+pub(super) fn pull_request_prompt(subjects: &str, files: &str, diff: &str) -> String {
+    let mut diff = diff.to_string();
+    if diff.len() > MESSAGE_DIFF_BYTES {
+        let mut cut = MESSAGE_DIFF_BYTES;
+        while !diff.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        diff.truncate(cut);
+        diff.push_str("\n… (diff cut; the file summary above lists every change)\n");
+    }
+    format!(
+        "Write a GitHub pull request description for the commits below. First line: an \
+         imperative title of at most 72 characters. Then a blank line and a short body wrapped \
+         at 72 characters that says what changed and why. Reply with only that text: no code \
+         fences, no quotes, no tools.\n\n\
+         Commit subjects since the base:\n{}\n\nChanged files:\n{}\n\nDiff:\n{}",
+        if subjects.trim().is_empty() {
+            "(none yet)"
+        } else {
+            subjects.trim_end()
+        },
+        if files.trim().is_empty() {
+            "(none)"
+        } else {
+            files.trim_end()
+        },
+        diff
+    )
+}
+
+/// The agent's reply as a commit message: code fences and surrounding quotes removed.
+pub(super) fn clean_commit_message(text: &str) -> String {
+    let mut text = text.trim();
+    if let Some(rest) = text.strip_prefix("```") {
+        text = rest.split_once('\n').map_or("", |(_, body)| body);
+        text = text.trim_end().strip_suffix("```").unwrap_or(text);
+    }
+    let text = text.trim();
+    let text = text
+        .strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(text);
+    text.trim().to_string()
+}
+
+/// `POST /v1/commit-message` `{"path", "agentId"}`: a commit message for what is staged in
+/// `path`, written by that agent in a throwaway session (no file, terminal or MCP access; every
+/// permission request is refused; no client sees it). One model request. The host reads the
+/// staged diff and recent subjects itself, so nothing large comes from the client.
+pub(super) async fn commit_message(
+    State(host): State<Host>,
+    Json(input): Json<CommitMessageInput>,
+) -> ApiResult<Json<Value>> {
+    if input.kind == "pullRequest" {
+        return pull_request_message(host, input).await;
+    }
+    if !input.kind.is_empty() && input.kind != "commit" {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_parameter"));
+    }
+    let cwd =
+        allowed(&host, &input.path).ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
+    let files = git_text(&cwd, &["diff", "--cached", "--stat=200", "--no-ext-diff"])
+        .await
+        .ok_or(ApiError(StatusCode::CONFLICT, "not_a_repository"))?;
+    if files.trim().is_empty() {
+        return Err(ApiError(StatusCode::CONFLICT, "nothing_staged"));
+    }
+    let diff = git_text(&cwd, &["diff", "--cached", "-U3", "--no-ext-diff"])
+        .await
+        .unwrap_or_default();
+    let subjects = git_text(&cwd, &["log", "-n", "10", "--pretty=format:%s"])
+        .await
+        .unwrap_or_default();
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&input.agent_id, &cwd, None, Vec::new(), access)
+        .await
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "agent_unavailable"))?;
+    let id = session.metadata().id;
+    let refuser = crate::doctor::refuse_permissions(session.clone());
+    let deadline = Duration::from_secs(host.config.runtime.request_timeout_seconds.max(30));
+    let prompt = commit_message_prompt(&subjects, &files, &diff);
+    let result = tokio::time::timeout(deadline, session.prompt(&prompt)).await;
+    refuser.abort();
+    let text: String = session
+        .connection
+        .replay(0)
+        .events
+        .iter()
+        .filter(|event| event.message["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|event| {
+            event.message["params"]["update"]["content"]["text"]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .collect();
+    drop(session);
+    let _ = host.sessions.remove(id).await;
+    let message = clean_commit_message(&text);
+    match result {
+        Err(_) => Err(ApiError(StatusCode::GATEWAY_TIMEOUT, "agent_timeout")),
+        Ok(Err(_)) => Err(ApiError(StatusCode::BAD_GATEWAY, "agent_failed")),
+        Ok(Ok(_)) if message.is_empty() => Err(ApiError(StatusCode::BAD_GATEWAY, "empty_reply")),
+        Ok(Ok(_)) => Ok(Json(json!({ "message": message }))),
+    }
+}
+
+/// Same throwaway session as a commit message, describing commits since `base` instead of the index.
+async fn pull_request_message(host: Host, input: CommitMessageInput) -> ApiResult<Json<Value>> {
+    let cwd =
+        allowed(&host, &input.path).ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
+    let base = input
+        .base
+        .as_deref()
+        .filter(|name| ref_ok(name))
+        .ok_or(ApiError(StatusCode::BAD_REQUEST, "invalid_branch_name"))?;
+    let subjects = git_text(
+        &cwd,
+        &["log", &format!("{base}..HEAD"), "--pretty=format:%s"],
+    )
+    .await
+    .ok_or(ApiError(StatusCode::CONFLICT, "base_not_found"))?;
+    let files = git_text(
+        &cwd,
+        &[
+            "diff",
+            "--stat=200",
+            "--no-ext-diff",
+            &format!("{base}...HEAD"),
+        ],
+    )
+    .await
+    .unwrap_or_default();
+    let diff = git_text(
+        &cwd,
+        &["diff", "-U3", "--no-ext-diff", &format!("{base}...HEAD")],
+    )
+    .await
+    .unwrap_or_default();
+    if subjects.trim().is_empty() && files.trim().is_empty() && diff.trim().is_empty() {
+        return Err(ApiError(StatusCode::CONFLICT, "nothing_to_describe"));
+    }
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&input.agent_id, &cwd, None, Vec::new(), access)
+        .await
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "agent_unavailable"))?;
+    let id = session.metadata().id;
+    let refuser = crate::doctor::refuse_permissions(session.clone());
+    let deadline = Duration::from_secs(host.config.runtime.request_timeout_seconds.max(30));
+    let prompt = pull_request_prompt(&subjects, &files, &diff);
+    let result = tokio::time::timeout(deadline, session.prompt(&prompt)).await;
+    refuser.abort();
+    let text: String = session
+        .connection
+        .replay(0)
+        .events
+        .iter()
+        .filter(|event| event.message["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|event| {
+            event.message["params"]["update"]["content"]["text"]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .collect();
+    drop(session);
+    let _ = host.sessions.remove(id).await;
+    let (title, body) = split_pull_request(&text);
+    match result {
+        Err(_) => Err(ApiError(StatusCode::GATEWAY_TIMEOUT, "agent_timeout")),
+        Ok(Err(_)) => Err(ApiError(StatusCode::BAD_GATEWAY, "agent_failed")),
+        Ok(Ok(_)) if title.is_empty() => Err(ApiError(StatusCode::BAD_GATEWAY, "empty_reply")),
+        Ok(Ok(_)) => Ok(Json(json!({ "title": title, "body": body }))),
+    }
+}
+
 /// Files a task's worktree changed against the commit it started from, including edits made by
 /// shell commands and new untracked files: `[{"path","status","diff"}]`. Empty when git fails.
 /// Files changed from `base` to the working tree, or to `branch` when one is given (the worktree
@@ -426,6 +715,80 @@ fn truncate(mut s: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn commit_message_prompt_shows_style_files_and_a_bounded_diff() {
+        let prompt = commit_message_prompt(
+            "Desktop: keep the bubble
+Host: fix x
+",
+            " a.rs | 2 +
+",
+            "+line
+",
+        );
+        assert!(
+            prompt.contains("Desktop: keep the bubble")
+                && prompt.contains("a.rs | 2 +")
+                && prompt.contains("+line")
+        );
+        assert!(prompt.contains("at most 72 characters"));
+        assert!(commit_message_prompt("", "f", "d").contains("(none yet)"));
+        let big = "é".repeat(MESSAGE_DIFF_BYTES);
+        let cut = commit_message_prompt("s", "f", &big);
+        assert!(cut.len() < MESSAGE_DIFF_BYTES + 2048 && cut.contains("diff cut"));
+    }
+    #[test]
+    fn the_reply_is_cleaned_of_fences_and_quotes() {
+        assert_eq!(
+            clean_commit_message(
+                "  Host: fix the hang
+
+Body.
+ "
+            ),
+            "Host: fix the hang
+
+Body."
+        );
+        assert_eq!(
+            clean_commit_message(
+                "```text
+Host: fix it
+```"
+            ),
+            "Host: fix it"
+        );
+        assert_eq!(
+            clean_commit_message(
+                "```
+A
+
+B
+```"
+            ),
+            "A
+
+B"
+        );
+        assert_eq!(clean_commit_message("\"Fix it\""), "Fix it");
+        assert_eq!(clean_commit_message("```"), "");
+    }
+
+    #[test]
+    fn pull_request_prompt_uses_subjects_since_base_and_splits_the_reply() {
+        let prompt = pull_request_prompt("Fix the hang\n", " a.rs | 2 +\n", "+line\n");
+        assert!(prompt.contains("Fix the hang"));
+        assert!(prompt.contains("a.rs | 2 +"));
+        assert!(prompt.contains("+line"));
+        assert!(prompt.contains("at most 72 characters"));
+        let big = "é".repeat(MESSAGE_DIFF_BYTES);
+        assert!(pull_request_prompt("s", "f", &big).contains("diff cut"));
+        assert_eq!(
+            split_pull_request("```\nFix it\n\nBecause.\n```"),
+            ("Fix it".into(), "Because.".into())
+        );
+        assert_eq!(split_pull_request("\"Only a title\"").0, "Only a title");
+    }
 
     #[test]
     fn run_operations_build_safe_arguments() {
