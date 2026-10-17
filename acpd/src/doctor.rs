@@ -609,7 +609,20 @@ mod tests {
         );
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         drop(listener);
-        assert!(operational_checks(&config)[0].1);
+        // The port is free again, but other tests in this process bind port 0 at the same time and
+        // can be handed it for a moment. Ask again for up to five seconds before calling it taken.
+        let mut free = false;
+        for _ in 0..50 {
+            if operational_checks(&config)[0].1 {
+                free = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(
+            free,
+            "the port stayed unavailable after the listener was dropped"
+        );
     }
 
     #[test]
