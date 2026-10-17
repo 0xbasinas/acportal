@@ -55,3 +55,26 @@ Sources, 17 October 2026, read with `git show` and not executed:
 Tested: registry parse accepts a profile and an old file without the fields, and rejects a missing target, a self profile, a chain, a different command, and a remote profile with a different url. A later file can add a profile of an agent already loaded, and replacing that agent's command is refused with the previous command kept. `discover()` JSON contains `profileOf` and `profileLabel` and does not contain the fixture env value or the name `OPENAI_API_KEY`. Disabling the same-command check made the different-command fixture parse; the check was restored before the suite. Desktop vitest groups Work under Goose, leaves a profile of a missing base in the list, and Settings renders the profile row.
 
 Unverified: the Electron window. Android decodes `GET /v1/agents` with `ignoreUnknownKeys`, so the new fields do not need an Android change; Android was not rebuilt and does not group profiles. The known-agent catalog (`GET /v1/agents/discover`) still returns template `env` from `known.json` (`GOOSE_MODE=approve`). That is the existing catalog, not the agent list.
+
+## 4. OS service install
+
+Decision: `acpd service install|status|restart|uninstall` registers the current binary to run in the foreground as `<absolute acpd> --profile <absolute launcher.json> start`. Linux writes a systemd user unit, macOS writes a LaunchAgent, and Windows writes a per-user logon task. The definition stores those two paths. It does not store the shell environment, the pairing address, or the launcher name. Install requires a saved setup profile. Restart and uninstall do not. A unit, plist, or task without the marker `acpd-service-marker: acportal` is left in place. Uninstall removes only that definition. Config, state, tokens, and paired devices stay. Self-update is not implemented.
+
+Confirmed: T3 starts a Node supervisor (`apps/server/src/serviceLauncher.ts`) from systemd or launchd and keeps update state in that supervisor (`docs/internals/server-updates.md`). The supervisor stages a runtime, runs a trial, and rolls back to the previous version. That is why this host, which has no separate launcher, only documents the updater and links that note.
+
+Corrected: the service manager here starts `acpd start` directly. `acpd daemon` remains the detached process for the current login. User units want `default.target`; that target is the user session's main target. `Type=exec` is used because `Type=simple` reports the unit started even when the binary cannot be invoked. The `:` prefix stops `$` expansion and does not stop `%` specifiers, so each `%` is doubled. `schtasks` has no description flag; the marker is the XML `Description`, written as UTF-16 LE with a BOM. A query for a missing task named `acpd` on this machine printed `The system cannot find the file specified.` and exited 1. That query was read-only.
+
+Sources, read 17 October 2026:
+
+- systemd.service(5), Debian testing, systemd 262: https://manpages.debian.org/testing/systemd/systemd.service.5.en.html (command lines, `Type=exec`)
+- systemd.syntax(7), Debian trixie, published 2026-09-22: https://manpages.debian.org/trixie/systemd/systemd.syntax.7.en.html (quoting)
+- systemd.special(7), user `default.target`: https://manpages.debian.org/bookworm/systemd/systemd.special.7.en.html and https://manpages.debian.org/unstable/systemd/systemd.special.7.en.html
+- loginctl(1) `show-user` with no user argument: https://manpages.debian.org/testing/systemd/loginctl.1.en.html
+- launchd.plist(5), Keith mirror, page date 2026-09-28: https://keith.github.io/xcode-man-pages/launchd.plist.5.html
+- `schtasks /create /?` and a read-only `schtasks /Query /TN acpd` on this Windows machine
+- https://github.com/pingdotgg/t3code/blob/main/apps/server/src/serviceLauncher.ts (`git show`, not executed)
+- https://github.com/pingdotgg/t3code/blob/main/docs/internals/server-updates.md (`git show`, not executed)
+
+Tested: unit and plist generation with spaces, `$`, `%`, quotes, backslashes, and unicode; task XML is least privilege, quotes arguments with `CommandLineToArgvW` rules, and never passes `/TN *`, `HIGHEST`, `/RU`, or `/RP`. Uninstall of a foreign unit, plist, and task makes no disable or delete call. Forcing the systemd marker check to succeed made that test remove the foreign unit (`Removed ...\acpd.service`); the check was restored before the suite. A copy of the test binary named `systemctl.exe` answered `systemctl --user show`. Status text includes the resolved log path and omits the fixture TLS key path, certificate path, pairing address, and launcher name. On this Windows machine, `cargo fmt --all -- --check`, strict Clippy, and `cargo test --locked --workspace --all-targets` passed (exit 0, real Goose trials ignored).
+
+Unverified: a real `systemctl --user enable`, `launchctl bootstrap`, or `schtasks /Create` on a machine. Existing GitHub Actions run `cargo test` and do not install a user service. Lingering was not changed. Desktop and Android were not rebuilt for this item.

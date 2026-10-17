@@ -17,7 +17,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[command(
     version,
     about = "Agent-agnostic ACP host core and local client",
-    after_help = "Everyday workflow:\n  acpd setup --config PATH --address https://YOUR-HOST\n  acpd start                 Keep this terminal open\n  acpd pair                  Scan in the Android app\n  acpd pair --manual          Manual code only\n  acpd doctor                Check the saved configuration"
+    after_help = "Everyday workflow:\n  acpd setup --config PATH --address https://YOUR-HOST\n  acpd start                 Keep this terminal open\n  acpd service install       Start at logon under this account\n  acpd pair                  Scan in the Android app\n  acpd pair --manual          Manual code only\n  acpd doctor                Check the saved configuration"
 )]
 struct Cli {
     #[arg(long, global = true)]
@@ -50,6 +50,11 @@ enum Commands {
     Daemon {
         #[command(subcommand)]
         action: DaemonAction,
+    },
+    /// Register this host to start at logon under the current account.
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
     },
     #[command(hide = true)]
     DaemonWorker,
@@ -212,6 +217,17 @@ enum DaemonAction {
     /// Validate and atomically reload settings for future sessions.
     Reload,
 }
+#[derive(Subcommand, Clone, Copy)]
+enum ServiceAction {
+    /// Write the user service and start it. Requires `acpd setup`.
+    Install,
+    /// Show whether the service this command installed is running.
+    Status,
+    /// Stop and start the service this command installed.
+    Restart,
+    /// Remove the service this command installed. Keeps config, state and devices.
+    Uninstall,
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(windows)]
@@ -269,6 +285,15 @@ async fn main() -> Result<()> {
             "Setup saved. Run acpd start, then acpd pair in a second terminal.\nSetup keeps your existing config, workspace roots and credentials unchanged."
         );
         return Ok(());
+    }
+    if let Commands::Service { action } = &cli.command {
+        let action = match action {
+            ServiceAction::Install => acpd::service::Action::Install,
+            ServiceAction::Status => acpd::service::Action::Status,
+            ServiceAction::Restart => acpd::service::Action::Restart,
+            ServiceAction::Uninstall => acpd::service::Action::Uninstall,
+        };
+        return acpd::service::execute(action, &profile_path);
     }
     let saved = if profile_path.exists()
         && (cli.config.is_none() || matches!(&cli.command, Commands::Pair { address: None, .. }))
@@ -359,6 +384,7 @@ async fn main() -> Result<()> {
     let foreground = matches!(&cli.command, Commands::Start { background: false });
     match cli.command {
         Commands::Setup { .. } => unreachable!("setup handled before host initialization"),
+        Commands::Service { .. } => unreachable!("service handled before host initialization"),
         Commands::McpDelegate => unreachable!("mcp-delegate handled before host initialization"),
         Commands::Start { background: false } | Commands::DaemonWorker => {
             if foreground {

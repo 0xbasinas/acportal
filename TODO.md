@@ -5,7 +5,7 @@
 - [x] Open a pull request from the Git view (`POST /v1/pull-requests`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Cross-fork `owner:branch` heads are rejected.
 - [x] Permission presets in the composer (`GET /v1/presets`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. No per-session opt-out of auto-approve or shell review.
 - [x] Agent profiles (`profileOf`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Android does not group them.
-- [ ] OS service install (Linux and macOS, then Windows).
+- [x] OS service install (`acpd service install|status|restart|uninstall`). Evidence in [TODO_DONE](TODO_DONE.md). No user service was installed on a machine. Actions run the tests only.
 - [ ] External MCP endpoint: design and ADR only.
 - [ ] Remote access routes: design and ADR only.
 - [ ] Small ACP gaps, after a live `goose acp` initialize (no prompt).

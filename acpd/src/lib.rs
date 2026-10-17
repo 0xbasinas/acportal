@@ -19,6 +19,7 @@ pub mod presets;
 pub mod process_tree;
 pub mod registry;
 pub mod security;
+pub mod service;
 pub mod session;
 pub(crate) mod session_catalog;
 pub mod shell;
