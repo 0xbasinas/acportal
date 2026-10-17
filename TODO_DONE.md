@@ -1,5 +1,13 @@
 # Completed work and verification history
 
+## 17 October 2026 follow-ups: timeout test, inheritance, resume, Android parity (`experiment/t3code-ideas`)
+
+- `gh` timeout: `ACPD_GH_TIMEOUT_MS` (100 ms to 60 s, never longer) shortens the limit so the path is testable. A fake gh that never exits and has left a helper running ends in `504 gh_timeout`, and both processes are gone; leaking the process tree on that path made the test fail, then it was restored.
+- Delegated tasks inherit the parent session's `manualApproval` (a parent that cannot be read counts as manual). `a_delegated_task_inherits_ask_for_everything_from_its_parent` covers both parents; the first version of the code looked up the task id as a session id and the test caught it.
+- Resume keeps the choice: Android passes the stored session's `manualApproval` when it resumes or starts from an interrupted record, and the desktop Earlier chip passes the composer's current access (including Ask for everything). The host still does not remember it.
+- Android: boolean config options as switches (`type: "boolean"`, value sent as a JSON boolean; `booleanOptions` sent only when the host lists it), an Earlier sessions dialog on New session (`agentSessionList`), and an Open pull request screen from the session menu (`pullRequests`; branch read with `git rev-parse`, fork owner, draft, address shown as a button that is never opened by itself). 4 new JVM tests; 82 core and 111 app JVM tests, assembleDebug, assembleDebugAndroidTest and lint pass. Not run on an emulator.
+- Docs: the two prompts are no longer in the repository.
+
 ## 17 October 2026 review fixes, ACP gaps and Android (`experiment/t3code-ideas`)
 
 - Live `goose acp` 1.54.0 (initialize, `session/new`, `session/list`, `session/close`, `session/load`; no prompt, scratch folder): advertises `sessionCapabilities` list, delete and close; `session/close` returns `{}`; the closed session still loads; a session with no messages is not listed; Goose sends no boolean config options. No `unstable_*` schema feature was enabled.
@@ -10,7 +18,7 @@
 - Pull requests: fork heads as `owner:branch` (strict owner check, desktop "Fork owner" field), `gh` runs inside `ProcessTree` and the tree is stopped as soon as it exits, so a helper that holds the output pipes cannot hang the request (the first version of the test hung on exactly this). `409 already_exists` returns the existing address; no auto-open. Status caches the `gh` lookup for 30 s. A profile of an `ownTools` agent must set `ownTools`.
 - Service: install prints the environment and `acpd daemon` notes; macOS plist writes stdout/stderr to `~/Library/Logs/acpd-service.log`; Windows warns when no log file is set; a missing task is recognised in any Windows language; the logon task passes `--no-console` (`FreeConsole`); `systemctl --user` bus errors get a hint. `service.rs` is now `service/{mod,systemd,launchd,schtasks,tests}.rs`; the 13 service tests pass unchanged apart from imports.
 - Android (`android/universal-acp`): `AgentInfo.profileOf/profileLabel`, `WorkspaceAccess.manualApproval`, `orderedByProfile`/`agentTitle` in core (4 tests), grouped agents and "Base · Account" titles in the New session list and picker, the switch.
-- Docs: prompts moved to `docs/prompts/`, notes to `docs/t3code/`; `docs/protocol.md` updated.
+- Docs: research notes in `docs/t3code/`; `docs/protocol.md` updated. The agent prompts were moved out of the repository (copies are kept outside it).
 - Checks, local Windows: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets --no-fail-fast`, desktop `npm run typecheck` and `npx vitest run`, and `./gradlew :core:protocol:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` (82 core and 107 app JVM tests, 0 failures, lint without errors).
 - Not done: the Electron window and an Android emulator run of the new screens; a real `gh`, `systemctl`, `launchctl` or `schtasks /Create`; the Linux-only shell-review test and the split service modules on Linux and macOS (Actions only); the 60 s `gh` timeout path; Android has no boolean switches, earlier-sessions view or PR form.
 

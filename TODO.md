@@ -1,18 +1,17 @@
 # Remaining work
 
-## T3 Code ideas (`experiment/t3code-ideas`, 17 October 2026)
+## T3 Code ideas (`experiment/t3code-ideas`, PR #53, 17 October 2026)
 
-Implemented and checked locally on Windows (details in [TODO_DONE](TODO_DONE.md)): pull requests from the Git view (including fork heads), permission presets with "Ask for everything", agent profiles, OS service install, ACP `session/close`, earlier sessions (`session/list`) and boolean config options on the desktop, Android "Ask for everything" switch and profile grouping. Design only: [external MCP](docs/adr-external-mcp.md) and [remote routes](docs/adr-remote-routes.md). Notes and prompts are in [docs/t3code](docs/t3code/findings.md) and [docs/prompts](docs/prompts/).
+Implemented and checked locally on Windows (details in [TODO_DONE](TODO_DONE.md)): pull requests from the Git view (fork heads, timeout cleanup), permission presets with "Ask for everything" (inherited by delegated tasks and kept on resume), agent profiles, OS service install, ACP `session/close`, earlier sessions (`session/list`) and boolean config options on desktop and Android, an Android pull request form. Design only: [external MCP](docs/adr-external-mcp.md) and [remote routes](docs/adr-remote-routes.md). Research notes: [docs/t3code](docs/t3code/findings.md). The agent prompts used for this work are kept outside the repository.
 
 Open:
 
 - [ ] Look at the new desktop screens in the Electron window, both themes: PR form (fork owner, link button), access chip with Ask for everything, Earlier sessions chip, boolean switches.
+- [ ] Run the new Android screens on an emulator (only JVM tests, the debug builds and lint ran): Ask for everything switch, grouped agents, boolean option switches, Earlier sessions dialog, Open pull request form. No Android UI tests were added because none can be run here.
 - [ ] Try `acpd service install`, `status` and `uninstall` on a real machine (Windows first: does `--no-console` leave no console window?), then Linux and macOS. The Linux and macOS code, the Linux-only shell-review test and the split `service/` modules compile and run only in Actions.
-- [ ] Run the new Android screens on an emulator: the Ask for everything switch and grouped agents. Only JVM tests, the debug builds and lint were run. Android has no boolean option switches, no earlier-sessions view and no PR form.
 - [ ] A real `gh pr create` against a throwaway repository. Only a fake `gh` was used.
 - [ ] Review the two ADRs; implement only what you approve.
-- [ ] Timeout path of the PR route (60 s) is not exercised by a test; the leftover-helper test covers a normal exit.
-- [ ] Push the branch and open the PR (not done; needs your go-ahead).
+- [ ] Delegated tasks inherit Ask for everything, but a supervising agent (`/v1/sessions/{id}/supervisor`) is a separate, explicit opt-in and still answers requests it is given.
 
 Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `codex/final-acceptance`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [the current continuation](docs/final-acceptance.md) and [PR #15 review](docs/pr15-review.md) record actual results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
 

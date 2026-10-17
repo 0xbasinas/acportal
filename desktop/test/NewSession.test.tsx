@@ -543,6 +543,8 @@ describe('earlier sessions of an agent', () => {
     fireEvent.click(await screen.findByText('First chat'))
     await waitFor(() => expect(openEarlier).toHaveBeenCalledOnce())
     expect(openEarlier.mock.calls[0][2]).toBe('old-1')
+    // The composer's current access (including Ask for everything) goes with it.
+    expect((openEarlier.mock.calls[0] as unknown[])[3]).toMatchObject({ read: true, write: true, terminal: true })
     cleanup()
 
     const noOpen = vi.fn(async () => undefined)

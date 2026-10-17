@@ -90,7 +90,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   /** Hosts that advertise `agentSessionList`: what this agent remembers for a folder, read-only. */
   loadEarlier?: (agent: string, workspace: string) => Promise<EarlierSessions | undefined>
   /** Open one of those with the agent's `session/load`; returns an error text, or nothing. */
-  openEarlier?: (agent: string, workspace: string, sessionId: string) => Promise<string | undefined>
+  openEarlier?: (agent: string, workspace: string, sessionId: string, access: Access) => Promise<string | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
@@ -375,7 +375,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           {earlier?.state === 'done' && earlier.data?.listSupported && !earlier.data.loadSupported && earlier.data.sessions.length > 0 && <div className="hint ctx-pad">{agentName} cannot reopen them, so this list is for reference.</div>}
           {earlier?.state === 'done' && earlier.data?.sessions.map((s) => (
             <Item key={s.sessionId} data-earlier={s.sessionId} sub={s.updatedAt ? new Date(s.updatedAt).toLocaleString() : undefined}
-              onPick={() => { if (!earlier.data?.loadSupported || !openEarlier) return; setOpen(undefined); void openEarlier(agent, target, s.sessionId).then((e) => { if (e) setErr(e) }) }}>
+              onPick={() => { if (!earlier.data?.loadSupported || !openEarlier) return; setOpen(undefined); void openEarlier(agent, target, s.sessionId, access).then((e) => { if (e) setErr(e) }) }}>
               {s.title || s.sessionId}
             </Item>
           ))}

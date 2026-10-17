@@ -144,13 +144,17 @@ class PortalRepository(
         override suspend fun add(path:String)=api.addWorkspace(host,path)
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
+    suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
+    suspend fun currentBranch(hostId:String,path:String): String? = withContext(Dispatchers.IO) {api.currentBranch(dao.host(hostId) ?: error("Host is no longer saved"),path)}
+    suspend fun openPullRequest(hostId:String,request:PullRequestRequest): String = withContext(Dispatchers.IO) {api.openPullRequest(dao.host(hostId) ?: error("Host is no longer saved"),request)}
     suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null,askEverything:Boolean=false): StoredSession = withContext(Dispatchers.IO) {
         val host=dao.host(hostId) ?: error("Host is no longer saved")
         // Opt into form elicitation and manual approval only on hosts that list the feature; older hosts reject unknown fields.
         val features=try {api.status(host).features} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {emptyList()}
         val elicitation=HOST_FEATURE_FORM_ELICITATION in features
         val manual=askEverything && HOST_FEATURE_MANUAL_APPROVAL in features
-        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual)
+        val booleans=HOST_FEATURE_BOOLEAN_OPTIONS in features
+        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual,booleanOptions=booleans)
         dao.saveRecent(RecentWorkspace(hostId,workspace,agentId))
         saveMetadata(hostId,created)
     }

@@ -1572,3 +1572,34 @@ async fn the_connection_knows_which_permissions_the_host_raised() {
     assert_eq!(spoof.source, "agent");
     fx.manager.shutdown().await;
 }
+
+/// A child answers to the person the way its parent does: "Ask for everything" is inherited, and
+/// without it the child stays as before.
+#[tokio::test]
+async fn a_delegated_task_inherits_ask_for_everything_from_its_parent() {
+    let fx = fixture(|_| {});
+    for (manual, directory) in [(true, "sub"), (false, "other")] {
+        let access = WorkspaceAccess {
+            manual_approval: manual,
+            ..Default::default()
+        };
+        let parent = fx.root_in("test-agent", directory, access).await;
+        let agent = agent_of(&parent).await;
+        let started = ok(
+            &agent,
+            "task_delegate",
+            json!({"agent":"worker","prompt":"inspect","workspace":"."}),
+        )
+        .await;
+        let _ = started["task_id"].as_str().unwrap();
+        let child = child_session(&fx, "worker").await;
+        assert_eq!(
+            child.metadata().workspace_access.manual_approval,
+            manual,
+            "parent manual_approval={manual}"
+        );
+        fx.manager.remove(child.metadata().id).await.unwrap();
+        fx.manager.remove(parent.metadata().id).await.unwrap();
+    }
+    fx.manager.shutdown().await;
+}

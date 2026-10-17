@@ -99,8 +99,8 @@ Auto-approve (`[auto_approve.<agent>]`) and shell review (`[shell_review.<agent>
 **What it does not cover.**
 
 - An agent with `ownTools` runs its own edits and commands without asking the host. Manual approval cannot stop that, and the presets text says so.
-- A delegated task (orchestrator) opens its own session with its own `workspaceAccess`; it does not inherit this switch, and a supervising agent or `[auto_approve]` in a task worktree can still act there. Turning delegation on is a separate decision.
-- A session loaded after a host restart is a new session. The client sends its `workspaceAccess` again; the host does not remember the choice on the person's behalf.
+- A delegated task (orchestrator) inherits the switch from the session that delegated it: the host reads the parent's `manualApproval` when it opens the child, and a parent it cannot read counts as manual. So `[auto_approve]` and shell review stay off for the whole tree. A supervising agent (`/v1/sessions/{id}/supervisor`) is a different, explicit opt-in that hands requests to another agent; it is not switched off by this flag.
+- A session loaded after a host restart is a new session, and the host does not remember the choice on the person's behalf. The clients send it again: Android passes the stored session's `manualApproval` when it resumes, and the desktop passes the composer's current access when it opens an earlier session.
 - Remote (`ws`) agents never had these approvers, so the switch changes nothing for them. It is not offered for them.
 
 **How it is offered.** `GET /v1/presets` lists `ask-all` ("Ask for everything") only when the host would otherwise answer something itself: auto-approve is on and writes are allowed, or shell review is on and commands are allowed. With neither configured, `supervised` already means the same. The preset names only flags the client can already send (`readFiles`, `writeFiles`, `terminal`, `manualApproval`); `POST /v1/sessions` still rejects a `preset` field. The desktop shows the active setting, and keeps showing that the host's rules are off if the person then changes a single right ("Custom").

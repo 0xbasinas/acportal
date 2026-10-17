@@ -26,6 +26,16 @@ const MAX_TITLE_CHARS: usize = 256;
 const MAX_GH_OUTPUT: usize = 64 * 1024;
 const GH_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How long `gh` may run: 60 seconds. `ACPD_GH_TIMEOUT_MS` may shorten it (100 ms to 60 s, never
+/// longer) so the timeout path can be tested without waiting a minute.
+fn gh_timeout() -> Duration {
+    std::env::var("ACPD_GH_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|ms| Duration::from_millis(ms.clamp(100, 60_000)))
+        .unwrap_or(GH_TIMEOUT)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct PullRequestInput {
@@ -228,7 +238,7 @@ async fn create_inner(
             None => Vec::new(),
         }
     });
-    let status = match tokio::time::timeout(GH_TIMEOUT, child.wait()).await {
+    let status = match tokio::time::timeout(gh_timeout(), child.wait()).await {
         Ok(Ok(status)) => status,
         Ok(Err(_)) => return Err(ApiError(StatusCode::BAD_GATEWAY, "gh_failed")),
         Err(_) => {

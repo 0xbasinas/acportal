@@ -696,7 +696,7 @@ export default function App() {
         newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined}
         loadPresets={presetsOn ? loadPresets : undefined}
         loadEarlier={earlierOn ? loadEarlier : undefined}
-        openEarlier={(agent, workspace, sessionId) => createSession(agent, workspace, { ...defaultOpts, load: sessionId })} />
+        openEarlier={(agent, workspace, sessionId, access) => createSession(agent, workspace, { ...defaultOpts, load: sessionId, read: access.read, write: access.write, terminal: access.terminal, mcp: access.mcp, manual: access.manual })} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)

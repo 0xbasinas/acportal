@@ -168,12 +168,13 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null,askEverything:Boolean=false,onAskEverything:((Boolean)->Unit)?=null) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null,askEverything:Boolean=false,onAskEverything:((Boolean)->Unit)?=null,loadEarlier:(suspend (String,String)->EarlierSessions?)?=null,onOpenEarlier:((String,String,String)->Unit)?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by rememberSaveable {mutableStateOf(false)}
     var addFolder by rememberSaveable {mutableStateOf(false)}
     var agentPicker by remember {mutableStateOf(false)}
+    var earlierOpen by rememberSaveable {mutableStateOf(false)}
     var browsePath by rememberSaveable {mutableStateOf<String?>(null)}
     var requestedBrowsePath by remember {mutableStateOf<String?>(null)}
     LaunchedEffect(details?.host?.id,workspacePicker,browsePath) {
@@ -208,6 +209,7 @@ import kotlinx.serialization.json.*
                     Row {
                         onAccess?.let {callback->TextButton({callback(path)},Modifier.padding(start=12.dp),enabled=!loading && path.isNotBlank()) {Text("Workspace access")}}
                         onMcp?.let {TextButton(it,enabled=!loading) {Text("MCP servers")}}
+                        if(loadEarlier!=null && onOpenEarlier!=null)TextButton({earlierOpen=true},enabled=!loading && agentId.isNotBlank() && path.isNotBlank(),modifier=Modifier.testTag("earlier-sessions-action")) {Text("Earlier sessions")}
                     }
                     startAction()
                 }
@@ -276,6 +278,7 @@ import kotlinx.serialization.json.*
                 }
                 if(!scrollActions)actions()
                 if(addFolder && folderClient!=null)AddFolderDialog(folderClient,details.workspaces.filter {it.removable},{added->path=added.path;addFolder=false;onReload()},{onReload()},{addFolder=false})
+                if(earlierOpen && loadEarlier!=null && onOpenEarlier!=null)EarlierSessionsDialog(agentTitle(details.agents.first {it.id==agentId},details.agents),{loadEarlier(agentId,path)},{earlierOpen=false}) {id->earlierOpen=false;onOpenEarlier(agentId,path,id)}
                 if(agentPicker)AlertDialog(onDismissRequest={agentPicker=false},confirmButton={},dismissButton={TextButton({agentPicker=false}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {AgentPicker(details.agents) {agentId=it.id;agentPicker=false}}})
                 if(workspacePicker)AlertDialog(onDismissRequest={workspacePicker=false;onDismissBrowse()},confirmButton={},dismissButton={TextButton({workspacePicker=false;onDismissBrowse()}) {Text("Close")}},text={Box(Modifier.heightIn(max=500.dp)) {WorkspacePicker(if(browsePath==null)details.workspaces else browsed.orEmpty(),browsePath,onSelect={path=it;workspacePicker=false;onDismissBrowse()},onBrowse={requestedBrowsePath=it;browsePath=it;onBrowse(details.host,it)},loading=browsePath!=null && browseLoading,error=browseError.takeIf {browsePath!=null},onRetry={browsePath?.let {onBrowse(details.host,it)}})}})
             }

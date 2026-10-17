@@ -81,6 +81,14 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         }
     }
     /** A repeated request for the same host, agent and folder while one is in flight is ignored. */
+    /** Reopens a session the agent remembers (`session/load`), keeping the Ask for everything choice. */
+    fun createEarlier(hostId:String,agentId:String,workspace:String,sessionId:String,askEverything:Boolean,onDone:(StoredSession)->Unit) = work {
+        onDone(repository.create(hostId,agentId,workspace,sessionId,askEverything))
+    }
+    suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions? = try {repository.earlierSessions(hostId,agentId,workspace)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
+    suspend fun currentBranch(hostId:String,path:String): String? = try {repository.currentBranch(hostId,path)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
+    /** The pull request's address, or the readable reason it was not opened. */
+    suspend fun openPullRequest(hostId:String,request:PullRequestRequest): Result<String> = try {Result.success(repository.openPullRequest(hostId,request))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
     fun create(hostId:String,agentId:String,workspace:String,onDone:(StoredSession)->Unit)=create(hostId,agentId,workspace,false,onDone)
     fun create(hostId:String,agentId:String,workspace:String,askEverything:Boolean,onDone:(StoredSession)->Unit) {
         val key=listOf(hostId,agentId,workspace).joinToString("\u0000")
@@ -108,7 +116,8 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         val info=storedSessionInfo(stored)
         check(info.supportsLoad()) { "This agent does not advertise session loading" }
         check(info.acpSessionId.isNotBlank()) { "Sign in before resuming this session" }
-        onDone(repository.create(stored.hostId,info.agentId,info.workspace,info.acpSessionId))
+        // Resuming keeps the "Ask for everything" choice the session was started with; the host does not remember it.
+        onDone(repository.create(stored.hostId,info.agentId,info.workspace,info.acpSessionId,askEverything=info.workspaceAccess.manualApproval))
     }
     val tasks=MutableStateFlow(TasksUiState())
     private var tasksJob:Job?=null

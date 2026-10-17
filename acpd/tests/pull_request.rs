@@ -99,6 +99,21 @@ fn fake_gh() -> ! {
             println!("https://github.com/example/repo/pull/9");
             std::process::exit(0);
         }
+        "hang" => {
+            // gh never finishes, and it has left a helper running.
+            let pid_file = std::env::var("FAKE_GH_CHILD_PID").unwrap_or_default();
+            let _ = fs::write(format!("{pid_file}.gh"), std::process::id().to_string());
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.env("ACPD_FAKE_SLEEP_PID", &pid_file);
+            child.env_remove("ACPD_FAKE_GH");
+            let _ = child
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            std::thread::sleep(Duration::from_secs(120));
+            std::process::exit(0);
+        }
         "http" => {
             println!("http://github.com/example/repo/pull/7");
             std::process::exit(0);
@@ -132,6 +147,7 @@ fn install_fake_gh(dir: &Path, log: &Path, mode_file: &Path) {
     unsafe {
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
         std::env::set_var("ACPD_FAKE_GH", "1");
+        std::env::set_var("ACPD_GH_TIMEOUT_MS", "3000");
         std::env::set_var("FAKE_GH_LOG", log);
         std::env::set_var("FAKE_GH_MODE_FILE", mode_file);
     }
@@ -409,6 +425,38 @@ async fn suite(log: PathBuf, mode_file: PathBuf) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(!alive, "a process gh started outlived the request");
+
+    // A gh that never finishes ends in gh_timeout, and gh and its helper are both stopped.
+    h.mode("hang");
+    let started = std::time::Instant::now();
+    let (status, text) = h.post(pr(&repo, json!({}))).await;
+    assert_eq!(status, 504, "{text}");
+    assert!(text.contains("gh_timeout"), "{text}");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "the request waited for gh"
+    );
+    let gh_pid: u32 = fs::read_to_string(format!("{}.gh", child_pid_file.display()))
+        .expect("gh wrote its pid")
+        .trim()
+        .parse()
+        .unwrap();
+    let helper_pid: u32 = fs::read_to_string(&child_pid_file)
+        .expect("the helper wrote its pid")
+        .trim()
+        .parse()
+        .unwrap();
+    for pid in [gh_pid, helper_pid] {
+        let mut alive = true;
+        for _ in 0..40 {
+            alive = process_alive(pid);
+            if !alive {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(!alive, "process {pid} outlived the timeout");
+    }
 
     h.mode("noremote");
     let (status, text) = h.post(pr(&repo, json!({}))).await;
