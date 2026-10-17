@@ -15,6 +15,7 @@ pub mod pairing_input;
 pub mod peer_cli;
 pub mod peer_link;
 pub mod peers;
+pub mod presets;
 pub mod process_tree;
 pub mod registry;
 pub mod security;

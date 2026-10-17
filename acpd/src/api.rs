@@ -222,6 +222,7 @@ impl Host {
             )
             .route("/v1/filesystem/directories", get(directories))
             .route("/v1/workspaces/browse", get(browse))
+            .route("/v1/presets", get(presets))
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
             .route("/v1/sessions/{id}/connect", get(connect))
@@ -437,6 +438,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "agentDiscovery",
         "commitMessage",
         "pullRequests",
+        "presets",
         "scratchSessions",
     ];
     if host.config.orchestrator.enabled {
@@ -449,6 +451,39 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "features":features,"gh": if crate::discovery::resolve("gh", None).is_some() { "found" } else { "missing" },
         "activeSessions":host.sessions.active_count().await}),
     ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresetQuery {
+    agent: String,
+}
+fn agent_id_ok(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+/// Read-only presets for one agent. Nothing here is stored or applied to a session.
+async fn presets(
+    State(host): State<Host>,
+    Query(query): Query<PresetQuery>,
+) -> ApiResult<Json<Value>> {
+    if !agent_id_ok(&query.agent) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_parameter"));
+    }
+    let definition = host
+        .registry
+        .get(&query.agent)
+        .map_err(|_| ApiError(StatusCode::NOT_FOUND, "unknown_agent"))?;
+    let facts = crate::presets::Facts {
+        auto_approve: host.config.auto_approve.get(&query.agent),
+        shell_review: host.config.shell_review.get(&query.agent),
+        own_tools: definition.own_tools,
+        remote: definition.transport == "ws" || definition.url.is_some(),
+    };
+    Ok(Json(json!({
+        "presets": crate::presets::presets_for(&facts, crate::connection::WorkspaceAccess::default())
+    })))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;

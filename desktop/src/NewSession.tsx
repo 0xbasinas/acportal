@@ -11,6 +11,7 @@ import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { type AgentSetup, choiceName, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
 import { OptionsPanel } from './OptionPicker'
+import { applyPreset, presetKey, sameRights, type Preset } from './presets'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
 export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean }
@@ -69,14 +70,14 @@ function Chip({ id, open, setOpen, label, icon, active, children, wide, title, u
     </span>
   )
 }
-function Item({ on, children, onPick, sub }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode }) {
-  return <button data-item className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
+function Item({ on, children, onPick, sub, preset, mode }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode; preset?: string; mode?: string }) {
+  return <button data-item data-preset={preset} data-mode={mode} className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
 }
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
 }
 
-export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch }: {
+export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch, loadPresets }: {
   hosts: HostChoice[]; hostId: string; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; canBranch: boolean
   history: (ws: string) => string[]; initial?: { text: string; n: number }; initialFolder?: string
   onStart: (r: StartRequest) => Promise<string | undefined>; onMulti: (text: string) => void
@@ -84,6 +85,8 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   probe?: (agent: string, workspace: string) => Promise<unknown | undefined>
   /** A new empty folder for a session outside every project (hosts with `scratchSessions`). */
   newScratch?: () => Promise<string | undefined>
+  /** Hosts that advertise `presets`. Undefined on an older host, which keeps the toggles only. */
+  loadPresets?: (agent: string) => Promise<Preset[] | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
@@ -98,6 +101,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [err, setErr] = useState<string>()
   const [phase, setPhase] = useState<'idle' | 'starting'>('idle')
   const [access, setAccess] = useState<Access>({ read: true, write: true, terminal: true, mcp: true })
+  const [presetList, setPresetList] = useState<Preset[]>([])
+  const [presetId, setPresetId] = useState<string>()
+  const [presetsLoading, setPresetsLoading] = useState(false)
+  const presetTouch = useRef(false)
   const [branch, setBranch] = useState<BranchPick>({ mode: 'current', name: '', worktree: false })
   const [branches, setBranches] = useState<string[]>()
   const [current, setCurrent] = useState<string>()
@@ -202,7 +209,48 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const recent = ws === NO_PROJECT ? [] : history(target).slice(0, 4)
   const starting = phase === 'starting'
   const enabledMcp = mcp.filter((m) => m.enabled)
-  const accessLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
+  const rightsLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
+  const chosenPreset = presetList.find((p) => p.id === presetId)
+  const accessLabel = presetList.length ? (chosenPreset?.label ?? 'Custom') : rightsLabel
+  useEffect(() => {
+    presetTouch.current = false
+    setPresetList([])
+    setPresetId(undefined)
+    if (!loadPresets || !agent) { setPresetsLoading(false); return }
+    let stop = false
+    setPresetsLoading(true)
+    loadPresets(agent).then((list) => {
+      if (stop || presetTouch.current) return
+      const presets = list ?? []
+      setPresetList(presets)
+      setPresetsLoading(false)
+      let remembered: string | null = null
+      try { remembered = localStorage.getItem(presetKey(agent)) } catch { remembered = null }
+      const hit = remembered ? presets.find((p) => p.id === remembered) : undefined
+      // A remembered id that the host no longer offers is ignored. The flags are
+      // whatever this preset advertises, including after switching agents.
+      const chosen = hit ?? presets.find((preset) => preset.id === 'supervised')
+      if (!chosen) return
+      setPresetId(chosen.id)
+      setAccess((current) => applyPreset(current, chosen))
+    }, () => { if (!stop) setPresetsLoading(false) })
+    return () => { stop = true }
+  }, [agent, loadPresets])
+  const pickPreset = (preset: Preset): void => {
+    presetTouch.current = true
+    setPresetId(preset.id)
+    setAccess((current) => applyPreset(current, preset))
+    try { localStorage.setItem(presetKey(agent), preset.id) } catch { /* ignore */ }
+  }
+  const toggleRight = (key: 'read' | 'write' | 'terminal'): void => {
+    presetTouch.current = true
+    const next = { ...access, [key]: !access[key] }
+    const match = presetList.find((preset) => sameRights(next, preset))
+    setAccess(next)
+    setPresetId(match?.id)
+    try { localStorage.setItem(presetKey(agent), match?.id ?? 'custom') } catch { /* ignore */ }
+  }
+  const mode = selectors.find((selector) => selector.kind === 'mode' || selector.category === 'mode')
 
   const composer = (
     <div ref={box} className={'ns-composer' + (starting ? ' docked' : '')} onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpen(undefined) }}>
@@ -283,10 +331,22 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           )}
       </Chip>
       <Chip id="access" open={open} setOpen={setOpen} icon={I.shield} label={accessLabel} title="Access rights">
-        <div className="ctx-h">Rights for this session</div>
-        {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => setAccess({ ...access, [k]: !access[k] })}>{l}</Item>)}
+        {presetList.length > 0 && <>
+          <div className="ctx-h">Preset</div>
+          {presetList.map((preset) => <Item key={preset.id} preset={preset.id} on={preset.id === presetId} onPick={() => pickPreset(preset)}>{preset.label}</Item>)}
+          {chosenPreset?.effects.map((line) => <div key={line} className="hint ctx-pad">{line}</div>)}
+          {mode && <>
+            <div className="ctx-h">{mode.name}</div>
+            <div className="hint ctx-pad">The agent's own mode. It is separate from the preset.</div>
+            {mode.choices.map((choice) => <Item key={choice.value} mode={choice.value} on={valueOf(mode.id) === choice.value} onPick={() => pickOption(mode, choice.value)}>{choice.name}</Item>)}
+          </>}
+          <div className="ctx-h">Custom</div>
+        </>}
+        {presetsLoading && <div className="hint ctx-pad" role="status">Reading presets…</div>}
+        {presetList.length === 0 && !presetsLoading && <div className="ctx-h">Rights for this session</div>}
+        {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => toggleRight(k)}>{l}</Item>)}
         <Item on={access.mcp && enabledMcp.length > 0} sub={enabledMcp.length ? String(enabledMcp.length) : 'none'} onPick={() => setAccess({ ...access, mcp: !access.mcp })}>MCP servers</Item>
-        <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>
+        {!chosenPreset && <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>}
       </Chip>
       <span className="ctx-switch" title={isRepo ? 'Start in its own git worktree' : 'Needs a git repository'}>
         <span>Worktree</span>

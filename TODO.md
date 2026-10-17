@@ -3,7 +3,7 @@
 ## T3 Code ideas (`experiment/t3code-ideas`, 17 October 2026)
 
 - [x] Open a pull request from the Git view (`POST /v1/pull-requests`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Cross-fork `owner:branch` heads are rejected.
-- [ ] Permission presets in the composer.
+- [x] Permission presets in the composer (`GET /v1/presets`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. No per-session opt-out of auto-approve or shell review.
 - [ ] Agent profiles (`profileOf`).
 - [ ] OS service install (Linux and macOS, then Windows).
 - [ ] External MCP endpoint: design and ADR only.

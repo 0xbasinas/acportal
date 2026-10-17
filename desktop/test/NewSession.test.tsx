@@ -289,6 +289,73 @@ describe('options that change other options', () => {
   })
 })
 
+describe('permission presets', () => {
+  const presets = [
+    { id: 'supervised', label: 'Supervised', effects: ['Each write asks you before it runs.', 'Each command asks you before it runs.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+    { id: 'auto-review', label: 'Auto-review', effects: ['Some command lines may be allowed or refused by the host\'s shell rules. Undecided lines still ask.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+  ]
+  const modeAgent: AgentInfo = {
+    ...agents[0],
+    setup: { modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'full-access', name: 'Full access' }] } },
+  }
+  const loadPresets = vi.fn(async () => presets)
+
+  it('shows presets first, keeps the agent mode separate, and a missing remembered id grants nothing', async () => {
+    localStorage.setItem('acportal.preset.goose', 'full-access')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    const dialog = screen.getByRole('dialog', { name: 'Access rights' })
+    const presetButtons = [...dialog.querySelectorAll<HTMLElement>('[data-preset]')]
+    expect(presetButtons.map((button) => button.getAttribute('data-preset'))).toEqual(['supervised', 'auto-review'])
+    expect(dialog.querySelector('[data-preset="full-access"]')).toBeNull()
+    expect(dialog.textContent).toContain('Each write asks you before it runs.')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-preset="auto-review"]')!)
+    expect(dialog.textContent).toContain('Undecided lines still ask')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-mode="full-access"]')!)
+    expect(chip(/Auto-review/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, mcp: true })
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'mode', value: 'full-access' }])
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('remembers a preset per agent and custom toggles leave that preset', async () => {
+    localStorage.setItem('acportal.preset.goose', 'auto-review')
+    setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Auto-review/)).toBeTruthy())
+    fireEvent.click(chip(/Auto-review/))
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(localStorage.getItem('acportal.preset.goose')).toBe('custom')
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('applies the next agent preset when the agent changes', async () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent, agents[1]] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByText('Write files'))
+    expect(chip(/Custom/)).toBeTruthy()
+    fireEvent.click(chip(/Goose/))
+    fireEvent.click(screen.getByText('Mock'))
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].agent).toBe('mock')
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true })
+    localStorage.removeItem('acportal.lastAgent')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+  })
+})
+
 describe('model section', () => {
   // In the agent's order: an uncategorised provider, the mode, the model, its effort and context.
   const agentOptions = { configOptions: [

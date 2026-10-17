@@ -53,7 +53,7 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| GET | `/v1/status` | Version, host identity, health and optional `features`: `formElicitation`, `git`, `sessionWorktree`, `checks`, `controlTakeover`, `sharedDrafts`, `agentProbe`, `pullRequests`, and `orchestrator` while delegation is enabled. `gh` is `found` or `missing` (the `gh` program, not a sign-in check) |
+| GET | `/v1/status` | Version, host identity, health and optional `features`: `formElicitation`, `git`, `sessionWorktree`, `checks`, `controlTakeover`, `sharedDrafts`, `agentProbe`, `pullRequests`, `presets`, and `orchestrator` while delegation is enabled. `gh` is `found` or `missing` (the `gh` program, not a sign-in check) |
 | GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools`, and `setup` (the agent's `modes`/`models`/`configOptions` from its newest session or a probe) when known |
 | POST | `/v1/agents/{id}/probe` | Feature `agentProbe`. `{"workspace"}` must be an approved folder. Starts the agent in a throwaway session (no access, no MCP, no prompt), returns `{"setup"}` with only `modes`/`models`/`configOptions`, caches it and removes the session |
 | GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
@@ -79,6 +79,7 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | POST | `/v1/git/{op}` | Run one git operation from a fixed list in a workspace folder or task worktree (feature `git`); see below |
 | POST | `/v1/commit-message` | A commit message for what is staged in a folder, written by an agent in a throwaway session (feature `commitMessage`). `{"kind":"pullRequest","base"}` asks for a title and body from commits since that base instead |
 | POST | `/v1/pull-requests` | Open a GitHub pull request with `gh pr create` (feature `pullRequests`). `{"path","base","head","title","body","draft"}`. The body is stdin. Errors: `gh_unavailable`, `gh_not_signed_in`, `no_remote`, `already_exists`, `gh_failed`, `gh_timeout`, `invalid_branch_name`, `body_too_large`, `path_not_allowed`. `gh` text is not returned |
+| GET | `/v1/presets?agent=` | Feature `presets`. Read-only list for that agent: `id`, `label`, `effects`, `workspaceAccess`. `supervised` is always listed. `auto-edits` only when `[auto_approve.<id>]` has a risk ceiling. `auto-review` only when `[shell_review.<id>]` has `rules = true`. Neither is listed for a remote agent. The list does not change config or a session. `POST /v1/sessions` rejects a `preset` field |
 
 Peer hosts (role `peer`, see [orchestrator design](orchestrator-design.md) section 7) use a separate set: `GET /v1/peer/info` and the ACP bridge WebSocket at `/acp` or `/acp/{agent_id}`. Peers get only the agents in `peer_agents`, folders by alias, and at most `peer_rights`.
 

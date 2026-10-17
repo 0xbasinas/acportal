@@ -14,6 +14,7 @@ import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
 import { NewSessionHome, setupKey, type AgentSetup, type OptionPick, type StartRequest } from './NewSession'
+import type { Preset } from './presets'
 import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setRequest, setupFromAcp } from './agentSetup'
 import { OptionsButton } from './OptionPicker'
 import { groupByProject, inside } from './projects'
@@ -141,6 +142,11 @@ export default function App() {
     if (!hostId) return { ok: false, error: 'No host' }
     return (await window.api.hosts.api(hostId, method, path, body, query)) as never
   }, [hostId])
+  const presetsOn = Boolean(status?.features?.includes('presets'))
+  const loadPresets = useCallback(async (id: string): Promise<Preset[] | undefined> => {
+    const r = await api<{ presets: Preset[] }>('GET', '/v1/presets', undefined, { agent: id })
+    return r.ok ? r.value.presets : undefined
+  }, [api])
 
   const refresh = useCallback(async () => {
     if (!hostId) return
@@ -679,7 +685,8 @@ export default function App() {
         canBranch={Boolean(status?.features?.includes('git')) || Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))}
         history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }}
         probe={status?.features?.includes('agentProbe') ? probeAgent : undefined}
-        newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined} />
+        newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined}
+        loadPresets={presetsOn ? loadPresets : undefined} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)

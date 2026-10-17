@@ -1,5 +1,12 @@
 # Completed work and verification history
 
+## 17 October 2026 permission presets (`experiment/t3code-ideas`)
+
+- `GET /v1/presets?agent=` (feature `presets`) returns `supervised`, plus `auto-edits` only when `[auto_approve.<id>]` has `max_risk` other than `none`, plus `auto-review` only when `[shell_review.<id>]` has `rules = true`. Remote (`ws`) agents get supervised only. Effects describe the host config. `workspaceAccess` is the intersection with the rights a session may already ask for, and form elicitation stays off. The route is phone-only and read-only. `POST /v1/sessions` still rejects a `preset` field.
+- Desktop composer: the preset is the first block in the access chip, Custom keeps the read/write/terminal toggles, and the agent's own mode is listed beside the preset and is not copied from it. The last preset id per agent is `localStorage` key `acportal.preset.<id>`. An id the host no longer offers is ignored.
+- Checks, local Windows: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets` (exit 0; real Goose trials ignored). Desktop `npm run typecheck` and `npm test` (42 vitest tests, including the composer applying the next agent's preset after a custom toggle). Replacing `&&` with `||` in `presets.rs` `cap` made `a_preset_cannot_turn_a_refused_write_or_terminal_back_on` fail with ids `supervised`, `auto-edits`, `auto-review` instead of `supervised`. The `&&` was restored before the suite.
+- Not done: the Electron window in both themes (saved hosts were not opened). Custom toggle combinations are not restored on the next visit. Android unchanged. No per-session way to turn auto-approve or shell review off.
+
 ## 17 October 2026 pull requests from the Git view (`experiment/t3code-ideas`)
 
 - `POST /v1/pull-requests` runs `gh pr create` with a literal argv, the body on stdin, `GIT_TERMINAL_PROMPT=0`, a 60 s timeout and bounded output. `gh` is found with `discovery::resolve`. Doctor prints whether the program was found and does not call `gh auth status` (that command contacts GitHub on gh 2.94.0). Sign-in is exit code 4 from `gh pr create`. Stderr is classified (`already exists` from cli/cli v2.94.0 `create.go`, `no git remotes` from `context/context.go`) and never returned. `owner:branch` is rejected by `git check-ref-format --branch`, so a cross-fork head is out of scope.
