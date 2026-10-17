@@ -1,7 +1,7 @@
 import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
 import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
+import type { AgentInfo, EarlierSessions, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
@@ -14,6 +14,7 @@ import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
 import { NewSessionHome, setupKey, type AgentSetup, type OptionPick, type StartRequest } from './NewSession'
+import type { Preset } from './presets'
 import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setRequest, setupFromAcp } from './agentSetup'
 import { OptionsButton } from './OptionPicker'
 import { groupByProject, inside } from './projects'
@@ -141,6 +142,16 @@ export default function App() {
     if (!hostId) return { ok: false, error: 'No host' }
     return (await window.api.hosts.api(hostId, method, path, body, query)) as never
   }, [hostId])
+  const presetsOn = Boolean(status?.features?.includes('presets'))
+  const earlierOn = Boolean(status?.features?.includes('agentSessionList'))
+  const loadEarlier = useCallback(async (agent: string, workspace: string): Promise<EarlierSessions | undefined> => {
+    const r = await api<EarlierSessions>('GET', `/v1/agents/${encodeURIComponent(agent)}/sessions`, undefined, { workspace })
+    return r.ok ? r.value : undefined
+  }, [api])
+  const loadPresets = useCallback(async (id: string): Promise<Preset[] | undefined> => {
+    const r = await api<{ presets: Preset[] }>('GET', '/v1/presets', undefined, { agent: id })
+    return r.ok ? r.value.presets : undefined
+  }, [api])
 
   const refresh = useCallback(async () => {
     if (!hostId) return
@@ -262,6 +273,33 @@ export default function App() {
     }
     return { error: words[r.code ?? ''] ?? r.error }
   }
+  async function suggestPr(path: string, agentId: string, base: string): Promise<{ title?: string; body?: string; error?: string }> {
+    const r = await api<{ title: string; body: string }>('POST', '/v1/commit-message', { path, agentId, kind: 'pullRequest', base })
+    if (r.ok) return { title: r.value.title, body: r.value.body }
+    const words: Record<string, string> = {
+      nothing_to_describe: 'Nothing to describe since that base.', base_not_found: 'That base branch was not found.',
+      agent_unavailable: 'That agent could not start in this folder.', agent_timeout: 'The agent did not answer in time.',
+      agent_failed: 'The agent reported an error.', empty_reply: 'The agent replied with nothing.',
+      path_not_allowed: 'This folder is not allowed on the host.', invalid_branch_name: 'That branch name is not valid.',
+      invalid_parameter: 'The request was not valid.'
+    }
+    return { error: words[r.code ?? ''] ?? r.error }
+  }
+  async function createPr(input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }): Promise<{ url?: string; existing?: boolean; error?: string }> {
+    const r = await api<{ url: string }>('POST', '/v1/pull-requests', input)
+    if (r.ok) return { url: r.value.url }
+    // The host puts the existing pull request's address in the message of an already_exists reply.
+    const existing = r.code === 'already_exists' ? /https:\/\/\S+/.exec(r.error)?.[0] : undefined
+    if (existing) return { url: existing, existing: true }
+    const words: Record<string, string> = {
+      gh_unavailable: 'GitHub CLI (gh) was not found on the host.', gh_not_signed_in: 'gh is not signed in on the host.',
+      no_remote: 'This repository has no GitHub remote gh can use.', already_exists: 'A pull request for this branch already exists.',
+      gh_failed: 'gh could not open the pull request.', gh_timeout: 'gh did not finish in time.',
+      invalid_branch_name: 'That branch name is not valid.', body_too_large: 'The description is too long.',
+      path_not_allowed: 'This folder is not allowed on the host.', invalid_parameter: 'The title is empty or too long.'
+    }
+    return { error: words[r.code ?? ''] ?? r.error }
+  }
   async function cancelTurn(): Promise<void> {
     if (!session || !attached.current) return
     await window.api.session.send(attached.current, { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: session.acpSessionId } })
@@ -297,8 +335,8 @@ export default function App() {
         if (!w.ok) return `Could not switch branch: ${w.error}`
       }
     }
-    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
-    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
+    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}), ...(status?.features?.includes('booleanOptions') ? { booleanOptions: true } : {}) }
+    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: opts.load ?? null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
     if (!r.ok) return ({ unsupported_mcp_transport: 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers', branch_failed: 'Git could not make or switch to that branch (uncommitted changes in the way, or the branch is checked out elsewhere).', worktree_path_unavailable: 'The worktree folder already exists or is outside the host folders.', invalid_branch_name: 'That is not a valid branch name.', not_a_repository: 'This folder is not a git repository.' } as Record<string, string>)[r.code ?? ''] ?? r.error
     if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
     setSessions((s) => [...s, r.value])
@@ -316,7 +354,7 @@ export default function App() {
     setStarting({ hostId: hostId!, title, agent: r.agent, workspace: r.workspace })
     lastCreated.current = undefined
     const b = r.branch
-    const e = await createSession(r.agent, r.workspace, { read: r.access.read, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
+    const e = await createSession(r.agent, r.workspace, { read: r.access.read, manual: r.access.manual, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
     setStarting(undefined)
     if (e) return e
     const sid = lastCreated.current
@@ -610,6 +648,9 @@ export default function App() {
     ]
     center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })}
       suggest={status?.features?.includes('commitMessage') ? suggestCommit : undefined}
+      pullRequests={status?.features?.includes('pullRequests')} ghCli={status?.gh}
+      suggestPr={status?.features?.includes('commitMessage') ? suggestPr : undefined}
+      createPr={status?.features?.includes('pullRequests') ? createPr : undefined}
       agents={agents.filter((a) => a.enabled !== false && a.status !== 'missing' && a.status !== 'misconfigured')} defaultAgent={session?.agentId}
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
       openSession={(path) => { openComposer(); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
@@ -652,7 +693,10 @@ export default function App() {
         canBranch={Boolean(status?.features?.includes('git')) || Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))}
         history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }}
         probe={status?.features?.includes('agentProbe') ? probeAgent : undefined}
-        newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined} />
+        newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined}
+        loadPresets={presetsOn ? loadPresets : undefined}
+        loadEarlier={earlierOn ? loadEarlier : undefined}
+        openEarlier={(agent, workspace, sessionId, access) => createSession(agent, workspace, { ...defaultOpts, load: sessionId, read: access.read, write: access.write, terminal: access.terminal, mcp: access.mcp, manual: access.manual })} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)
@@ -727,5 +771,5 @@ export default function App() {
   )
 }
 
-type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
+type NewOpts = { load?: string; manual?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
 const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }

@@ -63,6 +63,26 @@ pub fn operational_checks(config: &Config) -> Vec<(String, bool)> {
     ]
 }
 
+/// Whether `gh` can be started. No network call: `gh auth status` on gh 2.94.0 asks GitHub
+/// for token scopes (`GetScopes` in cli/cli `pkg/cmd/auth/status/status.go`, read 17 October 2026).
+/// Sign-in is reported later, as the exit code of `gh pr create`.
+pub fn github_cli_line(program: Option<&std::path::Path>) -> (String, bool) {
+    match program {
+        Some(path) => (
+            format!(
+                "GitHub CLI: found at {}. Sign-in is not checked here",
+                path.display()
+            ),
+            true,
+        ),
+        None => (
+            "GitHub CLI: not found. Opening a pull request needs gh on PATH; sign-in is not checked here"
+                .into(),
+            true,
+        ),
+    }
+}
+
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -109,6 +129,8 @@ pub async fn agent_check(
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
     };
     let opened = manager
         .open_configured(agent, workspace, None, Vec::new(), access)
@@ -623,6 +645,18 @@ mod tests {
             free,
             "the port stayed unavailable after the listener was dropped"
         );
+    }
+
+    #[test]
+    fn github_cli_line_reports_presence_without_a_path_lookup() {
+        let (found, ok) = github_cli_line(Some(Path::new("/usr/bin/gh")));
+        assert!(ok);
+        assert!(found.contains("found at"));
+        assert!(found.contains("/usr/bin/gh"));
+        assert!(!found.contains("token"));
+        let (missing, ok) = github_cli_line(None);
+        assert!(ok);
+        assert!(missing.contains("not found"));
     }
 
     #[test]

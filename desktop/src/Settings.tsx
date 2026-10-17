@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import type { AgentInfo, Host, HostStatus, Workspace } from './types'
+import { groupAgents } from './agentSetup'
 import { I, tildify } from './ui'
 
 export type Theme = 'dark' | 'light' | 'system'
@@ -56,14 +57,14 @@ export function Settings(props: {
             <div className="sub" style={{ marginBottom: 14 }}>Agents registered on {props.current?.name ?? 'the host'}. Any agent that speaks ACP over stdio.</div>
             {adding && <AgentForm api={props.api} onDone={() => { setAdding(false); props.onAgentsChanged() }} onCancel={() => setAdding(false)} />}
             {props.agents.length === 0 && <div className="sub2">{props.online ? 'The host lists no agents.' : 'Host offline.'}</div>}
-            {props.agents.map((a) => (
-              <div key={a.id}>
-                <div className="set-row">
+            {groupAgents(props.agents).flatMap((group) => [{ agent: group.base, nested: false }, ...group.profiles.map((agent) => ({ agent, nested: true }))]).map(({ agent: a, nested }) => (
+              <div key={a.id} style={nested ? { marginLeft: 28 } : undefined}>
+                <div className="set-row" data-profile-of={a.profileOf}>
                   <span className="sub">{I.gear}</span>
                   <div style={{ flex: 1 }}>
-                    <div>{a.name}</div>
+                    <div>{a.profileLabel || a.name}</div>
                     <div className={'sub' + (a.status === 'available' || a.installed ? '' : ' amber')}>
-                      <span className="mono">{a.id}</span>{a.version ? ` · ${a.version}` : ''}{a.ownTools ? ' · own tools' : ''}{a.sandbox === 'off' ? ' · sandbox off' : ''} · {a.enabled === false ? 'Disabled' : a.status ?? (a.installed ? 'Available' : 'Missing')}{a.reason ? ` · ${a.reason}` : ''}
+                      <span className="mono">{a.id}</span>{a.profileOf ? ` · profile of ${a.profileOf}` : ''}{a.version ? ` · ${a.version}` : ''}{a.ownTools ? ' · own tools' : ''}{a.sandbox === 'off' ? ' · sandbox off' : ''} · {a.enabled === false ? 'Disabled' : a.status ?? (a.installed ? 'Available' : 'Missing')}{a.reason ? ` · ${a.reason}` : ''}
                     </div>
                     {!a.removable && <div className="sub">Defined in the host's agents.json; change it there.</div>}
                   </div>
@@ -218,7 +219,7 @@ function McpEditor({ servers, setServers }: { servers: McpServer[]; setServers: 
 
 type KnownAgent = { id: string; name: string; command: string; args: string[]; env: Record<string, string>; ownTools: boolean; found: boolean; registered: boolean; executable?: string }
 
-type SavedAgent = { id: string; name: string; command: string; args?: string[]; env?: Record<string, string>; ownTools?: boolean; sandbox?: string; shell?: string; enabled?: boolean }
+type SavedAgent = { id: string; name: string; command: string; args?: string[]; env?: Record<string, string>; ownTools?: boolean; sandbox?: string; shell?: string; enabled?: boolean; profileOf?: string; profileLabel?: string }
 /** Arguments as typed: space separated, with "double quotes" around an argument that has spaces. */
 export const splitArgs = (s: string): string[] => [...s.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2])
 export const joinArgs = (args: string[]): string => args.map((a) => (/\s/.test(a) || a === '' ? `"${a}"` : a)).join(' ')
@@ -226,7 +227,7 @@ export const joinArgs = (args: string[]): string => args.map((a) => (/\s/.test(a
 /** Add an agent, or with `editId` change one added from an app (`GET /v1/agents/{id}`, then
  * `POST /v1/agents` with the same id replaces it on the host). */
 function AgentForm({ api, onDone, onCancel, editId }: { api: <T>(m: string, p: string, b?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string }>; onDone: () => void; onCancel: () => void; editId?: string }) {
-  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto' })
+  const [f, setF] = useState({ id: '', name: '', command: '', args: '', env: '', ownTools: false, sandbox: 'auto', shell: 'auto', profileOf: '', profileLabel: '' })
   const [enabled, setEnabled] = useState(true)
   const [loaded, setLoaded] = useState(!editId)
   const [check, setCheck] = useState<string>()
@@ -239,12 +240,12 @@ function AgentForm({ api, onDone, onCancel, editId }: { api: <T>(m: string, p: s
     void api<SavedAgent>('GET', `/v1/agents/${encodeURIComponent(editId)}`).then((r) => {
       if (!r.ok) { setErr(r.error); return }
       const a = r.value
-      setF({ id: a.id, name: a.name, command: a.command, args: joinArgs(a.args ?? []), env: Object.entries(a.env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: Boolean(a.ownTools), sandbox: a.sandbox ?? 'auto', shell: a.shell ?? 'auto' })
+      setF({ id: a.id, name: a.name, command: a.command, args: joinArgs(a.args ?? []), env: Object.entries(a.env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: Boolean(a.ownTools), sandbox: a.sandbox ?? 'auto', shell: a.shell ?? 'auto', profileOf: a.profileOf ?? '', profileLabel: a.profileLabel ?? '' })
       setEnabled(a.enabled !== false)
       setLoaded(true)
     })
   }, [editId])
-  const use = (a: KnownAgent) => setF({ ...f, id: a.id, name: a.name, command: a.executable ?? a.command, args: a.args.join(' '), env: Object.entries(a.env).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: a.ownTools })
+  const use = (a: KnownAgent) => setF({ ...f, id: a.id, name: a.name, command: a.executable ?? a.command, args: a.args.join(' '), env: Object.entries(a.env).map(([k, v]) => `${k}=${v}`).join('\n'), ownTools: a.ownTools, profileOf: '', profileLabel: '' })
   const envObj = (): Record<string, string> => Object.fromEntries(pairs(f.env).map((p) => [p.name, p.value]))
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -280,7 +281,7 @@ function AgentForm({ api, onDone, onCancel, editId }: { api: <T>(m: string, p: s
       {err && <div className="error">{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="pill" disabled={!f.command} onClick={async () => { const r = await api<{ found: boolean; executable: boolean; versionOk: boolean; version?: string }>('POST', '/v1/agents/check', { command: f.command, env: envObj() }); setCheck(r.ok ? (r.value.found ? `Found${r.value.version ? ' · ' + r.value.version : ''}${r.value.versionOk ? '' : ' · --version failed'}` : 'Not found on the host') : r.error) }}>Check on host</button>
-        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: splitArgs(f.args), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}), ...(f.sandbox !== 'auto' ? { sandbox: f.sandbox } : {}), ...(f.shell !== 'auto' ? { shell: f.shell } : {}), ...(editId && !enabled ? { enabled: false } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>{editId ? 'Save changes' : 'Add agent'}</button>
+        <button className="pill primary" disabled={!f.id || !f.name || !f.command} onClick={async () => { const r = await api('POST', '/v1/agents', { id: f.id, name: f.name, command: f.command, args: splitArgs(f.args), env: envObj(), ...(f.ownTools ? { ownTools: true } : {}), ...(f.sandbox !== 'auto' ? { sandbox: f.sandbox } : {}), ...(f.shell !== 'auto' ? { shell: f.shell } : {}), ...(f.profileOf ? { profileOf: f.profileOf } : {}), ...(f.profileLabel ? { profileLabel: f.profileLabel } : {}), ...(editId && !enabled ? { enabled: false } : {}) }); if (r.ok) onDone(); else setErr(r.error) }}>{editId ? 'Save changes' : 'Add agent'}</button>
         <button className="pill" onClick={onCancel}>Cancel</button>
       </div>
       </>}

@@ -42,6 +42,8 @@ const READ_ONLY: WorkspaceAccess = WorkspaceAccess {
     write_files: false,
     terminal: false,
     form_elicitation: false,
+    manual_approval: false,
+    boolean_options: false,
 };
 
 async fn eventually<T, F, Fut>(mut check: F) -> T
@@ -507,6 +509,8 @@ async fn the_other_hosts_rights_are_a_ceiling_and_this_host_may_ask_for_less() {
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
     };
     let session = near
         .manager

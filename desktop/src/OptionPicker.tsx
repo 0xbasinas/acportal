@@ -55,7 +55,7 @@ export function ChoiceList({ selector, value, onPick, heading, onBack }: { selec
 export function OptionsPanel({ selectors, valueOf, onPick }: { selectors: Selector[]; valueOf: (s: Selector) => string | undefined; onPick: (s: Selector, value: string) => void }) {
   const [which, setWhich] = useState<string>()
   const box = useRef<HTMLDivElement>(null)
-  const open = selectors.length === 1 ? selectors[0] : selectors.find((s) => s.kind + ':' + s.id === which)
+  const open = selectors.length === 1 && !selectors[0].boolean ? selectors[0] : selectors.find((s) => !s.boolean && s.kind + ':' + s.id === which)
   useEffect(() => {
     // Focus the search box or the current value when a list opens, the row when it closes.
     const el = box.current
@@ -79,6 +79,14 @@ export function OptionsPanel({ selectors, valueOf, onPick }: { selectors: Select
           {all.length > 1 && <div className="ctx-h">{section.title}</div>}
           {section.selectors.map((s) => {
             const key = s.kind + ':' + s.id
+            if (s.boolean) {
+              const on = valueOf(s) === 'true'
+              return (
+                <button key={key} data-item data-row={key} role="switch" aria-checked={on} aria-label={s.name} title={s.description ?? s.name} className="ctx-item opt-row" onClick={() => onPick(s, on ? 'false' : 'true')}>
+                  <span className="opt-name">{s.name}</span><span className="grow" /><span className={'switch' + (on ? ' on' : '')} aria-hidden="true" style={{ display: 'inline-block' }}><span /></span>
+                </button>
+              )
+            }
             const value = choiceName(s, valueOf(s)) ?? "agent's choice"
             return (
               <button key={key} data-item data-row={key} className="ctx-item opt-row" aria-label={`${s.name}: ${value}`} onClick={() => setWhich(key)}>

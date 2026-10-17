@@ -7,7 +7,8 @@
 export type Choice = { value: string; name: string; description?: string; group?: string }
 /** One thing the user can choose. `kind` says how it is set: `config` with
  * `session/set_config_option`, `model` with `session/set_model`, `mode` with `session/set_mode`. */
-export type Selector = { id: string; name: string; description?: string; category?: string; kind: 'config' | 'model' | 'mode'; current?: string; choices: Choice[] }
+export type Selector = { id: string; name: string; description?: string; category?: string; kind: 'config' | 'model' | 'mode'; current?: string; choices: Choice[]
+  /** An on/off option (`type: "boolean"`). Its value is the text `true` or `false`. */ boolean?: true }
 /** What the new-session composer offers: the selectors and the values picked so far (selector id -> value). */
 export type AgentSetup = { selectors?: Selector[]; chosen?: Record<string, string> }
 
@@ -38,9 +39,11 @@ function choicesOf(options: unknown): Choice[] {
 
 export function selectorsFromAcp(raw: unknown): Selector[] {
   const st = (raw ?? {}) as Raw
-  const config = (Array.isArray(st.configOptions) ? st.configOptions : []).filter((o) => o && (o.type === undefined || o.type === 'select') && str(o.id))
+  const config = (Array.isArray(st.configOptions) ? st.configOptions : []).filter((o) => o && (o.type === undefined || o.type === 'select' || o.type === 'boolean') && str(o.id))
   if (config.length) {
-    return config.map((o) => ({ id: str(o.id)!, name: str(o.name) || str(o.id)!, description: str(o.description), category: str(o.category), kind: 'config' as const, current: str(o.currentValue), choices: choicesOf(o.options) }))
+    return config.map((o) => o.type === 'boolean'
+      ? { id: str(o.id)!, name: str(o.name) || str(o.id)!, description: str(o.description), category: str(o.category), kind: 'config' as const, boolean: true as const, current: String(o.currentValue === true), choices: [{ value: 'true', name: 'On' }, { value: 'false', name: 'Off' }] }
+      : { id: str(o.id)!, name: str(o.name) || str(o.id)!, description: str(o.description), category: str(o.category), kind: 'config' as const, current: str(o.currentValue), choices: choicesOf(o.options) })
   }
   const out: Selector[] = []
   const models = st.models?.availableModels
@@ -55,9 +58,10 @@ export function selectorsFromAcp(raw: unknown): Selector[] {
 }
 
 /** The ACP request that sets `value` on a selector. */
-export function setRequest(s: Selector, value: string): { method: string; params: Record<string, string> } {
+export function setRequest(s: Selector, value: string): { method: string; params: Record<string, unknown> } {
   if (s.kind === 'model') return { method: 'session/set_model', params: { modelId: value } }
   if (s.kind === 'mode') return { method: 'session/set_mode', params: { modeId: value } }
+  if (s.boolean) return { method: 'session/set_config_option', params: { configId: s.id, type: 'boolean', value: value === 'true' } }
   return { method: 'session/set_config_option', params: { configId: s.id, value } }
 }
 
@@ -105,6 +109,29 @@ export const arranged = (list: Selector[]): Selector[] => sections(list).flatMap
 
 /** Where an anchored dropdown goes: below (or above) its chip, flipped when the preferred side
  * has no room and the other has more, shifted left so it stays inside the window. */
+export type AgentProfile = { id: string; profileOf?: string; profileLabel?: string }
+
+export type AgentGroup<T extends AgentProfile> = { base: T; profiles: T[] }
+
+/** Profiles sit under the agent they name. A profile whose base is missing, or is itself a profile, stays at the top so it is still offered. */
+export function groupAgents<T extends AgentProfile>(agents: T[]): AgentGroup<T>[] {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]))
+  const profiles = new Map<string, T[]>()
+  const tops: T[] = []
+  for (const agent of agents) {
+    const base = agent.profileOf
+    const parent = base ? byId.get(base) : undefined
+    if (parent && parent !== agent && !parent.profileOf) {
+      const list = profiles.get(parent.id) ?? []
+      list.push(agent)
+      profiles.set(parent.id, list)
+    } else {
+      tops.push(agent)
+    }
+  }
+  return tops.map((base) => ({ base, profiles: profiles.get(base.id) ?? [] }))
+}
+
 export function placePopover(anchor: { top: number; bottom: number; left: number }, size: { width: number; height: number }, view: { width: number; height: number }, prefer: 'down' | 'up' = 'down', margin = 8): { up: boolean; dx: number; maxHeight: number } {
   const gap = 6
   const below = view.height - anchor.bottom - gap - margin

@@ -60,11 +60,29 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     suspend fun removeAgent(host:HostProfile,id:String) { execute(host.address,"/v1/agents/${java.net.URLEncoder.encode(id,"UTF-8")}",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun sessions(host:HostProfile): List<SessionInfo> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias)))
     suspend fun session(host:HostProfile,id:String): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias)))
-    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
+    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false,manualApproval:Boolean=false,booleanOptions:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
         put("agentId",agentId);put("workspace",workspace);loadId?.let { put("loadSessionId",it) }
         put("mcpServers",mcpServers)
-        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal);if(formElicitation)put("formElicitation",true)})
+        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal);if(formElicitation)put("formElicitation",true);if(manualApproval)put("manualApproval",true);if(booleanOptions)put("booleanOptions",true)})
     },"POST"))
+    /** What the agent remembers for one approved folder; read-only, nothing is loaded. */
+    suspend fun earlierSessions(host:HostProfile,agentId:String,workspace:String): EarlierSessions {
+        val url = validateAddress(host.address).newBuilder().encodedPath("/v1/agents/${java.net.URLEncoder.encode(agentId,"UTF-8")}/sessions").addQueryParameter("workspace",workspace).build()
+        val request = Request.Builder().url(url).header("Authorization","Bearer ${vault.read(host.credentialAlias)}").build()
+        return WireJson.decodeFromJsonElement(client.newCall(request).awaitJson())
+    }
+    /** The checked-out branch of a folder, or null when it is detached or not a repository. */
+    suspend fun currentBranch(host:HostProfile,path:String): String? {
+        val reply=execute(host.address,"/v1/git/rev-parse",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"POST").objectValue()
+        return if(reply["code"].let {(it as? JsonPrimitive)?.intOrNull}==0) branchFromRevParse(reply["out"].text()) else null
+    }
+    /** Opens the pull request with the host's `gh`; returns its address. */
+    suspend fun openPullRequest(host:HostProfile,request:PullRequestRequest): String {
+        val reply=execute(host.address,"/v1/pull-requests",vault.read(host.credentialAlias),buildJsonObject {
+            put("path",request.path);put("base",request.base);put("head",request.head());put("title",request.title);put("body",request.body);put("draft",request.draft)
+        },"POST").objectValue()
+        return reply["url"].text()
+    }
     suspend fun delete(host:HostProfile,id:String) { execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun revoke(host:HostProfile) { execute(host.address,"/v1/device",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun tasks(host:HostProfile): List<TaskSummary> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/tasks",vault.read(host.credentialAlias)))
@@ -94,7 +112,8 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
                         val files=failure?.get("files")?.let {runCatching {it.jsonArray.map {file->file.text()}}.getOrDefault(emptyList())} ?: emptyList()
                         val branch=failure?.get("branch")?.let {runCatching {it.text()}.getOrDefault("")} ?: ""
                         val repository=failure?.get("repository")?.let {runCatching {it.text()}.getOrDefault("")} ?: ""
-                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath,files,branch,repository))
+                        val existing=failure?.get("url")?.let {runCatching {it.text()}.getOrDefault("")} ?: ""
+                        error(hostRequestError(response.code,code,response.request.method,response.request.url.encodedPath,files,branch,repository,existing))
                     }
                     val source = (response.body ?: error("Host returned an empty response")).source()
                     if (source.request(8L*1024*1024+1)) error("Host response exceeds size limit")
@@ -107,7 +126,7 @@ private suspend fun Call.awaitJson(): JsonElement = suspendCancellableCoroutine 
     })
 }
 
-internal fun hostRequestError(status:Int,code:String,method:String,path:String,files:List<String> = emptyList(),branch:String="",repository:String=""):String = when {
+internal fun hostRequestError(status:Int,code:String,method:String,path:String,files:List<String> = emptyList(),branch:String="",repository:String="",existingUrl:String=""):String = when {
     path.endsWith("/merge") && code=="merge_conflict" && (files.isNotEmpty() || branch.isNotEmpty()) ->
         "The task's branch conflicts with the parent's folder"+(if(files.isNotEmpty()) " in ${conflictFiles(files)}" else "")+". Nothing was changed; merge the branch by hand on the host."+mergeByHandCommand(branch,repository)
     path.endsWith("/discard") && code=="already_discarded" -> "This task's work was already thrown away."
@@ -121,6 +140,15 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String,f
     path.endsWith("/merge") && code=="already_discarded" -> "This task's work was thrown away, so there is nothing to merge."
     path.endsWith("/merge") && code=="already_merged" -> "This task's branch was already merged."
     path.endsWith("/merge") && (code=="task_not_finished" || code=="worktree_busy") -> "The task is not finished with its worktree yet. Try again shortly."
+    path.endsWith("/pull-requests") && code=="already_exists" -> "A pull request for this branch already exists."+(if(existingUrl.isNotBlank()) " "+existingUrl else "")
+    path.endsWith("/pull-requests") && code=="gh_not_signed_in" -> "The GitHub CLI (gh) on the host is not signed in. Run gh auth login there."
+    path.endsWith("/pull-requests") && code=="gh_unavailable" -> "The GitHub CLI (gh) was not found on the host."
+    path.endsWith("/pull-requests") && code=="no_remote" -> "This repository has no GitHub remote gh can use."
+    path.endsWith("/pull-requests") && code=="gh_timeout" -> "gh did not finish in time. Check the host and try again."
+    path.endsWith("/pull-requests") && code=="invalid_branch_name" -> "That branch or fork owner is not valid."
+    path.endsWith("/pull-requests") && code=="body_too_large" -> "The description is too long."
+    path.endsWith("/pull-requests") && code=="path_not_allowed" -> "This folder is not allowed on the host."
+    path.endsWith("/pull-requests") -> "gh could not open the pull request."
     code=="unsupported_mcp_transport" -> "This agent does not support an enabled MCP server's transport. Disable that server or choose another transport."
     status==401 && method=="POST" && path=="/v1/pair" -> "Pairing code was rejected. It may have expired or already been used. Run acpd pair on the host for a new code."
     status==401 -> "Credentials expired or pairing failed. Pair this host again."
@@ -141,3 +169,11 @@ internal fun conflictFiles(files:List<String>):String = files.take(5).joinToStri
 
 /** Task ids are UUIDs from the host; anything else is refused before a request is built. */
 internal fun taskPath(id:String):String {require(Regex("[0-9a-fA-F-]{36}").matches(id)) {"Invalid task id"};return id}
+
+/** What the pull request form sends. A fork owner makes the head `owner:branch`. */
+data class PullRequestRequest(val path:String,val base:String,val branch:String,val forkOwner:String,val title:String,val body:String,val draft:Boolean) {
+    fun head():String = forkOwner.trim().let {if(it.isEmpty()) branch.trim() else "$it:${branch.trim()}"}
+}
+
+/** `git rev-parse --show-toplevel HEAD --abbrev-ref HEAD` prints the branch on its third line; `HEAD` means detached. */
+internal fun branchFromRevParse(out:String):String? = out.lines().getOrNull(2)?.trim()?.takeIf {it.isNotEmpty() && it!="HEAD"}

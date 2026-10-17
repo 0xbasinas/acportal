@@ -127,6 +127,15 @@ pub struct WorkspaceAccess {
     /// `elicitation` out of the agent's client capabilities unless a phone asks for it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub form_elicitation: bool,
+    /// Per session: the host's own approvers do not act. Auto-approve and shell review stay off,
+    /// so every permission request and shell line goes to the person. It only removes help the
+    /// host would give; it never allows anything.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_approval: bool,
+    /// The client can show on/off options, so the agent may send `boolean` config options and the
+    /// host advertises `session.configOptions.boolean`. Older phones omit it and see only selects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub boolean_options: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -135,6 +144,8 @@ impl Default for WorkspaceAccess {
             write_files: true,
             terminal: true,
             form_elicitation: false,
+            manual_approval: false,
+            boolean_options: false,
         }
     }
 }
@@ -144,6 +155,9 @@ impl WorkspaceAccess {
         if self.form_elicitation {
             // Only form mode: URL mode would ask the phone to open agent-supplied links.
             capabilities["elicitation"] = json!({"form":{}});
+        }
+        if self.boolean_options {
+            capabilities["session"] = json!({"configOptions":{"boolean":{}}});
         }
         capabilities
     }
@@ -677,6 +691,8 @@ impl AcpConnection {
                 write_files: false,
                 terminal: false,
                 form_elicitation: false,
+                manual_approval: false,
+                boolean_options: false,
             },
             None,
         )
@@ -1542,6 +1558,25 @@ mod tests {
             json!({"outsideWorkspace":["~/.ssh/id_rsa"],"sandboxed":false,"agentTool":true})
         );
     }
+    #[test]
+    fn boolean_options_are_advertised_only_on_opt_in() {
+        let default = WorkspaceAccess::default();
+        assert!(default.capabilities().get("session").is_none());
+        let opted = WorkspaceAccess {
+            boolean_options: true,
+            ..default
+        };
+        assert_eq!(
+            opted.capabilities()["session"],
+            json!({"configOptions":{"boolean":{}}})
+        );
+        // Older clients send no flag; it defaults off.
+        let parsed: WorkspaceAccess =
+            serde_json::from_value(json!({"readFiles":true,"writeFiles":true,"terminal":true}))
+                .unwrap();
+        assert!(!parsed.boolean_options && !parsed.manual_approval);
+    }
+
     #[test]
     fn elicitation_is_advertised_only_on_opt_in_and_answers_are_checked() {
         let default = WorkspaceAccess::default();

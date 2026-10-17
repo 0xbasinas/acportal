@@ -52,6 +52,13 @@ pub struct AgentDefinition {
     /// Remote agents only, for a server that is not acpd: the absolute folder on that server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_cwd: Option<String>,
+    /// Another registered agent this entry is an account of. The target must exist, must not
+    /// itself be a profile, and must use the same command (and the same url when remote).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_of: Option<String>,
+    /// Short name for this account, shown under the base agent. The registry `name` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_label: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -85,6 +92,13 @@ fn looks_absolute(path: &str) -> bool {
             && bytes[1] == b':'
             && matches!(bytes[2], b'\\' | b'/'))
 }
+/// 1..64 ASCII letters, digits, `-` or `_`.
+pub fn agent_id_ok(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+}
 fn stdio() -> String {
     "stdio".into()
 }
@@ -117,6 +131,12 @@ pub struct Discovery {
     pub status: AgentStatus,
     pub reason: Option<String>,
     pub own_tools: bool,
+    /// Set when this entry is an account of another agent (`profileOf` in the registry).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_of: Option<String>,
+    /// Account name shown under the base agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_label: Option<String>,
     /// Whether host-approved commands run in the OS sandbox (`auto`) or unconfined (`off`).
     pub sandbox: Sandbox,
     /// How to start it (an npm shim becomes node plus its script). Never sent to the phone.
@@ -125,17 +145,25 @@ pub struct Discovery {
 }
 impl AgentDefinition {
     pub fn validate(&self) -> Result<()> {
-        if self.id.is_empty()
-            || self.id.len() > 64
-            || !self
-                .id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-        {
+        if !agent_id_ok(&self.id) {
             bail!("agent id must contain 1..64 ASCII letters, digits, '-' or '_'")
         }
         if self.name.trim().is_empty() {
             bail!("a name is required")
+        }
+        if let Some(target) = &self.profile_of {
+            if !agent_id_ok(target) {
+                bail!("profileOf must be an agent id")
+            }
+            if target == &self.id {
+                bail!("an agent cannot be a profile of itself")
+            }
+        }
+        if let Some(label) = &self.profile_label {
+            let count = label.chars().count();
+            if count == 0 || count > 64 || label.chars().any(char::is_control) {
+                bail!("profileLabel must be 1..64 characters without control characters")
+            }
         }
         match self.transport.as_str() {
             "stdio" => {
@@ -223,6 +251,8 @@ impl AgentDefinition {
                 },
                 reason: validation,
                 own_tools: self.own_tools,
+                profile_of: self.profile_of.clone(),
+                profile_label: self.profile_label.clone(),
                 sandbox: self.sandbox,
                 launch: None,
             };
@@ -247,25 +277,78 @@ impl AgentDefinition {
             status,
             reason: validation,
             own_tools: self.own_tools,
+            profile_of: self.profile_of.clone(),
+            profile_label: self.profile_label.clone(),
             sandbox: self.sandbox,
             launch,
         }
     }
 }
+fn read_definitions(raw: &str) -> Result<BTreeMap<String, AgentDefinition>> {
+    let definitions: Vec<AgentDefinition> =
+        serde_json::from_str(raw).context("registry must be a JSON array of agent definitions")?;
+    let mut agents = BTreeMap::new();
+    for definition in definitions {
+        definition
+            .validate()
+            .with_context(|| format!("invalid agent {}", definition.id))?;
+        if agents.insert(definition.id.clone(), definition).is_some() {
+            bail!("duplicate agent id")
+        }
+    }
+    Ok(agents)
+}
 impl Registry {
     pub fn parse(raw: &str) -> Result<Self> {
-        let definitions: Vec<AgentDefinition> = serde_json::from_str(raw)
-            .context("registry must be a JSON array of agent definitions")?;
-        let mut agents = BTreeMap::new();
-        for definition in definitions {
-            definition
-                .validate()
-                .with_context(|| format!("invalid agent {}", definition.id))?;
-            if agents.insert(definition.id.clone(), definition).is_some() {
-                bail!("duplicate agent id")
+        let agents = read_definitions(raw)?;
+        let registry = Self { agents };
+        registry.validate_profiles()?;
+        Ok(registry)
+    }
+    /// A profile names an agent in this registry, one step deep, with the same command.
+    /// A remote profile also keeps that agent's url. Checked after the entries are combined,
+    /// so a file can profile an agent that arrived from an earlier file.
+    fn validate_profiles(&self) -> Result<()> {
+        for agent in self.agents.values() {
+            let Some(target_id) = &agent.profile_of else {
+                continue;
+            };
+            let Some(target) = self.agents.get(target_id) else {
+                bail!("{} profiles unknown agent {target_id}", agent.id)
+            };
+            if target.profile_of.is_some() {
+                bail!(
+                    "{} profiles {target_id}, which is itself a profile",
+                    agent.id
+                )
+            }
+            // Safety flags are per entry, so an account cannot quietly drop the warning its base carries.
+            if target.own_tools && !agent.own_tools {
+                bail!(
+                    "{} must set ownTools like {target_id}, whose own tools bypass host review",
+                    agent.id
+                )
+            }
+            if agent.command != target.command {
+                bail!("{} must use the same command as {target_id}", agent.id)
+            }
+            if agent.url != target.url {
+                bail!("{} must use the same url as {target_id}", agent.id)
             }
         }
-        Ok(Self { agents })
+        Ok(())
+    }
+    /// Entries from a later file replace the same id, then profiles are checked again.
+    /// A failed check leaves this registry as it was.
+    fn merge_raw(&mut self, raw: &str) -> Result<()> {
+        let extra = read_definitions(raw)?;
+        let previous = self.agents.clone();
+        self.agents.extend(extra);
+        if let Err(error) = self.validate_profiles() {
+            self.agents = previous;
+            return Err(error);
+        }
+        Ok(())
     }
     /// Agent CLIs this host knows how to start in ACP mode, in display order (`registry/known.json`,
     /// following the public ACP agent registry). These are suggestions for the Add agent forms and
@@ -277,19 +360,32 @@ impl Registry {
         known
     }
     pub fn load(path: &Path) -> Result<Self> {
-        let builtins = Self::parse(include_str!("../registry/builtin.json"))?;
+        let mut registry = Self::parse(include_str!("../registry/builtin.json"))?;
         if !path.exists() {
-            return Ok(builtins);
+            return Ok(registry);
         }
-        let mut registry = builtins;
-        let custom = Self::parse(&std::fs::read_to_string(path).context("read agent registry")?)?;
-        registry.agents.extend(custom.agents);
+        registry
+            .merge_raw(&std::fs::read_to_string(path).context("read agent registry")?)
+            .context("agent registry")?;
         Ok(registry)
     }
     /// Adds or replaces one agent after the same validation a registry file gets.
+    /// A profile that does not fit is not kept.
     pub fn upsert(&mut self, definition: AgentDefinition) -> Result<()> {
         definition.validate()?;
-        self.agents.insert(definition.id.clone(), definition);
+        let id = definition.id.clone();
+        let previous = self.agents.insert(id.clone(), definition);
+        if let Err(error) = self.validate_profiles() {
+            match previous {
+                Some(previous) => {
+                    self.agents.insert(id, previous);
+                }
+                None => {
+                    self.agents.remove(&id);
+                }
+            }
+            return Err(error);
+        }
         Ok(())
     }
     pub fn contains(&self, id: &str) -> bool {
@@ -305,8 +401,17 @@ impl Registry {
                     .is_some_and(|stem| stem.eq_ignore_ascii_case(command))
             })
     }
-    pub fn remove(&mut self, id: &str) -> bool {
-        self.agents.remove(id).is_some()
+    /// Removes one agent. Refuses when another entry is a profile of it, and leaves the
+    /// registry unchanged in that case.
+    pub fn remove(&mut self, id: &str) -> Result<bool> {
+        let Some(previous) = self.agents.remove(id) else {
+            return Ok(false);
+        };
+        if let Err(error) = self.validate_profiles() {
+            self.agents.insert(id.to_owned(), previous);
+            return Err(error);
+        }
+        Ok(true)
     }
     pub fn get(&self, id: &str) -> Result<&AgentDefinition> {
         self.agents
@@ -474,5 +579,113 @@ mod tests {
             ),
             Some(binary)
         );
+    }
+    #[test]
+    fn profiles_require_one_step_and_the_same_command() {
+        let ok = Registry::parse(
+            r#"[{"id":"goose","name":"Goose","command":"goose","env":{"OPENAI_API_KEY":"preset-marker-value"}},{"id":"goose-work","name":"Goose work","command":"goose","args":["--profile","work"],"profileOf":"goose","profileLabel":"Work","env":{"OPENAI_API_KEY":"other-marker"}}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            ok.get("goose-work").unwrap().profile_of.as_deref(),
+            Some("goose")
+        );
+        let listed = serde_json::to_string(&ok.discover()).unwrap();
+        assert!(listed.contains("\"profileOf\":\"goose\""));
+        assert!(listed.contains("\"profileLabel\":\"Work\""));
+        assert!(!listed.contains("preset-marker-value"));
+        assert!(!listed.contains("other-marker"));
+        assert!(!listed.contains("OPENAI_API_KEY"));
+        // An old file, with neither field, still loads.
+        Registry::parse(r#"[{"id":"goose","name":"Goose","command":"goose"}]"#).unwrap();
+        for raw in [
+            r#"[{"id":"a","name":"A","command":"tool","profileOf":"missing"}]"#,
+            r#"[{"id":"a","name":"A","command":"tool","profileOf":"a"}]"#,
+            r#"[{"id":"a","name":"A","command":"tool"},{"id":"b","name":"B","command":"tool","profileOf":"a"},{"id":"c","name":"C","command":"tool","profileOf":"b"}]"#,
+            r#"[{"id":"a","name":"A","command":"tool"},{"id":"b","name":"B","command":"other","profileOf":"a"}]"#,
+        ] {
+            assert!(Registry::parse(raw).is_err(), "{raw}");
+        }
+    }
+    #[test]
+    fn a_later_file_can_add_a_profile_and_cannot_change_the_base_command() {
+        let mut registry =
+            Registry::parse(r#"[{"id":"goose","name":"Goose","command":"goose"}]"#).unwrap();
+        registry
+            .merge_raw(
+                r#"[{"id":"goose-work","name":"Work","command":"goose","profileOf":"goose","profileLabel":"Work"}]"#,
+            )
+            .unwrap();
+        let err = registry
+            .merge_raw(r#"[{"id":"goose","name":"Goose","command":"other-goose"}]"#)
+            .unwrap_err();
+        assert!(err.to_string().contains("same command"), "{err}");
+        assert_eq!(registry.get("goose").unwrap().command, "goose");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agents.json");
+        std::fs::write(
+            &path,
+            r#"[{"id":"goose","name":"Goose","command":"goose"},{"id":"work","name":"Work","command":"goose","profileOf":"goose","profileLabel":"Work"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            Registry::load(&path)
+                .unwrap()
+                .get("work")
+                .unwrap()
+                .profile_label
+                .as_deref(),
+            Some("Work")
+        );
+        std::fs::write(
+            &path,
+            r#"[{"id":"work","name":"Work","command":"goose","profileOf":"missing"}]"#,
+        )
+        .unwrap();
+        assert!(Registry::load(&path).is_err());
+    }
+    #[test]
+    fn a_remote_profile_keeps_the_same_url() {
+        let url = "wss://example.test/acp/far";
+        let raw = format!(
+            r#"[{{"id":"far","name":"Far","transport":"ws","url":"{url}","peer":"box","workspaceAlias":"work"}},{{"id":"far-two","name":"Far two","transport":"ws","url":"{url}","peer":"box","workspaceAlias":"work","profileOf":"far","profileLabel":"Two"}}]"#
+        );
+        assert!(Registry::parse(&raw).is_ok());
+        let other = r#"[{"id":"far","name":"Far","transport":"ws","url":"wss://example.test/acp/far","peer":"box","workspaceAlias":"work"},{"id":"far-two","name":"Far two","transport":"ws","url":"wss://example.test/acp/other","peer":"box","workspaceAlias":"work","profileOf":"far"}]"#;
+        let err = match Registry::parse(other) {
+            Ok(_) => panic!("a remote profile with a different url was accepted"),
+            Err(error) => error,
+        };
+        assert!(err.to_string().contains("same url"), "{err}");
+    }
+    #[test]
+    fn a_profile_cannot_drop_the_own_tools_warning_of_its_base() {
+        let base = r#"{"id":"claude","name":"Claude","command":"claude","ownTools":true}"#;
+        let weak = format!(
+            r#"[{base},{{"id":"claude-work","name":"Work","command":"claude","profileOf":"claude"}}]"#
+        );
+        let err = match Registry::parse(&weak) {
+            Ok(_) => panic!("a profile without ownTools was accepted"),
+            Err(error) => error,
+        };
+        assert!(err.to_string().contains("ownTools"), "{err}");
+        let strong = format!(
+            r#"[{base},{{"id":"claude-work","name":"Work","command":"claude","profileOf":"claude","ownTools":true}}]"#
+        );
+        assert!(Registry::parse(&strong).is_ok());
+        // A base without the flag does not force it on its accounts.
+        let plain = r#"[{"id":"a","name":"A","command":"t"},{"id":"b","name":"B","command":"t","profileOf":"a","ownTools":true}]"#;
+        assert!(Registry::parse(plain).is_ok());
+    }
+    #[test]
+    fn removing_a_base_agent_keeps_its_profiles() {
+        let mut registry = Registry::parse(
+            r#"[{"id":"goose","name":"Goose","command":"goose"},{"id":"work","name":"Work","command":"goose","profileOf":"goose"}]"#,
+        )
+        .unwrap();
+        assert!(registry.remove("goose").is_err());
+        assert!(registry.contains("goose"));
+        assert!(registry.remove("work").unwrap());
+        assert!(registry.remove("goose").unwrap());
     }
 }

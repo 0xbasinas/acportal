@@ -33,6 +33,7 @@ use uuid::Uuid;
 mod bridge;
 mod checks;
 mod git;
+mod pr;
 mod shared;
 
 #[derive(Clone)]
@@ -215,12 +216,14 @@ impl Host {
                 get(agent_definition).delete(remove_agent),
             )
             .route("/v1/agents/{id}/probe", post(probe_agent))
+            .route("/v1/agents/{id}/sessions", get(earlier_sessions))
             .route(
                 "/v1/workspaces",
                 get(workspaces).post(add_workspace).delete(remove_workspace),
             )
             .route("/v1/filesystem/directories", get(directories))
             .route("/v1/workspaces/browse", get(browse))
+            .route("/v1/presets", get(presets))
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
             .route("/v1/sessions/{id}/connect", get(connect))
@@ -244,6 +247,10 @@ impl Host {
             )
             .route("/v1/shared/history", post(shared::add_history))
             .route("/v1/commit-message", post(git::commit_message))
+            .route(
+                "/v1/pull-requests",
+                post(pr::create).layer(DefaultBodyLimit::max(pr::MAX_HTTP_BODY)),
+            )
             .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
@@ -429,8 +436,13 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "controlTakeover",
         "sharedDrafts",
         "agentProbe",
+        "agentSessionList",
+        "booleanOptions",
+        "manualApproval",
         "agentDiscovery",
         "commitMessage",
+        "pullRequests",
+        "presets",
         "scratchSessions",
     ];
     if host.config.orchestrator.enabled {
@@ -440,8 +452,51 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
-        "features":features,"activeSessions":host.sessions.active_count().await}),
+        "features":features,"gh": if gh_found() { "found" } else { "missing" },
+        "activeSessions":host.sessions.active_count().await}),
     ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresetQuery {
+    agent: String,
+}
+/// Whether `gh` can be started. `/v1/status` is polled every few seconds by every client, so the
+/// PATH search is repeated at most every 30 seconds.
+fn gh_found() -> bool {
+    static CACHE: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(30);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, found)) = *cache
+        && at.elapsed() < TTL
+    {
+        return found;
+    }
+    let found = crate::discovery::resolve("gh", None).is_some();
+    *cache = Some((std::time::Instant::now(), found));
+    found
+}
+/// Read-only presets for one agent. Nothing here is stored or applied to a session.
+async fn presets(
+    State(host): State<Host>,
+    Query(query): Query<PresetQuery>,
+) -> ApiResult<Json<Value>> {
+    if !crate::registry::agent_id_ok(&query.agent) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_parameter"));
+    }
+    let definition = host
+        .registry
+        .get(&query.agent)
+        .map_err(|_| ApiError(StatusCode::NOT_FOUND, "unknown_agent"))?;
+    let facts = crate::presets::Facts {
+        auto_approve: host.config.auto_approve.get(&query.agent),
+        shell_review: host.config.shell_review.get(&query.agent),
+        own_tools: definition.own_tools,
+        remote: definition.transport == "ws" || definition.url.is_some(),
+    };
+    Ok(Json(json!({
+        "presets": crate::presets::presets_for(&facts, crate::connection::WorkspaceAccess::default())
+    })))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {
     let active = host.sessions.list().await;
@@ -510,6 +565,8 @@ async fn probe_agent(
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
     };
     let session = host
         .sessions
@@ -522,6 +579,92 @@ async fn probe_agent(
     let setup = setup_choices(&metadata.setup).unwrap_or_else(|| json!({}));
     host.agent_setups.lock().unwrap().insert(id, setup.clone());
     Ok(Json(json!({ "setup": setup })))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EarlierQuery {
+    workspace: std::path::PathBuf,
+}
+/// Most earlier sessions returned, and the most pages asked of the agent for them.
+const EARLIER_MAX: usize = 50;
+const EARLIER_PAGES: usize = 3;
+const EARLIER_TITLE_CHARS: usize = 200;
+/// Read-only: sessions this agent remembers for one approved folder (`session/list`, only when
+/// the agent advertises it). Starts the agent in a throwaway session with no access, like a probe,
+/// asks, and stops it. Nothing is loaded or changed; opening one is the ordinary `loadSessionId`.
+/// The agent's `cwd` filter is not trusted: entries for another folder are dropped here.
+async fn earlier_sessions(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    Query(query): Query<EarlierQuery>,
+) -> ApiResult<Json<Value>> {
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&id, &query.workspace, None, Vec::new(), access)
+        .await
+        .map_err(input_error)?;
+    let metadata = session.metadata();
+    let capabilities = &metadata.initialization["agentCapabilities"];
+    let can_list = capabilities["sessionCapabilities"]["list"].is_object();
+    let can_load = capabilities["loadSession"] == true;
+    let mut found: Vec<Value> = Vec::new();
+    if can_list {
+        let cwd = metadata.workspace.to_string_lossy().into_owned();
+        let mut cursor: Option<String> = None;
+        for _ in 0..EARLIER_PAGES {
+            let mut params = json!({ "cwd": cwd });
+            if let Some(cursor) = &cursor {
+                params["cursor"] = json!(cursor);
+            }
+            let Ok(Ok(page)) = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.connection.request("session/list", params),
+            )
+            .await
+            else {
+                break;
+            };
+            for entry in page["sessions"].as_array().into_iter().flatten() {
+                let (Some(session_id), Some(entry_cwd)) =
+                    (entry["sessionId"].as_str(), entry["cwd"].as_str())
+                else {
+                    continue;
+                };
+                if std::path::Path::new(entry_cwd) != metadata.workspace
+                    || session_id.is_empty()
+                    || session_id.len() > 256
+                    || found.len() >= EARLIER_MAX
+                {
+                    continue;
+                }
+                found.push(json!({
+                    "sessionId": session_id,
+                    "title": entry["title"].as_str()
+                        .map(|t| t.chars().filter(|c| !c.is_control()).take(EARLIER_TITLE_CHARS).collect::<String>()),
+                    "updatedAt": entry["updatedAt"].as_str().filter(|t| t.len() <= 40),
+                }));
+            }
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() || found.len() >= EARLIER_MAX {
+                break;
+            }
+        }
+    }
+    drop(session);
+    let _ = host.sessions.remove(metadata.id).await;
+    Ok(Json(json!({
+        "listSupported": can_list,
+        "loadSupported": can_load,
+        "sessions": found,
+    })))
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();
@@ -825,13 +968,13 @@ async fn remove_agent(State(host): State<Host>, Path(id): Path<String>) -> ApiRe
     let settings = host.sessions.launch_settings();
     let state = &settings.config.state_directory;
     let mut data = UserData::load(state).map_err(user_change_error)?;
-    let before = data.agents.len();
-    data.agents.retain(|agent| agent.id != id);
-    if data.agents.len() == before {
+    if !data.agents.iter().any(|agent| agent.id == id) {
         return Err(ApiError(StatusCode::NOT_FOUND, "not_removable"));
     }
     let mut registry = settings.registry.clone();
-    registry.remove(&id);
+    // A profile of this agent stays registered. Refuse before the saved copy is deleted.
+    registry.remove(&id).map_err(input_error)?;
+    data.agents.retain(|agent| agent.id != id);
     data.save(state).map_err(user_change_error)?;
     host.sessions
         .reload(settings.config.clone(), registry)

@@ -1,6 +1,6 @@
 // Component tests for the new-session composer (jsdom, no layout: geometry is stubbed).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NewSessionHome, type StartRequest } from '../src/NewSession'
 import { filterChoices, liveSelectors, liveValue, arranged, placePopover, sections, selectorsFromAcp, setRequest, setupFromAcp } from '../src/agentSetup'
 import type { AgentInfo } from '../src/types'
@@ -39,6 +39,27 @@ const chip = (name: RegExp): HTMLElement => {
   return b
 }
 const prompt = () => screen.getByLabelText('Prompt for the new session') as HTMLTextAreaElement
+
+describe('agent profiles', () => {
+  it('groups a profile under its base and leaves a missing base at the top', () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    setup({ agents: [
+      { id: 'goose', name: 'Goose', status: 'available' },
+      { id: 'goose-work', name: 'Goose work', status: 'available', profileOf: 'goose', profileLabel: 'Work' },
+      { id: 'mock', name: 'Mock', status: 'available' },
+      { id: 'orphan', name: 'Orphan', status: 'available', profileOf: 'gone', profileLabel: 'Lost' },
+    ] })
+    fireEvent.click(chip(/Goose/))
+    const dialog = screen.getByRole('dialog', { name: 'Agent' })
+    const rows = [...dialog.querySelectorAll<HTMLElement>('[data-item]')]
+    expect(rows.map((row) => row.textContent?.replace('profile', '').trim())).toEqual(['Goose', 'Work', 'Mock', 'Lost', 'Run on several agents…2-3 agents'])
+    expect(rows[1].getAttribute('data-profile-of')).toBe('goose')
+    expect(rows[3].getAttribute('data-profile-of')).toBeNull()
+    fireEvent.click(rows[1])
+    expect(chip(/Work/)).toBeTruthy()
+    localStorage.removeItem('acportal.lastAgent')
+  })
+})
 
 describe('chips and dropdowns', () => {
   it('opens a dropdown, moves with the arrow keys, and Escape closes it and returns focus', async () => {
@@ -289,6 +310,110 @@ describe('options that change other options', () => {
   })
 })
 
+describe('permission presets', () => {
+  const presets = [
+    { id: 'supervised', label: 'Supervised', effects: ['Each write asks you before it runs.', 'Each command asks you before it runs.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+    { id: 'auto-review', label: 'Auto-review', effects: ['Some command lines may be allowed or refused by the host\'s shell rules. Undecided lines still ask.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true } },
+  ]
+  const modeAgent: AgentInfo = {
+    ...agents[0],
+    setup: { modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'full-access', name: 'Full access' }] } },
+  }
+  const loadPresets = vi.fn(async () => presets)
+
+  it('shows presets first, keeps the agent mode separate, and a missing remembered id grants nothing', async () => {
+    localStorage.setItem('acportal.preset.goose', 'full-access')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    const dialog = screen.getByRole('dialog', { name: 'Access rights' })
+    const presetButtons = [...dialog.querySelectorAll<HTMLElement>('[data-preset]')]
+    expect(presetButtons.map((button) => button.getAttribute('data-preset'))).toEqual(['supervised', 'auto-review'])
+    expect(dialog.querySelector('[data-preset="full-access"]')).toBeNull()
+    expect(dialog.textContent).toContain('Each write asks you before it runs.')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-preset="auto-review"]')!)
+    expect(dialog.textContent).toContain('Undecided lines still ask')
+    fireEvent.click(dialog.querySelector<HTMLElement>('[data-mode="full-access"]')!)
+    expect(chip(/Auto-review/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, mcp: true })
+    expect(onStart.mock.calls[0][0].choices).toEqual([{ id: 'mode', value: 'full-access' }])
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('remembers a preset per agent and custom toggles leave that preset', async () => {
+    localStorage.setItem('acportal.preset.goose', 'auto-review')
+    setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Auto-review/)).toBeTruthy())
+    fireEvent.click(chip(/Auto-review/))
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(localStorage.getItem('acportal.preset.goose')).toBe('custom')
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('Ask for everything starts the session with manual approval and plain Supervised does not', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['The host\'s auto-approve and shell rules do not act in this session. Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'one' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1))
+    expect(onStart.mock.calls[0][0].access.manual).toBeFalsy()
+  })
+
+  it('picking Ask for everything sets the manual flag, and a custom toggle keeps it visible', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByRole('dialog', { name: 'Access rights' }).querySelector<HTMLElement>('[data-preset="ask-all"]')!)
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(screen.getByText(/auto-approve and shell rules are off for this session/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'two' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, manual: true })
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('applies the next agent preset when the agent changes', async () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+    const { onStart } = setup({ loadPresets, agents: [modeAgent, agents[1]] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByText('Write files'))
+    expect(chip(/Custom/)).toBeTruthy()
+    fireEvent.click(chip(/Goose/))
+    fireEvent.click(screen.getByText('Mock'))
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].agent).toBe('mock')
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true })
+    localStorage.removeItem('acportal.lastAgent')
+    localStorage.removeItem('acportal.preset.goose')
+    localStorage.removeItem('acportal.preset.mock')
+  })
+})
+
 describe('model section', () => {
   // In the agent's order: an uncategorised provider, the mode, the model, its effort and context.
   const agentOptions = { configOptions: [
@@ -342,7 +467,7 @@ describe('reading session options like the phone', () => {
       { id: 'm', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ group: 'g', name: 'Provider G', options: [{ value: 'a', name: 'A', description: 'fast' }] }] },
       { id: 'flag', name: 'Some toggle', type: 'boolean', currentValue: true }
     ] })
-    expect(list.map((x) => x.id)).toEqual(['effort', 'm'])
+    expect(list.map((x) => x.id)).toEqual(['effort', 'm', 'flag']) // an on/off option is read now; it shows as a switch
     expect(list[1].choices).toEqual([{ value: 'a', name: 'A', description: 'fast', group: 'Provider G' }])
     expect(arranged(list)[0].id).toBe('m')
     expect(setRequest(list[0], 'low')).toEqual({ method: 'session/set_config_option', params: { configId: 'effort', value: 'low' } })
@@ -392,5 +517,46 @@ describe('dropdown placement', () => {
     expect(pop.dataset.placement).toBe('up')
     expect(pop.className).toContain(' up')
     expect(pop.style.transform).toBe('translateX(-188px)')
+  })
+})
+
+describe('earlier sessions of an agent', () => {
+  const listed = { listSupported: true, loadSupported: true, sessions: [{ sessionId: 'old-1', title: 'First chat', updatedAt: '2026-10-01T10:00:00Z' }, { sessionId: 'old-2' }] }
+
+  it('is hidden on a host without the feature and asks nothing until opened', async () => {
+    setup()
+    expect(screen.queryByRole('button', { name: /Earlier/ })).toBeNull()
+    const loadEarlier = vi.fn(async () => listed)
+    cleanup()
+    setup({ loadEarlier, openEarlier: vi.fn(async () => undefined) })
+    expect(loadEarlier).not.toHaveBeenCalled()
+    fireEvent.click(chip(/Earlier/))
+    await waitFor(() => expect(loadEarlier).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('First chat')).toBeTruthy()
+    expect(screen.getByText('old-2')).toBeTruthy()
+  })
+
+  it('opens the picked session with its id and says so when the agent cannot list or reopen', async () => {
+    const openEarlier = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => listed), openEarlier })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    await waitFor(() => expect(openEarlier).toHaveBeenCalledOnce())
+    expect(openEarlier.mock.calls[0][2]).toBe('old-1')
+    // The composer's current access (including Ask for everything) goes with it.
+    expect((openEarlier.mock.calls[0] as unknown[])[3]).toMatchObject({ read: true, write: true, terminal: true })
+    cleanup()
+
+    const noOpen = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => ({ ...listed, loadSupported: false })), openEarlier: noOpen })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    expect(screen.getByText(/cannot reopen them/)).toBeTruthy()
+    expect(noOpen).not.toHaveBeenCalled()
+    cleanup()
+
+    setup({ loadEarlier: vi.fn(async () => ({ listSupported: false, loadSupported: true, sessions: [] })) })
+    fireEvent.click(chip(/Earlier/))
+    expect(await screen.findByText(/does not list its earlier sessions/)).toBeTruthy()
   })
 })

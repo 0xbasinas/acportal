@@ -1221,11 +1221,25 @@ impl Orchestrator {
         if !rights.within(parent_rights) {
             return Err(failure(AdmissionError::RightsNotAllowed));
         }
+        // A child answers to the person the way its parent does: if the parent was started with
+        // "Ask for everything", the host's own approvers stay off for the child too. A parent that
+        // cannot be read counts as manual, the stricter answer.
+        let parent_session = self.lock().runtime.get(&caller).and_then(|r| r.session);
+        let manual_approval = match parent_session {
+            Some(session) => manager
+                .metadata(session)
+                .await
+                .map(|parent| parent.workspace_access.manual_approval)
+                .unwrap_or(true),
+            None => true,
+        };
         let access = WorkspaceAccess {
             read_files: rights.read,
             write_files: rights.write,
             terminal: rights.terminal,
             form_elicitation: false,
+            manual_approval,
+            boolean_options: false,
         };
         let deadline = arguments
             .get("deadline_seconds")

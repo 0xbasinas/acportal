@@ -56,6 +56,8 @@ async fn workspace_access_is_negotiated_and_enforced_even_when_agent_ignores_it(
             write_files: mask & 2 != 0,
             terminal: mask & 4 != 0,
             form_elicitation: false,
+            manual_approval: false,
+            boolean_options: false,
         };
         let manager = manager(
             workspace.path(),
@@ -843,6 +845,56 @@ async fn shell_review_rules_auto_allow_deny_and_ask() {
     assert!(pending.await.unwrap().is_err());
     reviewed.shutdown().await;
     plain_manager.shutdown().await;
+}
+
+/// A line the rules would allow still goes to the person when the session asked for manual
+/// approval. Linux only, like the other shell-line tests.
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn manual_approval_keeps_shell_review_out_of_the_session() {
+    use acpd::shell_review::ShellReviewConfig;
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("a.txt"), "x").unwrap();
+    let reviewed = manager_with_review(
+        workspace.path(),
+        &[],
+        ShellReviewConfig {
+            rules: true,
+            model: None,
+            inert_env: None,
+        },
+    );
+    let session = reviewed
+        .open_configured(
+            "test-agent",
+            workspace.path(),
+            None,
+            Vec::new(),
+            acpd::connection::WorkspaceAccess {
+                manual_approval: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    let pending = create_shell(&session, &session_id, "ls a.txt").await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdSource"],
+        "host-shell-command"
+    );
+    assert!(consent["params"]["_meta"].get("acpdAutoReview").is_none());
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(pending.await.unwrap().is_err());
+    reviewed.shutdown().await;
 }
 
 #[tokio::test]

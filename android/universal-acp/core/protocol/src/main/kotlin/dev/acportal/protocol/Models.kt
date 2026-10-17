@@ -11,7 +11,11 @@ fun JsonElement?.flag(): Boolean = (this as? JsonPrimitive)?.booleanOrNull == tr
 fun JsonElement?.number(): Long = (this as? JsonPrimitive)?.longOrNull ?: 0
 
 @Serializable
-data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false,val removable:Boolean=false)
+data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false,val removable:Boolean=false,
+    /** Another registered agent this entry is an account of (`profileOf` in the host registry). */
+    val profileOf:String?=null,
+    /** Short account name shown under the base agent. */
+    val profileLabel:String?=null)
 
 /**
  * One agent CLI the host knows how to start in ACP mode (`GET /v1/agents/discover`), with whether it
@@ -39,7 +43,11 @@ data class Workspace(val path: String, val name: String, val removable: Boolean 
 @Serializable
 data class DirectoryListing(val path: String? = null, val parent: String? = null, val entries: List<Workspace> = emptyList())
 @Serializable
-data class WorkspaceAccess(val readFiles:Boolean=true,val writeFiles:Boolean=true,val terminal:Boolean=true)
+data class WorkspaceAccess(val readFiles:Boolean=true,val writeFiles:Boolean=true,val terminal:Boolean=true,
+    /** The host's auto-approve and shell review stay off for this session; every request waits for the person. */
+    val manualApproval:Boolean=false,
+    /** The client shows on/off options, so the host advertises `session.configOptions.boolean` to the agent. */
+    val booleanOptions:Boolean=false)
 @Serializable
 data class SessionInfo(
     val id: String, val agentId: String, val acpSessionId: String,
@@ -52,9 +60,19 @@ data class SessionInfo(
     val remotePeer:String?=null,
 )
 @Serializable
-data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList())
+data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList(),
+    /** `found` or `missing`: whether the host can start `gh` (not whether it is signed in). */
+    val gh: String? = null)
 /** Host feature: forwards agent form elicitations when the phone opts in at session creation. */
 const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
+/** Host accepts `workspaceAccess.manualApproval` (the "Ask for everything" switch). Older hosts reject the field. */
+const val HOST_FEATURE_MANUAL_APPROVAL = "manualApproval"
+/** Host sends on/off config options when asked (`workspaceAccess.booleanOptions`). */
+const val HOST_FEATURE_BOOLEAN_OPTIONS = "booleanOptions"
+/** Host lists what an agent remembers for a folder (`GET /v1/agents/{id}/sessions`). */
+const val HOST_FEATURE_AGENT_SESSION_LIST = "agentSessionList"
+/** Host opens pull requests with its own `gh` (`POST /v1/pull-requests`). */
+const val HOST_FEATURE_PULL_REQUESTS = "pullRequests"
 /** Host keeps drafts, titles and prompt history for all paired devices (`/v1/shared`). */
 const val HOST_FEATURE_SHARED_DRAFTS = "sharedDrafts"
 @Serializable
@@ -174,3 +192,11 @@ fun autoReviewLabel(review:JsonObject):String {
         else->"Auto-review"
     }
 }
+
+/** One session an agent remembers for a folder. */
+@Serializable
+data class EarlierSession(val sessionId:String,val title:String?=null,val updatedAt:String?=null)
+
+/** What `GET /v1/agents/{id}/sessions` returns. `loadSupported` says whether the agent can reopen them. */
+@Serializable
+data class EarlierSessions(val listSupported:Boolean=false,val loadSupported:Boolean=false,val sessions:List<EarlierSession> = emptyList())

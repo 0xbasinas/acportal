@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -63,7 +64,7 @@ import kotlinx.serialization.json.*
 }
 
 @Composable fun SessionOptionsScreen(info:SessionInfo,state:SessionState,enabled:Boolean,onBack:()->Unit,onConfigure:(String,JsonObject)->Unit) {
-    val configuration=remember(state.configOptions) {state.configOptions.map {it.objectValue()}.filter {it["type"].text()=="select"}}
+    val configuration=remember(state.configOptions) {state.configOptions.map {it.objectValue()}.filter {it["type"].text()=="select" || it["type"].text()=="boolean"}}
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Session options",onBack=onBack)
         if(state.permissions.isNotEmpty())TextButton(onBack,Modifier.padding(horizontal=24.dp)) {Text(if(state.permissions.values.first().isElicitation)"Return to the agent's question" else "Return to pending permission")}
@@ -76,6 +77,8 @@ import kotlinx.serialization.json.*
                 sections.forEach {section->
                     if(sections.size>1)Text(section.title,Modifier.padding(top=8.dp).semantics {heading()},style=MaterialTheme.typography.titleSmall)
                     section.options.forEach {option->
+                        if(option["type"].text()=="boolean")ConfigSwitch(option,enabled) {on->onConfigure("session/set_config_option",buildJsonObject {put("configId",option["id"].text());put("type","boolean");put("value",on)})}
+                        else 
                         ConfigSelector(option,enabled) {value->onConfigure("session/set_config_option",buildJsonObject {put("configId",option["id"].text());put("value",value)})}
                     }
                 }
@@ -96,6 +99,18 @@ import kotlinx.serialization.json.*
             Text("Available options come from the connected agent.",Modifier.padding(top=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TextButton(onBack,Modifier.fillMaxWidth().padding(24.dp).heightIn(min=48.dp)) {Text("Done")}
+    }
+}
+
+/** An on/off option the agent sends as `type: "boolean"`; the value goes back as a JSON boolean. */
+@Composable private fun ConfigSwitch(option:JsonObject,enabled:Boolean,onChange:(Boolean)->Unit) {
+    val on=(option["currentValue"] as? JsonPrimitive)?.booleanOrNull==true
+    Row(Modifier.fillMaxWidth().heightIn(min=56.dp).toggleable(on,enabled=enabled,role=Role.Switch,onValueChange=onChange).testTag("config-switch:${option["id"].text()}"),verticalAlignment=Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(option["name"].text(),style=MaterialTheme.typography.bodyLarge)
+            option["description"].text().takeIf {it.isNotBlank()}?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        }
+        Switch(on,null,enabled=enabled)
     }
 }
 

@@ -472,6 +472,10 @@ pub fn should_watch(policy: &AutoApproveConfig, remote: bool, in_worktree: bool)
 /// qualifies. Never fails the session: a problem only means nothing is auto-approved.
 pub fn spawn(session: &Arc<AcpSession>, config: &crate::config::Config) {
     let metadata = session.metadata();
+    // A session started with manual approval is answered by a person only.
+    if metadata.workspace_access.manual_approval {
+        return;
+    }
     let Some(policy) = config.auto_approve.get(&metadata.agent_id) else {
         return;
     };
