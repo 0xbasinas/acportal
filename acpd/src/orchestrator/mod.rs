@@ -1226,6 +1226,7 @@ impl Orchestrator {
             write_files: rights.write,
             terminal: rights.terminal,
             form_elicitation: false,
+            manual_approval: false,
         };
         let deadline = arguments
             .get("deadline_seconds")

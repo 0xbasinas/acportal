@@ -43,6 +43,7 @@ const FOLDER_EDITS: &str =
     "Edits inside the session folder that match the host's auto-approve rules are allowed once.";
 const OUTSIDE: &str = "Deletes, fetches and anything outside the folder still ask.";
 const UNDECIDED: &str = "Some command lines may be allowed or refused by the host's shell rules. Undecided lines still ask.";
+const MANUAL: &str = "The host's auto-approve and shell rules do not act in this session. Every request waits for you.";
 const OWN_TOOLS: &str = "This agent's own tools are not covered. Those still ask you.";
 
 fn auto_on<'a>(facts: &'a Facts<'a>) -> Option<&'a AutoApproveConfig> {
@@ -65,6 +66,7 @@ fn bundle() -> WorkspaceAccess {
         write_files: true,
         terminal: true,
         form_elicitation: false,
+        manual_approval: false,
     }
 }
 
@@ -76,6 +78,7 @@ fn cap(bundle: WorkspaceAccess, ceiling: WorkspaceAccess) -> WorkspaceAccess {
         write_files: bundle.write_files && ceiling.write_files,
         terminal: bundle.terminal && ceiling.terminal,
         form_elicitation: false,
+        manual_approval: false,
     }
 }
 
@@ -149,6 +152,24 @@ pub fn presets_for(facts: &Facts<'_>, ceiling: WorkspaceAccess) -> Vec<Preset> {
             push_own(effects, facts);
         },
     )];
+    // Only worth offering when the host would otherwise answer some requests itself.
+    let would_help = (policy.is_some() && cap(bundle(), ceiling).write_files)
+        || (review && cap(bundle(), ceiling).terminal);
+    if would_help {
+        let mut ask_all = make(
+            "ask-all",
+            "Ask for everything",
+            ceiling,
+            |effects, access| {
+                push_writes(effects, access, None);
+                push_commands(effects, access, false);
+                effects.push(MANUAL.to_owned());
+                push_own(effects, facts);
+            },
+        );
+        ask_all.workspace_access.manual_approval = true;
+        presets.push(ask_all);
+    }
     if policy.is_some() && cap(bundle(), ceiling).write_files {
         presets.push(make(
             "auto-edits",
@@ -241,11 +262,26 @@ mod tests {
         let edits = policy(AutoRisk::Medium, true);
         let rules = review(true);
         let both = presets_for(&facts(Some(&edits), Some(&rules), true, false), open);
-        assert_eq!(ids(&both), ["supervised", "auto-edits", "auto-review"]);
+        assert_eq!(
+            ids(&both),
+            ["supervised", "ask-all", "auto-edits", "auto-review"]
+        );
         assert!(both.iter().all(|preset| text(preset).contains(OWN_TOOLS)));
-        assert!(text(&both[1]).contains("task worktree"));
-        assert!(text(&both[1]).contains(OUTSIDE));
-        assert!(text(&both[2]).contains("Undecided lines still ask"));
+        // Only Ask for everything turns the host's own approvers off for the session.
+        assert!(both[1].workspace_access.manual_approval);
+        assert!(
+            both.iter()
+                .filter(|preset| preset.id != "ask-all")
+                .all(|preset| !preset.workspace_access.manual_approval)
+        );
+        assert!(text(&both[1]).contains(MANUAL), "{}", text(&both[1]));
+        assert!(text(&both[1]).contains(WRITES_ASK));
+        assert!(text(&both[1]).contains(COMMANDS_ASK));
+        assert!(!text(&both[1]).contains("allowed once"));
+        assert!(!text(&both[1]).contains("Undecided"));
+        assert!(text(&both[2]).contains("task worktree"));
+        assert!(text(&both[2]).contains(OUTSIDE));
+        assert!(text(&both[3]).contains("Undecided lines still ask"));
         assert!(
             both.iter()
                 .all(|preset| preset.id != "full" && preset.id != "full-access")
@@ -257,8 +293,9 @@ mod tests {
 
         let anywhere = policy(AutoRisk::Low, false);
         let folder = presets_for(&facts(Some(&anywhere), None, false, false), open);
-        assert!(text(&folder[1]).contains("session folder"));
-        assert!(!text(&folder[1]).contains("task worktree"));
+        assert_eq!(ids(&folder), ["supervised", "ask-all", "auto-edits"]);
+        assert!(text(&folder[2]).contains("session folder"));
+        assert!(!text(&folder[2]).contains("task worktree"));
 
         let remote = presets_for(&facts(Some(&edits), Some(&rules), true, true), open);
         assert_eq!(ids(&remote), ["supervised"]);
@@ -309,6 +346,7 @@ mod tests {
             write_files: false,
             terminal: false,
             form_elicitation: true,
+            manual_approval: true,
         };
         let edits = policy(AutoRisk::Medium, false);
         let rules = review(true);

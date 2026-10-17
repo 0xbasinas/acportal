@@ -561,6 +561,7 @@ async fn probe_agent(
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
     };
     let session = host
         .sessions

@@ -330,7 +330,7 @@ export default function App() {
         if (!w.ok) return `Could not switch branch: ${w.error}`
       }
     }
-    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
+    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
     const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
     if (!r.ok) return ({ unsupported_mcp_transport: 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers', branch_failed: 'Git could not make or switch to that branch (uncommitted changes in the way, or the branch is checked out elsewhere).', worktree_path_unavailable: 'The worktree folder already exists or is outside the host folders.', invalid_branch_name: 'That is not a valid branch name.', not_a_repository: 'This folder is not a git repository.' } as Record<string, string>)[r.code ?? ''] ?? r.error
     if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
@@ -349,7 +349,7 @@ export default function App() {
     setStarting({ hostId: hostId!, title, agent: r.agent, workspace: r.workspace })
     lastCreated.current = undefined
     const b = r.branch
-    const e = await createSession(r.agent, r.workspace, { read: r.access.read, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
+    const e = await createSession(r.agent, r.workspace, { read: r.access.read, manual: r.access.manual, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
     setStarting(undefined)
     if (e) return e
     const sid = lastCreated.current
@@ -764,5 +764,5 @@ export default function App() {
   )
 }
 
-type NewOpts = { read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
+type NewOpts = { manual?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
 const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }

@@ -5,10 +5,10 @@ export type Preset = {
   id: string
   label: string
   effects: string[]
-  workspaceAccess: { readFiles: boolean; writeFiles: boolean; terminal: boolean }
+  workspaceAccess: { readFiles: boolean; writeFiles: boolean; terminal: boolean; manualApproval?: boolean }
 }
 
-export type Rights = { read: boolean; write: boolean; terminal: boolean }
+export type Rights = { read: boolean; write: boolean; terminal: boolean; /** The host's own approvers stay off for this session. */ manual?: boolean }
 
 export const presetKey = (agent: string): string => `acportal.preset.${agent}`
 
@@ -19,6 +19,7 @@ export function applyPreset<T extends Rights>(access: T, preset: Preset): T {
     read: preset.workspaceAccess.readFiles,
     write: preset.workspaceAccess.writeFiles,
     terminal: preset.workspaceAccess.terminal,
+    manual: Boolean(preset.workspaceAccess.manualApproval),
   }
 }
 
@@ -26,4 +27,5 @@ export function sameRights(access: Rights, preset: Preset): boolean {
   return access.read === preset.workspaceAccess.readFiles
     && access.write === preset.workspaceAccess.writeFiles
     && access.terminal === preset.workspaceAccess.terminal
+    && Boolean(access.manual) === Boolean(preset.workspaceAccess.manualApproval)
 }

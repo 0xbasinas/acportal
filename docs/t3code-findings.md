@@ -133,3 +133,11 @@ Not done, and why:
 - Timeout cleanup of `gh` children (`git`, credential helpers): only `gh` is killed.
 - `service.rs` is still one file with per-platform `cfg_attr` attributes.
 - `--no-console` was not run on a logon task, so whether the window is gone is unverified. No service was installed on a machine.
+
+## Ask for everything (17 October 2026)
+
+Decision from the review: presets get a per-session switch. `workspaceAccess.manualApproval` (default false) keeps the host's auto-approve watcher and shell reviewer out of one session. `GET /v1/presets` lists `ask-all` only when one of them would otherwise act. The consent change, its limits (`ownTools`, delegated tasks, restarts, remote agents) and the tests are in [security.md](security.md#per-session-manual-approval-ask-for-everything).
+
+Tested: `a_session_with_manual_approval_is_never_answered_by_the_host` (same agent, policy and request answered by the host without the switch, left to the person with it; with the guard disabled it failed, then the guard was restored), preset unit tests, and four desktop tests. `manual_approval_keeps_shell_review_out_of_the_session` is Linux only and was not compiled or run on this Windows machine; it relies on the Linux Actions job.
+
+Unverified: the Electron window; the Android app does not send the flag.

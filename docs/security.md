@@ -88,6 +88,25 @@ Frames, pending requests, permission requests, history bytes, history event coun
 
 The host logs session UUID lifecycle events, not prompts, code, command arguments, env values, authorization headers or agent stderr. The optional `[logging]` file sink stores those same records in an owner-only file with size rotation and a fixed number of retained files, so its disk use is bounded. The optional `frame_metadata` mode logs only fixed-vocabulary frame metadata (direction, kind, sanitized method/update name, error code, size), never params, results, error text or ids. `doctor --agent` prints only advertised sign-in method ids/names and JSON-RPC error codes. Doctor reads the configured TLS private key only to confirm it matches the certificate and never prints key material or file paths in TLS failures. Stderr is drained in fixed chunks to avoid deadlock. Raw agent error text is replaced by its JSON-RPC error code. The local UI still renders agent content by user request; terminal output and local cache must be treated as sensitive.
 
+## Per-session manual approval ("Ask for everything")
+
+Auto-approve (`[auto_approve.<agent>]`) and shell review (`[shell_review.<agent>]`) are host configuration. Before this switch they applied to every qualifying session of that agent, and a person starting a session could not opt out. `workspaceAccess.manualApproval` (boolean, default false, omitted when false) is that opt-out, for one session.
+
+**What changes.** When it is true at session start, the host does not start the auto-approve watcher for the session (`auto_approve::spawn` returns first) and does not hand the agent's connection a shell reviewer (`session.rs`, the `shell_review` argument is `None`). So every permission request and every shell line goes to the person, as it does for an agent with no configuration at all. The flag is part of the stored session metadata and is shown back in `workspaceAccess`.
+
+**Why it is safe to add.** It can only remove help the host would give. It cannot allow anything, widen a right, change `workspace_roots`, or skip a consent that is mandatory today: reads, writes and terminals still need the same `readFiles`, `writeFiles` and `terminal` flags and the same host-side consent. The hard-deny list, the OS sandbox, workspace containment and the scope check on terminal consents are unaffected, because they are not approvers. Any client that can create a session can already create it with fewer rights, so choosing "ask more" adds no authority. The flag is part of `WorkspaceAccess`, which is `deny_unknown_fields`, so an older host rejects a request that carries it instead of silently ignoring it and answering for the person.
+
+**What it does not cover.**
+
+- An agent with `ownTools` runs its own edits and commands without asking the host. Manual approval cannot stop that, and the presets text says so.
+- A delegated task (orchestrator) opens its own session with its own `workspaceAccess`; it does not inherit this switch, and a supervising agent or `[auto_approve]` in a task worktree can still act there. Turning delegation on is a separate decision.
+- A session loaded after a host restart is a new session. The client sends its `workspaceAccess` again; the host does not remember the choice on the person's behalf.
+- Remote (`ws`) agents never had these approvers, so the switch changes nothing for them. It is not offered for them.
+
+**How it is offered.** `GET /v1/presets` lists `ask-all` ("Ask for everything") only when the host would otherwise answer something itself: auto-approve is on and writes are allowed, or shell review is on and commands are allowed. With neither configured, `supervised` already means the same. The preset names only flags the client can already send (`readFiles`, `writeFiles`, `terminal`, `manualApproval`); `POST /v1/sessions` still rejects a `preset` field. The desktop shows the active setting, and keeps showing that the host's rules are off if the person then changes a single right ("Custom").
+
+**Tests.** `acpd/tests/auto_approve.rs` runs the same agent, policy and request twice: the host answers it by itself without the switch and leaves it to the person with the switch; removing the guard made that test fail. `acpd/tests/lifecycle.rs` has the matching Linux-only shell test. `acpd/src/presets.rs` and the desktop tests cover when the preset is offered and that only it sets the flag.
+
 ## Implemented network security
 
 Bind to loopback by default. Remote listeners require TLS through a verified reverse proxy or a built-in TLS listener. Android rejects cleartext remote WebSocket URLs and certificate validation failures. Never install a permissive trust manager.

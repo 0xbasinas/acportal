@@ -404,6 +404,7 @@ impl Peer {
             write_files: write,
             terminal,
             form_elicitation: false,
+            manual_approval: false,
         };
         let session = match self
             .host

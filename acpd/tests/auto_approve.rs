@@ -415,3 +415,46 @@ async fn the_model_is_never_asked_about_what_the_rules_would_not_allow() {
     );
     rig.manager.shutdown().await;
 }
+
+/// Same agent, same policy, same request as the first test. Only the session's switch differs.
+#[tokio::test]
+async fn a_session_with_manual_approval_is_never_answered_by_the_host() {
+    let workspace = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let manager = manager(
+        workspace.path(),
+        state.path(),
+        &["--permission-path", "src/lib.rs"],
+        Some(medium()),
+    );
+    // Control: without the switch the host answers this request itself.
+    let control = manager.create("mock", workspace.path()).await.unwrap();
+    let done = tokio::time::timeout(Duration::from_secs(10), control.prompt("go"))
+        .await
+        .expect("the control turn finishes without a person")
+        .unwrap();
+    assert_eq!(done["stopReason"], "end_turn");
+    assert_eq!(reviews(&control).len(), 1);
+
+    let manual = manager
+        .open_configured(
+            "mock",
+            workspace.path(),
+            None,
+            Vec::new(),
+            acpd::connection::WorkspaceAccess {
+                manual_approval: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(manual.metadata().workspace_access.manual_approval);
+    let turn = start_turn(&manual);
+    stays_with_the_person(&manual, turn).await;
+    assert!(
+        reviews(&manual).is_empty(),
+        "the host recorded a review for a manual session"
+    );
+    manager.shutdown().await;
+}

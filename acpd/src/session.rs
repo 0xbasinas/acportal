@@ -450,7 +450,11 @@ impl SessionManager {
                 config.runtime.clone(),
                 &workspace,
                 access,
-                config.shell_review.get(agent_id),
+                // Manual approval keeps the host's shell rules and model reviewer out of this session.
+                config
+                    .shell_review
+                    .get(agent_id)
+                    .filter(|_| !access.manual_approval),
             )?,
             None => {
                 let peer = definition

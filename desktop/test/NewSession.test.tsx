@@ -354,6 +354,43 @@ describe('permission presets', () => {
     localStorage.removeItem('acportal.preset.goose')
   })
 
+  it('Ask for everything starts the session with manual approval and plain Supervised does not', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['The host\'s auto-approve and shell rules do not act in this session. Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'one' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1))
+    expect(onStart.mock.calls[0][0].access.manual).toBeFalsy()
+  })
+
+  it('picking Ask for everything sets the manual flag, and a custom toggle keeps it visible', async () => {
+    const withAskAll = [
+      presets[0],
+      { id: 'ask-all', label: 'Ask for everything', effects: ['Every request waits for you.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, manualApproval: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withAskAll), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByRole('dialog', { name: 'Access rights' }).querySelector<HTMLElement>('[data-preset="ask-all"]')!)
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Custom/)).toBeTruthy()
+    expect(screen.getByText(/auto-approve and shell rules are off for this session/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    expect(chip(/Ask for everything/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'two' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, manual: true })
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
   it('applies the next agent preset when the agent changes', async () => {
     localStorage.setItem('acportal.lastAgent', 'goose')
     localStorage.removeItem('acportal.preset.goose')

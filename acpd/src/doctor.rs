@@ -129,6 +129,7 @@ pub async fn agent_check(
         write_files: false,
         terminal: false,
         form_elicitation: false,
+        manual_approval: false,
     };
     let opened = manager
         .open_configured(agent, workspace, None, Vec::new(), access)

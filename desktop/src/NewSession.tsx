@@ -14,7 +14,7 @@ import { OptionsPanel } from './OptionPicker'
 import { applyPreset, presetKey, sameRights, type Preset } from './presets'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
-export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean }
+export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean; manual?: boolean }
 export type { AgentSetup } from './agentSetup'
 export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]
   /** Session options picked here, in the order they were picked; applied in that order once the
@@ -350,6 +350,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         {presetList.length === 0 && !presetsLoading && <div className="ctx-h">Rights for this session</div>}
         {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => toggleRight(k)}>{l}</Item>)}
         <Item on={access.mcp && enabledMcp.length > 0} sub={enabledMcp.length ? String(enabledMcp.length) : 'none'} onPick={() => setAccess({ ...access, mcp: !access.mcp })}>MCP servers</Item>
+        {access.manual && !chosenPreset && <div className="hint ctx-pad">The host's auto-approve and shell rules are off for this session.</div>}
         {!chosenPreset && <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>}
       </Chip>
       <span className="ctx-switch" title={isRepo ? 'Start in its own git worktree' : 'Needs a git repository'}>

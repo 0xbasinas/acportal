@@ -159,7 +159,19 @@ async fn presets_follow_config_and_a_preset_field_does_not_start_a_session() {
         .iter()
         .map(|preset| preset["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["supervised", "auto-edits", "auto-review"]);
+    assert_eq!(ids, ["supervised", "ask-all", "auto-edits", "auto-review"]);
+    // Only Ask for everything carries the per-session switch.
+    assert_eq!(
+        parsed["presets"][1]["workspaceAccess"]["manualApproval"],
+        true
+    );
+    for index in [0, 2, 3] {
+        assert!(
+            parsed["presets"][index]["workspaceAccess"]
+                .get("manualApproval")
+                .is_none()
+        );
+    }
     assert!(goose.contains("Undecided lines still ask"), "{goose}");
     assert!(goose.contains("own tools are not covered"), "{goose}");
     assert_eq!(parsed["presets"][0]["workspaceAccess"]["writeFiles"], true);

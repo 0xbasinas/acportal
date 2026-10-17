@@ -48,6 +48,7 @@ impl Fixture {
             write_files: true,
             terminal: true,
             form_elicitation: false,
+            manual_approval: false,
         };
         self.manager
             .open_configured("test-agent", folder, None, vec![], all)

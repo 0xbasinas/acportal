@@ -127,6 +127,11 @@ pub struct WorkspaceAccess {
     /// `elicitation` out of the agent's client capabilities unless a phone asks for it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub form_elicitation: bool,
+    /// Per session: the host's own approvers do not act. Auto-approve and shell review stay off,
+    /// so every permission request and shell line goes to the person. It only removes help the
+    /// host would give; it never allows anything.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_approval: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -135,6 +140,7 @@ impl Default for WorkspaceAccess {
             write_files: true,
             terminal: true,
             form_elicitation: false,
+            manual_approval: false,
         }
     }
 }
@@ -677,6 +683,7 @@ impl AcpConnection {
                 write_files: false,
                 terminal: false,
                 form_elicitation: false,
+                manual_approval: false,
             },
             None,
         )
