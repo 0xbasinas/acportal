@@ -1,5 +1,9 @@
 # Completed work and verification history
 
+## 17 October 2026 remote routes design (`experiment/t3code-ideas`)
+
+- [adr-remote-routes.md](docs/adr-remote-routes.md) proposes Tailscale Serve with Funnel off, or Cloudflare Tunnel with Access, plus `acpd doctor --url` against a new unauthenticated `GET /v1/host`. Saved hosts would keep an ordered address list and probe that route before sending a device token. A hosted relay and learned addresses are deferred. Not implemented. No tests, because no code changed. Desktop and Android were not rebuilt. Tailscale and `cloudflared` were not installed. WebSocket upgrade through either proxy is unverified.
+
 ## 17 October 2026 external MCP design (`experiment/t3code-ideas`)
 
 - [adr-external-mcp.md](docs/adr-external-mcp.md) proposes `Role::Agent`, a read-only `/mcp`, and no OAuth server. Not implemented. No tests, because no code changed. Desktop and Android were not rebuilt.

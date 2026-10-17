@@ -43,7 +43,7 @@ Gap: T3 lets you choose one named mode per thread (Supervised, Auto-accept edits
 - ACP limit (see the feasibility doc): ACP defines no approval modes; agent `mode` ids are agent-chosen. A preset therefore governs only host-mediated behaviour (access flags, shell review, auto-approve, answers to `session/request_permission`). Never map a preset onto an agent mode id by name. Show the agent's own `mode` option next to the preset. For an agent flagged `ownTools`, the effects text must say its own tools are not covered.
 - Tests: JSON shape and that presets disappear when their config is off; a regression test that no preset can enable terminal/write for a session the config would otherwise refuse.
 
-Decision, read in source 17 October 2026 (`acpd/src/auto_approve.rs`, `session.rs`, `connection.rs`, `shell_review.rs`): auto-approve and shell review are host config. They apply to every qualifying session of that agent. There is no per-session switch, and adding one would be a new consent boundary, so this item does not add one. A preset only names `workspaceAccess` flags the client can already send. `GET /v1/presets` is read-only. `POST /v1/sessions` keeps `deny_unknown_fields`, so a `preset` field is rejected. An empty `[auto_approve.<id>]` has `max_risk = none`, so auto-edits is not offered. Shell review is offered only when `rules = true`. Neither is offered for a remote (`ws`) agent, because those sessions do not run the local watchers. When auto-approve is on, the effects say which edits are allowed once (a task worktree, unless `only_in_worktree` is false) instead of claiming every write asks. An `ownTools` agent gets a line that its own tools are not covered. ACP `session/request_permission` has no approval-mode method (https://agentclientprotocol.com/protocol/tool-calls, read 17 October 2026); a preset is never copied onto an agent mode id.
+Result: see [t3code-findings.md](t3code-findings.md) section 2.
 
 ### 3. Agent profiles (several accounts of one agent)
 
@@ -54,7 +54,7 @@ Gap: T3 supports several Codex or Claude accounts. Registry entries are merged b
 - Secrets: `env` values stay in the operator's registry as they are today. Do not add secret storage, and make sure `/v1/agents` and logs still print env names only (check that existing behaviour and add a test).
 - Tests: registry parse (valid, missing target, self, chain), merge override, API output has no env values.
 
-Decision, 17 October 2026: a profile is another registry id with the same `command` and, for a remote agent, the same `url` (the command is empty, so the url is the program). Arguments and `env` may differ. That matches T3's separate account directories for one Claude or Codex executable (`docs/user/providers-claude.md`, `docs/user/providers-codex.md`, read with `git show` on 17 October 2026): same program, different configuration. `env` values stay in the operator's registry file. `GET /v1/agents` keeps using discovery, which has no environment map. No secret store is added. A profile of a profile, a missing target, or a different command is rejected when the registry is loaded.
+Result: see [t3code-findings.md](t3code-findings.md) section 3.
 
 ### 4. OS service install (Linux and macOS first, then Windows)
 
@@ -65,17 +65,7 @@ Gap: T3 has `t3 service install|status|restart|uninstall`, `t3 update` and `t3 d
 - Do not implement self-update. Add a short section in `docs/installation.md` on what a safe updater would need (stage, verify checksum, keep previous binary, rollback), and link T3's `docs/internals/server-updates.md` as a reference.
 - Tests: unit-file and plist generation (quoting, spaces, unicode), uninstall refusal without marker, `status` parsing with a fake `systemctl`. Real install/start is verified only through the existing Actions or a documented manual run; say which.
 
-Decision, 17 October 2026: the service runs the current binary in the foreground as `<absolute acpd> --profile <absolute launcher.json> start`. Install requires a saved `acpd setup` profile. The definition stores those two paths and does not copy the shell environment, so provider keys in the operator environment are not written into the unit. `acpd daemon` and `detached.rs` stay as they are; this command does not pass `--background`.
-
-Linux (systemd.service(5) and systemd.syntax(7), Debian pages read 17 October 2026): one `ExecStart`, `Type=exec` (available since systemd 240; Ubuntu 24.04 CI has systemd 255), the executable prefixed with `:` so `$` is not expanded, each `%` doubled because specifiers are still active, arguments double-quoted with `\` and `"` escaped. `WantedBy=default.target` is the user manager's main target (systemd.special(7)); the system-instance warning about `default.target` does not apply. `Restart=on-failure`. No `User=`, `Environment=`, or `WorkingDirectory=`. Status parses `systemctl --user show` and `loginctl show-user --property=Linger` (loginctl(1), no user argument means the current user). Lingering is printed. The command is not run, and sudo is not invoked.
-
-macOS (launchd.plist(5), Keith mirror dated 2026-09-28): `Program` is the absolute path, `ProgramArguments` is the argv, values are XML-escaped, `RunAtLoad` is true, and `KeepAlive`/`SuccessfulExit` false restarts a failed exit. The domain is `gui/<uid>`.
-
-Windows (`schtasks /create /?` on this machine, 17 October 2026): there is no `/description` flag, so the marker is the task XML `Description` and the command is `schtasks /Create /XML`. The XML is UTF-16 LE with a BOM, `RunLevel` is `LeastPrivilege`, and the trigger is an interactive logon for the current `USERDOMAIN\USERNAME`. The task name is the fixed string `acpd`. The argv never uses `/TN *`, `/RL HIGHEST`, `/RU`, or `/RP`. A missing task query returns exit 1 and `The system cannot find the file specified.` (read-only `/Query` on this machine).
-
-Every definition carries the marker `acpd-service-marker: acportal`. Install refuses to overwrite a file or task that lacks it. Uninstall refuses to disable or delete one that lacks it. Paths must be absolute UTF-8, at most 4096 bytes, with no `..` component and no control characters. The shell environment is not copied. Remote listeners still require TLS through the host config.
-
-T3's `serviceLauncher.ts` (read with `git show`, 17 October 2026) is a Node supervisor that the service manager starts. This host has no such process. Self-update is not implemented. `docs/installation.md` records what a later updater would stage, check, and roll back, and links T3 `docs/internals/server-updates.md`. Real `systemctl`, `launchctl`, and `schtasks /Create` were not run. Existing Actions run `cargo test` and do not install a user service.
+Result: see [t3code-findings.md](t3code-findings.md) section 4.
 
 ### 5. External MCP endpoint (design and ADR only, then stop)
 
@@ -83,13 +73,15 @@ Gap: T3 exposes `/mcp` so outside agents (Claude Code, Codex, ChatGPT) can list 
 
 Write `docs/adr-external-mcp.md` covering: tools (start with read-only `sessions_list`, `session_read`, `tasks_list`; mutating tools only after review); a new `Role::Agent` (or equivalent) that every route except the MCP route rejects, following how `phones_only` and the peer layer work; credential type reuse (device token minted by a pairing code, no OAuth server in this branch, explain why or why not); a ceiling on what a thread started through MCP may do, taken from the same `workspaceAccess` and `[orchestrator]` limits; token expiry and revocation through `acpd revoke`; interaction with `[orchestrator] enabled` and `peer_rights`; threat model (hosted agents on HTTPS redirects were a risk T3 called out). Ask me to review before implementing anything.
 
-Decision, 17 October 2026: [adr-external-mcp.md](adr-external-mcp.md) is proposed and not implemented. `Role::Agent` is a pairing-code device token. `/mcp` is the only route that accepts it. `phones_only` and `peers_only` reject it. The first tools are read-only and must not call `session/load`. OAuth is deferred because T3 matches `https` redirects exactly and this host rejects browser origins. A phone or peer token is not reused on `/mcp`.
+Result: see [t3code-findings.md](t3code-findings.md) section 5.
 
 ### 6. Remote access routes (design and ADR only, then stop)
 
 Gap: T3 supports direct, Tailscale, SSH, and a hosted relay, with an ordered route list per machine, a descriptor check before a credential is sent to a LAN address, and routes "learned" from a connected server. Ours needs the user's own TLS address.
 
 Write `docs/adr-remote-routes.md` comparing: (a) a documented Tailscale Serve and Cloudflare Tunnel recipe plus an `acpd doctor` check for the chosen URL, (b) several saved addresses per host in the desktop and Android hosts store, tried in order with a check that the address answers as the same host id (`security.rs` `host_id`) before any token is sent, and (c) a hosted relay. State what each would require of `docs/security.md`. Recommend (a)+(b) for this branch and record why (c) is deferred. For (b), list exact changes in `desktop/src/Hosts.tsx`, `desktop/src/Pairing.tsx`, and the Android `HostApi.kt`/Room schema (schema 3, additive migration). Do not implement.
+
+Decision, 17 October 2026: [adr-remote-routes.md](adr-remote-routes.md) is proposed and not implemented. Serve, with Funnel left off, or a Cloudflare hostname with Access in front, proxies to loopback `acpd`. `acpd doctor --url` would GET a new unauthenticated `/v1/host` that returns only `hostId`, with TLS verification on and no token and no redirects. Each saved host would keep an ordered address list. The client probes `/v1/host` before unsealing or reading the device token, and skips a different host id. Learned addresses and a hosted relay are deferred. `docs/security.md` is unchanged until this is accepted.
 
 ### 7. Small ACP gaps (optional, after items 1 to 4)
 

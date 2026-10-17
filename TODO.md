@@ -7,7 +7,7 @@
 - [x] Agent profiles (`profileOf`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Android does not group them.
 - [x] OS service install (`acpd service install|status|restart|uninstall`). Evidence in [TODO_DONE](TODO_DONE.md). No user service was installed on a machine. Actions run the tests only.
 - [x] External MCP endpoint: design and ADR only ([adr-external-mcp.md](docs/adr-external-mcp.md)). Not implemented. Needs review before any code.
-- [ ] Remote access routes: design and ADR only.
+- [x] Remote access routes: design and ADR only ([adr-remote-routes.md](docs/adr-remote-routes.md)). Not implemented. Needs review before any code. Serve and Tunnel were not installed here.
 - [ ] Small ACP gaps, after a live `goose acp` initialize (no prompt).
 
 Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `codex/final-acceptance`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [the current continuation](docs/final-acceptance.md) and [PR #15 review](docs/pr15-review.md) record actual results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.

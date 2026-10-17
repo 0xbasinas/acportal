@@ -94,3 +94,42 @@ Sources, read 17 October 2026 with `git show`, not executed:
 - https://github.com/pingdotgg/t3code/blob/main/apps/server/src/auth/McpOAuth.ts
 
 Unverified: no `/mcp` route was added. No agent token was minted. Claude Code, Codex, and ChatGPT were not connected.
+
+## 6. Remote access routes
+
+Decision: proposed in [adr-remote-routes.md](adr-remote-routes.md), not implemented. Use Tailscale Serve with Funnel off, or a Cloudflare Tunnel hostname with Access in front, in front of loopback `acpd`. Doctor would check the public URL against a new `GET /v1/host` that returns only the host UUID. Saved hosts would grow an ordered address list, probed before the device token is sent. A hosted relay is deferred. Addresses are not learned from the host.
+
+Confirmed: Serve requires HTTPS certificates, applies tailnet access-control rules, and proxies to `http://127.0.0.1`. `https+insecure` skips local certificate checks. The latest of `serve` and `funnel` on one port wins, and Funnel is the public internet. A Cloudflare published application is reachable by anyone who can open the hostname. Access applications deny by default until an Allow policy matches. Ingress config files end with `http_status:404`. This host's `GET /v1/status` is behind `authenticate` and `phones_only` and returns more than `hostId`. Desktop `request` rejects HTTP 3xx and keeps certificate checks on. Android `HostApi.status` reads the vault token before `details` compares `hostId`. Room schema is version 3.
+
+Corrected: the host-id check cannot be `GET /v1/status`, because that call already sends the bearer. T3 learns LAN addresses, with a rule that an HTTPS-paired token does not learn plain HTTP. This design does not learn addresses at all. WebSocket upgrade through Serve and through a Cloudflare HTTP route is not stated on the pages read today, so the recipe does not claim the session socket yet.
+
+Sources, read 17 October 2026:
+
+- https://tailscale.com/docs/features/tailscale-serve.md (last validated 20 January 2026)
+- https://tailscale.com/docs/reference/tailscale-cli/serve (last validated 26 January 2026)
+- https://tailscale.com/docs/features/tailscale-funnel.md (last validated 20 January 2026)
+- https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/ (last updated 15 October 2026)
+- https://developers.cloudflare.com/tunnel/concepts/routing/ (last updated 16 October 2026)
+- https://developers.cloudflare.com/tunnel/get-started/ (last updated 30 September 2026)
+- https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/ (last updated 17 April 2026)
+- https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md (`git show`, not executed)
+
+Unverified: no `/v1/host` route was added. Doctor has no `--url` flag. Desktop and Android still store one address. Tailscale and `cloudflared` were not installed or run on this machine. A session WebSocket through either proxy was not opened.
+
+## Review fixes (17 October 2026)
+
+After a read-only review of items 1 to 4 these were changed. Presets are not among them: see "Open" below.
+
+- Pull requests: `409 already_exists` now returns the existing pull request's address (`error.url`, and in `error.message`), only when it passes the same check as a created one; no other `gh` text is returned. The branch-name check runs in `spawn_blocking`. The desktop shows a "View pull request" button instead of opening the browser by itself, and clears the title, description and link when the branch changes.
+- Status: `/v1/status` caches the `gh` lookup for 30 seconds.
+- Profiles: a profile of an agent with `ownTools` must set `ownTools` too, checked when the registry loads. Safety flags (`ownTools`, `[auto_approve.<id>]`, `[shell_review.<id>]`) are per entry and are not inherited. One `agent_id_ok` is shared.
+- Service: install output says the service does not inherit the shell environment (keys and PATH go in registry `env`) and to stop `acpd daemon` first. macOS writes `StandardOutPath` and `StandardErrorPath` to `~/Library/Logs/acpd-service.log`. Windows install warns when no `[logging] file` is set. A task that is not found is recognised on any Windows language: when the message is not the English one, the task list (`/Query /FO CSV /NH`) is checked for `\acpd`. The logon task passes a hidden `--no-console` flag, which calls `FreeConsole` on Windows so no console window stays open. A `systemctl --user` bus error gets a hint.
+
+Tested: `a_profile_cannot_drop_the_own_tools_warning_of_its_base`, the exists-URL assertions in `acpd/tests/pull_request.rs`, `a_missing_task_is_found_without_the_english_message`, `the_logon_task_closes_its_console_and_install_says_what_the_service_lacks`, the plist log keys.
+
+Not done, and why:
+
+- Presets: all three still send the same flags; the real behaviour is host config for every session. A per-session "ask for everything" switch would be a new consent boundary, so it needs a decision.
+- Timeout cleanup of `gh` children (`git`, credential helpers): only `gh` is killed.
+- `service.rs` is still one file with per-platform `cfg_attr` attributes.
+- `--no-console` was not run on a logon task, so whether the window is gone is unverified. No service was installed on a machine.
