@@ -7,6 +7,7 @@ import { request, validateAddress, SessionSocket, HostError } from './host'
 import { sealWithFileKey, openWithFileKey } from './secrets'
 import { registerGit } from './git'
 import { Watcher, type WatchTarget } from './watch'
+import { usable } from './window'
 import { Notification } from 'electron'
 import { dialog } from 'electron'
 import { readFile, stat } from 'node:fs/promises'
@@ -105,8 +106,16 @@ function wrap<A extends unknown[], R>(fn: (...a: A) => Promise<R> | R) {
   }
 }
 
+/** The window, only while it can still be used. Closing the window closes the session sockets, and
+ * each of them reports its new state; sending that to a destroyed window throws "Object has been
+ * destroyed" in the main process (the error box shown when quitting). */
+function liveWindow(): BrowserWindow | null {
+  return usable(win)
+}
+const sendToWindow = (channel: string, ...args: unknown[]): void => { liveWindow()?.webContents.send(channel, ...args) }
+
 const sockets = new Map<string, SessionSocket>()
-const watcher = new Watcher(() => win, (ref) => { const h = host(ref); return { address: h.address, token: unseal(h) } })
+const watcher = new Watcher(() => liveWindow(), (ref) => { const h = host(ref); return { address: h.address, token: unseal(h) } })
 
 function registerIpc(): void {
   ipcMain.handle('app:get-version', () => app.getVersion())
@@ -185,8 +194,8 @@ function registerIpc(): void {
         h.address,
         unseal(h),
         sessionId,
-        (env) => win?.webContents.send('session:envelope', key, env),
-        (state) => win?.webContents.send('session:state', key, state),
+        (env) => sendToWindow('session:envelope', key, env),
+        (state) => sendToWindow('session:state', key, state),
         readOnly,
         takeover
       )
@@ -203,9 +212,9 @@ function registerIpc(): void {
   ipcMain.handle('watch:notify', wrap((on: boolean) => watcher.setNotify(on)))
   ipcMain.handle('watch:approve', wrap((key: string, id: string | number, optionId: string) => watcher.approve(key, id, optionId)))
   ipcMain.handle('notify:show', wrap((title: string, body: string, hostRef: string, sessionId?: string) => {
-    if (!Notification.isSupported() || win?.isFocused()) return
+    if (!Notification.isSupported() || liveWindow()?.isFocused()) return
     const n = new Notification({ title, body })
-    n.on('click', () => { if (!win) return; win.show(); win.focus(); win.webContents.send('watch:open', hostRef, sessionId) })
+    n.on('click', () => { const w = liveWindow(); if (!w) return; w.show(); w.focus(); w.webContents.send('watch:open', hostRef, sessionId) })
     n.show()
   }))
   ipcMain.handle('session:send', wrap((key: string, msg: unknown) => {
@@ -304,10 +313,11 @@ function createWindow(): void {
   if (!app.isPackaged && devUrl) void win.loadURL(devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
   win.on('closed', () => {
+    // First, so nothing below can reach the destroyed window: closing a socket reports its state.
+    win = null
     watcher.closeAll()
     for (const s of sockets.values()) s.close()
     sockets.clear()
-    win = null
   })
 }
 
