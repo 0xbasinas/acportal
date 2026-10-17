@@ -208,7 +208,12 @@ impl Host {
             .route("/v1/agents", get(agents).post(add_agent))
             .route("/v1/agents/check", post(check_agent))
             .route("/v1/agents/locate", post(locate_agents))
-            .route("/v1/agents/{id}", delete(remove_agent))
+            .route("/v1/agents/discover", get(discover_agents))
+            .route("/v1/scratch", post(new_scratch))
+            .route(
+                "/v1/agents/{id}",
+                get(agent_definition).delete(remove_agent),
+            )
             .route("/v1/agents/{id}/probe", post(probe_agent))
             .route(
                 "/v1/workspaces",
@@ -238,6 +243,7 @@ impl Host {
                 axum::routing::put(shared::put_title),
             )
             .route("/v1/shared/history", post(shared::add_history))
+            .route("/v1/commit-message", post(git::commit_message))
             .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
@@ -423,6 +429,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "controlTakeover",
         "sharedDrafts",
         "agentProbe",
+        "agentDiscovery",
+        "commitMessage",
+        "scratchSessions",
     ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
@@ -605,6 +614,35 @@ mod discovery_tests {
         assert_eq!(status("invalid"), "misconfigured");
     }
 }
+/// The agent CLIs this host knows how to start in ACP mode (`registry/known.json`), each with
+/// whether it is installed here (on `PATH` or in the usual user install folders), where, and
+/// whether it is already registered. Clients fill their Add agent forms from this and keep no list
+/// of their own. Nothing is run, registered or installed.
+async fn discover_agents(State(host): State<Host>) -> Json<Value> {
+    let registry = host.sessions.launch_settings().registry.clone();
+    let list = tokio::task::spawn_blocking(move || {
+        let extra = crate::discovery::known_tool_directories();
+        crate::registry::Registry::known()
+            .into_iter()
+            .map(|agent| {
+                let launch = crate::discovery::resolve_in(&agent.command, None, &extra);
+                let mut entry = json!({
+                    "id": agent.id, "name": agent.name, "command": agent.command,
+                    "args": agent.args, "env": agent.env, "ownTools": agent.own_tools,
+                    "found": launch.is_some(),
+                    "registered": registry.covers(&agent.id, &agent.command),
+                });
+                if let Some(launch) = launch {
+                    entry["executable"] = json!(plain_path(&launch.found));
+                }
+                entry
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    Json(json!(list))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LocateInput {
@@ -736,6 +774,51 @@ async fn add_agent(
         .reload(settings.config.clone(), registry)
         .map_err(user_change_error)?;
     Ok((StatusCode::CREATED, Json(json!({"id":definition.id}))))
+}
+/// A new empty folder for a session that belongs to no project, below the host's scratch root
+/// (`<state>/scratch/<unix seconds>-<random>`). Sessions may run there even when no workspace
+/// root contains it; nothing else is created and the folder is never reused.
+async fn new_scratch(State(host): State<Host>) -> ApiResult<(StatusCode, Json<Value>)> {
+    let root = host.sessions.launch_settings().config.scratch_root();
+    let path = tokio::task::spawn_blocking(move || -> std::io::Result<std::path::PathBuf> {
+        std::fs::create_dir_all(&root)?;
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        let name = format!("{seconds}-{}", &Uuid::new_v4().simple().to_string()[..6]);
+        let path = root.join(name);
+        std::fs::create_dir(&path)?;
+        path.canonicalize()
+    })
+    .await
+    .map_err(internal)?
+    .map_err(internal)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"path": plain_path(&path)})),
+    ))
+}
+/// The saved definition of an agent added from an app, so the app can edit it and save it back
+/// with `POST /v1/agents`. Agents from the host's own registry file are edited on the host and
+/// are refused here.
+async fn agent_definition(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let settings = host.sessions.launch_settings();
+    let data = UserData::load(&settings.config.state_directory).map_err(user_change_error)?;
+    let agent = data
+        .agents
+        .into_iter()
+        .find(|agent| agent.id == id)
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "not_editable"))?;
+    let mut value = serde_json::to_value(&agent).map_err(internal)?;
+    // Defaults are left out when saved; an edit form needs them spelled out.
+    value["sandbox"] = serde_json::to_value(agent.sandbox).map_err(internal)?;
+    value["shell"] = serde_json::to_value(agent.shell).map_err(internal)?;
+    value["ownTools"] = json!(agent.own_tools);
+    Ok(Json(value))
 }
 async fn remove_agent(State(host): State<Host>, Path(id): Path<String>) -> ApiResult<StatusCode> {
     let _guard = host.user_changes.lock().await;

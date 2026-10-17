@@ -1,56 +1,60 @@
-import { ReactNode } from 'react'
+// Agent replies as GitHub-flavoured Markdown (headings, nested lists, task lists, tables,
+// strikethrough, block quotes, highlighted code), rendered safely like the phone does:
+// raw HTML is shown as text and never interpreted, remote images are never fetched (they show
+// as a link), and a link opens in the browser only after the user confirms it.
+import { type ReactNode, isValidElement, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 
-// Small, safe Markdown subset for agent replies (no HTML, no automatic link fetches).
-function inline(s: string, key: string): ReactNode[] {
-  const out: ReactNode[] = []
-  const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)\s]+\))/g
-  let last = 0
-  let m: RegExpExecArray | null
-  let k = 0
-  while ((m = re.exec(s))) {
-    if (m.index > last) out.push(s.slice(last, m.index))
-    const t = m[0]
-    if (t.startsWith('`')) out.push(<code key={key + k++} className="ic">{t.slice(1, -1)}</code>)
-    else if (t.startsWith('**')) out.push(<strong key={key + k++}>{t.slice(2, -2)}</strong>)
-    else if (t.startsWith('[')) {
-      const [, label, href] = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!
-      out.push(<a key={key + k++} href={href} onClick={(e) => { e.preventDefault(); if (href.startsWith('https:') && confirm(`Open ${href} in your browser?`)) window.open(href) }}>{label}</a>)
-    } else out.push(<em key={key + k++}>{t.slice(1, -1)}</em>)
-    last = m.index + t.length
-  }
-  if (last < s.length) out.push(s.slice(last))
-  return out
+function openLink(href: string | undefined): void {
+  if (!href || !/^https?:/i.test(href)) return
+  if (confirm(`Open ${href} in your browser?`)) window.open(href)
+}
+
+/** The plain text of rendered children (for copying a highlighted code block). */
+function textOf(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children)
+  return ''
+}
+
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  const code = Array.isArray(children) ? children[0] : children
+  const className = isValidElement(code) ? String((code.props as { className?: string }).className ?? '') : ''
+  const lang = /language-([\w+-]+)/.exec(className)?.[1]
+  const text = textOf(children).replace(/\n$/, '')
+  return (
+    <div className="md-code-wrap">
+      <div className="md-code-bar">
+        <span className="mono">{lang ?? 'text'}</span>
+        <button className="md-copy" onClick={() => { void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }) }}>{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+      <pre className="md-code mono">{children}</pre>
+    </div>
+  )
+}
+
+const components: Components = {
+  a: ({ href, children }) => <a href={href} title={href} onClick={(e) => { e.preventDefault(); openLink(href) }}>{children}</a>,
+  // Never fetch: an image becomes a link the user can choose to open.
+  img: ({ src, alt }) => <a className="md-img" href={typeof src === 'string' ? src : undefined} title={typeof src === 'string' ? src : undefined} onClick={(e) => { e.preventDefault(); openLink(typeof src === 'string' ? src : undefined) }}>🖼 {alt || 'image'}</a>,
+  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+  code: ({ className, children }) => (className ? <code className={className}>{children}</code> : <code className="ic">{children}</code>),
+  table: ({ children }) => <div className="md-table"><table>{children}</table></div>,
+  input: ({ checked }) => <input type="checkbox" checked={Boolean(checked)} readOnly disabled />
 }
 
 export function Markdown({ text }: { text: string }) {
-  const blocks: ReactNode[] = []
-  const lines = text.split('\n')
-  let i = 0
-  let para: string[] = []
-  const flush = (): void => {
-    if (para.length) blocks.push(<p key={'p' + i + blocks.length}>{inline(para.join(' '), 'p' + blocks.length)}</p>)
-    para = []
-  }
-  while (i < lines.length) {
-    const l = lines[i]
-    if (l.startsWith('```')) {
-      flush()
-      const lang = l.slice(3).trim()
-      const code: string[] = []
-      i++
-      while (i < lines.length && !lines[i].startsWith('```')) code.push(lines[i++])
-      i++
-      blocks.push(<pre key={'c' + i} className="md-code mono" data-lang={lang}>{code.join('\n')}</pre>)
-      continue
-    }
-    const h = /^(#{1,4})\s+(.*)/.exec(l)
-    const li = /^\s*([-*]|\d+\.)\s+(.*)/.exec(l)
-    if (h) { flush(); blocks.push(<div key={'h' + i} className="md-h">{inline(h[2], 'h' + i)}</div>) }
-    else if (li) { flush(); blocks.push(<div key={'l' + i} className="md-li"><span className="sub">{/\d/.test(li[1]) ? li[1] : '•'}</span><span>{inline(li[2], 'l' + i)}</span></div>) }
-    else if (!l.trim()) flush()
-    else para.push(l)
-    i++
-  }
-  flush()
-  return <div className="md">{blocks}</div>
+  return (
+    <div className="md">
+      {/* No rehype-raw: raw HTML is never parsed into elements. The default URL transform drops
+          javascript: and other unsafe link targets. */}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[[rehypeHighlight, { detect: false }]]} components={components}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
 }

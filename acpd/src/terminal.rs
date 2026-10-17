@@ -280,14 +280,50 @@ mod tests {
         assert!(!outside.exists(), "{text}");
         assert!(text.contains("profile-hidden"), "{text}");
         assert!(text.contains("localhost"), "system dirs readable: {text}");
-        let acl = std::process::Command::new("icacls")
-            .arg(&root)
-            .output()
-            .unwrap();
-        let acl = String::from_utf8_lossy(&acl.stdout).to_string();
+        let acl = || {
+            let out = std::process::Command::new("icacls")
+                .arg(&root)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).to_string()
+        };
+        // The workspace keeps its grant for the next command: re-granting rewrites every file
+        // below it, which in a repository with build output took ~23 s per command and made
+        // agents give up waiting for the exit.
         assert!(
-            !acl.contains("S-1-15-2-"),
-            "AppContainer grant left behind: {acl}"
+            acl().contains("S-1-15-2-"),
+            "grant kept for the next command: {}",
+            acl()
+        );
+        let prepared = service
+            .prepare(
+                serde_json::json!({"sessionId":"s","command":"echo again> second.txt & echo done"}),
+            )
+            .unwrap();
+        let created = service.create_approved(prepared).unwrap();
+        let id = created["terminalId"].as_str().unwrap().to_owned();
+        let exit = service.exit_receiver("s", &id).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), TerminalService::wait(exit))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            root.join("second.txt").exists(),
+            "{}",
+            service.output("s", &id).unwrap()
+        );
+        assert_eq!(
+            acl().matches("S-1-15-2-").count(),
+            1,
+            "one shared grant: {}",
+            acl()
+        );
+        // The host removes it when it stops.
+        crate::win_sandbox::release_workspace(&root);
+        assert!(
+            !acl().contains("S-1-15-2-"),
+            "AppContainer grant left behind: {}",
+            acl()
         );
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -412,8 +448,9 @@ pub struct TerminalPolicy {
     pub sandbox: bool,
     pub shell: crate::shell::ShellChoice,
 }
-/// Build the command for `executable`, wrapped by the sandbox `runner` when given. On Windows
-/// the second value is the AppContainer profile to pass to [`sandbox_cleanup`] afterwards.
+/// Build the command for `executable`, wrapped by the sandbox `runner` when given. The second
+/// value is a profile to pass to [`sandbox_cleanup`] afterwards; none today, because Windows
+/// commands share their workspace's profile, which the host removes when it stops.
 pub fn sandboxed_command(
     runner: Option<&Path>,
     workspace: &Path,
@@ -426,11 +463,11 @@ pub fn sandboxed_command(
     let mut command = Command::new(runner);
     #[cfg(windows)]
     {
-        let profile = crate::win_sandbox::profile_name();
+        let profile = crate::win_sandbox::use_workspace(workspace);
         command.args(crate::win_sandbox::launcher_args(
             workspace, cwd, executable, &profile,
         ));
-        (command, Some(profile))
+        (command, None)
     }
     #[cfg(not(windows))]
     {
@@ -702,6 +739,13 @@ impl TerminalService {
     /// the sandbox is active.
     pub fn enable_sandbox(&mut self) -> bool {
         self.sandbox = sandbox_runner();
+        // Windows: grant the workspace's AppContainer profile now, in the background. In a
+        // large folder this takes tens of seconds once; the first command would otherwise wait.
+        #[cfg(windows)]
+        if self.sandbox.is_some() {
+            let workspace = self.workspace.clone();
+            std::thread::spawn(move || crate::win_sandbox::prepare_workspace(&workspace));
+        }
         self.sandbox.is_some()
     }
     pub fn sandboxed(&self) -> bool {
@@ -921,12 +965,13 @@ impl TerminalService {
                     },
                 }
             }
-            // A killed Windows launcher cannot clean up; repeat it (idempotent) before reporting.
+            // Report the exit first: cleanup can be slow (Windows rewrites a folder's inherited
+            // permissions file by file) and the agent is waiting on the exit.
+            let _ = exit_tx.send(status);
             if cleanup.0.is_some() {
                 let _ = tokio::task::spawn_blocking(move || sandbox_cleanup(cleanup.0, &cleanup.1))
                     .await;
             }
-            let _ = exit_tx.send(status);
         });
         let id = format!("acpd-terminal-{}", uuid::Uuid::new_v4());
         self.terminals

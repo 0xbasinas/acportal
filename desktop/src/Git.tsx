@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import { Branch, Compare, FileDiff, GraphRow, Status, Worktree, githubRepo, parseBranches, parseCompare, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
+import { Branch, Compare, DagRow, FileDiff, GraphRow, Status, Worktree, githubRepo, layoutDag, parseBranches, parseCompare, parseDag, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
 import { Empty, I, baseName, tildify } from './ui'
 
 type LogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
@@ -21,6 +21,34 @@ function GitBtn({ label, cmd, why, onClick, primary, danger, learn, disabled, ic
 }
 
 const GRAPH_COLORS = ['var(--text)', 'var(--green)', 'var(--amber)', '#8fb7ff', 'var(--red)', '#c6aff5']
+// The drawn graph: one SVG cell per row, lanes as columns, so lines join from row to row.
+const LANE = 14
+const ROW = 28
+const LANE_COLORS = ['var(--green)', '#8fb7ff', 'var(--amber)', '#c6aff5', '#5fd3e6', 'var(--red)', '#e8a2c8']
+const laneColor = (n: number): string => LANE_COLORS[n % LANE_COLORS.length]
+/** At most this many lanes are drawn; wider histories are cut at the right edge. */
+const MAX_LANES = 12
+export function DagCell({ row, lanes }: { row: DagRow; lanes: number }) {
+  const width = Math.min(Math.max(lanes, 1), MAX_LANES) * LANE + 4
+  const x = (lane: number): number => 2 + LANE / 2 + lane * LANE
+  const mid = ROW / 2
+  const head = /(^|, )HEAD( ->|$|,)/.test(row.commit.refs)
+  const line = { strokeWidth: 2, strokeLinecap: 'round' as const, fill: 'none' }
+  return (
+    <svg className="dag" width={width} height={ROW} viewBox={`0 0 ${width} ${ROW}`} aria-hidden="true">
+      {row.through.map((t) => <line key={'t' + t.lane} x1={x(t.lane)} y1={0} x2={x(t.lane)} y2={ROW} stroke={laneColor(t.color)} {...line} />)}
+      {row.into.map((t) => t.from === row.col
+        ? <line key={'i' + t.from} x1={x(t.from)} y1={0} x2={x(t.from)} y2={mid} stroke={laneColor(t.color)} {...line} />
+        : <path key={'i' + t.from} d={`M${x(t.from)} 0 C${x(t.from)} ${mid * 0.9} ${x(row.col)} ${mid * 0.3} ${x(row.col)} ${mid}`} stroke={laneColor(t.color)} {...line} />)}
+      {row.out.map((o) => o.to === row.col
+        ? <line key={'o' + o.to} x1={x(o.to)} y1={mid} x2={x(o.to)} y2={ROW} stroke={laneColor(o.color)} {...line} />
+        : <path key={'o' + o.to} d={`M${x(row.col)} ${mid} C${x(row.col)} ${ROW - mid * 0.3} ${x(o.to)} ${ROW - mid * 0.9} ${x(o.to)} ${ROW}`} stroke={laneColor(o.color)} {...line} />)}
+      {head && <circle cx={x(row.col)} cy={mid} r={7} fill="none" stroke={laneColor(row.color)} strokeWidth={1.5} opacity={0.55} />}
+      <circle cx={x(row.col)} cy={mid} r={row.merge ? 3.5 : 4} fill={row.merge ? 'var(--bg)' : laneColor(row.color)} stroke={laneColor(row.color)} strokeWidth={row.merge ? 2 : 0} />
+    </svg>
+  )
+}
+
 function GraphGlyphs({ g }: { g: string }) {
   return <span className="graph">{[...g].map((ch, i) => <span key={i} style={{ color: ch === '*' ? 'var(--text)' : GRAPH_COLORS[Math.floor(i / 2) % GRAPH_COLORS.length] }}>{ch === '*' ? '●' : ch}</span>)}</span>
 }
@@ -28,9 +56,12 @@ function GraphGlyphs({ g }: { g: string }) {
 // GitHub compare URLs keep the slashes of a branch name.
 const refPath = (r: string) => r.split("/").map(encodeURIComponent).join("/")
 
-export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession, confirmDanger }: {
+export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, askAgent, openSession, confirmDanger }: {
   hostId: string; repos: { path: string; label: string }[]; onBack: () => void
-  suggest: (diff: string) => Promise<string | undefined>; askAgent: (prompt: string) => void; openSession: (path: string) => void
+  /** A commit message for what is staged in `path`, from `agentId` (absent on older hosts). */
+  suggest?: (path: string, agentId: string) => Promise<{ message?: string; error?: string }>
+  agents: { id: string; name: string }[]; defaultAgent?: string
+  askAgent: (prompt: string) => void; openSession: (path: string) => void
   confirmDanger?: (text: string) => boolean
 }) {
   const sure = confirmDanger ?? ((t: string) => confirm(t))
@@ -44,12 +75,17 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
   const [unstaged, setUnstaged] = useState<FileDiff[]>([])
   const [staged, setStaged] = useState<FileDiff[]>([])
   const [graph, setGraph] = useState<GraphRow[]>([])
+  // Drawn graph from `log-dag`; undefined on hosts without it (then the ASCII graph is shown).
+  const [dag, setDag] = useState<{ rows: DagRow[]; lanes: number }>()
   const [worktrees, setWorktrees] = useState<Worktree[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [remote, setRemote] = useState<string>()
   const [stashes, setStashes] = useState<{ ref: string; msg: string; when: string }[]>([])
   const [conflictDiffs, setConflictDiffs] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState('')
+  // Which agent writes suggested commit messages; remembered across visits.
+  const [msgAgent, setMsgAgent] = useState(() => localStorage.getItem('acportal.commitAgent') ?? defaultAgent ?? agents[0]?.id ?? '')
+  useEffect(() => { if (agents.length && !agents.some((a) => a.id === msgAgent)) setMsgAgent(defaultAgent && agents.some((a) => a.id === defaultAgent) ? defaultAgent : agents[0].id) }, [agents])
   const [err, setErr] = useState<string>()
   const [note, setNote] = useState<string>()
   const [undo, setUndo] = useState<Step[]>([])
@@ -79,7 +115,10 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
     if (s === undefined) return
     const st = parseStatus(s)
     setStatus(st)
-    const [m, d, ds, l, w, b, sl, ru] = await Promise.all([git('merging'), git('diff'), git('diff', { staged: '1' }), git('log'), git('worktree-list'), git('branch-list'), git('stash-list'), window.api.git.run(hostId, cwd, 'remote-url')])
+    // log-dag without the error banner: an older host does not have it and the ASCII log is used.
+    const drawn = await window.api.git.run(hostId, cwd, 'log-dag')
+    const [m, d, ds, l, w, b, sl, ru] = await Promise.all([git('merging'), git('diff'), git('diff', { staged: '1' }), drawn.ok ? Promise.resolve('') : git('log'), git('worktree-list'), git('branch-list'), git('stash-list'), window.api.git.run(hostId, cwd, 'remote-url')])
+    setDag(drawn.ok ? layoutDag(parseDag(drawn.value.out)) : undefined)
     setMerging((m ?? '').trim() === 'yes')
     setUnstaged(parseDiff(d ?? '')); setStaged(parseDiff(ds ?? '')); setGraph(parseGraph(l ?? '')); setWorktrees(parseWorktrees(w ?? '')); setBranches(parseBranches(b ?? ''))
     setStashes((sl ?? '').split('\n').filter(Boolean).map((x) => { const [ref, mm, when] = x.split('\u001f'); return { ref, msg: mm, when } }))
@@ -256,13 +295,22 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
               <textarea className="input area" placeholder="Summary of the change (first line ≤ 72 chars)" value={msg} onChange={(e) => setMsg(e.target.value)} />
               <div className={'counter' + (msg.split('\n')[0].length > 72 ? ' amber' : '')}>{msg.split('\n')[0].length}/72</div>
               <div className="btn-row">
-                <button className="btn" disabled={!staged.length || busy} title="Ask the current session's agent for a message from the staged diff (one small model request)" onClick={async () => {
-                  setBusy(true); setNote('Asking the agent for a commit message…')
-                  const d = (await git('diff', { staged: '1' })) ?? ''
-                  const s = await suggest(d.slice(0, 12000))
-                  setBusy(false)
-                  if (s) { setMsg(s); setNote('Suggested by the agent; edit before committing') } else setNote('No suggestion (open a session to use this)')
-                }}>{I.spark}Suggest</button>
+                <button className="btn" disabled={!staged.length || busy || !suggest || !msgAgent}
+                  title={suggest ? 'Ask the agent for a message from the staged changes, in a throwaway session (one small model request)' : 'Needs a newer acpd on the host'}
+                  onClick={async () => {
+                    if (!suggest) return
+                    const name = agents.find((a) => a.id === msgAgent)?.name ?? msgAgent
+                    setBusy(true); setErr(undefined); setNote(`Asking ${name} for a commit message…`)
+                    const r = await suggest(cwd, msgAgent)
+                    setBusy(false)
+                    if (r.message) { setMsg(r.message); setNote(`Suggested by ${name}; edit before committing`) } else setNote(r.error ?? 'No suggestion')
+                  }}>{I.spark}Suggest</button>
+                {agents.length > 1 && (
+                  <select className="select-btn" aria-label="Agent that writes the message" title="Agent that writes the message" value={msgAgent} disabled={busy}
+                    onChange={(e) => { setMsgAgent(e.target.value); try { localStorage.setItem('acportal.commitAgent', e.target.value) } catch { /* ignore */ } }}>
+                    {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                )}
                 <span style={{ flex: 1 }} />
                 <GitBtn learn={learn} primary label={`Commit to ${current || 'branch'}`} disabled={!canCommit || !msg.trim() || busy} cmd={`git commit -m "${msg.split('\n')[0].slice(0, 40)}"`} why={W('commit')}
                   onClick={async () => {
@@ -287,7 +335,16 @@ export function GitView({ hostId, repos, onBack, suggest, askAgent, openSession,
         )}
         {tab === 'History' && (
           <div className="mono graph-list">
-            {graph.map((r, i) => (
+            {dag && dag.rows.map((r) => (
+              <div key={r.commit.hash} className="graph-row dag-row" title={`git show ${r.commit.hash.slice(0, 7)}`}>
+                <DagCell row={r} lanes={dag.lanes} />
+                <span className="sub">{r.commit.hash.slice(0, 7)}</span>
+                {r.commit.refs && r.commit.refs.split(', ').map((ref) => <span key={ref} className={'ref' + (ref.startsWith('HEAD') ? ' head' : ref.includes('/') && !ref.startsWith('acpd/') && !ref.startsWith('acportal/') ? ' remote' : '')}>{ref.replace('HEAD -> ', '')}</span>)}
+                <span className="subj">{r.commit.subject}</span>
+                <span className="sub">{r.commit.author} · {r.commit.when}</span>
+              </div>
+            ))}
+            {!dag && graph.map((r, i) => (
               <div key={i} className="graph-row" title={r.hash ? `git show ${r.hash}` : ''}>
                 <GraphGlyphs g={r.graph} />
                 {r.hash && <>

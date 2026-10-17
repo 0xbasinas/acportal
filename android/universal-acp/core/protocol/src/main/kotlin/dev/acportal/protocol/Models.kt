@@ -13,9 +13,13 @@ fun JsonElement?.number(): Long = (this as? JsonPrimitive)?.longOrNull ?: 0
 @Serializable
 data class AgentInfo(val id: String, val name: String, val enabled: Boolean = true, val installed: Boolean = false, val status: String = "missing",val executable:String?=null,val version:String?=null,val reason:String?=null,val ownTools:Boolean=false,val removable:Boolean=false)
 
-/** One command name looked up on the host (on PATH or in the usual user install folders). */
+/**
+ * One agent CLI the host knows how to start in ACP mode (`GET /v1/agents/discover`), with whether it
+ * is installed there (on PATH or in the usual user install folders) and already registered. The
+ * host owns this list; the app keeps none.
+ */
 @Serializable
-data class LocatedAgent(val command:String,val found:Boolean=false,val executable:String?=null)
+data class KnownAgent(val id:String,val name:String,val command:String,val args:List<String> = emptyList(),val env:Map<String,String> = emptyMap(),val ownTools:Boolean=false,val found:Boolean=false,val registered:Boolean=false,val executable:String?=null)
 
 /** Result of running `<command> --version` once on the host before an agent is registered. */
 @Serializable

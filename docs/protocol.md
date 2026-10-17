@@ -77,6 +77,7 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | POST | `/v1/checks` | Feature `checks`. `{"path","commands":[lines],"timeoutSecs"}` runs each line in a workspace folder with the host shell (and sandbox where configured), then removes untracked files the lines created; see [desktop runs and checks](desktop-runs-and-checks.md) |
 | GET / PUT / POST | `/v1/shared`, `/v1/shared/drafts/{id}`, `/v1/shared/titles/{id}`, `/v1/shared/history` | Feature `sharedDrafts`: drafts, titles and prompt history shared between the phone and desktop (see below) |
 | POST | `/v1/git/{op}` | Run one git operation from a fixed list in a workspace folder or task worktree (feature `git`); see below |
+| POST | `/v1/commit-message` | A commit message for what is staged in a folder, written by an agent in a throwaway session (feature `commitMessage`); see below |
 
 Peer hosts (role `peer`, see [orchestrator design](orchestrator-design.md) section 7) use a separate set: `GET /v1/peer/info` and the ACP bridge WebSocket at `/acp` or `/acp/{agent_id}`. Peers get only the agents in `peer_agents`, folders by alias, and at most `peer_rights`.
 
@@ -168,5 +169,9 @@ Body: `{"path": "<folder inside a workspace root or a task worktree>", "commands
 `{"passed": bool, "sandboxed": bool, "results": [{"command", "code": int|null, "output": "<last 32 KiB of stdout+stderr>", "ms", "truncated"?, "timedOut"?, "shell": "sh"|"cmd"|"powershell"|"bash", "shellNote"?}]}`. Lines run through the host shell (`/bin/sh -c`; on Windows the `[windows] shell` setting), inside the OS sandbox where it works (bubblewrap on Linux, AppContainer on Windows).
 
 Errors: `400 invalid_commands`, `403 path_not_allowed`. A paired device can already approve any shell command an agent asks for, so this adds no new authority. The host logs only the number of lines and whether they ran sandboxed.
+
+`POST /v1/commit-message` takes `{"path": "<folder>", "agentId": "<id>"}` (same folder rule as the git API) and returns `{"message"}`. The host reads the staged diff (the first 24 KiB; the `--stat` summary always covers every file) and the last ten commit subjects itself, then starts the agent in a throwaway session with no file, terminal or MCP access, refuses every permission request, sends one prompt asking for a message in the repository's style (summary of at most 72 characters, optional short body) and removes the session. It costs one model request. Errors: 403 `path_not_allowed`, 409 `not_a_repository` or `nothing_staged`, 400 `agent_unavailable`, 504 `agent_timeout`, 502 `agent_failed` or `empty_reply`; agent error text is never returned. The desktop's **Suggest** button in the Git view uses it, with an agent picker (remembered on that computer); nothing appears in any conversation.
+
+`log-dag` returns the history for clients that draw the graph themselves: `git log --all --date-order -n 300` with one line per commit, fields separated by U+001F: full hash, parent hashes (space-separated), refs, subject, author, relative time. The desktop lays it out in lanes and draws it; on a host without `log-dag` it shows the ASCII `log --graph` instead.
 
 `/v1/git/{op}` also accepts `add-all` (`git add -A`), `merge` (`{"branch"}` → `git merge --no-ff --no-edit <branch>`), `diff` with an optional `base` (`git diff [--cached] <base> --`), and `worktree-remove` with `"force": "1"`.
