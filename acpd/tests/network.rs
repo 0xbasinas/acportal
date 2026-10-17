@@ -383,6 +383,54 @@ async fn phone_checks_registers_and_removes_agents_and_they_survive_restart() {
 }
 
 #[tokio::test]
+async fn clients_get_the_hosts_own_agent_list_with_install_state() {
+    let fixture = Fixture::start().await;
+    let url = format!("{}/v1/agents/discover", fixture.base);
+    let anonymous = fixture.client.get(&url).send().await.unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let list: Value = fixture
+        .client
+        .get(&url)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), acpd::registry::Registry::known().len());
+    for agent in list {
+        for key in ["id", "name", "command"] {
+            assert!(agent[key].is_string(), "{agent}");
+        }
+        assert!(agent["args"].is_array() && agent["env"].is_object());
+        assert!(agent["found"].is_boolean() && agent["registered"].is_boolean());
+        assert_eq!(agent["found"] == true, agent["executable"].is_string());
+    }
+    // Clients can tell this host offers the list.
+    let status: Value = fixture
+        .client
+        .get(format!("{}/v1/status", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        status["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("agentDiscovery"))
+    );
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn phone_locates_installed_commands_by_name_only() {
     let fixture = Fixture::start().await;
     let url = format!("{}/v1/agents/locate", fixture.base);
@@ -1327,5 +1375,74 @@ async fn drafts_titles_and_history_are_shared_between_devices_and_survive_restar
         .await
         .unwrap();
     assert!(shared["titles"].get(&id).is_none());
+    fixture.stop().await;
+}
+
+/// `POST /v1/commit-message`: the host reads what is staged, asks the agent in a throwaway
+/// session (refusing its permission requests) and returns the reply; no session is left.
+#[tokio::test]
+async fn commit_message_comes_from_a_throwaway_agent_session() {
+    let fixture = Fixture::start().await;
+    let repo = fixture.host.config.workspace_roots[0].clone();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    let ask = |agent: &str| {
+        fixture
+            .client
+            .post(format!("{}/v1/commit-message", fixture.base))
+            .bearer_auth(&fixture.token)
+            .json(&json!({"path": repo, "agentId": agent}))
+            .send()
+    };
+    // Not a repository yet, then nothing staged.
+    assert_eq!(ask("mock").await.unwrap().status(), 409);
+    git(&["init", "-q"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&["add", "a.txt"]);
+    git(&["commit", "-q", "-m", "Docs: add a"]);
+    let nothing: Value = ask("mock").await.unwrap().json().await.unwrap();
+    assert_eq!(nothing["error"]["code"], "nothing_staged", "{nothing}");
+    std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&["add", "a.txt"]);
+    let reply = ask("mock").await.unwrap();
+    assert_eq!(reply.status(), 200);
+    let reply: Value = reply.json().await.unwrap();
+    let message = reply["message"].as_str().unwrap();
+    assert!(
+        !message.is_empty() && !message.starts_with("```"),
+        "{reply}"
+    );
+    let sessions: Value = fixture
+        .client
+        .get(format!("{}/v1/sessions", fixture.base))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(sessions.as_array().map(Vec::len), Some(0), "{sessions}");
+    assert_eq!(ask("nope").await.unwrap().status(), 400);
+    let outside = fixture
+        .client
+        .post(format!("{}/v1/commit-message", fixture.base))
+        .bearer_auth(&fixture.token)
+        .json(&json!({"path": std::env::temp_dir(), "agentId": "mock"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(outside.status(), 403);
     fixture.stop().await;
 }

@@ -30,7 +30,13 @@ export type Item =
 export type ElicitField = { type?: string; title?: string; description?: string; enum?: string[]; enumNames?: string[]; oneOf?: { const: string; title?: string }[]; default?: unknown; minimum?: number; maximum?: number; format?: string }
 export type ElicitSchema = { properties?: Record<string, ElicitField>; required?: string[] }
 export type Usage = { used?: number; size?: number; cost?: { amount: number; currency: string } }
-export type Timeline = { items: Item[]; seen: Set<number>; lastSeq: number; busy: boolean; promptId?: number; usage?: Usage; title?: string; gap?: boolean; currentMode?: string; config?: Record<string, string> }
+export type Timeline = { items: Item[]; seen: Set<number>; lastSeq: number; busy: boolean; promptId?: number; usage?: Usage; title?: string; gap?: boolean; currentMode?: string; config?: Record<string, string>
+  /** The agent's latest full `configOptions` list (from `config_option_update`), replacing the one from session start. */
+  configOptions?: unknown[]
+  /** A model set with `session/set_model` (agents without `configOptions`). */
+  currentModel?: string
+  /** Option changes sent and not answered yet (request id -> option id), to undo a refused one. */
+  configRequests?: Record<string, string> }
 
 export const emptyTimeline = (): Timeline => ({ items: [], seen: new Set(), lastSeq: 0, busy: false })
 
@@ -72,11 +78,11 @@ export function reduce(t: Timeline, env: Json): Timeline {
   if (type === 'reconnect_required') return t
   if (type !== 'event' && type !== 'pending_permission') return t
   const seq = env.sequence as number | undefined
-  if (typeof seq === 'number') {
-    if (t.seen.has(seq)) return t
-    t.seen.add(seq)
-  }
-  const next: Timeline = { ...t, items: [...t.items], lastSeq: Math.max(t.lastSeq, seq ?? 0) }
+  if (typeof seq === 'number' && t.seen.has(seq)) return t
+  // A new set, never the old one changed: React may run a state update twice (StrictMode does in
+  // development), and a shared set would make the second run drop the event as already seen.
+  const seen = typeof seq === 'number' ? new Set(t.seen).add(seq) : t.seen
+  const next: Timeline = { ...t, seen, items: [...t.items], lastSeq: Math.max(t.lastSeq, seq ?? 0) }
   const m = env.message as Json
   const dir = env.direction as string | undefined
   const method = m.method as string | undefined
@@ -88,6 +94,30 @@ export function reduce(t: Timeline, env: Json): Timeline {
     next.items.push({ kind: 'user', id: `u${seq ?? Math.random()}`, text: txt })
     next.busy = true
     next.promptId = m.id as number
+    return next
+  }
+  if (dir === 'client' && (method === 'session/set_config_option' || method === 'session/set_model' || method === 'session/set_mode') && m.id !== undefined) {
+    const option = method === 'session/set_config_option' ? String(params.configId ?? '') : method === 'session/set_model' ? 'model' : 'mode'
+    next.configRequests = { ...(next.configRequests ?? {}), [String(m.id)]: option }
+    return next
+  }
+  if (dir === 'agent' && m.id !== undefined && !method && next.configRequests?.[String(m.id)] !== undefined) {
+    // ACP: the reply to an option change carries the agent's complete option list, which may
+    // differ in more than the changed option (another provider brings other models).
+    const { [String(m.id)]: option, ...rest } = next.configRequests
+    next.configRequests = rest
+    const err = m.error as Json | undefined
+    const list = (m.result as Json | undefined)?.configOptions
+    if (Array.isArray(list)) {
+      next.configOptions = list
+      next.config = Object.fromEntries((list as Json[]).filter((o) => typeof o.id === 'string' && o.currentValue !== undefined).map((o) => [o.id as string, String(o.currentValue)]))
+    } else if (err) {
+      // Show the agent's value again instead of the one it refused.
+      if (option === 'mode') next.currentMode = undefined
+      else if (option === 'model' && next.config?.model === undefined) next.currentModel = undefined
+      else if (next.config) { const { [option]: _, ...keep } = next.config; next.config = keep }
+      next.items.push({ kind: 'notice', id: `n${seq ?? Math.random()}`, text: `The agent did not accept that ${option} (${err.code ?? 'error'}).`, tone: 'warn' })
+    }
     return next
   }
   if (dir === 'client' && 'result' in m) {
@@ -150,6 +180,7 @@ export function reduce(t: Timeline, env: Json): Timeline {
     } else if (kind === 'config_option_update' || kind === 'config_options_update') {
       const opts = (u.configOptions as { id: string; currentValue: string }[]) ?? []
       next.config = { ...(next.config ?? {}), ...Object.fromEntries(opts.map((o) => [o.id, o.currentValue])) }
+      if (Array.isArray(u.configOptions)) next.configOptions = u.configOptions as unknown[]
     }
     return next
   }

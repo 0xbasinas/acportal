@@ -146,3 +146,57 @@ test('pre-merge gate: green only when everything configured passed', () => {
   assert.equal(verdictOf('VERDICT: PASS\n...actually\n**VERDICT: FAIL**'), 'fail')
   assert.equal(verdictOf('no verdict here'), undefined)
 })
+
+test('the reply to an option change replaces the whole option list; a refusal shows the agent value again', () => {
+  let t = emptyTimeline()
+  t = reduce(t, ev(1, { jsonrpc: '2.0', id: 30, method: 'session/set_config_option', params: { sessionId: 's', configId: 'provider', value: 'beta' } }, 'client'))
+  const list = [
+    { id: 'provider', name: 'Provider', type: 'select', currentValue: 'beta', options: [{ value: 'alpha', name: 'Alpha' }, { value: 'beta', name: 'Beta' }] },
+    { id: 'model', name: 'Model', type: 'select', currentValue: 'b-fast', options: [{ value: 'b-fast', name: 'Beta Fast' }] }
+  ]
+  t = reduce(t, ev(2, { jsonrpc: '2.0', id: 30, result: { configOptions: list } }))
+  assert.deepEqual(t.configOptions, list)
+  assert.deepEqual(t.config, { provider: 'beta', model: 'b-fast' })
+  assert.deepEqual(t.configRequests, {})
+  // A refused change: the optimistic value is dropped and a notice says so.
+  t = { ...t, config: { ...t.config, model: 'nope' } }
+  t = reduce(t, ev(3, { jsonrpc: '2.0', id: 31, method: 'session/set_config_option', params: { sessionId: 's', configId: 'model', value: 'nope' } }, 'client'))
+  t = reduce(t, ev(4, { jsonrpc: '2.0', id: 31, error: { code: -32602, message: 'Invalid' } }))
+  assert.equal(t.config?.model, undefined)
+  assert.match(t.items.at(-1)?.kind === 'notice' ? (t.items.at(-1) as { text: string }).text : '', /did not accept that model \(-32602\)/)
+})
+
+test('applying an event leaves the previous timeline untouched, so a repeated update keeps it', () => {
+  // React may call a state updater twice with the same previous state (StrictMode in development).
+  const before = emptyTimeline()
+  const prompt = ev(1, { jsonrpc: '2.0', id: 9, method: 'session/prompt', params: { sessionId: 's', prompt: [{ type: 'text', text: 'Hello?' }] } }, 'client')
+  const first = reduce(before, prompt)
+  const second = reduce(before, prompt)
+  assert.equal(before.seen.size, 0)
+  assert.deepEqual(second.items, first.items)
+  assert.equal(second.items[0]?.kind, 'user')
+  // The same event applied to the new timeline is still ignored.
+  assert.equal(reduce(first, prompt), first)
+})
+
+test('commit graph lanes: a branch, its merge and a tip that starts its own lane', async () => {
+  const { parseDag, layoutDag } = await import('../src/gitparse')
+  // m merges b2 into a1; b2 <- b1 <- base; a1 <- base; t is a separate tip on top of m.
+  const line = (h: string, p: string, refs = '') => [h, p, refs, 'subject ' + h, 'me', 'now'].join('\u001f')
+  const commits = parseDag([line('t', 'm', ' (HEAD -> main)'), line('m', 'a1 b2'), line('b2', 'b1'), line('a1', 'base'), line('b1', 'base'), line('base', '')].join('\n'))
+  assert.equal(commits[0].refs, 'HEAD -> main')
+  assert.deepEqual(commits[1].parents, ['a1', 'b2'])
+  const { rows, lanes } = layoutDag(commits)
+  const at = (h: string) => rows.find((r) => r.commit.hash === h)!
+  assert.equal(at('t').col, 0)
+  assert.equal(at('m').col, 0)
+  assert.equal(at('m').merge, true)
+  assert.deepEqual(at('m').out.map((o) => o.to), [0, 1]) // first parent straight down, merged branch in lane 1
+  assert.equal(at('b2').col, 1)
+  assert.deepEqual(at('b2').through.map((t) => t.lane), [0]) // main passes beside the branch
+  assert.equal(at('base').into.length, 2) // both lanes end in the common ancestor
+  assert.equal(at('base').col, 0)
+  assert.equal(lanes, 2)
+  // Colours: a lane keeps its colour down to the ancestor; the branch has another.
+  assert.notEqual(at('b2').color, at('a1').color)
+})

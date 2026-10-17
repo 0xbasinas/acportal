@@ -12,9 +12,10 @@ Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the 
 - [ ] Shared settings on the host (checks config, MCP definitions with masked host-side secrets; prompt history and drafts now done) with migration from desktop and Android; plan in [HANDOFF](HANDOFF.md#roadmap).
 - [ ] Android: git view, branch/worktree picker, run on several agents, checks, approval notifications and list badges.
 - [ ] macOS sandbox for host commands.
-- [ ] Desktop: edit form for existing agents (sandbox, shell); host `[windows] shell` editable from the app.
+- [ ] Desktop: host `[windows] shell` editable from the app (per-agent edit form with sandbox/shell is done, 17 October 2026). Try the new desktop pieces by hand: Markdown, agent edit, project groups, No project, title bar (Windows overlay buttons; macOS traffic lights and Linux untested). Linux has no PNG app icon yet.
 - [ ] Windows: test timeout tree-kill under the sandbox; model reviewer prompt should name the resolved shell.
 - [ ] Signed desktop installers (only when asked).
+- [ ] Host-owned agent list (`GET /v1/agents/discover`, branch `agent-discovery`, 16 October 2026): run `AddAgentScreenUiTest` on the emulator and try both Add agent forms against a real host. Host, desktop and Android JVM/build checks only so far.
 
 ## Proposed, not started
 

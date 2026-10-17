@@ -13,14 +13,23 @@ import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { STATE_DOT, STATE_LABEL, useFleet } from './fleet'
 import { HostSwitcher, HostsSettings } from './Hosts'
-import { NewSessionHome, setupKey, type AgentSetup, type StartRequest } from './NewSession'
-import { hasChoices, setupFromAcp } from './agentSetup'
+import { NewSessionHome, setupKey, type AgentSetup, type OptionPick, type StartRequest } from './NewSession'
+import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setRequest, setupFromAcp } from './agentSetup'
+import { OptionsButton } from './OptionPicker'
+import { groupByProject, inside } from './projects'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 /** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
 const shortPath = (p: string): string => { const t = tildify(p); const parts = t.split(/[\\/]/).filter(Boolean); return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : t }
+/** A timeline showing a value the user just picked, before the agent confirms it. */
+function pickedInto(t: Timeline | undefined, sel: Selector, v: string): Timeline {
+  const base = t ?? emptyTimeline()
+  if (sel.kind === 'mode') return { ...base, currentMode: v }
+  if (sel.kind === 'model') return { ...base, currentModel: v }
+  return { ...base, config: { ...(base.config ?? {}), [sel.id]: v } }
+}
 const TITLES_KEY = 'acportal.titles'
 const titles = (): Record<string, string> => JSON.parse(localStorage.getItem(TITLES_KEY) ?? '{}')
 
@@ -52,10 +61,9 @@ export default function App() {
   const [multiPrompt, setMultiPrompt] = useState<string>()
   // The session being started from the composer: shown in the sidebar at once, then its first prompt.
   const [starting, setStarting] = useState<{ hostId: string; title: string; agent: string; workspace: string }>()
-  const [firstSend, setFirstSend] = useState<{ sid: string; text: string; atts: Attachment[]; mode?: string; model?: string }>()
+  const [firstSend, setFirstSend] = useState<{ sid: string; text: string; atts: Attachment[]; choices: OptionPick[] }>()
   const [branchOf, setBranchOf] = useState<Record<string, string>>({})
   const [taskDetail, setTaskDetail] = useState<Task>()
-  const pendingSuggest = useRef<{ sid: string; id: number; resolve: (s: string | undefined) => void } | undefined>(undefined)
   const attached = useRef<string | undefined>(undefined)
   const taskAttached = useRef<string | undefined>(undefined)
   const nextId = useRef(Date.now() % 1_000_000)
@@ -89,6 +97,8 @@ export default function App() {
   const { fleet, reconnect } = useFleet(hosts)
   const [hostFilter, setHostFilter] = useState<string>('all')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Projects the user closed in the sidebar (host|folder -> closed); kept across restarts.
+  const [shutProjects, setShutProjects] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('acportal.shutProjects') ?? '{}') } catch { return {} } })
   const pendingSel = useRef<string | undefined>(undefined)
   // Open a session on any host: switch the active host first, then select it once its list loads.
   const openOn = (hid: string, sid?: string): void => {
@@ -177,12 +187,6 @@ export default function App() {
         const before = all[sid]
         const next = reduce(before ?? emptyTimeline(), env as Record<string, unknown>)
         if (next.title && next.title !== before?.title) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: next.title }))
-        const ps = pendingSuggest.current
-        if (ps && ps.sid === sid && before?.busy && !next.busy) {
-          pendingSuggest.current = undefined
-          const last = [...next.items].reverse().find((i) => i.kind === 'agent')
-          ps.resolve(last && last.kind === 'agent' ? last.text.trim().replace(/^```\w*\n?|```$/g, '').trim() : undefined)
-        }
         return { ...all, [sid]: next }
       })
     })
@@ -205,6 +209,9 @@ export default function App() {
   const agentName = (id?: string): string => agents.find((a) => a.id === id)?.name ?? id ?? ''
   const rootTask = tasks.find((t) => t.session === selected && !t.parent) ?? tasks.find((t) => t.session === selected)
   const title = (s: SessionInfo): string => timelines[s.id]?.title ?? shared?.titles[s.id] ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
+  // The window title (shown in the app's title bar and the taskbar): the open session, else the page.
+  const windowTitle = session ? title(session) : view.kind === 'settings' ? 'Settings' : view.kind === 'git' ? 'Git' : ''
+  useEffect(() => { document.title = windowTitle ? `${windowTitle} · acportal` : 'acportal' }, [windowTitle])
   const pendingIn = (sid: string): number => (timelines[sid]?.items ?? []).filter((i) => i.kind === 'permission' && i.answered === undefined).length
   const latest = useRef({ openOn, answer })
   latest.current = { openOn, answer }
@@ -244,13 +251,16 @@ export default function App() {
     if (!r.ok) return flash(r.error)
     setTimelines((all) => ({ ...all, [sid]: { ...all[sid], items: all[sid].items.map((i) => (i.kind === 'elicitation' && i.id === id ? { ...i, answered: (result as { action: string }).action } : i)) } }))
   }
-  async function suggestCommit(diff: string): Promise<string | undefined> {
-    if (!session || !attached.current || tl?.busy) { flash('Open an idle session to ask its agent'); return undefined }
-    return new Promise((resolve) => {
-      pendingSuggest.current = { sid: session.id, id: 0, resolve }
-      void sendPrompt(`Write a git commit message for this staged diff. Conventional style, imperative summary line of at most 72 characters, then an optional short body. Reply with only the message, no tools, no code fences.\n\n${diff}`, [], true)
-      setTimeout(() => { if (pendingSuggest.current?.resolve === resolve) { pendingSuggest.current = undefined; resolve(undefined) } }, 120_000)
-    })
+  // A commit message for what is staged in `path`, written by an agent in a throwaway session on
+  // the host (POST /v1/commit-message): no open session needed and nothing lands in a conversation.
+  async function suggestCommit(path: string, agentId: string): Promise<{ message?: string; error?: string }> {
+    const r = await api<{ message: string }>('POST', '/v1/commit-message', { path, agentId })
+    if (r.ok) return { message: r.value.message }
+    const words: Record<string, string> = {
+      nothing_staged: 'Nothing is staged.', agent_unavailable: 'That agent could not start in this folder.', agent_timeout: 'The agent did not answer in time.',
+      agent_failed: 'The agent reported an error.', empty_reply: 'The agent replied with nothing.', path_not_allowed: 'This folder is not allowed on the host.', not_a_repository: 'This folder is not a git repository.'
+    }
+    return { error: words[r.code ?? ''] ?? r.error }
   }
   async function cancelTurn(): Promise<void> {
     if (!session || !attached.current) return
@@ -313,7 +323,7 @@ export default function App() {
     if (sid) {
       localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: title }))
       if (shared && title.trim()) void api('PUT', `/v1/shared/titles/${sid}`, { title })
-      setFirstSend({ sid, text: r.text, atts: r.atts, mode: r.mode, model: r.model })
+      setFirstSend({ sid, text: r.text, atts: r.atts, choices: r.choices })
     }
   }
   async function endSession(id: string): Promise<void> {
@@ -357,24 +367,31 @@ export default function App() {
   // Remember each agent's models and modes, so the new-session composer can offer them.
   useEffect(() => {
     if (!session) return
-    const prev = JSON.parse(localStorage.getItem(setupKey(session.agentId)) ?? '{}') as AgentSetup
-    const base = setupFromAcp(session.setup)
-    if (!hasChoices(base)) return
-    const next: AgentSetup = { ...base, mode: tl?.currentMode ?? prev.mode ?? base.mode, model: tl?.config?.[base.modelConfig ?? ''] ?? prev.model ?? base.model }
+    const selectors = liveSelectors(session.setup, tl)
+    const next: AgentSetup = setupFromAcp(null)
+    next.selectors = selectors
+    if (!hasChoices(next)) return
+    for (const s of selectors) { const v = liveValue(s, tl); if (v !== undefined) next.chosen![s.id] = v }
     localStorage.setItem(setupKey(session.agentId), JSON.stringify(next))
-  }, [session?.id, session?.setup, tl?.currentMode, tl?.config])
+  }, [session?.id, session?.setup, tl?.currentMode, tl?.currentModel, tl?.config, tl?.configOptions])
   // First prompt of a session started from the composer: once connected, apply the remembered
   // model and mode, then send it.
   useEffect(() => {
     if (!firstSend || !session || session.id !== firstSend.sid || conn[session.id]?.kind !== 'connected' || !attached.current?.endsWith(session.id)) return
     const f = firstSend
     setFirstSend(undefined)
-    const st = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string }[] }; configOptions?: { id: string; category?: string; currentValue?: string; options?: { value: string }[] }[] }
-    const mo = st.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
     const rpc = (method: string, params: Record<string, unknown>): Promise<unknown> => window.api.session.send(attached.current!, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } })
     void (async () => {
-      if (f.mode && f.mode !== st.modes?.currentModeId && st.modes?.availableModes?.some((m) => m.id === f.mode)) { await rpc('session/set_mode', { modeId: f.mode }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: f.mode } })) }
-      if (mo && f.model && f.model !== mo.currentValue && mo.options?.some((o) => o.value === f.model)) { await rpc('session/set_config_option', { configId: mo.id, value: f.model }); setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [mo.id]: f.model! } } })) }
+      // In the order they were picked, so a provider is set before the model it brings. Options
+      // the agent does not report are skipped; a refused value shows a notice from the reply.
+      const start = liveSelectors(session.setup)
+      for (const p of f.choices) {
+        const sel = start.find((x) => x.id === p.id)
+        if (!sel || (sel.kind !== 'config' && !sel.choices.some((c) => c.value === p.value))) continue
+        const req = setRequest(sel, p.value)
+        await rpc(req.method, req.params)
+        setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, p.value) }))
+      }
       await sendPrompt(f.text, f.atts)
     })()
   }, [firstSend, session?.id, conn[selected ?? '']?.kind])
@@ -403,6 +420,10 @@ export default function App() {
   const paletteNew = (q: string): void => openComposer(q)
   // Ask the host for an agent's models and modes before its first session (throwaway session on
   // the host, no prompt). Undefined when the host cannot tell; the composer then uses defaults.
+  const newScratch = useCallback(async (): Promise<string | undefined> => {
+    const r = await api<{ path: string }>('POST', '/v1/scratch')
+    return r.ok ? r.value.path : undefined
+  }, [api])
   const probeAgent = useCallback(async (agent: string, workspace: string): Promise<unknown | undefined> => {
     const r = await api<{ setup?: unknown }>('POST', `/v1/agents/${encodeURIComponent(agent)}/probe`, { workspace })
     return r.ok ? (r.value.setup ?? {}) : undefined
@@ -522,38 +543,48 @@ export default function App() {
               {!shut && (
                 <>
                   {(st === 'offline' || st === 'repair') && !live && <div className="hint" style={{ padding: '2px 12px 6px' }}>{st === 'repair' ? <a onClick={() => setView({ kind: 'pair', repair: h.id })}>Pair again</a> : 'Sessions keep running on the host; they show again when it is back.'}</div>}
-                  <div className="section-label">Projects</div>
-                  {ws.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>{st === 'connected' ? 'No folders are allowed on this host yet.' : '—'}</div>}
-                  {ws.slice(0, 6).map((w) => (
-                    <div className="row compact" key={w.path} onClick={() => { if (!live) openOn(h.id); openComposer(undefined, w.path) }} title={`New session in ${w.path} on ${h.name}`}>
-                      <span className="row-ic">{I.folder}</span><span className="grow ell">{w.name}</span>
-                      <span className="count">{hs.filter((s) => s.workspace.startsWith(w.path)).length || ''}</span>
-                    </div>
-                  ))}
-                  <div className="section-label">Sessions</div>
-                  {starting && starting.hostId === h.id && (
-                    <div className="row session active" aria-busy="true" title={`Starting ${agentName(starting.agent)} in ${starting.workspace}`}>
-                      <span className="dot white live" />
-                      <div className="grow"><div className="title">{starting.title}</div><div className="sub row-meta"><span>Starting…</span><span className="mono ell">{baseName(starting.workspace)}</span></div></div>
-                    </div>
-                  )}
-                  {hs.length === 0 && !(starting && starting.hostId === h.id) && <div className="hint" style={{ padding: '0 10px' }}>No sessions on this host.</div>}
-                  {[...hs].reverse().map((s) => {
-                    const t = live ? timelines[s.id] : undefined
-                    const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
-                    const sst = waiting ? 'waiting' : (t?.busy || (!(live && s.id === selected) && watch[`${h.id}/${s.id}`]?.busy)) ? 'running' : s.status
-                    const br = live ? branchOf[s.workspace] : undefined
+                  {ws.length === 0 && hs.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>{st === 'connected' ? 'No folders are allowed on this host yet.' : '—'}</div>}
+                  {/* Sessions under the project they run in, like folders: the most recent project on top. */}
+                  {groupByProject(hs, ws).map((g) => {
+                    const key = h.id + '|' + g.key
+                    const startingHere = starting && starting.hostId === h.id && (g.path ? inside(starting.workspace, g.path) : !ws.some((w) => inside(starting.workspace, w.path)))
+                    const closed = shutProjects[key] ?? (!g.sessions.length && !startingHere)
+                    const toggle = (): void => setShutProjects((c) => { const n = { ...c, [key]: !closed }; try { localStorage.setItem('acportal.shutProjects', JSON.stringify(n)) } catch { /* ignore */ } return n })
                     return (
-                      <div key={s.id} className={'row session' + (live && s.id === selected ? ' active' : '')} onClick={() => openOn(h.id, s.id)}>
-                        <span className={'dot ' + stateDot(sst) + (sst === 'running' ? ' live' : '')} />
-                        <div className="grow">
-                          <div className="title">{title(s)}</div>
-                          <div className={'sub row-meta' + (waiting ? ' amber' : s.status === 'interrupted' ? ' red' : '')}>
-                            <span>{waiting ? `${waiting} waiting` : stateWord(sst)}</span>
-                            {br ? <span className="mono ell" title={`On ${br}`}>{I.branch}{br}</span> : <span className="mono ell" title={s.workspace}>{baseName(s.workspace)}</span>}
-                          </div>
+                      <div key={g.key} className="project-group">
+                        <div className="row compact project-row" role="button" aria-expanded={!closed} onClick={toggle} title={g.path ? `${g.path} on ${h.name}` : 'Sessions outside every project folder'}>
+                          <span className={'chev-ic' + (closed ? ' shut' : '')}>{I.down}</span>
+                          <span className="row-ic">{g.path ? I.folder : I.noProject}</span><span className="grow ell">{g.name}</span>
+                          <span className="count">{g.sessions.length || ''}</span>
+                          {g.path && <button className="icon-btn project-new" title={`New session in ${g.name}`} aria-label={`New session in ${g.name}`} onClick={(e) => { e.stopPropagation(); if (!live) openOn(h.id); openComposer(undefined, g.path) }}>{I.plus}</button>}
                         </div>
-                        {waiting > 0 && <span className="badge">{waiting}</span>}
+                        {!closed && startingHere && (
+                          <div className="row session nested active" aria-busy="true" title={`Starting ${agentName(starting!.agent)} in ${starting!.workspace}`}>
+                            <span className="dot white live" />
+                            <span className="grow title">{starting!.title}</span>
+                            <span className="row-note">Starting…</span>
+                          </div>
+                        )}
+                        {!closed && g.sessions.map((s) => {
+                          const t = live ? timelines[s.id] : undefined
+                          const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
+                          const sst = waiting ? 'waiting' : (t?.busy || (!(live && s.id === selected) && watch[`${h.id}/${s.id}`]?.busy)) ? 'running' : s.status
+                          const br = live ? branchOf[s.workspace] : undefined
+                          const sub = g.path && !inside(g.path, s.workspace) ? s.workspace.slice(g.path.replace(/[\\/]+$/, '').length + 1) : undefined
+                          // One line per session: the dot shows the state, the tooltip the rest;
+                          // only states that need attention get a word on the row.
+                          const where = br ? `on ${br}` : sub ?? (!g.path ? baseName(s.workspace) : undefined)
+                          const note = !waiting && sst !== 'ready' && sst !== 'running' ? stateWord(sst) : undefined
+                          return (
+                            <div key={s.id} className={'row session nested' + (live && s.id === selected ? ' active' : '')} onClick={() => openOn(h.id, s.id)}
+                              title={[title(s), waiting ? `${waiting} waiting` : stateWord(sst), where].filter(Boolean).join(' · ')}>
+                              <span className={'dot ' + stateDot(sst) + (sst === 'running' ? ' live' : '')} />
+                              <span className="grow title">{title(s)}</span>
+                              {note && <span className={'row-note' + (s.status === 'interrupted' ? ' red' : '')}>{note}</span>}
+                              {waiting > 0 && <span className="badge">{waiting}</span>}
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })}
@@ -577,7 +608,9 @@ export default function App() {
       ...workspaces.filter((w) => w.path !== session?.workspace).map((w) => ({ path: w.path, label: baseName(w.path) })),
       ...tasks.filter((t) => t.worktree?.path && t.worktree.outcome !== 'merged').map((t) => ({ path: t.worktree!.path!, label: t.worktree!.branch + ' · task' }))
     ]
-    center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })} suggest={suggestCommit}
+    center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })}
+      suggest={status?.features?.includes('commitMessage') ? suggestCommit : undefined}
+      agents={agents.filter((a) => a.enabled !== false && a.status !== 'missing' && a.status !== 'misconfigured')} defaultAgent={session?.agentId}
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
       openSession={(path) => { openComposer(); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />
   } else if (view.kind === 'compare' && runs.some((r) => r.id === view.runId)) {
@@ -618,7 +651,8 @@ export default function App() {
         onHost={(id) => { openOn(id); flash(`Switched to ${hosts.find((h) => h.id === id)?.name}`) }} agents={agents} workspaces={workspaces} mcp={mcp}
         canBranch={Boolean(status?.features?.includes('git')) || Boolean(host && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(host.address))}
         history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }}
-        probe={status?.features?.includes('agentProbe') ? probeAgent : undefined} />
+        probe={status?.features?.includes('agentProbe') ? probeAgent : undefined}
+        newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)
@@ -636,10 +670,7 @@ export default function App() {
     )
   } else {
     const c = conn[session.id]
-    const setup = (session.setup ?? {}) as { modes?: { currentModeId?: string; availableModes?: { id: string; name: string }[] }; configOptions?: { id: string; name: string; category?: string; currentValue?: string; options?: { value: string; name: string }[] }[]; models?: { currentModelId?: string } }
-    const modelOpt = setup.configOptions?.find((o) => o.id === 'model' || o.category === 'model')
-    const modelValue = tl?.config?.[modelOpt?.id ?? ''] ?? modelOpt?.currentValue ?? setup.models?.currentModelId
-    const modeValue = tl?.currentMode ?? setup.modes?.currentModeId
+    const selectors = arranged(liveSelectors(session.setup, tl))
     const configure = (method: string, params: Record<string, unknown>): void => {
       if (attached.current) void window.api.session.send(attached.current, { jsonrpc: '2.0', id: ++nextId.current, method, params: { sessionId: session.acpSessionId, ...params } }).then((r) => { if (!r.ok) flash(r.error) })
     }
@@ -654,16 +685,8 @@ export default function App() {
             <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{shortPath(session.workspace)}</span></div>
           </div>
           {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
-          {setup.modes?.availableModes?.length ? (
-            <select className="select-btn" title="Agent mode" value={modeValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], currentMode: v } })); configure('session/set_mode', { modeId: v }) }}>
-              {setup.modes.availableModes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          ) : null}
-          {modelOpt?.options?.length ? (
-            <select className="select-btn" title="Model" value={modelValue} onChange={(e) => { const v = e.target.value; setTimelines((a) => ({ ...a, [session.id]: { ...a[session.id], config: { ...(a[session.id]?.config ?? {}), [modelOpt.id]: v } } })); configure('session/set_config_option', { configId: modelOpt.id, value: v }) }}>
-              {modelOpt.options.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
-            </select>
-          ) : modelValue ? <span className="select-btn">{modelValue}</span> : null}
+          <OptionsButton selectors={selectors.filter((s) => s.choices.length)} valueOf={(s) => liveValue(s, tl)} disabled={interrupted}
+            onPick={(sel, v) => { setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, v) })); const req = setRequest(sel, v); configure(req.method, req.params) }} />
           <span className="vsep" />
           <button className="icon-btn" title="Git: changes, branches, history (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>

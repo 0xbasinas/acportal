@@ -133,7 +133,7 @@ class PortalRepository(
     suspend fun refreshHosts() { hosts.first().forEach { host -> try { details(host.id) } catch (cancelled:CancellationException) { throw cancelled } catch (_:Exception) {} } }
     suspend fun browse(host:HostProfile,path:String): List<Workspace> = api.browse(host,path)
     fun agentClient(host:HostProfile)=object:AgentClient {
-        override suspend fun locate(commands:List<String>)=api.locateAgents(host,commands)
+        override suspend fun discover()=api.discoverAgents(host)
         override suspend fun check(command:String,env:Map<String,String>)=api.checkAgent(host,command,env)
         override suspend fun add(registration:AgentRegistration) {api.addAgent(host,registration)}
         override suspend fun remove(id:String) {api.removeAgent(host,id)}

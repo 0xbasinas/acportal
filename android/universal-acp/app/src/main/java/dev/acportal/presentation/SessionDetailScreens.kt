@@ -71,8 +71,14 @@ import kotlinx.serialization.json.*
             Text(state.items.filterIsInstance<TimelineItem.Text>().firstOrNull {it.role=="user"}?.text?.lineSequence()?.firstOrNull()?.take(80) ?: info.agentId,style=MaterialTheme.typography.titleMedium)
             Text("${info.agentId} · ${info.workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            if(configuration.isNotEmpty())configuration.forEach {option->
-                ConfigSelector(option,enabled) {value->onConfigure("session/set_config_option",buildJsonObject {put("configId",option["id"].text());put("value",value)})}
+            if(configuration.isNotEmpty()) {
+                val sections=remember(configuration) {optionSections(configuration)}
+                sections.forEach {section->
+                    if(sections.size>1)Text(section.title,Modifier.padding(top=8.dp).semantics {heading()},style=MaterialTheme.typography.titleSmall)
+                    section.options.forEach {option->
+                        ConfigSelector(option,enabled) {value->onConfigure("session/set_config_option",buildJsonObject {put("configId",option["id"].text());put("value",value)})}
+                    }
+                }
             } else {
                 val models=state.models["availableModels"].arrayValue()
                 val modelOption=remember(state.models) {buildJsonObject {put("name","Model");put("currentValue",state.models["currentModelId"] ?: JsonNull);putJsonArray("options") {models.forEach {value->add(JsonObject(value.objectValue()+ ("value" to (value.objectValue()["modelId"] ?: JsonNull))))}}}}

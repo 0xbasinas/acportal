@@ -458,7 +458,19 @@ impl Config {
                 return Ok(path);
             }
         }
+        // Folders the host made for sessions outside any project (`POST /v1/scratch`).
+        if let Ok(scratch) = self.scratch_root().canonicalize()
+            && path.starts_with(&scratch)
+            && path != scratch
+        {
+            return Ok(path);
+        }
         bail!("workspace is outside configured workspace_roots; configure an explicit root")
+    }
+    /// Where empty folders for sessions outside any project are made: inside the host's state,
+    /// like task worktrees, so they never mix with a project. Only folders below it are allowed.
+    pub fn scratch_root(&self) -> PathBuf {
+        self.state_directory.join("scratch")
     }
     /// Where delegated tasks' git worktrees live: inside the host's state, never inside a
     /// workspace root, so a parent agent cannot reach a child's worktree through its own folder.

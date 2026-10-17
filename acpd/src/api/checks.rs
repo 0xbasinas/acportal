@@ -142,7 +142,8 @@ async fn run_lines(
                 }
             },
         };
-        // The launcher is gone by now (or killed on timeout); remove its grant.
+        // Remove a one-off grant if the sandbox made one (Windows workspace grants are shared
+        // and removed when the host stops).
         if profile.is_some() {
             let dir = dir.to_path_buf();
             let _ = tokio::task::spawn_blocking(move || {
@@ -288,11 +289,17 @@ mod windows_tests {
                 run_checks(&dir, &commands, Some(&launcher), Duration::from_secs(30)).await;
             assert_eq!(sandboxed[0]["code"], 0, "{sandboxed:?}");
             assert!(sandboxed[0]["output"].as_str().unwrap().contains("ok"));
-            let acl = std::process::Command::new("icacls")
-                .arg(&dir)
-                .output()
-                .unwrap();
-            assert!(!String::from_utf8_lossy(&acl.stdout).contains("S-1-15-2-"));
+            let acl = || {
+                let out = std::process::Command::new("icacls")
+                    .arg(&dir)
+                    .output()
+                    .unwrap();
+                String::from_utf8_lossy(&out.stdout).to_string()
+            };
+            // The folder keeps its one shared grant until the host stops.
+            assert_eq!(acl().matches("S-1-15-2-").count(), 1, "{}", acl());
+            crate::win_sandbox::release_workspace(&dir);
+            assert!(!acl().contains("S-1-15-2-"), "{}", acl());
         }
         let _ = std::fs::remove_dir_all(&base);
     }
