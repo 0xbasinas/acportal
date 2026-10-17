@@ -178,3 +178,25 @@ test('applying an event leaves the previous timeline untouched, so a repeated up
   // The same event applied to the new timeline is still ignored.
   assert.equal(reduce(first, prompt), first)
 })
+
+test('commit graph lanes: a branch, its merge and a tip that starts its own lane', async () => {
+  const { parseDag, layoutDag } = await import('../src/gitparse')
+  // m merges b2 into a1; b2 <- b1 <- base; a1 <- base; t is a separate tip on top of m.
+  const line = (h: string, p: string, refs = '') => [h, p, refs, 'subject ' + h, 'me', 'now'].join('\u001f')
+  const commits = parseDag([line('t', 'm', ' (HEAD -> main)'), line('m', 'a1 b2'), line('b2', 'b1'), line('a1', 'base'), line('b1', 'base'), line('base', '')].join('\n'))
+  assert.equal(commits[0].refs, 'HEAD -> main')
+  assert.deepEqual(commits[1].parents, ['a1', 'b2'])
+  const { rows, lanes } = layoutDag(commits)
+  const at = (h: string) => rows.find((r) => r.commit.hash === h)!
+  assert.equal(at('t').col, 0)
+  assert.equal(at('m').col, 0)
+  assert.equal(at('m').merge, true)
+  assert.deepEqual(at('m').out.map((o) => o.to), [0, 1]) // first parent straight down, merged branch in lane 1
+  assert.equal(at('b2').col, 1)
+  assert.deepEqual(at('b2').through.map((t) => t.lane), [0]) // main passes beside the branch
+  assert.equal(at('base').into.length, 2) // both lanes end in the common ancestor
+  assert.equal(at('base').col, 0)
+  assert.equal(lanes, 2)
+  // Colours: a lane keeps its colour down to the ancestor; the branch has another.
+  assert.notEqual(at('b2').color, at('a1').color)
+})

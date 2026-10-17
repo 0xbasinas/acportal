@@ -455,6 +455,10 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .graph-row { display: flex; gap: 10px; align-items: center; padding: 3px 8px; white-space: nowrap; border-radius: 6px; line-height: 20px; }
 .graph-row:hover { background: var(--hover); }
 .graph { white-space: pre; font-size: 13px; min-width: 64px; }
+/* Drawn graph rows have no vertical padding, so each row's lines meet the next row's. */
+.graph-row.dag-row { padding-top: 0; padding-bottom: 0; height: 28px; border-radius: 0; }
+.graph-row.dag-row:hover { border-radius: 6px; }
+.dag { flex: none; display: block; overflow: visible; }
 .graph-row .subj { color: var(--text); font-family: 'Inter Variable', Inter, sans-serif; font-size: 13px; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .ref { font-size: 11px; padding: 0 6px; height: 18px; display: inline-flex; align-items: center; border-radius: 5px; background: var(--surface-3); color: var(--text-2); }
 .ref.head { background: var(--primary); color: var(--on-primary); }

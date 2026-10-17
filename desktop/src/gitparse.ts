@@ -104,3 +104,55 @@ export function githubRepo(remote: string): string | undefined {
   const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())
   return m ? `https://github.com/${m[1]}/${m[2]}` : undefined
 }
+
+/** One commit of `log-dag` (`%H %P %d %s %an %cr`, unit-separated). */
+export type DagCommit = { hash: string; parents: string[]; refs: string; subject: string; author: string; when: string }
+export function parseDag(out: string): DagCommit[] {
+  return out.split('\n').filter((l) => l.includes('\u001f')).map((l) => {
+    const [hash, parents, refs, subject, author, when] = l.split('\u001f')
+    return { hash, parents: parents.split(' ').filter(Boolean), refs: refs.trim().replace(/^\(|\)$/g, ''), subject, author, when }
+  })
+}
+
+/** A drawn row of the commit graph. Lanes are columns; `color` indexes a palette. Lines that
+ * pass the row (`through`), come down into the commit from a lane above (`into`), or leave it
+ * for a lane below (`out`, its parents). */
+export type DagRow = {
+  commit: DagCommit; col: number; color: number; merge: boolean
+  through: { lane: number; color: number }[]
+  into: { from: number; color: number }[]
+  out: { to: number; color: number }[]
+}
+
+/** Lay commits (newest first, as `git log --date-order` lists them) out in lanes: a commit takes
+ * the lane that waits for it (or a free one, a branch tip); its first parent continues that lane;
+ * other parents (a merge) join a lane already waiting for them or start one. Lanes that waited
+ * for the same commit end there. Freed lanes are reused, so the graph stays narrow. */
+export function layoutDag(commits: DagCommit[]): { rows: DagRow[]; lanes: number } {
+  const lanes: (string | null)[] = []
+  const colors: number[] = []
+  let next = 0
+  let widest = 0
+  const free = (avoid: number): number => { const i = lanes.findIndex((l, k) => l === null && k !== avoid); return i < 0 ? lanes.length : i }
+  const rows = commits.map((commit) => {
+    const before = [...lanes]
+    let col = lanes.indexOf(commit.hash)
+    if (col < 0) { col = free(-1); lanes[col] = commit.hash; colors[col] = next++ }
+    const into = before.flatMap((h, i) => (h === commit.hash ? [{ from: i, color: colors[i] }] : []))
+    for (const { from } of into) if (from !== col) lanes[from] = null
+    const color = colors[col]
+    const [first, ...rest] = commit.parents
+    lanes[col] = first ?? null
+    const out: DagRow['out'] = first ? [{ to: col, color }] : []
+    for (const parent of rest) {
+      let j = lanes.indexOf(parent)
+      if (j < 0) { j = free(col); lanes[j] = parent; colors[j] = next++ }
+      out.push({ to: j, color: colors[j] })
+    }
+    const through = before.flatMap((h, i) => (h !== null && h !== commit.hash && i !== col && lanes[i] === h ? [{ lane: i, color: colors[i] }] : []))
+    while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop()
+    widest = Math.max(widest, before.length, lanes.length, col + 1)
+    return { commit, col, color, merge: commit.parents.length > 1, through, into, out }
+  })
+  return { rows, lanes: widest }
+}
