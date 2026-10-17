@@ -1,5 +1,12 @@
 # Completed work and verification history
 
+## 17 October 2026 pull requests from the Git view (`experiment/t3code-ideas`)
+
+- `POST /v1/pull-requests` runs `gh pr create` with a literal argv, the body on stdin, `GIT_TERMINAL_PROMPT=0`, a 60 s timeout and bounded output. `gh` is found with `discovery::resolve`. Doctor prints whether the program was found and does not call `gh auth status` (that command contacts GitHub on gh 2.94.0). Sign-in is exit code 4 from `gh pr create`. Stderr is classified (`already exists` from cli/cli v2.94.0 `create.go`, `no git remotes` from `context/context.go`) and never returned. `owner:branch` is rejected by `git check-ref-format --branch`, so a cross-fork head is out of scope.
+- Desktop Git view: after a successful push, an editable title and body, Suggest via `POST /v1/commit-message` with `kind: pullRequest`, and the equivalent `gh` line. The button is disabled when `features` omits `pullRequests` or status `gh` is not `found`. The GitHub compare link stays.
+- Checks, local Windows: `cargo fmt --all -- --check` (formatted first), `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets` (exit 0; real Goose trials ignored). Desktop `npm run typecheck` and `npm test` (39 vitest tests, including `pr.test.tsx`). The fake-`gh` test copies this test binary to `gh.exe` because Windows will not start a `.cmd`. Removing the stderr guard made that test fail with `{"stderr":"token ghp_SUPERSECRETTOKENVALUE\n"}` and status 200 instead of 502; the guard was restored before the suite above.
+- Not done: the Electron window in both themes (no isolated paired desktop session was opened; saved hosts were left untouched). Real `gh pr create` was not called. Android unchanged.
+
 ## Desktop client and host features (branch `experiment/desktop`, PR #46)
 
 - 16 October 2026: stack merged: #48 and #47 into `experiment/desktop`, #46 into `experiment/orchestrator` (merge commits). CI fixes: `tray/Cargo.lock` refreshed for acpd's new dependencies (Tray `--locked` failed once PRs left draft), `tests/launcher.rs` retries the status request on a connection reset. The composer saves its first-prompt title to `/v1/shared` too. Markdown refreshed against the code.

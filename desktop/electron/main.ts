@@ -171,7 +171,8 @@ function registerIpc(): void {
       if (!path.startsWith('/v1/') || path.includes('..')) throw new Error('Invalid host route')
       const h = host(id)
       // Pre-merge checks run test suites; the host enforces its own deadline (at most 30 min).
-      return request(h.address, path, { method, body, query, token: unseal(h), ...(path === '/v1/checks' ? { timeoutMs: 1_900_000 } : {}) })
+      const slow = path === '/v1/checks' ? 1_900_000 : path === '/v1/pull-requests' ? 70_000 : path === '/v1/commit-message' ? 130_000 : undefined
+      return request(h.address, path, { method, body, query, token: unseal(h), ...(slow ? { timeoutMs: slow } : {}) })
     })
   )
   ipcMain.handle(

@@ -580,6 +580,10 @@ async fn main() -> Result<()> {
                 println!("{message}");
                 healthy &= passed;
             }
+            let gh = acpd::discovery::resolve("gh", None).map(|launch| launch.program);
+            let (message, passed) = acpd::doctor::github_cli_line(gh.as_deref());
+            println!("{message}");
+            healthy &= passed;
             for root in &config.workspace_roots {
                 healthy &= config.workspace(root).is_ok();
             }

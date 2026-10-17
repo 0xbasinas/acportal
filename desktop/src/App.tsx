@@ -262,6 +262,30 @@ export default function App() {
     }
     return { error: words[r.code ?? ''] ?? r.error }
   }
+  async function suggestPr(path: string, agentId: string, base: string): Promise<{ title?: string; body?: string; error?: string }> {
+    const r = await api<{ title: string; body: string }>('POST', '/v1/commit-message', { path, agentId, kind: 'pullRequest', base })
+    if (r.ok) return { title: r.value.title, body: r.value.body }
+    const words: Record<string, string> = {
+      nothing_to_describe: 'Nothing to describe since that base.', base_not_found: 'That base branch was not found.',
+      agent_unavailable: 'That agent could not start in this folder.', agent_timeout: 'The agent did not answer in time.',
+      agent_failed: 'The agent reported an error.', empty_reply: 'The agent replied with nothing.',
+      path_not_allowed: 'This folder is not allowed on the host.', invalid_branch_name: 'That branch name is not valid.',
+      invalid_parameter: 'The request was not valid.'
+    }
+    return { error: words[r.code ?? ''] ?? r.error }
+  }
+  async function createPr(input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }): Promise<{ url?: string; error?: string }> {
+    const r = await api<{ url: string }>('POST', '/v1/pull-requests', input)
+    if (r.ok) return { url: r.value.url }
+    const words: Record<string, string> = {
+      gh_unavailable: 'GitHub CLI (gh) was not found on the host.', gh_not_signed_in: 'gh is not signed in on the host.',
+      no_remote: 'This repository has no GitHub remote gh can use.', already_exists: 'A pull request for this branch already exists.',
+      gh_failed: 'gh could not open the pull request.', gh_timeout: 'gh did not finish in time.',
+      invalid_branch_name: 'That branch name is not valid.', body_too_large: 'The description is too long.',
+      path_not_allowed: 'This folder is not allowed on the host.', invalid_parameter: 'The title is empty or too long.'
+    }
+    return { error: words[r.code ?? ''] ?? r.error }
+  }
   async function cancelTurn(): Promise<void> {
     if (!session || !attached.current) return
     await window.api.session.send(attached.current, { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: session.acpSessionId } })
@@ -610,6 +634,9 @@ export default function App() {
     ]
     center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })}
       suggest={status?.features?.includes('commitMessage') ? suggestCommit : undefined}
+      pullRequests={status?.features?.includes('pullRequests')} ghCli={status?.gh}
+      suggestPr={status?.features?.includes('commitMessage') ? suggestPr : undefined}
+      createPr={status?.features?.includes('pullRequests') ? createPr : undefined}
       agents={agents.filter((a) => a.enabled !== false && a.status !== 'missing' && a.status !== 'misconfigured')} defaultAgent={session?.agentId}
       askAgent={(p) => { setView({ kind: 'workspace' }); setDraft({ text: p, n: Date.now() }) }}
       openSession={(path) => { openComposer(); setTimeout(() => flash(`Pick the folder containing ${tildify(path)}; worktrees inside host roots are listed`), 100) }} />

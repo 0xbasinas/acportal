@@ -1,5 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Branch, Compare, DagRow, FileDiff, GraphRow, Status, Worktree, githubRepo, layoutDag, parseBranches, parseCompare, parseDag, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
+import { prBase, prBlockedReason, prCommand } from './pr'
 import { Empty, I, baseName, tildify } from './ui'
 
 type LogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
@@ -56,13 +57,19 @@ function GraphGlyphs({ g }: { g: string }) {
 // GitHub compare URLs keep the slashes of a branch name.
 const refPath = (r: string) => r.split("/").map(encodeURIComponent).join("/")
 
-export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, askAgent, openSession, confirmDanger }: {
+export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, askAgent, openSession, confirmDanger, pullRequests, ghCli, suggestPr, createPr }: {
   hostId: string; repos: { path: string; label: string }[]; onBack: () => void
   /** A commit message for what is staged in `path`, from `agentId` (absent on older hosts). */
   suggest?: (path: string, agentId: string) => Promise<{ message?: string; error?: string }>
   agents: { id: string; name: string }[]; defaultAgent?: string
   askAgent: (prompt: string) => void; openSession: (path: string) => void
   confirmDanger?: (text: string) => boolean
+  /** Host advertises `POST /v1/pull-requests`. */
+  pullRequests?: boolean
+  /** `GET /v1/status` `gh`: whether the host found the `gh` program. */
+  ghCli?: 'found' | 'missing'
+  suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; error?: string }>
 }) {
   const sure = confirmDanger ?? ((t: string) => confirm(t))
   const [available, setAvailable] = useState<'host' | 'local' | false>()
@@ -331,7 +338,8 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
         )}
         {tab === 'Branches' && (
           <Branches branches={branches} current={current} status={status} learn={learn} W={W} gh={gh} git={git} sure={sure}
-            act={act} onCompareError={setErr} />
+            act={act} onCompareError={setErr} cwd={cwd} pullRequests={pullRequests} ghCli={ghCli}
+            suggestPr={suggestPr} createPr={createPr} msgAgent={msgAgent} />
         )}
         {tab === 'History' && (
           <div className="mono graph-list">
@@ -456,11 +464,39 @@ function BranchMenu({ branches, current, learn, onSwitch, onCreate, onAll, onClo
   )
 }
 
-function Branches({ branches, current, status, learn, W, gh, git, act, sure, onCompareError }: {
+/** Editable pull-request title and body. The `gh` line is display only; the host builds the real argv. */
+export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, onTitle, onBody, onDraft, onSuggest, onCreate }: {
+  learn: boolean; title: string; body: string; draft: boolean; base: string; head: string; busy: boolean; canSuggest: boolean; note?: string
+  onTitle: (v: string) => void; onBody: (v: string) => void; onDraft: (v: boolean) => void; onSuggest: () => void; onCreate: () => void
+}) {
+  const cmd = prCommand({ title: title || 'Title', base, head, draft })
+  return (
+    <div className="pr-offer" style={{ marginTop: 12 }}>
+      <input className="input" aria-label="Pull request title" placeholder="Title" value={title} onChange={(e) => onTitle(e.target.value)} />
+      <textarea className="input area" aria-label="Pull request body" placeholder="What changed and why" value={body} onChange={(e) => onBody(e.target.value)} style={{ marginTop: 8 }} />
+      <label className="sub" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <input type="checkbox" checked={draft} onChange={(e) => onDraft(e.target.checked)} /> Draft
+      </label>
+      <div className="btn-row">
+        <button className="btn" disabled={!canSuggest || busy} title={canSuggest ? 'Ask the agent for a title and description from commits since the base' : 'Pick an agent on the Changes tab'} onClick={onSuggest}>{I.spark}Suggest</button>
+        <GitBtn learn={false} primary label="Open pull request" disabled={!title.trim() || busy} cmd={cmd}
+          why="Creates the pull request with gh on the host. The description is read from stdin." onClick={onCreate} />
+      </div>
+      <code className="learn-cmd">$ {cmd}</code>
+      {learn && <div className="hint">This line is what the host runs. The description is not in it; gh reads that from stdin.</div>}
+      {note && <div className="hint">{note}</div>}
+    </div>
+  )
+}
+
+function Branches({ branches, current, status, learn, W, gh, git, act, sure, onCompareError, cwd, pullRequests, ghCli, suggestPr, createPr, msgAgent }: {
   branches: Branch[]; current: string; status?: Status; learn: boolean; W: (op: string) => string; gh?: string; sure: (t: string) => boolean
   git: (op: string, p?: Record<string, string>) => Promise<string | undefined>
   act: (label: string, op: string, params?: Record<string, string>, input?: string, inverse?: { cmd: string; run: () => Promise<unknown> }) => Promise<boolean>
   onCompareError: (e?: string) => void
+  cwd: string; pullRequests?: boolean; ghCli?: 'found' | 'missing'; msgAgent: string
+  suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; error?: string }>
 }) {
   const local = branches.filter((b) => !b.remote)
   const remotes = branches.filter((b) => b.remote)
@@ -470,6 +506,12 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   const [renaming, setRenaming] = useState<string>()
   const [newName, setNewName] = useState('')
   const [create, setCreate] = useState('')
+  const [offer, setOffer] = useState(false)
+  const [prTitle, setPrTitle] = useState('')
+  const [prBody, setPrBody] = useState('')
+  const [draft, setDraft] = useState(false)
+  const [prBusy, setPrBusy] = useState(false)
+  const [prNote, setPrNote] = useState<string>()
   useEffect(() => { if (!base && defaultBase) setBase(defaultBase) }, [defaultBase])
   const compare = async (): Promise<void> => {
     const out = await git('compare', { base })
@@ -477,6 +519,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   }
   const published = Boolean(status?.upstream)
   const prUrl = gh && current && base && current !== base ? `${gh}/compare/${refPath(base.replace(/^origin\//, ''))}...${refPath(current)}?expand=1` : undefined
+  const prBlocked = prBlockedReason(Boolean(pullRequests), ghCli)
   return (
     <div className="narrow">
       <div className="card" style={{ marginBottom: 16 }}>
@@ -489,10 +532,41 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
           <GitBtn learn={learn} icon={I.compare} label="Compare" disabled={!base || base === current} cmd={`git log --left-right ${base}...HEAD`} why={W('compare')} onClick={() => void compare()} />
           <span style={{ flex: 1 }} />
           <GitBtn learn={learn} icon={I.upload} primary={!published || Boolean(status?.ahead)} label={published ? 'Push' : 'Publish branch'} disabled={!current} cmd={`git push --set-upstream origin ${current}`} why={W('push')}
-            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current })} />
-          {prUrl && <button className="btn" title={prUrl} onClick={() => window.open(prUrl)}>{I.pr}Open pull request</button>}
+            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current }).then((ok) => { if (ok && pullRequests) setOffer(true) })} />
+          {pullRequests ? (
+            <GitBtn learn={learn} icon={I.pr} label="Open pull request" disabled={Boolean(prBlocked) || !current || !base || base === current}
+              cmd={prCommand({ title: prTitle || 'Title', base: prBase(base), head: current, draft })}
+              why={prBlocked ?? 'Open a pull request with gh on the host. The description is read from stdin.'}
+              onClick={() => setOffer(true)} />
+          ) : (
+            prUrl && <button className="btn" title={prUrl} onClick={() => window.open(prUrl)}>{I.pr}Open pull request</button>
+          )}
+          {pullRequests && prUrl && <button className="btn ghost" title={prUrl} onClick={() => window.open(prUrl)}>Compare on GitHub</button>}
         </div>
         {!gh && <div className="hint" style={{ marginTop: 8 }}>{status ? 'Pull request links appear when origin is on GitHub.' : ''} Push uses the host's own git credentials; the app stores none.</div>}
+        {prBlocked && <div className="hint" style={{ marginTop: 8 }}>{prBlocked}</div>}
+        {offer && pullRequests && !prBlocked && (
+          <PullRequestForm learn={learn} title={prTitle} body={prBody} draft={draft} base={prBase(base)} head={current} busy={prBusy}
+            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote}
+            onTitle={setPrTitle} onBody={setPrBody} onDraft={setDraft}
+            onSuggest={() => {
+              if (!suggestPr || !msgAgent) return
+              setPrBusy(true); setPrNote('Asking for a title and description…')
+              void suggestPr(cwd, msgAgent, prBase(base)).then((r) => {
+                setPrBusy(false)
+                if (r.title) { setPrTitle(r.title); setPrBody(r.body ?? ''); setPrNote('Suggested. Edit it before opening the pull request.') }
+                else setPrNote(r.error ?? 'No suggestion')
+              })
+            }}
+            onCreate={() => {
+              if (!createPr || !prTitle.trim()) return
+              setPrBusy(true); setPrNote(undefined)
+              void createPr({ path: cwd, base: prBase(base), head: current, title: prTitle.trim(), body: prBody, draft }).then((r) => {
+                setPrBusy(false)
+                if (r.url) { setPrNote(r.url); window.open(r.url) } else setPrNote(r.error ?? 'Could not open the pull request')
+              })
+            }} />
+        )}
         {cmp && cmp.branch === current && (
           <div className="compare">
             <div><div className="group-h"><span>Only on {cmp.branch}</span><span className="count">{cmp.c.ahead.length}</span></div>

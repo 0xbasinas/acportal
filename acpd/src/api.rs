@@ -33,6 +33,7 @@ use uuid::Uuid;
 mod bridge;
 mod checks;
 mod git;
+mod pr;
 mod shared;
 
 #[derive(Clone)]
@@ -245,6 +246,10 @@ impl Host {
             .route("/v1/shared/history", post(shared::add_history))
             .route("/v1/commit-message", post(git::commit_message))
             .route(
+                "/v1/pull-requests",
+                post(pr::create).layer(DefaultBodyLimit::max(pr::MAX_HTTP_BODY)),
+            )
+            .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
             )
@@ -431,6 +436,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "agentProbe",
         "agentDiscovery",
         "commitMessage",
+        "pullRequests",
         "scratchSessions",
     ];
     if host.config.orchestrator.enabled {
@@ -440,7 +446,8 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
-        "features":features,"activeSessions":host.sessions.active_count().await}),
+        "features":features,"gh": if crate::discovery::resolve("gh", None).is_some() { "found" } else { "missing" },
+        "activeSessions":host.sessions.active_count().await}),
     ))
 }
 async fn agents(State(host): State<Host>) -> Json<Value> {

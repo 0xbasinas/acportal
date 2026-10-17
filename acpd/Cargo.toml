@@ -54,3 +54,8 @@ windows-sys = { version = "0.61", features = ["Win32_System_ProcessStatus", "Win
 [[bin]]
 name = "mock-acp-agent"
 path = "src/bin/mock_acp_agent.rs"
+
+# The fake `gh` is this binary copied to `gh.exe`. A `.cmd` is not an executable the host will start.
+[[test]]
+name = "pull_request"
+harness = false

@@ -1,5 +1,15 @@
 # Remaining work
 
+## T3 Code ideas (`experiment/t3code-ideas`, 17 October 2026)
+
+- [x] Open a pull request from the Git view (`POST /v1/pull-requests`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Cross-fork `owner:branch` heads are rejected.
+- [ ] Permission presets in the composer.
+- [ ] Agent profiles (`profileOf`).
+- [ ] OS service install (Linux and macOS, then Windows).
+- [ ] External MCP endpoint: design and ADR only.
+- [ ] Remote access routes: design and ADR only.
+- [ ] Small ACP gaps, after a live `goose acp` initialize (no prompt).
+
 Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `codex/final-acceptance`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [the current continuation](docs/final-acceptance.md) and [PR #15 review](docs/pr15-review.md) record actual results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
 
 Goose ACP is the local agent. Android uses authenticated REST/WebSocket and the host uses ACP stdio. Preserve production data, never automatically resend prompts or decisions, and follow [HANDOFF](HANDOFF.md) and [task recovery](docs/task-recovery.md).
