@@ -3,13 +3,13 @@
 // folder, branch, access rights and the worktree switch, each opening a small anchored list.
 // Sending docks the composer at the bottom (220 ms, none with reduced motion) while the
 // session starts; the context folds into a header line.
-import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AgentInfo, Workspace } from './types'
 import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
-import { type AgentSetup, choiceName, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
+import { type AgentSetup, choiceName, groupAgents, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
 import { OptionsPanel } from './OptionPicker'
 import { applyPreset, presetKey, sameRights, type Preset } from './presets'
 
@@ -70,8 +70,8 @@ function Chip({ id, open, setOpen, label, icon, active, children, wide, title, u
     </span>
   )
 }
-function Item({ on, children, onPick, sub, preset, mode }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode; preset?: string; mode?: string }) {
-  return <button data-item data-preset={preset} data-mode={mode} className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
+function Item({ on, children, onPick, sub, preset, mode, profileOf }: { on?: boolean; children: ReactNode; onPick: () => void; sub?: ReactNode; preset?: string; mode?: string; profileOf?: string }) {
+  return <button data-item data-preset={preset} data-mode={mode} data-profile-of={profileOf} className={'ctx-item' + (on ? ' on' : '')} onClick={onPick}><span className="grow ell">{children}</span>{sub && <span className="sub">{sub}</span>}{on && <span className="tick">{I.check}</span>}</button>
 }
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
@@ -149,7 +149,8 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const box = useRef<HTMLDivElement>(null)
   const target = sub.trim() ? `${ws.replace(/\/$/, '')}/${sub.trim().replace(/^\//, '')}` : ws
   const host = hosts.find((h) => h.id === hostId)
-  const agentName = usable.find((a) => a.id === agent)?.name ?? agent
+  const selectedAgent = usable.find((a) => a.id === agent)
+  const agentName = selectedAgent?.profileLabel || selectedAgent?.name || agent
   useEffect(() => { if (initial) { setText(initial.text); ta.current?.focus() } }, [initial?.n])
   useEffect(() => { ta.current?.focus() }, [])
   useEffect(() => { const el = ta.current; if (el) { el.style.height = 'auto'; el.style.height = Math.min(220, el.scrollHeight) + 'px' } }, [text])
@@ -263,7 +264,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         <button className="icon-btn round" aria-label="Attach files" title="Attach files" onClick={() => void pick()} disabled={starting}>{I.plus}</button>
         <Chip id="agent" open={open} setOpen={setOpen} up icon={I.bot} label={agentName || 'No agent'} title="Agent">
           <div className="ctx-h">Agent</div>
-          {usable.map((a) => <Item key={a.id} on={a.id === agent} sub={a.version} onPick={() => { setAgent(a.id); setOpen(undefined) }}>{a.name}</Item>)}
+          {groupAgents(usable).map((group) => <Fragment key={group.base.id}>
+            <Item on={group.base.id === agent} sub={group.base.version} onPick={() => { setAgent(group.base.id); setOpen(undefined) }}>{group.base.profileLabel || group.base.name}</Item>
+            {group.profiles.map((profile) => <Item key={profile.id} profileOf={group.base.id} on={profile.id === agent} sub="profile" onPick={() => { setAgent(profile.id); setOpen(undefined) }}>{profile.profileLabel || profile.name}</Item>)}
+          </Fragment>)}
           {usable.length === 0 && <div className="hint ctx-pad">No agents on this host. Add one in Settings → Agents.</div>}
           <div className="ctx-sep" />
           <Item onPick={() => { setOpen(undefined); onMulti(text) }} sub="2-3 agents">{I.flow} Run on several agents…</Item>

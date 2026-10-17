@@ -9,6 +9,8 @@ export type Host = { id: string; hostId: string; name: string; address: string; 
 export type SharedData = { revision: number; drafts: Record<string, { text: string; updatedAt: number; device: string }>; titles: Record<string, string>; history: Record<string, string[]> }
 export type HostStatus = { hostId: string; name: string; version: string; activeSessions?: number; features?: string[]; gh?: 'found' | 'missing' }
 export type AgentInfo = { id: string; name: string; enabled?: boolean; installed?: boolean; status?: string; executable?: string; version?: string; reason?: string; ownTools?: boolean; removable?: boolean; setup?: unknown
+  /** Set when this entry is an account of another agent on the same host. */
+  profileOf?: string; profileLabel?: string
   /** `off`: host-approved commands run unconfined; `auto`: in the host's OS sandbox where it has one. */
   sandbox?: 'auto' | 'off' }
 export type Workspace = { path: string; name: string; removable?: boolean }

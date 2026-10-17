@@ -54,6 +54,8 @@ Gap: T3 supports several Codex or Claude accounts. Registry entries are merged b
 - Secrets: `env` values stay in the operator's registry as they are today. Do not add secret storage, and make sure `/v1/agents` and logs still print env names only (check that existing behaviour and add a test).
 - Tests: registry parse (valid, missing target, self, chain), merge override, API output has no env values.
 
+Decision, 17 October 2026: a profile is another registry id with the same `command` and, for a remote agent, the same `url` (the command is empty, so the url is the program). Arguments and `env` may differ. That matches T3's separate account directories for one Claude or Codex executable (`docs/user/providers-claude.md`, `docs/user/providers-codex.md`, read with `git show` on 17 October 2026): same program, different configuration. `env` values stay in the operator's registry file. `GET /v1/agents` keeps using discovery, which has no environment map. No secret store is added. A profile of a profile, a missing target, or a different command is rejected when the registry is loaded.
+
 ### 4. OS service install (Linux and macOS first, then Windows)
 
 Gap: T3 has `t3 service install|status|restart|uninstall`, `t3 update` and `t3 doctor`. We have `acpd daemon` but nothing that survives logout or reboot.

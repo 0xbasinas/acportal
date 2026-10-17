@@ -40,6 +40,27 @@ const chip = (name: RegExp): HTMLElement => {
 }
 const prompt = () => screen.getByLabelText('Prompt for the new session') as HTMLTextAreaElement
 
+describe('agent profiles', () => {
+  it('groups a profile under its base and leaves a missing base at the top', () => {
+    localStorage.setItem('acportal.lastAgent', 'goose')
+    setup({ agents: [
+      { id: 'goose', name: 'Goose', status: 'available' },
+      { id: 'goose-work', name: 'Goose work', status: 'available', profileOf: 'goose', profileLabel: 'Work' },
+      { id: 'mock', name: 'Mock', status: 'available' },
+      { id: 'orphan', name: 'Orphan', status: 'available', profileOf: 'gone', profileLabel: 'Lost' },
+    ] })
+    fireEvent.click(chip(/Goose/))
+    const dialog = screen.getByRole('dialog', { name: 'Agent' })
+    const rows = [...dialog.querySelectorAll<HTMLElement>('[data-item]')]
+    expect(rows.map((row) => row.textContent?.replace('profile', '').trim())).toEqual(['Goose', 'Work', 'Mock', 'Lost', 'Run on several agents…2-3 agents'])
+    expect(rows[1].getAttribute('data-profile-of')).toBe('goose')
+    expect(rows[3].getAttribute('data-profile-of')).toBeNull()
+    fireEvent.click(rows[1])
+    expect(chip(/Work/)).toBeTruthy()
+    localStorage.removeItem('acportal.lastAgent')
+  })
+})
+
 describe('chips and dropdowns', () => {
   it('opens a dropdown, moves with the arrow keys, and Escape closes it and returns focus', async () => {
     setup()

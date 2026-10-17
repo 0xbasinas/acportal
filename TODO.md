@@ -4,7 +4,7 @@
 
 - [x] Open a pull request from the Git view (`POST /v1/pull-requests`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Cross-fork `owner:branch` heads are rejected.
 - [x] Permission presets in the composer (`GET /v1/presets`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. No per-session opt-out of auto-approve or shell review.
-- [ ] Agent profiles (`profileOf`).
+- [x] Agent profiles (`profileOf`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Android does not group them.
 - [ ] OS service install (Linux and macOS, then Windows).
 - [ ] External MCP endpoint: design and ADR only.
 - [ ] Remote access routes: design and ADR only.

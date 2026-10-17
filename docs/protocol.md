@@ -54,7 +54,7 @@ All routes except pairing require an Authorization bearer header. Pairing codes 
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/v1/status` | Version, host identity, health and optional `features`: `formElicitation`, `git`, `sessionWorktree`, `checks`, `controlTakeover`, `sharedDrafts`, `agentProbe`, `pullRequests`, `presets`, and `orchestrator` while delegation is enabled. `gh` is `found` or `missing` (the `gh` program, not a sign-in check) |
-| GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools`, and `setup` (the agent's `modes`/`models`/`configOptions` from its newest session or a probe) when known |
+| GET | `/v1/agents` | Registry metadata and executable discovery, including `ownTools`, and `setup` (the agent's `modes`/`models`/`configOptions` from its newest session or a probe) when known. A profile adds `profileOf` (the base agent id) and `profileLabel`. Environment values are not included |
 | POST | `/v1/agents/{id}/probe` | Feature `agentProbe`. `{"workspace"}` must be an approved folder. Starts the agent in a throwaway session (no access, no MCP, no prompt), returns `{"setup"}` with only `modes`/`models`/`configOptions`, caches it and removes the session |
 | GET | `/v1/workspaces` | Allowed folders, each marked `removable` when the phone added it |
 | POST / DELETE | `/v1/workspaces` | Add (`{"path"}`) or remove a folder the phone added; saved in `user-settings.json`, applies to new sessions at once |

@@ -105,6 +105,29 @@ export const arranged = (list: Selector[]): Selector[] => sections(list).flatMap
 
 /** Where an anchored dropdown goes: below (or above) its chip, flipped when the preferred side
  * has no room and the other has more, shifted left so it stays inside the window. */
+export type AgentProfile = { id: string; profileOf?: string; profileLabel?: string }
+
+export type AgentGroup<T extends AgentProfile> = { base: T; profiles: T[] }
+
+/** Profiles sit under the agent they name. A profile whose base is missing, or is itself a profile, stays at the top so it is still offered. */
+export function groupAgents<T extends AgentProfile>(agents: T[]): AgentGroup<T>[] {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]))
+  const profiles = new Map<string, T[]>()
+  const tops: T[] = []
+  for (const agent of agents) {
+    const base = agent.profileOf
+    const parent = base ? byId.get(base) : undefined
+    if (parent && parent !== agent && !parent.profileOf) {
+      const list = profiles.get(parent.id) ?? []
+      list.push(agent)
+      profiles.set(parent.id, list)
+    } else {
+      tops.push(agent)
+    }
+  }
+  return tops.map((base) => ({ base, profiles: profiles.get(base.id) ?? [] }))
+}
+
 export function placePopover(anchor: { top: number; bottom: number; left: number }, size: { width: number; height: number }, view: { width: number; height: number }, prefer: 'down' | 'up' = 'down', margin = 8): { up: boolean; dx: number; maxHeight: number } {
   const gap = 6
   const below = view.height - anchor.bottom - gap - margin

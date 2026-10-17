@@ -37,3 +37,21 @@ Sources:
 Tested: `acpd/src/presets.rs` unit tests and `acpd/tests/presets.rs` against an isolated host (401 without a token, 403 for a peer, presets follow config, a model URL and an env value are absent from the JSON, `POST /v1/sessions` with a `preset` field does not create a session). Replacing the ceiling intersection (`&&`) with `||` made `a_preset_cannot_turn_a_refused_write_or_terminal_back_on` fail (auto-edits and auto-review appeared). The `&&` was restored before the suite. Desktop vitest covers the chip, a remembered id, an agent mode named Full access leaving the preset flags alone, and switching agents applying the next agent's preset flags.
 
 Unverified: the Electron window in both themes. Saved hosts were not opened. Individual Custom toggles are not restored on the next visit; only a preset id the host still offers is applied, and otherwise Supervised is selected. Android is unchanged.
+
+## 3. Agent profiles
+
+Decision: optional `profileOf` and `profileLabel` on a registry entry. The target must already be in the merged registry, must not itself be a profile, and must use the same `command`. A remote profile must also use the same `url`, because a remote entry has an empty command and the url is the program. Arguments and `env` may differ. Checked when the registry is loaded or an entry is added, and a failed add or a failed later file is rolled back. Removing a base that still has a profile is refused. `GET /v1/agents` adds the two fields through discovery. The desktop composer and Settings list a profile under its base. A profile whose base is missing stays visible on its own. `env` values stay in the operator's registry file. No secret store was added.
+
+Confirmed: T3 keeps several accounts of one Claude or Codex executable by giving each account its own config directory, and routes work by instance so the accounts do not share mutable state (`docs/internals/providers.md`, `docs/user/providers-claude.md`, `docs/user/providers-codex.md`).
+
+Corrected: discovery JSON does not print environment names either. It omits the map. `GET /v1/agents/{id}` still returns the saved `env` for an agent the phone added, so the edit form can write it back. That route is not the list.
+
+Sources, 17 October 2026, read with `git show` and not executed:
+
+- https://github.com/pingdotgg/t3code/blob/main/docs/internals/providers.md
+- https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-claude.md
+- https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-codex.md
+
+Tested: registry parse accepts a profile and an old file without the fields, and rejects a missing target, a self profile, a chain, a different command, and a remote profile with a different url. A later file can add a profile of an agent already loaded, and replacing that agent's command is refused with the previous command kept. `discover()` JSON contains `profileOf` and `profileLabel` and does not contain the fixture env value or the name `OPENAI_API_KEY`. Disabling the same-command check made the different-command fixture parse; the check was restored before the suite. Desktop vitest groups Work under Goose, leaves a profile of a missing base in the list, and Settings renders the profile row.
+
+Unverified: the Electron window. Android decodes `GET /v1/agents` with `ignoreUnknownKeys`, so the new fields do not need an Android change; Android was not rebuilt and does not group profiles. The known-agent catalog (`GET /v1/agents/discover`) still returns template `env` from `known.json` (`GOOSE_MODE=approve`). That is the existing catalog, not the agent list.

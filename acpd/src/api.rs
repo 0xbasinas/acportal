@@ -867,13 +867,13 @@ async fn remove_agent(State(host): State<Host>, Path(id): Path<String>) -> ApiRe
     let settings = host.sessions.launch_settings();
     let state = &settings.config.state_directory;
     let mut data = UserData::load(state).map_err(user_change_error)?;
-    let before = data.agents.len();
-    data.agents.retain(|agent| agent.id != id);
-    if data.agents.len() == before {
+    if !data.agents.iter().any(|agent| agent.id == id) {
         return Err(ApiError(StatusCode::NOT_FOUND, "not_removable"));
     }
     let mut registry = settings.registry.clone();
-    registry.remove(&id);
+    // A profile of this agent stays registered. Refuse before the saved copy is deleted.
+    registry.remove(&id).map_err(input_error)?;
+    data.agents.retain(|agent| agent.id != id);
     data.save(state).map_err(user_change_error)?;
     host.sessions
         .reload(settings.config.clone(), registry)

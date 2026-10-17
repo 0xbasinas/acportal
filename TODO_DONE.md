@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 17 October 2026 agent profiles (`experiment/t3code-ideas`)
+
+- Registry entries may set `profileOf` and `profileLabel`. The target must exist after builtins and the operator file are merged, must not itself be a profile, and must use the same command. A remote profile must use the same url. A later file that would change the base command is refused and the previous entry stays. Removing a base that still has a profile is refused. `GET /v1/agents` returns the two fields and does not include environment values. The desktop composer and Settings show a profile under its base agent.
+- Checks, local Windows: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked -p acportal-protocol --all-targets` (3 tests). `cargo test --locked --workspace --all-targets` passed except `the_phone_merges_a_finished_tasks_branch_into_the_parent_checkout`, which timed out at 20s. That test also fails on the committed tree with the profile edits stashed, so this item did not cause it. The other 16 tests in `worktrees.rs` passed, as did the acpd lib (181) and the rest of the suite that ran. Desktop `npm test`: 45 vitest tests, then the profile tests again after the grouping tweak. Replacing the same-command check with `false &&` made `profiles_require_one_step_and_the_same_command` accept a profile whose command was `other`. The check was restored before the suite.
+- Not done: the Electron window. Android was not rebuilt. `WireJson` ignores unknown keys, so the phone still decodes the agent list. The phone does not group profiles.
+
 ## 17 October 2026 permission presets (`experiment/t3code-ideas`)
 
 - `GET /v1/presets?agent=` (feature `presets`) returns `supervised`, plus `auto-edits` only when `[auto_approve.<id>]` has `max_risk` other than `none`, plus `auto-review` only when `[shell_review.<id>]` has `rules = true`. Remote (`ws`) agents get supervised only. Effects describe the host config. `workspaceAccess` is the intersection with the rights a session may already ask for, and form elicitation stays off. The route is phone-only and read-only. `POST /v1/sessions` still rejects a `preset` field.
