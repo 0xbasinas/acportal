@@ -8,7 +8,7 @@ You are continuing the ACP Portal project in `C:\Users\basin\acportal` on branch
 
 ## Read first (in this order)
 
-`AGENTS.md`, `HANDOFF.md` (current section), `TODO.md`, `docs/security.md`, `docs/architecture.md`, `docs/orchestrator-design.md`, `docs/daemon-and-reload.md`, `docs/desktop-multi-host.md`, and `docs/t3code-research.md` (what T3 Code does and where it differs from us). T3 Code is MIT licensed (https://github.com/pingdotgg/t3code). Use it for ideas only; do not copy its code. Treat `docs/t3code-research.md` as notes from reading its docs, not from running it.
+`AGENTS.md`, `HANDOFF.md` (current section), `TODO.md`, `docs/security.md`, `docs/architecture.md`, `docs/orchestrator-design.md`, `docs/daemon-and-reload.md`, `docs/desktop-multi-host.md`, `docs/t3code-research.md` (what T3 Code does and where it differs from us) and `docs/t3code-acp-feasibility.md` (what ACP can and cannot do for each item below). T3 Code is MIT licensed (https://github.com/pingdotgg/t3code). Use it for ideas only; do not copy its code. Treat `docs/t3code-research.md` as notes from reading its docs, not from running it.
 
 ## What already exists (do not rebuild it)
 
@@ -40,6 +40,7 @@ Gap: T3 lets you choose one named mode per thread (Supervised, Auto-accept edits
 - Host: add `GET /v1/presets?agent=<id>` returning, for that agent, a list of presets computed from the current config snapshot, each with `id`, `label`, `effects` (human-readable lines) and the exact `workspaceAccess` it implies. Proposed presets: `supervised` (every write and command asks the phone/desktop), `auto-edits` (only offered when `[auto_approve.<id>]` is enabled; edits inside the session worktree are allowed by the host rules, everything else asks), `auto-review` (only offered when `[shell_review.<id>]` is enabled; effects text must say that undecided lines still ask). Never offer a preset whose backing config is off, and never include a "full access" preset. The preset only selects among existing behaviours. It must not set any config, widen `workspace_roots`, or skip a consent that is mandatory today. If you find a case where it would, stop and report.
 - Desktop: `NewSession.tsx` shows the preset as the first item in the access chip; picking one sets `access` and shows the effects list. Keep the custom read/write/terminal toggles as "Custom".
 - Remember the last preset per agent in desktop settings. Do not persist anything host-side.
+- ACP limit (see the feasibility doc): ACP defines no approval modes; agent `mode` ids are agent-chosen. A preset therefore governs only host-mediated behaviour (access flags, shell review, auto-approve, answers to `session/request_permission`). Never map a preset onto an agent mode id by name. Show the agent's own `mode` option next to the preset. For an agent flagged `ownTools`, the effects text must say its own tools are not covered.
 - Tests: JSON shape and that presets disappear when their config is off; a regression test that no preset can enable terminal/write for a session the config would otherwise refuse.
 
 ### 3. Agent profiles (several accounts of one agent)
@@ -71,6 +72,10 @@ Write `docs/adr-external-mcp.md` covering: tools (start with read-only `sessions
 Gap: T3 supports direct, Tailscale, SSH, and a hosted relay, with an ordered route list per machine, a descriptor check before a credential is sent to a LAN address, and routes "learned" from a connected server. Ours needs the user's own TLS address.
 
 Write `docs/adr-remote-routes.md` comparing: (a) a documented Tailscale Serve and Cloudflare Tunnel recipe plus an `acpd doctor` check for the chosen URL, (b) several saved addresses per host in the desktop and Android hosts store, tried in order with a check that the address answers as the same host id (`security.rs` `host_id`) before any token is sent, and (c) a hosted relay. State what each would require of `docs/security.md`. Recommend (a)+(b) for this branch and record why (c) is deferred. For (b), list exact changes in `desktop/src/Hosts.tsx`, `desktop/src/Pairing.tsx`, and the Android `HostApi.kt`/Room schema (schema 3, additive migration). Do not implement.
+
+### 7. Small ACP gaps (optional, after items 1 to 4)
+
+Only where the agent advertises it, and confirm against a live `goose acp` first (it advertises `sessionCapabilities` list, delete and close; no resume): call `session/close` before killing the agent process on session removal, falling back to today's kill; advertise `session.configOptions.boolean` and render boolean options as switches in the desktop and phone option pickers; add `session/list` as a read-only "Earlier sessions of this agent" view in the composer, filtered to the allowed workspace roots and opened with `session/load`. Do not enable any `unstable_*` schema feature.
 
 ## Constraints
 
