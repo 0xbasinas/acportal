@@ -341,7 +341,14 @@ async fn suite(log: PathBuf, mode_file: PathBuf) {
     let (status, text) = h.post(pr(&repo, json!({}))).await;
     assert_eq!(status, 409, "{text}");
     assert!(text.contains("already_exists"), "{text}");
-    assert!(!text.contains("pull/3"), "{text}");
+    // The address of the existing pull request is returned, and only that line of stderr.
+    let reply: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        reply["error"]["url"], "https://github.com/example/repo/pull/3",
+        "{text}"
+    );
+    assert!(!text.contains("a pull request for branch"), "{text}");
+    assert!(!text.contains(SECRET), "{text}");
 
     h.mode("noremote");
     let (status, text) = h.post(pr(&repo, json!({}))).await;

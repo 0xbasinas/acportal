@@ -69,7 +69,7 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
   /** `GET /v1/status` `gh`: whether the host found the `gh` program. */
   ghCli?: 'found' | 'missing'
   suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
-  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; existing?: boolean; error?: string }>
 }) {
   const sure = confirmDanger ?? ((t: string) => confirm(t))
   const [available, setAvailable] = useState<'host' | 'local' | false>()
@@ -465,8 +465,10 @@ function BranchMenu({ branches, current, learn, onSwitch, onCreate, onAll, onClo
 }
 
 /** Editable pull-request title and body. The `gh` line is display only; the host builds the real argv. */
-export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, onTitle, onBody, onDraft, onSuggest, onCreate }: {
+export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, link, onTitle, onBody, onDraft, onSuggest, onCreate }: {
   learn: boolean; title: string; body: string; draft: boolean; base: string; head: string; busy: boolean; canSuggest: boolean; note?: string
+  /** The pull request this branch now has. Shown as a button; nothing opens by itself. */
+  link?: { url: string; existing: boolean }
   onTitle: (v: string) => void; onBody: (v: string) => void; onDraft: (v: boolean) => void; onSuggest: () => void; onCreate: () => void
 }) {
   const cmd = prCommand({ title: title || 'Title', base, head, draft })
@@ -484,6 +486,7 @@ export function PullRequestForm({ learn, title, body, draft, base, head, busy, c
       </div>
       <code className="learn-cmd">$ {cmd}</code>
       {learn && <div className="hint">This line is what the host runs. The description is not in it; gh reads that from stdin.</div>}
+      {link && <div className="btn-row"><button className="btn" onClick={() => window.open(link.url)}>{link.existing ? 'View the existing pull request' : 'View pull request'}</button><span className="hint mono">{link.url}</span></div>}
       {note && <div className="hint">{note}</div>}
     </div>
   )
@@ -496,7 +499,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   onCompareError: (e?: string) => void
   cwd: string; pullRequests?: boolean; ghCli?: 'found' | 'missing'; msgAgent: string
   suggestPr?: (path: string, agentId: string, base: string) => Promise<{ title?: string; body?: string; error?: string }>
-  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; error?: string }>
+  createPr?: (input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }) => Promise<{ url?: string; existing?: boolean; error?: string }>
 }) {
   const local = branches.filter((b) => !b.remote)
   const remotes = branches.filter((b) => b.remote)
@@ -512,6 +515,9 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   const [draft, setDraft] = useState(false)
   const [prBusy, setPrBusy] = useState(false)
   const [prNote, setPrNote] = useState<string>()
+  const [prLink, setPrLink] = useState<{ url: string; existing: boolean }>()
+  // A title, description and link belong to one branch. Switching branch starts the form over.
+  useEffect(() => { setOffer(false); setPrTitle(''); setPrBody(''); setDraft(false); setPrNote(undefined); setPrLink(undefined) }, [current, cwd])
   useEffect(() => { if (!base && defaultBase) setBase(defaultBase) }, [defaultBase])
   const compare = async (): Promise<void> => {
     const out = await git('compare', { base })
@@ -547,7 +553,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
         {prBlocked && <div className="hint" style={{ marginTop: 8 }}>{prBlocked}</div>}
         {offer && pullRequests && !prBlocked && (
           <PullRequestForm learn={learn} title={prTitle} body={prBody} draft={draft} base={prBase(base)} head={current} busy={prBusy}
-            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote}
+            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote} link={prLink}
             onTitle={setPrTitle} onBody={setPrBody} onDraft={setDraft}
             onSuggest={() => {
               if (!suggestPr || !msgAgent) return
@@ -560,10 +566,10 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
             }}
             onCreate={() => {
               if (!createPr || !prTitle.trim()) return
-              setPrBusy(true); setPrNote(undefined)
+              setPrBusy(true); setPrNote(undefined); setPrLink(undefined)
               void createPr({ path: cwd, base: prBase(base), head: current, title: prTitle.trim(), body: prBody, draft }).then((r) => {
                 setPrBusy(false)
-                if (r.url) { setPrNote(r.url); window.open(r.url) } else setPrNote(r.error ?? 'Could not open the pull request')
+                if (r.url) { setPrLink({ url: r.url, existing: Boolean(r.existing) }); setPrNote(r.existing ? 'This branch already has a pull request.' : 'Pull request opened.') } else setPrNote(r.error ?? 'Could not open the pull request')
               })
             }} />
         )}

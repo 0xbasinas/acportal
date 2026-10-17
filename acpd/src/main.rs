@@ -27,6 +27,10 @@ struct Cli {
     /// Saved operator setup. Defaults to launcher.json in the acpd config directory.
     #[arg(long, global = true)]
     profile: Option<PathBuf>,
+    /// Windows: detach from the console this process was started with. The logon task uses it so
+    /// that no console window stays open. Accepted and ignored elsewhere.
+    #[arg(long, global = true, hide = true)]
+    no_console: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -236,6 +240,11 @@ async fn main() -> Result<()> {
     }
     acpd::win_sandbox::enable_launcher();
     let cli = Cli::parse();
+    #[cfg(windows)]
+    if cli.no_console {
+        // SAFETY: no arguments; it only detaches this process from its console.
+        unsafe { windows_sys::Win32::System::Console::FreeConsole() };
+    }
     let profile_path = cli
         .profile
         .clone()

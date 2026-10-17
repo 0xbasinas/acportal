@@ -24,6 +24,11 @@ const LABEL: &str = "dev.acportal.acpd";
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const PLIST_NAME: &str = "dev.acportal.acpd.plist";
 const OUTPUT_CAP: usize = 64 * 1024;
+/// Printed after install: a service starts with the service manager's environment, not a shell's.
+const ENV_NOTE: &str = "The service does not inherit your shell environment. Put agent keys and PATH entries in the agent registry `env` (docs/agents.md) or in the agent's own configuration. If `acpd daemon start` is already running this host, stop it first with `acpd daemon stop`.";
+/// Added when nothing else keeps the service's output.
+#[cfg_attr(not(windows), allow(dead_code))]
+const NO_LOG_NOTE: &str = "No log file is configured and a scheduled task keeps no output. Set `[logging] file` in the host config to keep logs.";
 const LINGER_HINT: &str = "To keep the host after logout, run: loginctl enable-linger";
 
 const SHOW_ARGS: &[&str] = &[
@@ -37,6 +42,8 @@ const SHOW_ARGS: &[&str] = &[
 ];
 #[cfg_attr(not(windows), allow(dead_code))]
 const QUERY_XML: &[&str] = &["/Query", "/TN", TASK, "/XML", "ONE"];
+#[cfg_attr(not(windows), allow(dead_code))]
+const QUERY_ALL: &[&str] = &["/Query", "/FO", "CSV", "/NH"];
 #[cfg_attr(not(windows), allow(dead_code))]
 const QUERY_LIST: &[&str] = &["/Query", "/TN", TASK, "/FO", "LIST", "/V"];
 
@@ -353,10 +360,12 @@ fn windows_arguments(profile: &Path) -> Result<String> {
     let profile = profile
         .to_str()
         .context("the setup profile path must be valid text")?;
+    // `--no-console` closes the console window the task would otherwise leave open at logon.
     Ok(format!(
-        "{} {} {}",
+        "{} {} {} {}",
         windows_arg("--profile")?,
         windows_arg(profile)?,
+        windows_arg("--no-console")?,
         windows_arg("start")?
     ))
 }
@@ -391,10 +400,13 @@ fn systemd_unit(exe: &Path, profile: &Path) -> Result<String> {
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn launchd_plist(exe: &Path, profile: &Path) -> Result<String> {
+fn launchd_plist(exe: &Path, profile: &Path, log: &Path) -> Result<String> {
     let (exe, profile) = foreground_args(exe, profile)?;
+    // launchd discards a job's output unless it is given files, so stdout and stderr go to one.
+    check_literal(log)?;
     let exe = xml_escape(&exe);
     let profile = xml_escape(&profile);
+    let log = xml_escape(log.to_str().context("the log path must be valid text")?);
     Ok(format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -412,6 +424,10 @@ fn launchd_plist(exe: &Path, profile: &Path) -> Result<String> {
     <string>{profile}</string>
     <string>start</string>
   </array>
+  <key>StandardOutPath</key>
+  <string>{log}</string>
+  <key>StandardErrorPath</key>
+  <string>{log}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -850,7 +866,14 @@ fn install_launchd(
         }
         Definition::Missing | Definition::Ours => {}
     }
-    write_private(plist_path, &launchd_plist(exe, profile)?)?;
+    // ~/Library/LaunchAgents/<plist> -> ~/Library/Logs/acpd-service.log
+    let log = plist_path
+        .parent()
+        .and_then(Path::parent)
+        .context("the LaunchAgents folder has no parent")?
+        .join("Logs")
+        .join("acpd-service.log");
+    write_private(plist_path, &launchd_plist(exe, profile, &log)?)?;
     let target = launchd_target(uid);
     let _ = runner.run("launchctl", &["bootout", &target]);
     let plist = plist_path
@@ -859,8 +882,9 @@ fn install_launchd(
     let gui = domain(uid);
     must(runner, "launchctl", &["bootstrap", &gui, plist])?;
     Ok(format!(
-        "Installed {}\nStarted {LABEL}",
-        plist_path.display()
+        "Installed {}\nStarted {LABEL}\nOutput goes to {}\n{ENV_NOTE}",
+        plist_path.display(),
+        log.display()
     ))
 }
 
@@ -935,6 +959,31 @@ fn uninstall_launchd(plist_path: &Path, uid: u32, runner: &mut dyn Runner) -> Re
     Ok(message)
 }
 
+/// Look the task up. `schtasks` exits 1 for a missing task and for other errors, and its message
+/// is localized, so a message that is not the English one is settled by listing every task
+/// (`/FO CSV`, whose first column is the task name) and checking whether `\acpd` is there.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn probe_task(runner: &mut dyn Runner) -> Result<(Definition, Captured)> {
+    let query = runner.run("schtasks", QUERY_XML)?;
+    if query.code != 0 && !is_missing_task(&query) {
+        let all = runner.run("schtasks", QUERY_ALL)?;
+        if all.code == 0 && !lists_task(&all.stdout) {
+            return Ok((Definition::Missing, query));
+        }
+    }
+    Ok((classify_task(&query)?, query))
+}
+
+/// Whether CSV output from `schtasks /Query /FO CSV /NH` has a row for this task.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn lists_task(csv: &str) -> bool {
+    let wanted = format!("\"\\{TASK}\"");
+    csv.lines().any(|line| {
+        let first = line.trim_start_matches('\u{feff}').split(',').next();
+        first.is_some_and(|name| name.eq_ignore_ascii_case(&wanted))
+    })
+}
+
 #[cfg_attr(not(windows), allow(dead_code))]
 fn classify_task(captured: &Captured) -> Result<Definition> {
     if captured.code != 0 && is_missing_task(captured) {
@@ -964,7 +1013,7 @@ fn install_task(
     user: &str,
     runner: &mut dyn Runner,
 ) -> Result<String> {
-    match classify_task(&runner.run("schtasks", QUERY_XML)?)? {
+    match probe_task(runner)?.0 {
         Definition::Foreign => {
             bail!("scheduled task {TASK} has no acpd service marker, so it was left in place")
         }
@@ -977,13 +1026,18 @@ fn install_task(
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     must(runner, "schtasks", &refs)?;
     must(runner, "schtasks", &["/Run", "/TN", TASK])?;
-    Ok(format!("Installed scheduled task {TASK}\nStarted {TASK}"))
+    let mut message = format!("Installed scheduled task {TASK}\nStarted {TASK}\n{ENV_NOTE}");
+    if matches!(configured_log(profile), LogLine::StderrOnly) {
+        message.push('\n');
+        message.push_str(NO_LOG_NOTE);
+    }
+    Ok(message)
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn task_status(profile: &Path, runner: &mut dyn Runner) -> Result<String> {
-    let query = runner.run("schtasks", QUERY_XML)?;
-    let (kind, running, enabled) = match classify_task(&query)? {
+    let (definition, query) = probe_task(runner)?;
+    let (kind, running, enabled) = match definition {
         Definition::Missing => (Kind::Missing, Some(false), Some(false)),
         Definition::Foreign => (Kind::Foreign, None, None),
         Definition::Ours => {
@@ -1006,7 +1060,7 @@ fn task_status(profile: &Path, runner: &mut dyn Runner) -> Result<String> {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn restart_task(runner: &mut dyn Runner) -> Result<String> {
-    match classify_task(&runner.run("schtasks", QUERY_XML)?)? {
+    match probe_task(runner)?.0 {
         Definition::Missing => bail!("Service: not installed"),
         Definition::Foreign => {
             bail!("scheduled task {TASK} has no acpd service marker, so it was left in place")
@@ -1021,7 +1075,7 @@ fn restart_task(runner: &mut dyn Runner) -> Result<String> {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn uninstall_task(runner: &mut dyn Runner) -> Result<String> {
-    match classify_task(&runner.run("schtasks", QUERY_XML)?)? {
+    match probe_task(runner)?.0 {
         Definition::Missing => {
             return Ok(
                 "Service: not installed\nThe host config, state, tokens and paired devices were left in place"
@@ -1069,7 +1123,7 @@ fn linger_of(runner: &mut dyn Runner) -> Linger {
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn installed_message(path: &str, linger: Linger) -> String {
-    let mut message = format!("Installed {path}\nStarted {UNIT}");
+    let mut message = format!("Installed {path}\nStarted {UNIT}\n{ENV_NOTE}");
     if matches!(linger, Linger::Off | Linger::Unknown) {
         message.push('\n');
         message.push_str(LINGER_HINT);
@@ -1091,7 +1145,16 @@ fn tool_error(program: &str, captured: &Captured) -> anyhow::Error {
     } else {
         captured.stderr.trim()
     };
-    anyhow!("{program} exited {}: {}", captured.code, clip(detail, 400))
+    let hint = if program == "systemctl" && detail.to_ascii_lowercase().contains("bus") {
+        " (systemctl --user needs a running user manager: log in at the machine or in a session that has one, then run the command again)"
+    } else {
+        ""
+    };
+    anyhow!(
+        "{program} exited {}: {}{hint}",
+        captured.code,
+        clip(detail, 400)
+    )
 }
 
 fn clip(text: &str, max: usize) -> &str {
@@ -1274,7 +1337,11 @@ mod tests {
         );
         let exe = platform_abs("Program Files/café/acpd");
         let profile = platform_abs("Users/me/A & B/launcher.json");
-        let plist = launchd_plist(&exe, &profile).unwrap();
+        let log = platform_abs("Users/me/Library/Logs/acpd-service.log");
+        let plist = launchd_plist(&exe, &profile, &log).unwrap();
+        assert!(plist.contains("<key>StandardOutPath</key>"));
+        assert!(plist.contains("<key>StandardErrorPath</key>"));
+        assert!(plist.contains("acpd-service.log"));
         assert!(plist.lines().any(|line| line.trim() == PLIST_COMMENT));
         assert!(plist.contains("<string>dev.acportal.acpd</string>"));
         assert!(plist.contains("café"));
@@ -1574,6 +1641,56 @@ mod tests {
         let message = uninstall_task(&mut runner).unwrap();
         assert!(message.contains("left in place"));
         assert_eq!(runner.calls[1].1, vec!["/Delete", "/TN", "acpd", "/F"]);
+    }
+
+    #[test]
+    fn a_missing_task_is_found_without_the_english_message() {
+        let german = "FEHLER: Das System kann die angegebene Datei nicht finden.";
+        let others = "\"\\Other\",\"N/A\",\"Ready\"\r\n";
+        // Not the English text, and the task list has no \acpd: the task is missing.
+        let mut runner = Script::ok(vec![captured(1, "", german), captured(0, others, "")]);
+        assert!(matches!(
+            probe_task(&mut runner).unwrap().0,
+            Definition::Missing
+        ));
+        assert_eq!(runner.calls[1].1, QUERY_ALL);
+        // The same failure while \acpd is listed is a real error, not a missing task.
+        let listed = "\"\\Other\",\"N/A\",\"Ready\"\r\n\"\\acpd\",\"N/A\",\"Ready\"\r\n";
+        let mut runner = Script::ok(vec![captured(1, "", german), captured(0, listed, "")]);
+        assert!(probe_task(&mut runner).is_err());
+        // When the list cannot be read either, the first error is reported and nothing is assumed.
+        let mut runner = Script::ok(vec![captured(1, "", german), captured(1, "", german)]);
+        assert!(probe_task(&mut runner).is_err());
+        // The English message needs no second query.
+        let mut runner = Script::ok(vec![captured(
+            1,
+            "",
+            "ERROR: The system cannot find the file specified.",
+        )]);
+        assert!(matches!(
+            probe_task(&mut runner).unwrap().0,
+            Definition::Missing
+        ));
+        assert_eq!(runner.calls.len(), 1);
+        assert!(lists_task("\u{feff}\"\\ACPD\",\"x\"\r\n"));
+        assert!(!lists_task(
+            "\"\\acpd2\",\"x\"\r\n\"\\Folder\\acpd\",\"x\"\r\n"
+        ));
+    }
+
+    #[test]
+    fn the_logon_task_closes_its_console_and_install_says_what_the_service_lacks() {
+        let profile = platform_abs("Users/me/launcher.json");
+        let args = windows_arguments(&profile).unwrap();
+        assert!(args.contains("\"--no-console\""), "{args}");
+        assert!(args.ends_with("\"start\""), "{args}");
+        let detail = captured(1, "", "Failed to connect to bus: No medium found");
+        let error = tool_error("systemctl", &detail).to_string();
+        assert!(error.contains("user manager"), "{error}");
+        let other = tool_error("schtasks", &detail).to_string();
+        assert!(!other.contains("user manager"), "{other}");
+        assert!(installed_message("p", Linger::On).contains("shell environment"));
+        assert!(ENV_NOTE.contains("daemon stop"));
     }
 
     #[test]

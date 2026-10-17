@@ -92,7 +92,8 @@ fn looks_absolute(path: &str) -> bool {
             && bytes[1] == b':'
             && matches!(bytes[2], b'\\' | b'/'))
 }
-fn agent_id_ok(id: &str) -> bool {
+/// 1..64 ASCII letters, digits, `-` or `_`.
+pub fn agent_id_ok(id: &str) -> bool {
     (1..=64).contains(&id.len())
         && id
             .bytes()
@@ -318,6 +319,13 @@ impl Registry {
             if target.profile_of.is_some() {
                 bail!(
                     "{} profiles {target_id}, which is itself a profile",
+                    agent.id
+                )
+            }
+            // Safety flags are per entry, so an account cannot quietly drop the warning its base carries.
+            if target.own_tools && !agent.own_tools {
+                bail!(
+                    "{} must set ownTools like {target_id}, whose own tools bypass host review",
                     agent.id
                 )
             }
@@ -649,6 +657,25 @@ mod tests {
             Err(error) => error,
         };
         assert!(err.to_string().contains("same url"), "{err}");
+    }
+    #[test]
+    fn a_profile_cannot_drop_the_own_tools_warning_of_its_base() {
+        let base = r#"{"id":"claude","name":"Claude","command":"claude","ownTools":true}"#;
+        let weak = format!(
+            r#"[{base},{{"id":"claude-work","name":"Work","command":"claude","profileOf":"claude"}}]"#
+        );
+        let err = match Registry::parse(&weak) {
+            Ok(_) => panic!("a profile without ownTools was accepted"),
+            Err(error) => error,
+        };
+        assert!(err.to_string().contains("ownTools"), "{err}");
+        let strong = format!(
+            r#"[{base},{{"id":"claude-work","name":"Work","command":"claude","profileOf":"claude","ownTools":true}}]"#
+        );
+        assert!(Registry::parse(&strong).is_ok());
+        // A base without the flag does not force it on its accounts.
+        let plain = r#"[{"id":"a","name":"A","command":"t"},{"id":"b","name":"B","command":"t","profileOf":"a","ownTools":true}]"#;
+        assert!(Registry::parse(plain).is_ok());
     }
     #[test]
     fn removing_a_base_agent_keeps_its_profiles() {

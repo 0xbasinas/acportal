@@ -280,9 +280,12 @@ export default function App() {
     }
     return { error: words[r.code ?? ''] ?? r.error }
   }
-  async function createPr(input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }): Promise<{ url?: string; error?: string }> {
+  async function createPr(input: { path: string; base: string; head: string; title: string; body: string; draft: boolean }): Promise<{ url?: string; existing?: boolean; error?: string }> {
     const r = await api<{ url: string }>('POST', '/v1/pull-requests', input)
     if (r.ok) return { url: r.value.url }
+    // The host puts the existing pull request's address in the message of an already_exists reply.
+    const existing = r.code === 'already_exists' ? /https:\/\/\S+/.exec(r.error)?.[0] : undefined
+    if (existing) return { url: existing, existing: true }
     const words: Record<string, string> = {
       gh_unavailable: 'GitHub CLI (gh) was not found on the host.', gh_not_signed_in: 'gh is not signed in on the host.',
       no_remote: 'This repository has no GitHub remote gh can use.', already_exists: 'A pull request for this branch already exists.',

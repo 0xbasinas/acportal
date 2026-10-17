@@ -448,7 +448,7 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
-        "features":features,"gh": if crate::discovery::resolve("gh", None).is_some() { "found" } else { "missing" },
+        "features":features,"gh": if gh_found() { "found" } else { "missing" },
         "activeSessions":host.sessions.active_count().await}),
     ))
 }
@@ -457,18 +457,27 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
 struct PresetQuery {
     agent: String,
 }
-fn agent_id_ok(id: &str) -> bool {
-    (1..=64).contains(&id.len())
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+/// Whether `gh` can be started. `/v1/status` is polled every few seconds by every client, so the
+/// PATH search is repeated at most every 30 seconds.
+fn gh_found() -> bool {
+    static CACHE: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(30);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, found)) = *cache
+        && at.elapsed() < TTL
+    {
+        return found;
+    }
+    let found = crate::discovery::resolve("gh", None).is_some();
+    *cache = Some((std::time::Instant::now(), found));
+    found
 }
 /// Read-only presets for one agent. Nothing here is stored or applied to a session.
 async fn presets(
     State(host): State<Host>,
     Query(query): Query<PresetQuery>,
 ) -> ApiResult<Json<Value>> {
-    if !agent_id_ok(&query.agent) {
+    if !crate::registry::agent_id_ok(&query.agent) {
         return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_parameter"));
     }
     let definition = host

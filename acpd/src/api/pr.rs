@@ -7,7 +7,12 @@
 
 use super::git::{self, ref_ok};
 use super::{ApiError, ApiResult, Host};
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{path::PathBuf, process::Stdio, time::Duration};
@@ -121,9 +126,32 @@ async fn drain(mut reader: impl AsyncRead + Unpin, max: usize) -> Vec<u8> {
     kept
 }
 
+/// `409 already_exists` carries the existing pull request's URL when `gh` printed one. The URL passes
+/// the same check as a created one; no other text from `gh` is returned.
 pub(super) async fn create(
     State(host): State<Host>,
     Json(input): Json<PullRequestInput>,
+) -> Response {
+    let mut existing = None;
+    match create_inner(host, input, &mut existing).await {
+        Err(ApiError(status, "already_exists")) if existing.is_some() => (
+            status,
+            Json(json!({"error": {
+                "code": "already_exists",
+                "message": format!("A pull request already exists: {}", existing.as_deref().unwrap_or_default()),
+                "url": existing,
+            }})),
+        )
+            .into_response(),
+        Ok(reply) => reply.into_response(),
+        Err(error) => error.into_response(),
+    }
+}
+
+async fn create_inner(
+    host: Host,
+    input: PullRequestInput,
+    existing: &mut Option<String>,
 ) -> ApiResult<Json<Value>> {
     let cwd = git::allowed(&host, &input.path)
         .ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
@@ -133,7 +161,12 @@ pub(super) async fn create(
     if input.body.len() > MAX_BODY || input.body.contains('\0') {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "body_too_large"));
     }
-    if !ref_ok(&input.base) || !ref_ok(&input.head) {
+    // `git check-ref-format` is a blocking child process; keep it off the async workers.
+    let (base, head) = (input.base.clone(), input.head.clone());
+    let refs_ok = tokio::task::spawn_blocking(move || ref_ok(&base) && ref_ok(&head))
+        .await
+        .unwrap_or(false);
+    if !refs_ok {
         return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_branch_name"));
     }
     let Some(launch) = crate::discovery::resolve("gh", None) else {
@@ -186,7 +219,12 @@ pub(super) async fn create(
     let code = status.code().unwrap_or(1);
     match classify_gh(code, &stdout, &stderr) {
         Ok(url) => Ok(Json(json!({ "url": url }))),
-        Err(error) => Err(ApiError(classify_status(error), error)),
+        Err(error) => {
+            if error == "already_exists" {
+                *existing = pull_request_url(&stderr);
+            }
+            Err(ApiError(classify_status(error), error))
+        }
     }
 }
 

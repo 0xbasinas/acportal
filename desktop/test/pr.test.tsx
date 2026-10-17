@@ -20,6 +20,16 @@ describe('pull request command shown in the Git view', () => {
     expect(prBase('origin/main')).toBe('main')
     expect(prBase('feature/x')).toBe('feature/x')
   })
+  it('shows a link button for the pull request and opens nothing by itself', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    render(<PullRequestForm learn={false} title="Fix" body="" draft={false} base="main" head="feature" busy={false} canSuggest
+      link={{ url: 'https://github.com/o/r/pull/3', existing: true }}
+      onTitle={() => {}} onBody={() => {}} onDraft={() => {}} onSuggest={() => {}} onCreate={() => {}} />)
+    expect(open).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'View the existing pull request' }))
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/3')
+    open.mockRestore()
+  })
   it('renders the command and keeps the description out of it', () => {
     const onCreate = vi.fn()
     render(<PullRequestForm learn title={'Fix $(whoami); "x"'} body="BODY-MARKER-9f3" draft base="main" head="feature$(whoami)" busy={false} canSuggest
