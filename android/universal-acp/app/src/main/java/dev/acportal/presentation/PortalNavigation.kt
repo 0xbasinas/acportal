@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -118,8 +119,9 @@ import kotlinx.serialization.Serializable
                                 onSession={session->sessions.find {it.hostId==key.hostId && it.id==session}?.let(openSession)})
                         }
                         entry<NewSessionRoute> { key ->
+                            var askEverything by rememberSaveable(key) {mutableStateOf(false)}
                             LaunchedEffect(key.hostId) { if(key.fromSessions || ui.details?.host?.id!=key.hostId)vm.details(key.hostId) }
-                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null,folderClient=ui.details?.takeIf {it.host.id==key.hostId}?.let {vm.folderClient(it.host)},onAddAgent={stack.add(AddAgentRoute(key.hostId))})
+                            NewSessionScreen(ui.details?.takeIf {it.host.id==key.hostId},ui.workspaceBrowse.folders,ui.loading,onBack=back,onMcp={stack.add(McpRoute(key.hostId))},onAccess={path->stack.add(WorkspaceAccessRoute(key.hostId,path))},onBrowse=vm::browse,onCreate={agent,path->vm.create(key.hostId,agent,path,askEverything) { stored->if(stack.lastOrNull()==key) {stack.removeLastOrNull();if(stack.lastOrNull()==SessionConnectionRoute)stack.removeLastOrNull();openSession(stored)} }},initialAgentId=key.agentId,browseError=ui.workspaceBrowse.error,browseLoading=ui.workspaceBrowse.loading,onDismissBrowse=vm::cancelBrowse,onReload={vm.details(key.hostId)},onChangeConnection=if(key.fromSessions)back else null,folderClient=ui.details?.takeIf {it.host.id==key.hostId}?.let {vm.folderClient(it.host)},onAddAgent={stack.add(AddAgentRoute(key.hostId))},askEverything=askEverything,onAskEverything={askEverything=it})
                         }
                         entry<SessionConnectionRoute> { SessionConnectionScreen(hosts,onBack=back,onPair={stack.add(PairRoute)},onChoose={vm.clearError();stack.add(NewSessionRoute(it,fromSessions=true))}) }
                         entry<SessionsRoute> { SessionsScreen(sessions,hosts,onOpen=openSession,onArchive=vm::archive,onResume={vm.resume(it,openSession)},onDelete={vm.delete(it,{})},onRefresh=vm::refresh,onNew={vm.clearError();stack.add(SessionConnectionRoute)},liveActivities=liveActivities,initialUiState=saved,onFiltersChanged=vm::sessionFilters,summaries=sessionSummaries,sharedTitles=sharedTitles) }

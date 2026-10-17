@@ -16,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -145,7 +147,7 @@ import kotlinx.serialization.json.*
 @Composable fun AgentPicker(agents:List<AgentInfo>,onSelect:(AgentInfo)->Unit) {
     LazyColumn {
         item { SectionLabel("Choose agent") }
-        items(agents,key={it.id}) { agent -> ListItem(modifier=Modifier.clickable(enabled=agent.canStartSession()) { onSelect(agent) },headlineContent={Text(agent.name)},supportingContent={Text(registryStatus(agent))},leadingContent={Icon(Icons.Outlined.Code,null)}) }
+        items(orderedByProfile(agents),key={it.id}) { agent -> ListItem(modifier=Modifier.clickable(enabled=agent.canStartSession()) { onSelect(agent) },headlineContent={Text(agentTitle(agent,agents))},supportingContent={Text(registryStatus(agent))},leadingContent={Icon(Icons.Outlined.Code,null)}) }
         item { Text("Add custom ACP agents to the host registry. They appear here after refresh.",Modifier.padding(24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
@@ -166,7 +168,7 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null,askEverything:Boolean=false,onAskEverything:((Boolean)->Unit)?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by rememberSaveable {mutableStateOf(false)}
@@ -246,10 +248,10 @@ import kotlinx.serialization.json.*
                         onAddAgent?.let {OutlinedButton(it,Modifier.testTag("add-agent-action")) {Text("Add an agent")}}
                     }}
                     if(onChangeConnection!=null)item {SelectionCard(details.agents.firstOrNull {it.id==agentId}?.name ?: "Choose agent","") {agentPicker=true}}
-                    else items(details.agents,key={it.id}) {agent->
+                    else items(orderedByProfile(details.agents),key={it.id}) {agent->
                         Row(Modifier.fillMaxWidth().testTag("agent-choice:${agent.id}").clickable(enabled=agent.canStartSession()) {agentId=agent.id}.padding(start=24.dp,end=12.dp,top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(agent.name,style=MaterialTheme.typography.titleMedium,color=if(agent.canStartSession())MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(agentTitle(agent,details.agents),style=MaterialTheme.typography.titleMedium,color=if(agent.canStartSession())MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                                 if(!agent.canStartSession())Text(registryStatus(agent,withTools=true),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 else if(agent.ownTools)Text(OWN_TOOLS_LABEL,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -257,6 +259,15 @@ import kotlinx.serialization.json.*
                         }
                     }
                     details.agents.firstOrNull {it.id==agentId && it.ownTools}?.let {item(key="own-tools") {OwnToolsNotice(Modifier.padding(horizontal=24.dp,vertical=8.dp))}}
+                    if(onAskEverything!=null && HOST_FEATURE_MANUAL_APPROVAL in details.features)item(key="ask-everything") {
+                        Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp).toggleable(askEverything,role=Role.Switch,onValueChange=onAskEverything).testTag("ask-everything"),verticalAlignment=Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Ask for everything",style=MaterialTheme.typography.titleMedium)
+                                Text("The host's automatic approval and shell rules stay off for this session. Every request waits for you.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(askEverything,null)
+                        }
+                    }
                     if(scrollActions) {
                         onAccess?.let {callback->item(key="workspace-access-action") {TextButton({callback(path)},Modifier.padding(start=12.dp),enabled=!loading && path.isNotBlank()) {Text("Workspace access")}}}
                         onMcp?.let {callback->item(key="mcp-action") {TextButton(callback,Modifier.padding(start=12.dp),enabled=!loading) {Text("MCP servers")}}}

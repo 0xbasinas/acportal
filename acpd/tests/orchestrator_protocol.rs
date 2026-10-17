@@ -95,6 +95,7 @@ async fn mock_supervisor_delegates_through_the_control_channel() {
         terminal: true,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let root = manager
         .open_configured("supervisor", workspace.path(), None, vec![], access)
@@ -234,6 +235,7 @@ async fn testy_supervisor_lists_and_calls_delegation_tools_over_mcp() {
         terminal: true,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let root = manager
         .open_configured("testy", workspace.path(), None, vec![], access)

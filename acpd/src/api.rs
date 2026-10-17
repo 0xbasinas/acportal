@@ -216,6 +216,7 @@ impl Host {
                 get(agent_definition).delete(remove_agent),
             )
             .route("/v1/agents/{id}/probe", post(probe_agent))
+            .route("/v1/agents/{id}/sessions", get(earlier_sessions))
             .route(
                 "/v1/workspaces",
                 get(workspaces).post(add_workspace).delete(remove_workspace),
@@ -435,6 +436,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "controlTakeover",
         "sharedDrafts",
         "agentProbe",
+        "agentSessionList",
+        "booleanOptions",
+        "manualApproval",
         "agentDiscovery",
         "commitMessage",
         "pullRequests",
@@ -562,6 +566,7 @@ async fn probe_agent(
         terminal: false,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let session = host
         .sessions
@@ -574,6 +579,92 @@ async fn probe_agent(
     let setup = setup_choices(&metadata.setup).unwrap_or_else(|| json!({}));
     host.agent_setups.lock().unwrap().insert(id, setup.clone());
     Ok(Json(json!({ "setup": setup })))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EarlierQuery {
+    workspace: std::path::PathBuf,
+}
+/// Most earlier sessions returned, and the most pages asked of the agent for them.
+const EARLIER_MAX: usize = 50;
+const EARLIER_PAGES: usize = 3;
+const EARLIER_TITLE_CHARS: usize = 200;
+/// Read-only: sessions this agent remembers for one approved folder (`session/list`, only when
+/// the agent advertises it). Starts the agent in a throwaway session with no access, like a probe,
+/// asks, and stops it. Nothing is loaded or changed; opening one is the ordinary `loadSessionId`.
+/// The agent's `cwd` filter is not trusted: entries for another folder are dropped here.
+async fn earlier_sessions(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    Query(query): Query<EarlierQuery>,
+) -> ApiResult<Json<Value>> {
+    let access = crate::connection::WorkspaceAccess {
+        read_files: false,
+        write_files: false,
+        terminal: false,
+        form_elicitation: false,
+        manual_approval: false,
+        boolean_options: false,
+    };
+    let session = host
+        .sessions
+        .open_configured(&id, &query.workspace, None, Vec::new(), access)
+        .await
+        .map_err(input_error)?;
+    let metadata = session.metadata();
+    let capabilities = &metadata.initialization["agentCapabilities"];
+    let can_list = capabilities["sessionCapabilities"]["list"].is_object();
+    let can_load = capabilities["loadSession"] == true;
+    let mut found: Vec<Value> = Vec::new();
+    if can_list {
+        let cwd = metadata.workspace.to_string_lossy().into_owned();
+        let mut cursor: Option<String> = None;
+        for _ in 0..EARLIER_PAGES {
+            let mut params = json!({ "cwd": cwd });
+            if let Some(cursor) = &cursor {
+                params["cursor"] = json!(cursor);
+            }
+            let Ok(Ok(page)) = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.connection.request("session/list", params),
+            )
+            .await
+            else {
+                break;
+            };
+            for entry in page["sessions"].as_array().into_iter().flatten() {
+                let (Some(session_id), Some(entry_cwd)) =
+                    (entry["sessionId"].as_str(), entry["cwd"].as_str())
+                else {
+                    continue;
+                };
+                if std::path::Path::new(entry_cwd) != metadata.workspace
+                    || session_id.is_empty()
+                    || session_id.len() > 256
+                    || found.len() >= EARLIER_MAX
+                {
+                    continue;
+                }
+                found.push(json!({
+                    "sessionId": session_id,
+                    "title": entry["title"].as_str()
+                        .map(|t| t.chars().filter(|c| !c.is_control()).take(EARLIER_TITLE_CHARS).collect::<String>()),
+                    "updatedAt": entry["updatedAt"].as_str().filter(|t| t.len() <= 40),
+                }));
+            }
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() || found.len() >= EARLIER_MAX {
+                break;
+            }
+        }
+    }
+    drop(session);
+    let _ = host.sessions.remove(metadata.id).await;
+    Ok(Json(json!({
+        "listSupported": can_list,
+        "loadSupported": can_load,
+        "sessions": found,
+    })))
 }
 fn discovered_agents(registry: &Registry, active: &[SessionMetadata]) -> Value {
     let mut discovered = serde_json::to_value(registry.discover()).unwrap();

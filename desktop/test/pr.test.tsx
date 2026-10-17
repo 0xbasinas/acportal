@@ -42,3 +42,15 @@ describe('pull request command shown in the Git view', () => {
     expect(onCreate).toHaveBeenCalledOnce()
   })
 })
+
+describe('pull request from a fork', () => {
+  it('shows owner:branch in the gh line once a fork owner is typed', () => {
+    const { rerender } = render(<PullRequestForm learn title="Fix" body="" draft={false} base="main" head="feature" busy={false} canSuggest
+      owner="" onOwner={() => {}} onTitle={() => {}} onBody={() => {}} onDraft={() => {}} onSuggest={() => {}} onCreate={() => {}} />)
+    expect(document.querySelector('.learn-cmd')?.textContent).toContain('--head "feature"')
+    rerender(<PullRequestForm learn title="Fix" body="" draft={false} base="main" head="feature" busy={false} canSuggest
+      owner="octo-cat" onOwner={() => {}} onTitle={() => {}} onBody={() => {}} onDraft={() => {}} onSuggest={() => {}} onCreate={() => {}} />)
+    expect(document.querySelector('.learn-cmd')?.textContent).toContain('--head "octo-cat:feature"')
+    expect(screen.getByLabelText('Fork owner')).toBeTruthy()
+  })
+})

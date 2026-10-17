@@ -81,7 +81,7 @@ Unverified: a real `systemctl --user enable`, `launchctl bootstrap`, or `schtask
 
 ## 5. External MCP endpoint
 
-Decision: proposed in [adr-external-mcp.md](adr-external-mcp.md), not implemented. An outside agent gets `Role::Agent` from the existing pairing-code store. Only `/mcp` accepts that token. The first tools are `sessions_list`, `session_read`, and `tasks_list`, and `session_read` must not start an agent. OAuth is not part of this branch.
+Decision: proposed in [adr-external-mcp.md](../adr-external-mcp.md), not implemented. An outside agent gets `Role::Agent` from the existing pairing-code store. Only `/mcp` accepts that token. The first tools are `sessions_list`, `session_read`, and `tasks_list`, and `session_read` must not start an agent. OAuth is not part of this branch.
 
 Confirmed: T3 tokens with subject `mcp-client` are accepted only by `/mcp`. `rejectMcpClientAudience` refuses them on the HTTP API and the WebSocket. Access levels include `read-only` and `full-access`. `https` redirect URIs match exactly. Loopback redirects may change port. Page errors are not redirects.
 
@@ -97,7 +97,7 @@ Unverified: no `/mcp` route was added. No agent token was minted. Claude Code, C
 
 ## 6. Remote access routes
 
-Decision: proposed in [adr-remote-routes.md](adr-remote-routes.md), not implemented. Use Tailscale Serve with Funnel off, or a Cloudflare Tunnel hostname with Access in front, in front of loopback `acpd`. Doctor would check the public URL against a new `GET /v1/host` that returns only the host UUID. Saved hosts would grow an ordered address list, probed before the device token is sent. A hosted relay is deferred. Addresses are not learned from the host.
+Decision: proposed in [adr-remote-routes.md](../adr-remote-routes.md), not implemented. Use Tailscale Serve with Funnel off, or a Cloudflare Tunnel hostname with Access in front, in front of loopback `acpd`. Doctor would check the public URL against a new `GET /v1/host` that returns only the host UUID. Saved hosts would grow an ordered address list, probed before the device token is sent. A hosted relay is deferred. Addresses are not learned from the host.
 
 Confirmed: Serve requires HTTPS certificates, applies tailnet access-control rules, and proxies to `http://127.0.0.1`. `https+insecure` skips local certificate checks. The latest of `serve` and `funnel` on one port wins, and Funnel is the public internet. A Cloudflare published application is reachable by anyone who can open the hostname. Access applications deny by default until an Allow policy matches. Ingress config files end with `http_status:404`. This host's `GET /v1/status` is behind `authenticate` and `phones_only` and returns more than `hostId`. Desktop `request` rejects HTTP 3xx and keeps certificate checks on. Android `HostApi.status` reads the vault token before `details` compares `hostId`. Room schema is version 3.
 
@@ -136,7 +136,7 @@ Not done, and why:
 
 ## Ask for everything (17 October 2026)
 
-Decision from the review: presets get a per-session switch. `workspaceAccess.manualApproval` (default false) keeps the host's auto-approve watcher and shell reviewer out of one session. `GET /v1/presets` lists `ask-all` only when one of them would otherwise act. The consent change, its limits (`ownTools`, delegated tasks, restarts, remote agents) and the tests are in [security.md](security.md#per-session-manual-approval-ask-for-everything).
+Decision from the review: presets get a per-session switch. `workspaceAccess.manualApproval` (default false) keeps the host's auto-approve watcher and shell reviewer out of one session. `GET /v1/presets` lists `ask-all` only when one of them would otherwise act. The consent change, its limits (`ownTools`, delegated tasks, restarts, remote agents) and the tests are in [security.md](../security.md#per-session-manual-approval-ask-for-everything).
 
 Tested: `a_session_with_manual_approval_is_never_answered_by_the_host` (same agent, policy and request answered by the host without the switch, left to the person with it; with the guard disabled it failed, then the guard was restored), preset unit tests, and four desktop tests. `manual_approval_keeps_shell_review_out_of_the_session` is Linux only and was not compiled or run on this Windows machine; it relies on the Linux Actions job.
 

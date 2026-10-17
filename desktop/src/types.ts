@@ -50,3 +50,6 @@ export type Task = {
   delegate?: string
 }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; code?: string; status?: number }
+
+/** Sessions an agent remembers for one folder (`GET /v1/agents/{id}/sessions`). */
+export type EarlierSessions = { listSupported: boolean; loadSupported: boolean; sessions: { sessionId: string; title?: string | null; updatedAt?: string | null }[] }

@@ -1,6 +1,6 @@
 # Prompt: implement T3 Code-inspired improvements
 
-Copy everything below the line into a new agent session started on branch `experiment/t3code-ideas` (cut from `agent-discovery`). The research behind it is in [t3code-research.md](t3code-research.md).
+Copy everything below the line into a new agent session started on branch `experiment/t3code-ideas` (cut from `agent-discovery`). The research behind it is in [research.md](../t3code/research.md).
 
 ---
 
@@ -8,7 +8,7 @@ You are continuing the ACP Portal project in `C:\Users\basin\acportal` on branch
 
 ## Read first (in this order)
 
-`AGENTS.md`, `HANDOFF.md` (current section), `TODO.md`, `docs/security.md`, `docs/architecture.md`, `docs/orchestrator-design.md`, `docs/daemon-and-reload.md`, `docs/desktop-multi-host.md`, `docs/t3code-research.md` (what T3 Code does and where it differs from us) and `docs/t3code-acp-feasibility.md` (what ACP can and cannot do for each item below). T3 Code is MIT licensed (https://github.com/pingdotgg/t3code). Use it for ideas only; do not copy its code. Treat `docs/t3code-research.md` as notes from reading its docs, not from running it.
+`AGENTS.md`, `HANDOFF.md` (current section), `TODO.md`, `docs/security.md`, `docs/architecture.md`, `docs/orchestrator-design.md`, `docs/daemon-and-reload.md`, `docs/desktop-multi-host.md`, `docs/t3code/research.md` (what T3 Code does and where it differs from us) and `docs/t3code/acp-feasibility.md` (what ACP can and cannot do for each item below). T3 Code is MIT licensed (https://github.com/pingdotgg/t3code). Use it for ideas only; do not copy its code. Treat `docs/t3code/research.md` as notes from reading its docs, not from running it.
 
 ## What already exists (do not rebuild it)
 
@@ -83,7 +83,7 @@ Gap: T3 exposes `/mcp` so outside agents (Claude Code, Codex, ChatGPT) can list 
 
 Write `docs/adr-external-mcp.md` covering: tools (start with read-only `sessions_list`, `session_read`, `tasks_list`; mutating tools only after review); a new `Role::Agent` (or equivalent) that every route except the MCP route rejects, following how `phones_only` and the peer layer work; credential type reuse (device token minted by a pairing code, no OAuth server in this branch, explain why or why not); a ceiling on what a thread started through MCP may do, taken from the same `workspaceAccess` and `[orchestrator]` limits; token expiry and revocation through `acpd revoke`; interaction with `[orchestrator] enabled` and `peer_rights`; threat model (hosted agents on HTTPS redirects were a risk T3 called out). Ask me to review before implementing anything.
 
-Decision, 17 October 2026: [adr-external-mcp.md](adr-external-mcp.md) is proposed and not implemented. `Role::Agent` is a pairing-code device token. `/mcp` is the only route that accepts it. `phones_only` and `peers_only` reject it. The first tools are read-only and must not call `session/load`. OAuth is deferred because T3 matches `https` redirects exactly and this host rejects browser origins. A phone or peer token is not reused on `/mcp`.
+Decision, 17 October 2026: [adr-external-mcp.md](../adr-external-mcp.md) is proposed and not implemented. `Role::Agent` is a pairing-code device token. `/mcp` is the only route that accepts it. `phones_only` and `peers_only` reject it. The first tools are read-only and must not call `session/load`. OAuth is deferred because T3 matches `https` redirects exactly and this host rejects browser origins. A phone or peer token is not reused on `/mcp`.
 
 ### 6. Remote access routes (design and ADR only, then stop)
 
@@ -91,7 +91,7 @@ Gap: T3 supports direct, Tailscale, SSH, and a hosted relay, with an ordered rou
 
 Write `docs/adr-remote-routes.md` comparing: (a) a documented Tailscale Serve and Cloudflare Tunnel recipe plus an `acpd doctor` check for the chosen URL, (b) several saved addresses per host in the desktop and Android hosts store, tried in order with a check that the address answers as the same host id (`security.rs` `host_id`) before any token is sent, and (c) a hosted relay. State what each would require of `docs/security.md`. Recommend (a)+(b) for this branch and record why (c) is deferred. For (b), list exact changes in `desktop/src/Hosts.tsx`, `desktop/src/Pairing.tsx`, and the Android `HostApi.kt`/Room schema (schema 3, additive migration). Do not implement.
 
-Decision, 17 October 2026: [adr-remote-routes.md](adr-remote-routes.md) is proposed and not implemented. Serve, with Funnel left off, or a Cloudflare hostname with Access in front, proxies to loopback `acpd`. `acpd doctor --url` would GET a new unauthenticated `/v1/host` that returns only `hostId`, with TLS verification on and no token and no redirects. Each saved host would keep an ordered address list. The client probes `/v1/host` before unsealing or reading the device token, and skips a different host id. Learned addresses and a hosted relay are deferred. `docs/security.md` is unchanged until this is accepted.
+Decision, 17 October 2026: [adr-remote-routes.md](../adr-remote-routes.md) is proposed and not implemented. Serve, with Funnel left off, or a Cloudflare hostname with Access in front, proxies to loopback `acpd`. `acpd doctor --url` would GET a new unauthenticated `/v1/host` that returns only `hostId`, with TLS verification on and no token and no redirects. Each saved host would keep an ordered address list. The client probes `/v1/host` before unsealing or reading the device token, and skips a different host id. Learned addresses and a hosted relay are deferred. `docs/security.md` is unchanged until this is accepted.
 
 ### 7. Small ACP gaps (optional, after items 1 to 4)
 

@@ -1227,6 +1227,7 @@ impl Orchestrator {
             terminal: rights.terminal,
             form_elicitation: false,
             manual_approval: false,
+            boolean_options: false,
         };
         let deadline = arguments
             .get("deadline_seconds")

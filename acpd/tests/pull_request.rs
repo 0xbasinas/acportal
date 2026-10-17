@@ -17,6 +17,12 @@ const SECRET: &str = "ghp_SUPERSECRETTOKENVALUE";
 const BODY_MARK: &str = "BODY-MARKER-9f3";
 
 fn main() {
+    if let Some(path) = std::env::var_os("ACPD_FAKE_SLEEP_PID") {
+        // A helper that `gh` started and left running.
+        let _ = fs::write(path, std::process::id().to_string());
+        std::thread::sleep(Duration::from_secs(120));
+        std::process::exit(0);
+    }
     if fake_gh_process() {
         fake_gh();
     }
@@ -77,6 +83,21 @@ fn fake_gh() -> ! {
         "leak" => {
             let _ = writeln!(std::io::stderr(), "token {SECRET}");
             std::process::exit(1);
+        }
+        "leftover" => {
+            let pid_file = std::env::var("FAKE_GH_CHILD_PID").unwrap_or_default();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.env("ACPD_FAKE_SLEEP_PID", pid_file);
+            child.env_remove("ACPD_FAKE_GH");
+            let _ = child
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            // Give it time to write its pid before gh exits.
+            std::thread::sleep(Duration::from_millis(800));
+            println!("https://github.com/example/repo/pull/9");
+            std::process::exit(0);
         }
         "http" => {
             println!("http://github.com/example/repo/pull/7");
@@ -264,9 +285,27 @@ async fn suite(log: PathBuf, mode_file: PathBuf) {
     assert!(text.contains("invalid_branch_name"), "{text}");
     assert!(!h.log.exists(), "a branch flag must not reach gh");
 
-    let (status, text) = h.post(pr(&repo, json!({"head": "owner:feature"}))).await;
-    assert_eq!(status, 400, "{text}");
-    assert!(!h.log.exists());
+    for bad in [
+        "-owner:feature",
+        "own er:feature",
+        "a--b:feature",
+        "owner:a:b",
+        ":feature",
+        "owner:--upload-pack=x",
+    ] {
+        let (status, text) = h.post(pr(&repo, json!({"head": bad}))).await;
+        assert_eq!(status, 400, "{bad}: {text}");
+        assert!(!h.log.exists(), "{bad} reached gh");
+    }
+
+    // A pull request from a fork passes `owner:branch` to gh as one argument.
+    let (status, text) = h.post(pr(&repo, json!({"head": "octo-cat:fix/x"}))).await;
+    assert_eq!(status, 200, "{text}");
+    let logged: Value = serde_json::from_str(&fs::read_to_string(&h.log).unwrap()).unwrap();
+    let args = logged["args"].as_array().unwrap();
+    let at = args.iter().position(|a| a == "--head").unwrap();
+    assert_eq!(args[at + 1], "octo-cat:fix/x");
+    fs::remove_file(&h.log).unwrap();
 
     let (status, text) = h.post(pr(&repo, json!({"title": ""}))).await;
     assert_eq!(status, 400, "{text}");
@@ -350,6 +389,27 @@ async fn suite(log: PathBuf, mode_file: PathBuf) {
     assert!(!text.contains("a pull request for branch"), "{text}");
     assert!(!text.contains(SECRET), "{text}");
 
+    // A helper that gh started and left running is stopped with it.
+    let child_pid_file = h.root.join("child.pid");
+    unsafe { std::env::set_var("FAKE_GH_CHILD_PID", &child_pid_file) };
+    h.mode("leftover");
+    let (status, text) = h.post(pr(&repo, json!({}))).await;
+    assert_eq!(status, 200, "{text}");
+    let child_pid: u32 = fs::read_to_string(&child_pid_file)
+        .expect("the helper wrote its pid")
+        .trim()
+        .parse()
+        .unwrap();
+    let mut alive = true;
+    for _ in 0..40 {
+        alive = process_alive(child_pid);
+        if !alive {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(!alive, "a process gh started outlived the request");
+
     h.mode("noremote");
     let (status, text) = h.post(pr(&repo, json!({}))).await;
     assert_eq!(status, 409, "{text}");
@@ -373,4 +433,25 @@ async fn suite(log: PathBuf, mode_file: PathBuf) {
     let (status, text) = h.post(pr(&repo, json!({}))).await;
     assert_eq!(status, 502, "{text}");
     assert!(!text.contains(SECRET), "{text}");
+}
+
+/// Whether a process with this id is still running.
+fn process_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .expect("tasklist");
+        String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
+    }
+    #[cfg(unix)]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
 }

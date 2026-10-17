@@ -57,6 +57,7 @@ async fn workspace_access_is_negotiated_and_enforced_even_when_agent_ignores_it(
             terminal: mask & 4 != 0,
             form_elicitation: false,
             manual_approval: false,
+            boolean_options: false,
         };
         let manager = manager(
             workspace.path(),

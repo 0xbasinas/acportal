@@ -1,6 +1,6 @@
 // Component tests for the new-session composer (jsdom, no layout: geometry is stubbed).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NewSessionHome, type StartRequest } from '../src/NewSession'
 import { filterChoices, liveSelectors, liveValue, arranged, placePopover, sections, selectorsFromAcp, setRequest, setupFromAcp } from '../src/agentSetup'
 import type { AgentInfo } from '../src/types'
@@ -467,7 +467,7 @@ describe('reading session options like the phone', () => {
       { id: 'm', name: 'Model', category: 'model', type: 'select', currentValue: 'a', options: [{ group: 'g', name: 'Provider G', options: [{ value: 'a', name: 'A', description: 'fast' }] }] },
       { id: 'flag', name: 'Some toggle', type: 'boolean', currentValue: true }
     ] })
-    expect(list.map((x) => x.id)).toEqual(['effort', 'm'])
+    expect(list.map((x) => x.id)).toEqual(['effort', 'm', 'flag']) // an on/off option is read now; it shows as a switch
     expect(list[1].choices).toEqual([{ value: 'a', name: 'A', description: 'fast', group: 'Provider G' }])
     expect(arranged(list)[0].id).toBe('m')
     expect(setRequest(list[0], 'low')).toEqual({ method: 'session/set_config_option', params: { configId: 'effort', value: 'low' } })
@@ -517,5 +517,44 @@ describe('dropdown placement', () => {
     expect(pop.dataset.placement).toBe('up')
     expect(pop.className).toContain(' up')
     expect(pop.style.transform).toBe('translateX(-188px)')
+  })
+})
+
+describe('earlier sessions of an agent', () => {
+  const listed = { listSupported: true, loadSupported: true, sessions: [{ sessionId: 'old-1', title: 'First chat', updatedAt: '2026-10-01T10:00:00Z' }, { sessionId: 'old-2' }] }
+
+  it('is hidden on a host without the feature and asks nothing until opened', async () => {
+    setup()
+    expect(screen.queryByRole('button', { name: /Earlier/ })).toBeNull()
+    const loadEarlier = vi.fn(async () => listed)
+    cleanup()
+    setup({ loadEarlier, openEarlier: vi.fn(async () => undefined) })
+    expect(loadEarlier).not.toHaveBeenCalled()
+    fireEvent.click(chip(/Earlier/))
+    await waitFor(() => expect(loadEarlier).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('First chat')).toBeTruthy()
+    expect(screen.getByText('old-2')).toBeTruthy()
+  })
+
+  it('opens the picked session with its id and says so when the agent cannot list or reopen', async () => {
+    const openEarlier = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => listed), openEarlier })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    await waitFor(() => expect(openEarlier).toHaveBeenCalledOnce())
+    expect(openEarlier.mock.calls[0][2]).toBe('old-1')
+    cleanup()
+
+    const noOpen = vi.fn(async () => undefined)
+    setup({ loadEarlier: vi.fn(async () => ({ ...listed, loadSupported: false })), openEarlier: noOpen })
+    fireEvent.click(chip(/Earlier/))
+    fireEvent.click(await screen.findByText('First chat'))
+    expect(screen.getByText(/cannot reopen them/)).toBeTruthy()
+    expect(noOpen).not.toHaveBeenCalled()
+    cleanup()
+
+    setup({ loadEarlier: vi.fn(async () => ({ listSupported: false, loadSupported: true, sessions: [] })) })
+    fireEvent.click(chip(/Earlier/))
+    expect(await screen.findByText(/does not list its earlier sessions/)).toBeTruthy()
   })
 })

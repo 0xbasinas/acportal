@@ -4,7 +4,7 @@
 // Sending docks the composer at the bottom (220 ms, none with reduced motion) while the
 // session starts; the context folds into a header line.
 import { Fragment, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { AgentInfo, Workspace } from './types'
+import type { AgentInfo, EarlierSessions, Workspace } from './types'
 import type { Attachment } from './Session'
 import type { McpServer } from './Settings'
 import { I, tildify } from './ui'
@@ -77,7 +77,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   return <button data-item role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)}><span /></button>
 }
 
-export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch, loadPresets }: {
+export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp, canBranch, history, initial, initialFolder, onStart, onMulti, probe, newScratch, loadPresets, loadEarlier, openEarlier }: {
   hosts: HostChoice[]; hostId: string; onHost: (id: string) => void; agents: AgentInfo[]; workspaces: Workspace[]; mcp: McpServer[]; canBranch: boolean
   history: (ws: string) => string[]; initial?: { text: string; n: number }; initialFolder?: string
   onStart: (r: StartRequest) => Promise<string | undefined>; onMulti: (text: string) => void
@@ -87,6 +87,10 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   newScratch?: () => Promise<string | undefined>
   /** Hosts that advertise `presets`. Undefined on an older host, which keeps the toggles only. */
   loadPresets?: (agent: string) => Promise<Preset[] | undefined>
+  /** Hosts that advertise `agentSessionList`: what this agent remembers for a folder, read-only. */
+  loadEarlier?: (agent: string, workspace: string) => Promise<EarlierSessions | undefined>
+  /** Open one of those with the agent's `session/load`; returns an error text, or nothing. */
+  openEarlier?: (agent: string, workspace: string, sessionId: string) => Promise<string | undefined>
 }) {
   const usable = agents.filter((a) => a.enabled !== false && a.status !== 'missing')
   const [agent, setAgent] = useState(localStorage.getItem('acportal.lastAgent') ?? usable[0]?.id ?? '')
@@ -237,6 +241,14 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     }, () => { if (!stop) setPresetsLoading(false) })
     return () => { stop = true }
   }, [agent, loadPresets])
+  const [earlier, setEarlier] = useState<{ state: 'loading' | 'done' | 'failed'; data?: EarlierSessions }>()
+  useEffect(() => {
+    if (open !== 'earlier' || !loadEarlier || !agent || ws === NO_PROJECT) return
+    let stop = false
+    setEarlier({ state: 'loading' })
+    void loadEarlier(agent, target).then((data) => { if (!stop) setEarlier(data ? { state: 'done', data } : { state: 'failed' }) })
+    return () => { stop = true }
+  }, [open, agent, target, ws, loadEarlier])
   const pickPreset = (preset: Preset): void => {
     presetTouch.current = true
     setPresetId(preset.id)
@@ -353,6 +365,22 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         {access.manual && !chosenPreset && <div className="hint ctx-pad">The host's auto-approve and shell rules are off for this session.</div>}
         {!chosenPreset && <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>}
       </Chip>
+      {loadEarlier && ws !== NO_PROJECT && (
+        <Chip id="earlier" open={open} setOpen={setOpen} icon={I.clock} label="Earlier" title="Earlier sessions of this agent in this folder" wide>
+          <div className="ctx-h">Earlier sessions</div>
+          {earlier?.state === 'loading' && <div className="hint ctx-pad" role="status">Asking {agentName}…</div>}
+          {earlier?.state === 'failed' && <div className="hint ctx-pad">Could not read {agentName}'s sessions.</div>}
+          {earlier?.state === 'done' && !earlier.data?.listSupported && <div className="hint ctx-pad">{agentName} does not list its earlier sessions.</div>}
+          {earlier?.state === 'done' && earlier.data?.listSupported && earlier.data.sessions.length === 0 && <div className="hint ctx-pad">Nothing remembered for this folder.</div>}
+          {earlier?.state === 'done' && earlier.data?.listSupported && !earlier.data.loadSupported && earlier.data.sessions.length > 0 && <div className="hint ctx-pad">{agentName} cannot reopen them, so this list is for reference.</div>}
+          {earlier?.state === 'done' && earlier.data?.sessions.map((s) => (
+            <Item key={s.sessionId} data-earlier={s.sessionId} sub={s.updatedAt ? new Date(s.updatedAt).toLocaleString() : undefined}
+              onPick={() => { if (!earlier.data?.loadSupported || !openEarlier) return; setOpen(undefined); void openEarlier(agent, target, s.sessionId).then((e) => { if (e) setErr(e) }) }}>
+              {s.title || s.sessionId}
+            </Item>
+          ))}
+        </Chip>
+      )}
       <span className="ctx-switch" title={isRepo ? 'Start in its own git worktree' : 'Needs a git repository'}>
         <span>Worktree</span>
         <Switch label="Own worktree" on={branch.worktree} onChange={(v) => { if (!isRepo) return; setBranch(v && branch.mode === 'current' ? { mode: 'new', name: newName, base: current, worktree: true } : { ...branch, worktree: v }) }} />

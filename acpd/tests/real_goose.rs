@@ -637,6 +637,7 @@ async fn goose_worktree_trial() {
         terminal: false,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let root = manager
         .open_configured("goose", &repo, None, vec![], all)

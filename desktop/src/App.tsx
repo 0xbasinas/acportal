@@ -1,7 +1,7 @@
 import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
 import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
+import type { AgentInfo, EarlierSessions, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
@@ -143,6 +143,11 @@ export default function App() {
     return (await window.api.hosts.api(hostId, method, path, body, query)) as never
   }, [hostId])
   const presetsOn = Boolean(status?.features?.includes('presets'))
+  const earlierOn = Boolean(status?.features?.includes('agentSessionList'))
+  const loadEarlier = useCallback(async (agent: string, workspace: string): Promise<EarlierSessions | undefined> => {
+    const r = await api<EarlierSessions>('GET', `/v1/agents/${encodeURIComponent(agent)}/sessions`, undefined, { workspace })
+    return r.ok ? r.value : undefined
+  }, [api])
   const loadPresets = useCallback(async (id: string): Promise<Preset[] | undefined> => {
     const r = await api<{ presets: Preset[] }>('GET', '/v1/presets', undefined, { agent: id })
     return r.ok ? r.value.presets : undefined
@@ -330,8 +335,8 @@ export default function App() {
         if (!w.ok) return `Could not switch branch: ${w.error}`
       }
     }
-    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}) }
-    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
+    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}), ...(status?.features?.includes('booleanOptions') ? { booleanOptions: true } : {}) }
+    const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: opts.load ?? null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
     if (!r.ok) return ({ unsupported_mcp_transport: 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers', branch_failed: 'Git could not make or switch to that branch (uncommitted changes in the way, or the branch is checked out elsewhere).', worktree_path_unavailable: 'The worktree folder already exists or is outside the host folders.', invalid_branch_name: 'That is not a valid branch name.', not_a_repository: 'This folder is not a git repository.' } as Record<string, string>)[r.code ?? ''] ?? r.error
     if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
     setSessions((s) => [...s, r.value])
@@ -689,7 +694,9 @@ export default function App() {
         history={history} initial={compose} initialFolder={composeFolder} onStart={startFromComposer} onMulti={(t) => { setMultiPrompt(t); setMultiOpen(true) }}
         probe={status?.features?.includes('agentProbe') ? probeAgent : undefined}
         newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined}
-        loadPresets={presetsOn ? loadPresets : undefined} />
+        loadPresets={presetsOn ? loadPresets : undefined}
+        loadEarlier={earlierOn ? loadEarlier : undefined}
+        openEarlier={(agent, workspace, sessionId) => createSession(agent, workspace, { ...defaultOpts, load: sessionId })} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)
@@ -764,5 +771,5 @@ export default function App() {
   )
 }
 
-type NewOpts = { manual?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
+type NewOpts = { load?: string; manual?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
 const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }

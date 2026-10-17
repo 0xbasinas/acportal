@@ -81,10 +81,11 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         }
     }
     /** A repeated request for the same host, agent and folder while one is in flight is ignored. */
-    fun create(hostId:String,agentId:String,workspace:String,onDone:(StoredSession)->Unit) {
+    fun create(hostId:String,agentId:String,workspace:String,onDone:(StoredSession)->Unit)=create(hostId,agentId,workspace,false,onDone)
+    fun create(hostId:String,agentId:String,workspace:String,askEverything:Boolean,onDone:(StoredSession)->Unit) {
         val key=listOf(hostId,agentId,workspace).joinToString("\u0000")
         if(!creating.add(key))return
-        work { try { onDone(repository.create(hostId,agentId,workspace)) } finally { creating.remove(key) } }
+        work { try { onDone(repository.create(hostId,agentId,workspace,askEverything=askEverything)) } finally { creating.remove(key) } }
     }
     internal fun creationInFlight(hostId:String,agentId:String,workspace:String)=listOf(hostId,agentId,workspace).joinToString("\u0000") in creating
     fun open(stored:StoredSession):Unit = work(onRetry={open(stored)}) { val live=repository.open(stored.hostId,stored.id);ui.update { it.copy(live=live) } }

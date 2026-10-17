@@ -465,17 +465,20 @@ function BranchMenu({ branches, current, learn, onSwitch, onCreate, onAll, onClo
 }
 
 /** Editable pull-request title and body. The `gh` line is display only; the host builds the real argv. */
-export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, link, onTitle, onBody, onDraft, onSuggest, onCreate }: {
+export function PullRequestForm({ learn, title, body, draft, base, head, busy, canSuggest, note, link, owner, onOwner, onTitle, onBody, onDraft, onSuggest, onCreate }: {
   learn: boolean; title: string; body: string; draft: boolean; base: string; head: string; busy: boolean; canSuggest: boolean; note?: string
   /** The pull request this branch now has. Shown as a button; nothing opens by itself. */
   link?: { url: string; existing: boolean }
+  /** Optional fork owner: the pull request is then from `owner:branch` (a fork). */
+  owner?: string; onOwner?: (v: string) => void
   onTitle: (v: string) => void; onBody: (v: string) => void; onDraft: (v: boolean) => void; onSuggest: () => void; onCreate: () => void
 }) {
-  const cmd = prCommand({ title: title || 'Title', base, head, draft })
+  const cmd = prCommand({ title: title || 'Title', base, head: owner?.trim() ? `${owner.trim()}:${head}` : head, draft })
   return (
     <div className="pr-offer" style={{ marginTop: 12 }}>
       <input className="input" aria-label="Pull request title" placeholder="Title" value={title} onChange={(e) => onTitle(e.target.value)} />
       <textarea className="input area" aria-label="Pull request body" placeholder="What changed and why" value={body} onChange={(e) => onBody(e.target.value)} style={{ marginTop: 8 }} />
+      {onOwner && <input className="input" aria-label="Fork owner" placeholder="Fork owner (only for a pull request from a fork)" value={owner ?? ''} onChange={(e) => onOwner(e.target.value)} style={{ marginTop: 8 }} />}
       <label className="sub" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
         <input type="checkbox" checked={draft} onChange={(e) => onDraft(e.target.checked)} /> Draft
       </label>
@@ -515,9 +518,10 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
   const [draft, setDraft] = useState(false)
   const [prBusy, setPrBusy] = useState(false)
   const [prNote, setPrNote] = useState<string>()
+  const [prOwner, setPrOwner] = useState('')
   const [prLink, setPrLink] = useState<{ url: string; existing: boolean }>()
   // A title, description and link belong to one branch. Switching branch starts the form over.
-  useEffect(() => { setOffer(false); setPrTitle(''); setPrBody(''); setDraft(false); setPrNote(undefined); setPrLink(undefined) }, [current, cwd])
+  useEffect(() => { setOffer(false); setPrTitle(''); setPrBody(''); setDraft(false); setPrNote(undefined); setPrLink(undefined); setPrOwner('') }, [current, cwd])
   useEffect(() => { if (!base && defaultBase) setBase(defaultBase) }, [defaultBase])
   const compare = async (): Promise<void> => {
     const out = await git('compare', { base })
@@ -553,7 +557,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
         {prBlocked && <div className="hint" style={{ marginTop: 8 }}>{prBlocked}</div>}
         {offer && pullRequests && !prBlocked && (
           <PullRequestForm learn={learn} title={prTitle} body={prBody} draft={draft} base={prBase(base)} head={current} busy={prBusy}
-            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote} link={prLink}
+            canSuggest={Boolean(suggestPr && msgAgent)} note={prNote} link={prLink} owner={prOwner} onOwner={setPrOwner}
             onTitle={setPrTitle} onBody={setPrBody} onDraft={setDraft}
             onSuggest={() => {
               if (!suggestPr || !msgAgent) return
@@ -567,7 +571,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
             onCreate={() => {
               if (!createPr || !prTitle.trim()) return
               setPrBusy(true); setPrNote(undefined); setPrLink(undefined)
-              void createPr({ path: cwd, base: prBase(base), head: current, title: prTitle.trim(), body: prBody, draft }).then((r) => {
+              void createPr({ path: cwd, base: prBase(base), head: prOwner.trim() ? `${prOwner.trim()}:${current}` : current, title: prTitle.trim(), body: prBody, draft }).then((r) => {
                 setPrBusy(false)
                 if (r.url) { setPrLink({ url: r.url, existing: Boolean(r.existing) }); setPrNote(r.existing ? 'This branch already has a pull request.' : 'Pull request opened.') } else setPrNote(r.error ?? 'Could not open the pull request')
               })

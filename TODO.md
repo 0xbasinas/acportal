@@ -2,13 +2,17 @@
 
 ## T3 Code ideas (`experiment/t3code-ideas`, 17 October 2026)
 
-- [x] Open a pull request from the Git view (`POST /v1/pull-requests`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Cross-fork `owner:branch` heads are rejected.
-- [x] Permission presets in the composer (`GET /v1/presets`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. No per-session opt-out of auto-approve or shell review.
-- [x] Agent profiles (`profileOf`). Evidence in [TODO_DONE](TODO_DONE.md). Electron window not viewed. Android does not group them.
-- [x] OS service install (`acpd service install|status|restart|uninstall`). Evidence in [TODO_DONE](TODO_DONE.md). No user service was installed on a machine. Actions run the tests only.
-- [x] External MCP endpoint: design and ADR only ([adr-external-mcp.md](docs/adr-external-mcp.md)). Not implemented. Needs review before any code.
-- [x] Remote access routes: design and ADR only ([adr-remote-routes.md](docs/adr-remote-routes.md)). Not implemented. Needs review before any code. Serve and Tunnel were not installed here.
-- [ ] Small ACP gaps, after a live `goose acp` initialize (no prompt).
+Implemented and checked locally on Windows (details in [TODO_DONE](TODO_DONE.md)): pull requests from the Git view (including fork heads), permission presets with "Ask for everything", agent profiles, OS service install, ACP `session/close`, earlier sessions (`session/list`) and boolean config options on the desktop, Android "Ask for everything" switch and profile grouping. Design only: [external MCP](docs/adr-external-mcp.md) and [remote routes](docs/adr-remote-routes.md). Notes and prompts are in [docs/t3code](docs/t3code/findings.md) and [docs/prompts](docs/prompts/).
+
+Open:
+
+- [ ] Look at the new desktop screens in the Electron window, both themes: PR form (fork owner, link button), access chip with Ask for everything, Earlier sessions chip, boolean switches.
+- [ ] Try `acpd service install`, `status` and `uninstall` on a real machine (Windows first: does `--no-console` leave no console window?), then Linux and macOS. The Linux and macOS code, the Linux-only shell-review test and the split `service/` modules compile and run only in Actions.
+- [ ] Run the new Android screens on an emulator: the Ask for everything switch and grouped agents. Only JVM tests, the debug builds and lint were run. Android has no boolean option switches, no earlier-sessions view and no PR form.
+- [ ] A real `gh pr create` against a throwaway repository. Only a fake `gh` was used.
+- [ ] Review the two ADRs; implement only what you approve.
+- [ ] Timeout path of the PR route (60 s) is not exercised by a test; the leftover-helper test covers a normal exit.
+- [ ] Push the branch and open the PR (not done; needs your go-ahead).
 
 Reconciled 11 October 2026 after merged PR #15 main `8f4741b`, with work on `codex/final-acceptance`. Completed implementation and scoped checks are archived in [TODO_DONE.md](TODO_DONE.md); [the current continuation](docs/final-acceptance.md) and [PR #15 review](docs/pr15-review.md) record actual results, failures and limits. These are narrower acceptance gates, not requests to rebuild completed features.
 

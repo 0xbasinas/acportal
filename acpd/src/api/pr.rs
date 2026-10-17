@@ -58,6 +58,24 @@ pub(super) fn pr_argv(title: &str, base: &str, head: &str, draft: bool) -> Vec<S
     args
 }
 
+/// Split a head into the optional fork owner and the branch. `gh pr create --head` takes `branch` or
+/// `owner:branch` for a pull request from a fork. The owner must look like a GitHub login: letters,
+/// digits and single hyphens, 1 to 39 characters, not starting or ending with a hyphen, so it can
+/// never read as an option. The branch is still checked by git.
+pub(super) fn split_head(head: &str) -> Option<(Option<&str>, &str)> {
+    let Some((owner, branch)) = head.split_once(':') else {
+        return Some((None, head));
+    };
+    let owner_ok = (1..=39).contains(&owner.len())
+        && owner
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        && !owner.starts_with('-')
+        && !owner.ends_with('-')
+        && !owner.contains("--");
+    (owner_ok && !branch.contains(':')).then_some((Some(owner), branch))
+}
+
 fn title_ok(title: &str) -> bool {
     let trimmed = title.trim();
     !trimmed.is_empty()
@@ -162,7 +180,10 @@ async fn create_inner(
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "body_too_large"));
     }
     // `git check-ref-format` is a blocking child process; keep it off the async workers.
-    let (base, head) = (input.base.clone(), input.head.clone());
+    let Some((_, head_branch)) = split_head(&input.head) else {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_branch_name"));
+    };
+    let (base, head) = (input.base.clone(), head_branch.to_owned());
     let refs_ok = tokio::task::spawn_blocking(move || ref_ok(&base) && ref_ok(&head))
         .await
         .unwrap_or(false);
@@ -185,8 +206,10 @@ async fn create_inner(
     if let Some(path) = launch.path_with_dirs(std::env::var_os("PATH")) {
         command.env("PATH", path);
     }
-    let mut child = command
-        .spawn()
+    // `gh` runs inside the same containment as agents and terminals, so a `git` or credential
+    // helper it started cannot outlive it: the tree is stopped when this request ends, on a
+    // timeout as well as after a normal exit.
+    let (mut child, tree) = crate::process_tree::ProcessTree::spawn(&mut command)
         .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "gh_unavailable"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input.body.as_bytes()).await;
@@ -214,8 +237,26 @@ async fn create_inner(
             return Err(ApiError(StatusCode::GATEWAY_TIMEOUT, "gh_timeout"));
         }
     };
-    let stdout = String::from_utf8_lossy(&out_task.await.unwrap_or_default()).into_owned();
-    let stderr = String::from_utf8_lossy(&err_task.await.unwrap_or_default()).into_owned();
+    // A helper `gh` started (a credential cache, say) inherits its output pipes. Stop the whole
+    // tree now, so the pipes close and reading them cannot wait on that helper.
+    drop(tree);
+    let grace = Duration::from_secs(2);
+    let stdout = String::from_utf8_lossy(
+        &tokio::time::timeout(grace, out_task)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default(),
+    )
+    .into_owned();
+    let stderr = String::from_utf8_lossy(
+        &tokio::time::timeout(grace, err_task)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default(),
+    )
+    .into_owned();
     let code = status.code().unwrap_or(1);
     match classify_gh(code, &stdout, &stderr) {
         Ok(url) => Ok(Json(json!({ "url": url }))),
@@ -269,6 +310,29 @@ mod tests {
         assert!(!title_ok(&"a".repeat(MAX_TITLE_CHARS + 1)));
         assert!(!title_ok("line\n--body"));
         assert!(title_ok(title));
+    }
+
+    #[test]
+    fn a_fork_head_is_an_owner_and_a_branch_and_nothing_else() {
+        assert_eq!(split_head("feature"), Some((None, "feature")));
+        assert_eq!(
+            split_head("octo-cat:fix/x"),
+            Some((Some("octo-cat"), "fix/x"))
+        );
+        for bad in [
+            ":x",
+            "-owner:x",
+            "owner-:x",
+            "a--b:x",
+            "own er:x",
+            "owner:a:b",
+            "--upload-pack=x:y",
+            "$(id):x",
+        ] {
+            assert!(split_head(bad).is_none(), "{bad}");
+        }
+        let too_long = format!("{}:x", "a".repeat(40));
+        assert!(split_head(&too_long).is_none());
     }
 
     #[test]

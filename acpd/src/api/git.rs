@@ -535,6 +535,7 @@ pub(super) async fn commit_message(
         terminal: false,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let session = host
         .sessions
@@ -611,6 +612,7 @@ async fn pull_request_message(host: Host, input: CommitMessageInput) -> ApiResul
         terminal: false,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let session = host
         .sessions

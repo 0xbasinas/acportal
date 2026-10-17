@@ -67,6 +67,7 @@ fn bundle() -> WorkspaceAccess {
         terminal: true,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     }
 }
 
@@ -79,6 +80,7 @@ fn cap(bundle: WorkspaceAccess, ceiling: WorkspaceAccess) -> WorkspaceAccess {
         terminal: bundle.terminal && ceiling.terminal,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     }
 }
 
@@ -347,6 +349,7 @@ mod tests {
             terminal: false,
             form_elicitation: true,
             manual_approval: true,
+            boolean_options: false,
         };
         let edits = policy(AutoRisk::Medium, false);
         let rules = review(true);

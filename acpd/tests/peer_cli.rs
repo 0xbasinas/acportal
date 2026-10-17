@@ -223,6 +223,7 @@ async fn adding_a_peer_pairs_with_the_host_and_the_stored_credential_really_work
         terminal: false,
         form_elicitation: false,
         manual_approval: false,
+        boolean_options: false,
     };
     let session = manager
         .open_configured("remote", &workspace, None, vec![], read_only)
