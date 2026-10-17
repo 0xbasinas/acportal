@@ -453,6 +453,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         "version":env!("CARGO_PKG_VERSION"),"protocolVersion":1,"managementVersion":1,
         // Optional host behaviors a phone may opt into; older hosts omit this list.
         "features":features,"gh": if gh_found() { "found" } else { "missing" },
+        // Folders for sessions outside every project live below this one. A client groups a
+        // session there under "No project" even when the host's state sits inside a project.
+        "scratchRoot": plain_path(&{ let root = host.config.scratch_root(); root.canonicalize().unwrap_or(root) }),
         "activeSessions":host.sessions.active_count().await}),
     ))
 }

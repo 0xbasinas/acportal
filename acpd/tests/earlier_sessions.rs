@@ -81,6 +81,14 @@ async fn earlier_sessions_are_listed_for_the_folder_only_and_closing_is_polite()
             .iter()
             .any(|feature| feature == "agentSessionList")
     );
+    // Clients group a session in this folder under "No project", even inside a project.
+    let scratch = status["scratchRoot"]
+        .as_str()
+        .expect("scratchRoot is reported");
+    assert!(
+        scratch.ends_with("scratch") && !scratch.starts_with(r"\\?\"),
+        "{scratch}"
+    );
 
     let reply: Value = ask(format!("workspace={}", workspace.display()))
         .await

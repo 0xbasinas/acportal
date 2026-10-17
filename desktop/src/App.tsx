@@ -17,7 +17,7 @@ import { NewSessionHome, setupKey, type AgentSetup, type OptionPick, type StartR
 import type { Preset } from './presets'
 import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setRequest, setupFromAcp } from './agentSetup'
 import { OptionsButton } from './OptionPicker'
-import { groupByProject, inside } from './projects'
+import { groupByProject, inside, isScratch, subfolder } from './projects'
 
 type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
@@ -583,9 +583,11 @@ export default function App() {
                   {(st === 'offline' || st === 'repair') && !live && <div className="hint" style={{ padding: '2px 12px 6px' }}>{st === 'repair' ? <a onClick={() => setView({ kind: 'pair', repair: h.id })}>Pair again</a> : 'Sessions keep running on the host; they show again when it is back.'}</div>}
                   {ws.length === 0 && hs.length === 0 && <div className="hint" style={{ padding: '0 10px' }}>{st === 'connected' ? 'No folders are allowed on this host yet.' : '—'}</div>}
                   {/* Sessions under the project they run in, like folders: the most recent project on top. */}
-                  {groupByProject(hs, ws).map((g) => {
+                  {groupByProject(hs, ws, fleet[h.id]?.status?.scratchRoot).map((g) => {
                     const key = h.id + '|' + g.key
-                    const startingHere = starting && starting.hostId === h.id && (g.path ? inside(starting.workspace, g.path) : !ws.some((w) => inside(starting.workspace, w.path)))
+                    const scratchRoot = fleet[h.id]?.status?.scratchRoot
+                    const startingScratch = starting ? isScratch(starting.workspace, scratchRoot) : false
+                    const startingHere = starting && starting.hostId === h.id && (g.path ? !startingScratch && inside(starting.workspace, g.path) : startingScratch || !ws.some((w) => inside(starting.workspace, w.path)))
                     const closed = shutProjects[key] ?? (!g.sessions.length && !startingHere)
                     const toggle = (): void => setShutProjects((c) => { const n = { ...c, [key]: !closed }; try { localStorage.setItem('acportal.shutProjects', JSON.stringify(n)) } catch { /* ignore */ } return n })
                     return (
@@ -608,7 +610,7 @@ export default function App() {
                           const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
                           const sst = waiting ? 'waiting' : (t?.busy || (!(live && s.id === selected) && watch[`${h.id}/${s.id}`]?.busy)) ? 'running' : s.status
                           const br = live ? branchOf[s.workspace] : undefined
-                          const sub = g.path && !inside(g.path, s.workspace) ? s.workspace.slice(g.path.replace(/[\\/]+$/, '').length + 1) : undefined
+                          const sub = g.path ? subfolder(s.workspace, g.path) : undefined
                           // One line per session: the dot shows the state, the tooltip the rest;
                           // only states that need attention get a word on the row.
                           const where = br ? `on ${br}` : sub ?? (!g.path ? baseName(s.workspace) : undefined)
