@@ -1,5 +1,9 @@
 # Completed work and verification history
 
+## 17 October 2026 external MCP design (`experiment/t3code-ideas`)
+
+- [adr-external-mcp.md](docs/adr-external-mcp.md) proposes `Role::Agent`, a read-only `/mcp`, and no OAuth server. Not implemented. No tests, because no code changed. Desktop and Android were not rebuilt.
+
 ## 17 October 2026 OS service install (`experiment/t3code-ideas`)
 
 - `acpd service install|status|restart|uninstall` registers the current binary to run in the foreground as `<absolute acpd> --profile <absolute launcher.json> start`. Linux writes a user unit under the systemd user config directory. macOS writes `~/Library/LaunchAgents/dev.acportal.acpd.plist`. Windows writes a least-privilege per-user logon task named `acpd`. Install requires a saved setup profile. The definition stores the two paths and leaves the shell environment out. A unit, plist, or task without the marker `acpd-service-marker: acportal` is left in place. Uninstall removes only that definition. Config, state, tokens, and paired devices stay. Linux status prints `loginctl enable-linger` when lingering is off or unknown, and does not run it. Self-update is documented in [installation](docs/installation.md#replacing-the-binary) and not implemented.

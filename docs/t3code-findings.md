@@ -78,3 +78,19 @@ Sources, read 17 October 2026:
 Tested: unit and plist generation with spaces, `$`, `%`, quotes, backslashes, and unicode; task XML is least privilege, quotes arguments with `CommandLineToArgvW` rules, and never passes `/TN *`, `HIGHEST`, `/RU`, or `/RP`. Uninstall of a foreign unit, plist, and task makes no disable or delete call. Forcing the systemd marker check to succeed made that test remove the foreign unit (`Removed ...\acpd.service`); the check was restored before the suite. A copy of the test binary named `systemctl.exe` answered `systemctl --user show`. Status text includes the resolved log path and omits the fixture TLS key path, certificate path, pairing address, and launcher name. On this Windows machine, `cargo fmt --all -- --check`, strict Clippy, and `cargo test --locked --workspace --all-targets` passed (exit 0, real Goose trials ignored).
 
 Unverified: a real `systemctl --user enable`, `launchctl bootstrap`, or `schtasks /Create` on a machine. Existing GitHub Actions run `cargo test` and do not install a user service. Lingering was not changed. Desktop and Android were not rebuilt for this item.
+
+## 5. External MCP endpoint
+
+Decision: proposed in [adr-external-mcp.md](adr-external-mcp.md), not implemented. An outside agent gets `Role::Agent` from the existing pairing-code store. Only `/mcp` accepts that token. The first tools are `sessions_list`, `session_read`, and `tasks_list`, and `session_read` must not start an agent. OAuth is not part of this branch.
+
+Confirmed: T3 tokens with subject `mcp-client` are accepted only by `/mcp`. `rejectMcpClientAudience` refuses them on the HTTP API and the WebSocket. Access levels include `read-only` and `full-access`. `https` redirect URIs match exactly. Loopback redirects may change port. Page errors are not redirects.
+
+Corrected: this host should not copy T3's OAuth server in the same change as the read-only tools. The host returns 403 for a browser `Origin`. A pairing-code bearer avoids registering a redirect URI. Reusing a phone or peer token would also unlock `/v1` or `/acp`.
+
+Sources, read 17 October 2026 with `git show`, not executed:
+
+- https://github.com/pingdotgg/t3code/blob/main/packages/contracts/src/auth.ts
+- https://github.com/pingdotgg/t3code/blob/main/apps/server/src/auth/EnvironmentAuth.ts
+- https://github.com/pingdotgg/t3code/blob/main/apps/server/src/auth/McpOAuth.ts
+
+Unverified: no `/mcp` route was added. No agent token was minted. Claude Code, Codex, and ChatGPT were not connected.

@@ -83,6 +83,8 @@ Gap: T3 exposes `/mcp` so outside agents (Claude Code, Codex, ChatGPT) can list 
 
 Write `docs/adr-external-mcp.md` covering: tools (start with read-only `sessions_list`, `session_read`, `tasks_list`; mutating tools only after review); a new `Role::Agent` (or equivalent) that every route except the MCP route rejects, following how `phones_only` and the peer layer work; credential type reuse (device token minted by a pairing code, no OAuth server in this branch, explain why or why not); a ceiling on what a thread started through MCP may do, taken from the same `workspaceAccess` and `[orchestrator]` limits; token expiry and revocation through `acpd revoke`; interaction with `[orchestrator] enabled` and `peer_rights`; threat model (hosted agents on HTTPS redirects were a risk T3 called out). Ask me to review before implementing anything.
 
+Decision, 17 October 2026: [adr-external-mcp.md](adr-external-mcp.md) is proposed and not implemented. `Role::Agent` is a pairing-code device token. `/mcp` is the only route that accepts it. `phones_only` and `peers_only` reject it. The first tools are read-only and must not call `session/load`. OAuth is deferred because T3 matches `https` redirects exactly and this host rejects browser origins. A phone or peer token is not reused on `/mcp`.
+
 ### 6. Remote access routes (design and ADR only, then stop)
 
 Gap: T3 supports direct, Tailscale, SSH, and a hosted relay, with an ordered route list per machine, a descriptor check before a credential is sent to a LAN address, and routes "learned" from a connected server. Ours needs the user's own TLS address.
