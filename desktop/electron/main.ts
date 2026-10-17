@@ -311,6 +311,11 @@ function createWindow(): void {
   })
 }
 
+// Windows builds the taskbar button from this id. Without one the app shares Electron's own id and
+// the taskbar shows Electron's atom instead of the acportal logo (the window icon is set, but is
+// not used for that button). It is the installer's appId, so a pinned shortcut groups with it.
+if (process.platform === 'win32') app.setAppUserModelId('dev.acportal.desktop')
+
 app.whenReady().then(() => {
   try {
     const p = JSON.parse(readFileSync(prefsFile(), 'utf8')) as { theme?: 'dark' | 'light' | 'system' }
