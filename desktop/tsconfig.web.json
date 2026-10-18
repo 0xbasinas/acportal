@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "electron/preload.ts"]
+  "include": ["src/**/*", "electron/preload.ts", "electron/browserTypes.ts", "electron/browserRules.ts"]
 }

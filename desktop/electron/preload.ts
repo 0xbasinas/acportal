@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
+import type { BrowserState } from './browserTypes'
+
 type Result<T> = { ok: true; value: T } | { ok: false; error: string; code?: string; status?: number }
 
 const api = {
@@ -69,6 +71,33 @@ const api = {
       const l = (_e: IpcRendererEvent, entry: { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }): void => cb(entry)
       ipcRenderer.on('git:log', l)
       return () => ipcRenderer.removeListener('git:log', l)
+    }
+  },
+  browser: {
+    open: (url?: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:open', url),
+    go: (input: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:go', input),
+    close: (): Promise<Result<void>> => ipcRenderer.invoke('browser:close'),
+    state: (): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:state'),
+    bounds: (b: { x: number; y: number; width: number; height: number } | null): Promise<Result<void>> => ipcRenderer.invoke('browser:bounds', b),
+    back: (): Promise<Result<void>> => ipcRenderer.invoke('browser:back'),
+    forward: (): Promise<Result<void>> => ipcRenderer.invoke('browser:forward'),
+    reload: (hard?: boolean): Promise<Result<void>> => ipcRenderer.invoke('browser:reload', hard),
+    zoom: (direction: 'in' | 'out' | 'reset'): Promise<Result<void>> => ipcRenderer.invoke('browser:zoom', direction),
+    devtools: (): Promise<Result<void>> => ipcRenderer.invoke('browser:devtools'),
+    external: (): Promise<Result<void>> => ipcRenderer.invoke('browser:external'),
+    freeze: (): Promise<Result<string | null>> => ipcRenderer.invoke('browser:freeze'),
+    thaw: (): Promise<Result<void>> => ipcRenderer.invoke('browser:thaw'),
+    capture: (): Promise<Result<{ data: string; mimeType: string; size: number; width: number; height: number; title: string; url: string }>> => ipcRenderer.invoke('browser:capture'),
+    selection: (): Promise<Result<string>> => ipcRenderer.invoke('browser:selection'),
+    onState: (cb: (s: BrowserState) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, s: BrowserState): void => cb(s)
+      ipcRenderer.on('browser:state', l)
+      return () => ipcRenderer.removeListener('browser:state', l)
+    },
+    onShortcut: (cb: (name: 'address' | 'toggle') => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, n: 'address' | 'toggle'): void => cb(n)
+      ipcRenderer.on('browser:shortcut', l)
+      return () => ipcRenderer.removeListener('browser:shortcut', l)
     }
   },
   capture: (name: string): Promise<Result<string>> => ipcRenderer.invoke('debug:capture', name)

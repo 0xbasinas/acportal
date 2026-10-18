@@ -243,8 +243,12 @@ function ElicitForm({ item, onElicit }: { item: Elicit; onElicit: (id: string | 
   )
 }
 
-export type Attachment = { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }
-export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft, remote, onText }: {
+/** `uri` names where a text attachment came from when that is not a file (a page in the browser). */
+export type Attachment = { name: string; mimeType: string; size: number; data?: string; text?: string; path: string; uri?: string }
+/** Something put into the message box from outside it: attachments to add, or text to append. `n` makes each one new. */
+export type Incoming = { n: number; attachments?: Attachment[]; append?: string }
+export function Composer({ agent, busy, disabled, onSend, onCancel, history, canImage, canResource, draft, remote, onText, incoming }: {
+  incoming?: Incoming
   agent: string; busy: boolean; disabled?: string; onSend: (text: string, atts: Attachment[]) => void; onCancel: () => void
   history: string[]; canImage: boolean; canResource: boolean; draft?: { text: string; n: number }
   /** The draft saved on the host (from this or another device) and a callback to save typing there. */
@@ -267,6 +271,18 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
   const [showHist, setShowHist] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { if (draft) { setText(draft.text); ref.current?.focus() } }, [draft?.n])
+  // Pages and selections sent from the browser panel.
+  useEffect(() => {
+    if (!incoming) return
+    if (incoming.append) setText((t) => (t && !/\s$/.test(t) ? t + ' ' : t) + incoming.append)
+    const list = incoming.attachments ?? []
+    const ok = list.filter((a) => (a.data ? canImage : canResource))
+    if (ok.length < list.length) { setErr(`${agent} does not accept ${canImage ? 'file contents' : 'images'} in prompts; that was left out`); return }
+    if ([...atts, ...ok].reduce((s, a) => s + a.size, 0) > 600 * 1024) { setErr('Attachments must stay under 600 KB in total (host frame limit)'); return }
+    if (ok.length) { setErr(undefined); setAtts((a) => [...a, ...ok]) }
+    ref.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming?.n])
   useEffect(() => {
     const el = ref.current
     if (el) { el.style.height = 'auto'; el.style.height = Math.min(200, el.scrollHeight) + 'px' }

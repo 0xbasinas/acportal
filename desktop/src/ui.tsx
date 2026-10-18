@@ -2,7 +2,8 @@ import { ReactNode, createContext, useContext, useState } from 'react'
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderMinus, FolderOpen, GitBranch, GitCommitHorizontal,
   GitCompareArrows, GitMerge, GripVertical, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
-  Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network, ChevronUp, Filter
+  Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network, ChevronUp, Filter,
+  ArrowRight, Globe, House, Code, ExternalLink, Camera, Quote, Link2, PanelBottom, PanelRight
 } from 'lucide-react'
 import { DiffBlock, diffLines, lineStats } from './acp'
 import { plain, subfolder } from './projects'
@@ -10,6 +11,8 @@ import { plain, subfolder } from './projects'
 const ic = { size: 15, strokeWidth: 1.75, 'aria-hidden': true } as const
 /** One icon set (Lucide), one size and stroke, everywhere. */
 export const I = {
+  forward: <ArrowRight {...ic} />, globe: <Globe {...ic} />, home: <House {...ic} size={13} />, code: <Code {...ic} />, external: <ExternalLink {...ic} />, camera: <Camera {...ic} size={14} />, quote: <Quote {...ic} size={14} />, link: <Link2 {...ic} size={14} />,
+  dockBottom: <PanelBottom {...ic} />, dockSide: <PanelRight {...ic} />,
   up: <ChevronUp {...ic} size={13} />, filter: <Filter {...ic} size={13} />,
   back: <ArrowLeft {...ic} />, refresh: <RotateCw {...ic} />, plus: <Plus {...ic} />, gear: <Gear {...ic} />, chev: <ChevronRight {...ic} />, down: <ChevronDown {...ic} size={13} />,
   branch: <GitBranch {...ic} />, tool: <Wrench {...ic} size={13} />, sub: <CornerDownRight {...ic} size={13} />, tree: <Network {...ic} size={13} />, send: <ArrowUp {...ic} size={16} strokeWidth={2.25} />,

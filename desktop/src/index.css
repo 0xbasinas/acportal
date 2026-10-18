@@ -746,3 +746,48 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .steps-head:hover { color: var(--text-2); }
 .steps-body { display: flex; flex-direction: column; gap: 10px; padding: 6px 0 6px 12px; border-left: 1px solid var(--border); margin: 2px 0 6px 5px; }
 .warn-text { color: var(--amber, #e0a64a); }
+
+/* The in-app browser: a panel at the side or a dock at the bottom, with the page drawn over .browser-area. */
+.app.browser-side { grid-template-columns: 252px minmax(0, 1fr) var(--browser-w, 620px); }
+.main-stack { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.main-stack > :first-child { flex: 1; min-height: 0; }
+.browser { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.browser.side { border-left: 1px solid var(--line); }
+.browser.dock { border-top: 1px solid var(--line); height: var(--browser-h, 380px); flex: none; }
+.browser-resize { position: absolute; z-index: 9; }
+.browser.side .browser-resize { left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; }
+.browser.dock .browser-resize { top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
+.browser-resize:hover, .browser-resize:focus-visible { background: color-mix(in srgb, var(--green) 35%, transparent); outline: none; }
+.browser-bar { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
+.browser-address { flex: 1; min-width: 80px; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.browser-address.editing { border-color: var(--text-3); }
+.browser-address input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; font-size: 12px; }
+.browser-scope { display: grid; place-items: center; color: var(--green); }
+.browser-scope.away { color: var(--text-2); }
+.browser-zoom { height: 28px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line); color: var(--text-2); font-size: 11px; font-weight: 500; }
+.browser-zoom:disabled { opacity: .4; }
+.browser-send { position: relative; margin-left: 4px; }
+.browser-send .btn { height: 28px; padding: 0 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.browser-menu { position: absolute; right: 0; top: 34px; width: 248px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); padding: 6px; z-index: 9; }
+.browser-menu-h, .browser-menu-f { padding: 6px 10px; font-size: 11px; color: var(--text-3); }
+.browser-menu button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--text); }
+.browser-menu button:hover:not(:disabled) { background: var(--hover); }
+.browser-menu button:disabled { opacity: .45; cursor: default; }
+.browser-scrim { position: fixed; inset: 0; z-index: 7; background: transparent; border: 0; cursor: default; }
+.browser-area { position: relative; flex: 1; min-height: 0; background: var(--bg); overflow: hidden; }
+.browser-still { width: 100%; height: 100%; object-fit: contain; object-position: top left; background: #fff; }
+.browser-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; color: var(--text-2); }
+.browser-empty h2 { margin: 0; color: var(--text); font-size: 16px; }
+.browser-empty p { margin: 0; max-width: 320px; font-size: 12.5px; }
+.browser-quick { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+.browser-foot { flex: none; height: 24px; padding: 0 12px; display: flex; align-items: center; font-size: 11px; color: var(--text-3); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.browser-foot.hot { color: var(--amber); }
+.icon-btn.on { background: var(--surface-3); color: var(--text); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.set-h { font-size: 13px; margin: 18px 0 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; }
+.chip button { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 10px; color: var(--text-3); }
+.chip button:hover { background: var(--hover); color: var(--text); }
+.set-add { display: flex; gap: 8px; margin-bottom: 8px; }
+.set-add .input { flex: 1; max-width: 320px; }

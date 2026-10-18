@@ -51,6 +51,14 @@ out) and a host with no default agents (its own config in `.local/dev-host`) in 
 installs the packages (including the Electron download that npm's `ignore-scripts` skips), opens a
 terminal with a pairing code and runs the app.
 
+## The browser
+
+A browser panel shows a page next to the conversation (at the side) or under it (docked). Open it with the globe button in the session header, **Ctrl/⌘ Shift B**, or *Open the browser* in the command palette; a link to a page on this computer in an agent's message opens there too. The toolbar has back, forward, reload, the address, zoom, developer tools (F12), *Open in my browser* and **Send to agent**, which attaches a screenshot of the page, the selected text, or the page address to your next message; nothing is sent until you send it. The panel can be moved between the side and the bottom and resized by dragging its edge; the page and its history stay.
+
+What it will show: `localhost`, `127.0.0.1` and any site you add under *Settings → Browser*. A link to any other site opens in your own browser (or is refused if you turn that off); `file:`, `javascript:` and other non-web addresses are never opened. The page runs in its own Chromium session with no connection to the app: it has no preload and cannot reach the app's IPC or Node, every permission request (camera, microphone, location, notifications) is refused, downloads are blocked unless you allow them, and nothing is remembered between launches unless you turn on *Remember sign-ins*. The code is in `electron/browser.ts` (the view) and `electron/browserRules.ts` (what may load); `src/Browser.tsx` is the panel.
+
+Not yet: tabs, find in page, a terminal next to it (planned), and the status bar with toggles shown in the design.
+
 ## Where Git is
 
 - **Each project:** hover a project row in the sidebar and press its branch icon to open the Git view on that project's folder (next to the + for a new session).

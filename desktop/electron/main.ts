@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { request, validateAddress, SessionSocket, HostError } from './host'
 import { sealWithFileKey, openWithFileKey } from './secrets'
 import { registerGit } from './git'
+import { registerBrowser } from './browser'
 import { Watcher, type WatchTarget } from './watch'
 import { usable } from './window'
 import { Notification } from 'electron'
@@ -24,6 +25,7 @@ type StoredHost = { id: string; hostId: string; name: string; address: string; d
 type PublicHost = Omit<StoredHost, 'secret'>
 
 let win: BrowserWindow | null = null
+let browser: { dispose: () => void } | null = null
 const storeFile = (): string => join(app.getPath('userData'), 'hosts.json')
 const prefsFile = (): string => join(app.getPath('userData'), 'prefs.json')
 
@@ -257,6 +259,7 @@ function registerIpc(): void {
     }
     return out
   }))
+  browser = registerBrowser({ ipc: ipcMain, wrap: wrap as never, win: () => win, readPrefs: () => { try { return JSON.parse(readFileSync(prefsFile(), 'utf8')) as Record<string, unknown> } catch { return {} } } })
   registerGit(ipcMain, wrap as never, () => win, (h: string) => host(h).address, async (h: string) => {
     const x = host(h)
     const token = unseal(x)
@@ -300,6 +303,8 @@ function createWindow(): void {
     webPreferences: { preload: join(__dirname, '../preload/preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
   })
   win.once('ready-to-show', () => win?.show())
+  // A page reload (or a crash that restarts the page) forgets the panel that framed the browser view; drop the view with it.
+  win.webContents.on('did-start-loading', () => browser?.dispose())
   // Follow the theme (the app sets nativeTheme.themeSource from its preference).
   const recolour = (): void => { if (process.platform !== 'darwin') win?.setTitleBarOverlay(titleBarColours()) }
   nativeTheme.on('updated', recolour)
@@ -315,6 +320,7 @@ function createWindow(): void {
   win.on('closed', () => {
     // First, so nothing below can reach the destroyed window: closing a socket reports its state.
     win = null
+    browser?.dispose()
     watcher.closeAll()
     for (const s of sockets.values()) s.close()
     sockets.clear()

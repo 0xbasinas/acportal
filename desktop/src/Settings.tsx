@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import type { AgentInfo, Host, HostStatus, Workspace } from './types'
 import { groupAgents } from './agentSetup'
 import { I, tildify } from './ui'
+import { BrowserSettings } from './BrowserSettings'
 
 export type Theme = 'dark' | 'light' | 'system'
-const ICONS: Record<string, React.ReactNode> = { General: I.gear, Agents: I.bot, 'MCP servers': I.server, Hosts: I.term, Workspaces: I.folder, 'Approvals & review': I.shield, Appearance: I.spark, Keyboard: I.cmd }
-const SECTIONS = ['General', 'Agents', 'MCP servers', 'Hosts', 'Workspaces', 'Approvals & review', 'Appearance', 'Keyboard'] as const
+const ICONS: Record<string, React.ReactNode> = { General: I.gear, Agents: I.bot, 'MCP servers': I.server, Hosts: I.term, Workspaces: I.folder, 'Approvals & review': I.shield, Browser: I.globe, Appearance: I.spark, Keyboard: I.cmd }
+const SECTIONS = ['General', 'Agents', 'MCP servers', 'Hosts', 'Workspaces', 'Approvals & review', 'Browser', 'Appearance', 'Keyboard'] as const
 export type Section = (typeof SECTIONS)[number]
 
 export function Settings(props: {
@@ -98,6 +99,7 @@ export function Settings(props: {
             <div className="set-row"><div style={{ flex: 1 }}><div>Host smart review</div><div className="sub mono">[shell_review.&lt;agent&gt;] in the host config</div></div></div>
           </>
         )}
+        {section === 'Browser' && <BrowserSettings />}
         {section === 'Appearance' && (
           <>
             <h2>Appearance</h2>
@@ -119,7 +121,7 @@ export function Settings(props: {
           <>
             <h2>Keyboard</h2>
             {[
-              ['Command palette', 'Ctrl/⌘ K'], ['New session', 'Ctrl/⌘ N'], ['Settings', 'Ctrl/⌘ ,'], ['Review changes', 'Ctrl/⌘ D'], ['Stop the current turn', 'Esc'], ['Send', 'Enter'], ['New line', 'Shift Enter']
+              ['Command palette', 'Ctrl/⌘ K'], ['New session', 'Ctrl/⌘ N'], ['Settings', 'Ctrl/⌘ ,'], ['Review changes', 'Ctrl/⌘ D'], ['Show or hide the browser', 'Ctrl/⌘ Shift B'], ['Stop the current turn', 'Esc'], ['Send', 'Enter'], ['New line', 'Shift Enter']
             ].map(([a, k]) => (
               <div className="set-row" key={a}><span style={{ flex: 1 }}>{a}</span><span className="kbd">{k}</span></div>
             ))}
