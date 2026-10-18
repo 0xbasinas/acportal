@@ -154,6 +154,14 @@ class PortalRepository(
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
+    /** Opens a shell on the host in `path`; the id is then passed to [terminalLink]. */
+    suspend fun openTerminal(hostId:String,path:String,rows:Int,cols:Int):String = withContext(Dispatchers.IO) {api.openTerminal(dao.host(hostId) ?: error("Host is no longer saved"),path,rows,cols)}
+    suspend fun endTerminal(hostId:String,id:String) = withContext(Dispatchers.IO) {api.closeTerminal(dao.host(hostId) ?: error("Host is no longer saved"),id)}
+    /** Attaches to a host terminal. The caller starts it and closes it; the token never leaves this layer. */
+    suspend fun terminalLink(hostId:String,terminalId:String,scope:CoroutineScope,onData:(ByteArray)->Unit,onEvent:(JsonObject)->Unit,onState:(String,String?)->Unit):TerminalSocket {
+        val host=dao.host(hostId) ?: error("Host is no longer saved")
+        return TerminalSocket(api.client,host.address,vault.read(host.credentialAlias),terminalId,scope,onData,onEvent,onState).also {it.start()}
+    }
     suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params,input)}
     /** The agents that can write commit and pull request text on this host; empty when the host cannot (older hosts). */
     suspend fun suggestionAgents(hostId:String): List<AgentInfo> = withContext(Dispatchers.IO) {
