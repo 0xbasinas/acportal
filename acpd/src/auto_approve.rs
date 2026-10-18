@@ -61,6 +61,10 @@ pub enum AutoRisk {
     Low,
     /// Also edits inside the folder, up to the host's edit size limit.
     Medium,
+    /// Everything the deny rules do not refuse. Never read from configuration: only a session that
+    /// asked for "auto-approve everything" on a host that allows it gets this.
+    #[serde(skip_deserializing)]
+    Everything,
 }
 impl AutoRisk {
     fn allows(self, risk: Risk) -> bool {
@@ -68,6 +72,7 @@ impl AutoRisk {
             Self::None => false,
             Self::Low => risk <= Risk::Low,
             Self::Medium => risk <= Risk::Medium,
+            Self::Everything => true,
         }
     }
 }
@@ -196,6 +201,15 @@ impl AutoApproveConfig {
         }
         if class.human_only.is_some() {
             return Verdict::Leave("only a person may answer");
+        }
+        // The highest ceiling does not widen the folder: a request that names a path outside it
+        // is rated high, and only a person may allow it.
+        let outside = class.facts["path"] == "outside"
+            || class.facts["paths"]
+                .as_array()
+                .is_some_and(|paths| paths.iter().any(|path| path == "outside"));
+        if self.max_risk == AutoRisk::Everything && outside {
+            return Verdict::Leave("names a path outside the folder");
         }
         if !self.max_risk.allows(class.risk) {
             return Verdict::Leave("above the ceiling");
@@ -476,7 +490,16 @@ pub fn spawn(session: &Arc<AcpSession>, config: &crate::config::Config) {
     if metadata.workspace_access.manual_approval {
         return;
     }
-    let Some(policy) = config.auto_approve.get(&metadata.agent_id) else {
+    let everything = AutoApproveConfig {
+        max_risk: AutoRisk::Everything,
+        only_in_worktree: false,
+        ..Default::default()
+    };
+    let policy = if metadata.workspace_access.yolo {
+        &everything
+    } else if let Some(policy) = config.auto_approve.get(&metadata.agent_id) {
+        policy
+    } else {
         return;
     };
     let inside = in_worktree(&metadata.workspace, &config.worktree_root());

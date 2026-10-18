@@ -1240,6 +1240,7 @@ impl Orchestrator {
             form_elicitation: false,
             manual_approval,
             boolean_options: false,
+            yolo: false,
         };
         let deadline = arguments
             .get("deadline_seconds")

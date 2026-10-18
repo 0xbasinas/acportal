@@ -58,6 +58,14 @@ class PortalRepository(
     suspend fun saveMainPage(page:String)=dao.saveMainPage(page)
     suspend fun saveSessionFilters(archived:Boolean,active:Boolean,query:String)=dao.saveSessionFilters(archived,active,query)
     private val active = mutableMapOf<String,LiveSession>()
+    /** How long each turn took, measured here while a turn ran; persisted so rows can show time worked. */
+    val turnTimes = MutableStateFlow<TurnTimes>(emptyMap())
+    init {scope.launch {try {turnTimes.update {current->settings.turnTimes.first().let {saved->saved+current}}} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}}
+    private fun recordTurn(change:(TurnTimes)->TurnTimes) {
+        val previous=turnTimes.value
+        val next=turnTimes.updateAndGet(change)
+        if(next!==previous)scope.launch {try {settings.saveTurnTimes(next)} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}
+    }
     private val mutableActivities = MutableStateFlow<Map<String,LiveSessionActivity>>(emptyMap())
     val liveActivities:StateFlow<Map<String,LiveSessionActivity>> = mutableActivities.asStateFlow()
     private val lifecycle = Mutex()
@@ -118,6 +126,7 @@ class PortalRepository(
             require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
+            try {settings.saveHostProjects(host.id,HostProjects(workspaces.map {it.path},status.scratchRoot))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
             if(HOST_FEATURE_SHARED_DRAFTS in status.features)try {applyShared(host.id,api.shared(host))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
             HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features)
         } catch (cancelled:CancellationException) { throw cancelled }
@@ -145,16 +154,18 @@ class PortalRepository(
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
+    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params,input)}
     suspend fun currentBranch(hostId:String,path:String): String? = withContext(Dispatchers.IO) {api.currentBranch(dao.host(hostId) ?: error("Host is no longer saved"),path)}
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): String = withContext(Dispatchers.IO) {api.openPullRequest(dao.host(hostId) ?: error("Host is no longer saved"),request)}
-    suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null,askEverything:Boolean=false): StoredSession = withContext(Dispatchers.IO) {
+    suspend fun presets(hostId:String,agentId:String): List<PermissionPreset> = withContext(Dispatchers.IO) {api.presets(dao.host(hostId) ?: error("Host is no longer saved"),agentId)}
+    suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null,askEverything:Boolean=false,yolo:Boolean=false): StoredSession = withContext(Dispatchers.IO) {
         val host=dao.host(hostId) ?: error("Host is no longer saved")
         // Opt into form elicitation and manual approval only on hosts that list the feature; older hosts reject unknown fields.
         val features=try {api.status(host).features} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {emptyList()}
         val elicitation=HOST_FEATURE_FORM_ELICITATION in features
         val manual=askEverything && HOST_FEATURE_MANUAL_APPROVAL in features
         val booleans=HOST_FEATURE_BOOLEAN_OPTIONS in features
-        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual,booleanOptions=booleans)
+        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual,booleanOptions=booleans,yolo=yolo && HOST_FEATURE_PRESETS in features)
         dao.saveRecent(RecentWorkspace(hostId,workspace,agentId))
         saveMetadata(hostId,created)
     }
@@ -210,7 +221,14 @@ class PortalRepository(
                 if (live.manuallyDetached) return@collect
                 try {
                     val envelope=WireJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).objectValue()
-                    live.state.update { SessionReducer.reduce(it,envelope) }
+                    var before=live.state.value
+                    live.state.update { before=it;SessionReducer.reduce(it,envelope) }
+                    // Time the turn this event starts or ends: by the host's timestamp when it sends one (so a
+                    // replayed turn counts), by this phone's clock for a live event from an older host.
+                    val hostTime=(envelope["at"] as? JsonPrimitive)?.longOrNull?.takeIf {it>0}
+                    val at=hostTime ?: if(before.replaying)null else System.currentTimeMillis()
+                    val after=live.state.value
+                    if(at!=null)recordTurn {TurnClock.observe(it,key,before,after,at)}
                     val message=envelope["message"].objectValue()
                     if(envelope["type"].text()=="control_taken")transport.controlTaken()
                     if(envelope["type"].text()=="session_closed")live.transportActions.withLock {live.manuallyDetached=true;transport.disconnect()}

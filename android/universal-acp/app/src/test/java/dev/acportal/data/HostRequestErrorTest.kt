@@ -54,4 +54,9 @@ class HostRequestErrorTest {
         assertTrue(message.contains("acpd pair"))
         assertFalse(message.contains("Credentials expired"))
     }
+    @Test fun gitRefusalsAreExplained() {
+        assertTrue(hostRequestError(403,"path_not_allowed","POST","/v1/git/worktree-add").contains("does not allow that location"))
+        assertTrue(hostRequestError(404,"unknown_git_operation","POST","/v1/git/diff-new").contains("older than the app"))
+        assertEquals("Host request failed (403).",hostRequestError(403,"path_not_allowed","POST","/v1/sessions"))
+    }
 }

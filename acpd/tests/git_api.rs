@@ -175,3 +175,61 @@ async fn session_can_start_in_its_own_worktree() {
         .unwrap();
     assert_eq!(r.status(), 409);
 }
+
+#[tokio::test]
+async fn a_new_file_can_be_read_as_a_diff_but_only_inside_the_repository() {
+    let h = H::start().await;
+    let repo = h.root.join("calc");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src").join("new.txt"), "alpha\nbeta\n").unwrap();
+    let secret = h.root.parent().unwrap().join("outside").join("secret.txt");
+    std::fs::write(&secret, "do not read\n").unwrap();
+
+    let (s, v) = h
+        .op(
+            "diff-new",
+            json!({"path": repo, "params": {"file": "src/new.txt"}}),
+        )
+        .await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["readOnly"], true);
+    let out = v["out"].as_str().unwrap();
+    assert!(out.contains("+alpha") && out.contains("+beta"), "{out}");
+    assert!(out.contains("new file mode"), "{out}");
+
+    // Nothing outside the repository, however it is written.
+    for file in [
+        secret.to_str().unwrap().to_owned(),
+        "../../outside/secret.txt".to_owned(),
+        "src/../../../outside/secret.txt".to_owned(),
+        "C:/Windows/win.ini".to_owned(),
+        "/etc/passwd".to_owned(),
+        "\\\\srv\\share\\x".to_owned(),
+        "src".to_owned(),
+        "missing.txt".to_owned(),
+    ] {
+        let (s, v) = h
+            .op("diff-new", json!({"path": repo, "params": {"file": file}}))
+            .await;
+        assert!(s == 403 || s == 400, "{file}: {s} {v}");
+        assert!(!v.to_string().contains("do not read"), "{file}: {v}");
+    }
+    let (s, _) = h
+        .op("diff-new", json!({"path": repo, "params": {"file": "-p"}}))
+        .await;
+    assert_eq!(s, 400);
+
+    // A link inside the repository that leads out of it is refused too.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&secret, repo.join("link.txt")).unwrap();
+        let (s, v) = h
+            .op(
+                "diff-new",
+                json!({"path": repo, "params": {"file": "link.txt"}}),
+            )
+            .await;
+        assert_eq!(s, 403, "{v}");
+        assert!(!v.to_string().contains("do not read"), "{v}");
+    }
+}

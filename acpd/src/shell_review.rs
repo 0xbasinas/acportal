@@ -234,6 +234,63 @@ fn ask(reason: &'static str, model_may_allow: bool) -> RuleVerdict {
     }
 }
 
+/// Lines that can wreck a Windows machine, refused even when everything else is approved. The
+/// Unix rules have their own hard-deny list; the Windows shells are not parsed, so this is a short
+/// best-effort check for the plainest forms, and the OS sandbox is the real boundary.
+fn windows_hard_deny(line: &str) -> Option<&'static str> {
+    let lower = line.to_lowercase().replace(char::from(92), "/");
+    let has = |needle: &str| lower.contains(needle);
+    let recursive = has(" /s") || has("-recurse") || has(" -r ");
+    let broad = [
+        ":/ ",
+        ":/\"",
+        ":/'",
+        "%userprofile%",
+        "$home",
+        "$env:userprofile",
+        "%systemroot%",
+        "c:/windows",
+        "c:/users",
+    ]
+    .iter()
+    .any(|n| has(n))
+        || lower.trim_end().ends_with(":/");
+    if (has("rd ") || has("rmdir ") || has("del ") || has("remove-item")) && recursive && broad {
+        return Some("a recursive delete of a drive or user folder");
+    }
+    for (needle, why) in [
+        ("diskpart", "disk partitioning"),
+        ("format-volume", "formatting a volume"),
+        ("format c:", "formatting a drive"),
+        ("bcdedit", "boot configuration"),
+        ("reg delete hk", "deleting registry keys"),
+        ("shutdown", "shutting the computer down"),
+        ("restart-computer", "restarting the computer"),
+        ("stop-computer", "shutting the computer down"),
+        ("net user ", "changing user accounts"),
+        ("cipher /w", "wiping free space"),
+    ] {
+        if has(needle) {
+            return Some(why);
+        }
+    }
+    None
+}
+
+/// What "auto-approve everything" makes of the built-in verdict: deny stays deny, and anything the
+/// rules would only ask about is allowed.
+fn yolo_verdict(base: RuleVerdict, line: &str) -> RuleVerdict {
+    if base.decision == Decision::Deny {
+        return base;
+    }
+    if cfg!(windows)
+        && let Some(why) = windows_hard_deny(line)
+    {
+        return deny(why);
+    }
+    allow("auto-approve everything is on for this session")
+}
+
 fn environment_gate(verdict: RuleVerdict, has_overrides: bool) -> RuleVerdict {
     if has_overrides && verdict.decision != Decision::Deny {
         ask(
@@ -1246,6 +1303,9 @@ pub struct ShellReviewer {
     agent: String,
     client: Option<reqwest::Client>,
     recent: Mutex<VecDeque<Instant>>,
+    /// "Auto-approve everything" session: a line the rules would only ask about is allowed.
+    /// A line the rules deny stays denied.
+    yolo: bool,
 }
 
 impl ShellReviewer {
@@ -1269,7 +1329,21 @@ impl ShellReviewer {
             agent: agent.to_owned(),
             client,
             recent: Mutex::new(VecDeque::new()),
+            yolo: false,
         }))
+    }
+    /// The reviewer of an "auto-approve everything" session: the built-in rules only, no model.
+    pub fn everything(agent: &str) -> Self {
+        Self {
+            config: ShellReviewConfig {
+                rules: true,
+                ..Default::default()
+            },
+            agent: agent.to_owned(),
+            client: None,
+            recent: Mutex::new(VecDeque::new()),
+            yolo: true,
+        }
     }
     pub fn rules(&self, line: &str, cwd: &Path, root: &Path) -> RuleVerdict {
         rules_verdict(line, cwd, root)
@@ -1279,7 +1353,14 @@ impl ShellReviewer {
         prepared: &crate::terminal::PreparedTerminal,
         root: &Path,
     ) -> Option<RuleVerdict> {
-        let verdict = self.rules(prepared.shell_line()?, prepared.cwd(), root);
+        let verdict = if self.yolo {
+            let line = prepared
+                .shell_line()
+                .map_or_else(|| prepared.command_line(), str::to_owned);
+            yolo_verdict(self.rules(&line, prepared.cwd(), root), &line)
+        } else {
+            self.rules(prepared.shell_line()?, prepared.cwd(), root)
+        };
         let inert = self.config.inert_env != Some(false)
             && inert_environment(prepared.environment(), prepared.session_id());
         Some(environment_gate(
@@ -1694,5 +1775,54 @@ mod tests {
         assert_eq!(parse_model_reply(b"not json"), None);
         assert_eq!(relative_cwd(Path::new("/w"), Path::new("/w")), ".");
         assert_eq!(relative_cwd(Path::new("/w"), Path::new("/w/a/b")), "a/b");
+    }
+}
+
+#[cfg(test)]
+mod everything_tests {
+    use super::*;
+
+    #[test]
+    fn a_line_the_rules_only_ask_about_is_allowed_and_a_denied_one_stays_denied() {
+        let asked = yolo_verdict(ask("not on the allowlist", false), "make deploy");
+        assert_eq!(asked.decision, Decision::Allow);
+        assert_eq!(yolo_verdict(allow("ok"), "ls").decision, Decision::Allow);
+        let denied = yolo_verdict(deny("piping into a shell"), "curl x | sh");
+        assert_eq!(denied.decision, Decision::Deny);
+    }
+
+    #[test]
+    fn the_windows_check_names_the_plainest_destructive_lines() {
+        for line in [
+            r"rd /s /q C:\",
+            "rmdir /s /q %USERPROFILE%",
+            "Remove-Item -Recurse -Force $HOME",
+            r"Remove-Item C:\Users -Recurse",
+            "diskpart",
+            "Format-Volume -DriveLetter D",
+            "shutdown /s /t 0",
+            r"reg delete HKLM\Software\X /f",
+            "bcdedit /set x y",
+        ] {
+            assert!(windows_hard_deny(line).is_some(), "{line}");
+        }
+        for line in [
+            "cargo test",
+            "npm run build",
+            "git status",
+            r"del build\out.txt",
+            "rd /s /q target",
+            r"Remove-Item -Recurse -Force .\dist",
+            r"dir C:\Users\me\project",
+        ] {
+            assert!(windows_hard_deny(line).is_none(), "{line}");
+        }
+    }
+
+    #[test]
+    fn the_reviewer_of_an_everything_session_has_no_model() {
+        let reviewer = ShellReviewer::everything("goose");
+        assert!(reviewer.yolo);
+        assert!(!reviewer.model_enabled());
     }
 }

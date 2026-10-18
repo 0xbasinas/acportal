@@ -30,7 +30,7 @@ export type Item =
 export type ElicitField = { type?: string; title?: string; description?: string; enum?: string[]; enumNames?: string[]; oneOf?: { const: string; title?: string }[]; default?: unknown; minimum?: number; maximum?: number; format?: string }
 export type ElicitSchema = { properties?: Record<string, ElicitField>; required?: string[] }
 export type Usage = { used?: number; size?: number; cost?: { amount: number; currency: string } }
-export type Timeline = { items: Item[]; seen: Set<number>; lastSeq: number; busy: boolean; promptId?: number; usage?: Usage; title?: string; gap?: boolean; currentMode?: string; config?: Record<string, string>
+export type Timeline = { items: Item[]; seen: Set<number>; lastSeq: number; busy: boolean; /** True while the host replays history, so events are old, not happening now. */ replaying?: boolean; /** Waiting for the host to send the conversation; `preview` is the copy saved on this computer, shown meanwhile. */ loading?: boolean; preview?: Item[]; promptId?: number; usage?: Usage; title?: string; gap?: boolean; currentMode?: string; config?: Record<string, string>
   /** The agent's latest full `configOptions` list (from `config_option_update`), replacing the one from session start. */
   configOptions?: unknown[]
   /** A model set with `session/set_model` (agents without `configOptions`). */
@@ -73,8 +73,8 @@ function shellLines(tc: Json): { lines: string[]; cwd?: string } {
 
 export function reduce(t: Timeline, env: Json): Timeline {
   const type = env.type as string
-  if (type === 'replay_start') return { ...t, gap: Boolean(env.gap) || t.gap, busy: Boolean(env.processing) || t.busy }
-  if (type === 'replay_complete') return t
+  if (type === 'replay_start') return { ...t, gap: Boolean(env.gap) || t.gap, busy: Boolean(env.processing) || t.busy, replaying: true }
+  if (type === 'replay_complete') return t.replaying || t.loading ? { ...t, replaying: false, loading: false, preview: undefined } : t
   if (type === 'reconnect_required') return t
   if (type !== 'event' && type !== 'pending_permission') return t
   const seq = env.sequence as number | undefined

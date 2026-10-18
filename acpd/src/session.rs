@@ -419,6 +419,14 @@ impl SessionManager {
         if remote && (!mcp_servers.is_empty() || load.is_some()) {
             bail!("remote agents do not take MCP servers or load saved sessions yet")
         }
+        if access.yolo {
+            if remote || !config.yolo.get(agent_id).is_some_and(|yolo| yolo.enabled) {
+                bail!("auto-approve everything is not turned on for this agent on this host")
+            }
+            if access.manual_approval {
+                bail!("a session cannot both ask for everything and auto-approve everything")
+            }
+        }
         // A delegated task may run in its own worktree under the state directory.
         let workspace = if parent.is_some() {
             config.task_workspace(workspace)?

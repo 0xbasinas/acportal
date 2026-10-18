@@ -136,6 +136,13 @@ pub struct WorkspaceAccess {
     /// host advertises `session.configOptions.boolean`. Older phones omit it and see only selects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub boolean_options: bool,
+    /// Per session, and only where the host config allows it for the agent
+    /// (`[yolo.<agent>] enabled`): the host answers the agent's permission requests and shell
+    /// lines itself instead of asking the person. It keeps the deny rules, the workspace
+    /// containment and the OS sandbox. Unlike `manual_approval` it does allow things, so the host
+    /// refuses it unless the operator turned it on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -146,6 +153,7 @@ impl Default for WorkspaceAccess {
             form_elicitation: false,
             manual_approval: false,
             boolean_options: false,
+            yolo: false,
         }
     }
 }
@@ -229,6 +237,9 @@ fn elicitation_answer(request: &Value, result: &Value) -> Option<Value> {
 #[serde(rename_all = "camelCase")]
 pub struct Event {
     pub sequence: u64,
+    /// When the host journaled it, in milliseconds since the Unix epoch. Lets a client time a turn
+    /// from the history it replays, not only from what it watched live.
+    pub at: u64,
     pub message: Value,
     pub direction: &'static str,
 }
@@ -288,6 +299,9 @@ impl Journal {
         let size = message.to_string().len();
         let event = Arc::new(Event {
             sequence: self.sequence,
+            at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as u64),
             message,
             direction,
         });
@@ -693,6 +707,7 @@ impl AcpConnection {
                 form_elicitation: false,
                 manual_approval: false,
                 boolean_options: false,
+                yolo: false,
             },
             None,
         )
@@ -728,7 +743,11 @@ impl AcpConnection {
             workspace,
             (limits.max_frame_bytes - 256) / 6,
         )?);
-        let review = ShellReviewer::new(review, &definition.id)?.map(Arc::new);
+        let review = if access.yolo {
+            Some(Arc::new(ShellReviewer::everything(&definition.id)))
+        } else {
+            ShellReviewer::new(review, &definition.id)?.map(Arc::new)
+        };
         Self::spawn_inner(
             definition,
             launch.into(),
@@ -1564,6 +1583,7 @@ mod tests {
         assert!(default.capabilities().get("session").is_none());
         let opted = WorkspaceAccess {
             boolean_options: true,
+            yolo: false,
             ..default
         };
         assert_eq!(
@@ -1796,6 +1816,27 @@ mod tests {
         assert!(Arc::ptr_eq(&replay.events[0], &journal.events[0].0));
         assert_eq!(admission_budget(1024 * 1024), 8 * 1024 * 1024);
         assert_eq!(admission_budget(16 * 1024 * 1024), 32 * 1024 * 1024);
+    }
+    #[test]
+    fn every_journaled_event_carries_the_time_the_host_recorded_it() {
+        let mut journal = Journal {
+            sequence: 0,
+            bytes: 0,
+            events: VecDeque::new(),
+            permissions: HashMap::new(),
+            host_consents: Default::default(),
+            max_events: 8,
+            max_bytes: 4096,
+        };
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        journal.append(json!({"first":true}));
+        journal.append(json!({"second":true}));
+        let replay = journal.replay(0);
+        assert!(replay.events.iter().all(|event| event.at >= before));
+        assert!(replay.events[0].at <= replay.events[1].at);
     }
     #[test]
     fn bounded_history_reports_eviction_and_retains_pending_requests() {

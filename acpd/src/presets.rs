@@ -21,6 +21,8 @@ pub struct Facts<'a> {
     pub own_tools: bool,
     /// The agent runs on another host. Local auto-approve and shell review do not apply.
     pub remote: bool,
+    /// The operator allowed "auto-approve everything" for this agent (`[yolo.<agent>]`).
+    pub yolo: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -44,6 +46,8 @@ const FOLDER_EDITS: &str =
 const OUTSIDE: &str = "Deletes, fetches and anything outside the folder still ask.";
 const UNDECIDED: &str = "Some command lines may be allowed or refused by the host's shell rules. Undecided lines still ask.";
 const MANUAL: &str = "The host's auto-approve and shell rules do not act in this session. Every request waits for you.";
+const YOLO_ALL: &str = "The host answers this agent's requests itself: edits, commands and its permission prompts, without asking.";
+const YOLO_STILL: &str = "Still refused or asked: credential and settings files, paths outside the folder, destructive command lines and forms. Check the result in Git afterwards.";
 const OWN_TOOLS: &str = "This agent's own tools are not covered. Those still ask you.";
 
 fn auto_on<'a>(facts: &'a Facts<'a>) -> Option<&'a AutoApproveConfig> {
@@ -68,6 +72,7 @@ fn bundle() -> WorkspaceAccess {
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     }
 }
 
@@ -81,6 +86,7 @@ fn cap(bundle: WorkspaceAccess, ceiling: WorkspaceAccess) -> WorkspaceAccess {
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     }
 }
 
@@ -196,6 +202,31 @@ pub fn presets_for(facts: &Facts<'_>, ceiling: WorkspaceAccess) -> Vec<Preset> {
             },
         ));
     }
+    if facts.yolo
+        && !facts.remote
+        && (cap(bundle(), ceiling).write_files || cap(bundle(), ceiling).terminal)
+    {
+        let mut everything = make(
+            "yolo",
+            "Auto-approve everything",
+            ceiling,
+            |effects, access| {
+                if access.write_files || access.terminal {
+                    effects.push(YOLO_ALL.to_owned());
+                    effects.push(YOLO_STILL.to_owned());
+                }
+                if !access.write_files {
+                    effects.push(WRITES_OFF.to_owned());
+                }
+                if !access.terminal {
+                    effects.push(COMMANDS_OFF.to_owned());
+                }
+                push_own(effects, facts);
+            },
+        );
+        everything.workspace_access.yolo = true;
+        presets.push(everything);
+    }
     presets
 }
 
@@ -228,6 +259,7 @@ mod tests {
             shell_review,
             own_tools,
             remote,
+            yolo: false,
         }
     }
     fn ids(presets: &[Preset]) -> Vec<&str> {
@@ -307,6 +339,38 @@ mod tests {
     }
 
     #[test]
+    fn auto_approve_everything_is_offered_only_where_the_operator_allowed_it() {
+        let open = WorkspaceAccess::default();
+        let mut f = facts(None, None, true, false);
+        assert_eq!(ids(&presets_for(&f, open)), ["supervised"]);
+        f.yolo = true;
+        let all = presets_for(&f, open);
+        assert_eq!(ids(&all), ["supervised", "yolo"]);
+        assert!(all[1].workspace_access.yolo);
+        assert!(!all[1].workspace_access.manual_approval);
+        assert!(
+            all.iter()
+                .filter(|p| p.id != "yolo")
+                .all(|p| !p.workspace_access.yolo)
+        );
+        let joined = text(&all[1]);
+        assert!(
+            joined.contains(YOLO_ALL) && joined.contains(YOLO_STILL) && joined.contains(OWN_TOOLS),
+            "{joined}"
+        );
+        // Never offered for an agent on another host, nor when nothing it could approve is on.
+        let mut remote = facts(None, None, false, true);
+        remote.yolo = true;
+        assert_eq!(ids(&presets_for(&remote, open)), ["supervised"]);
+        let none = WorkspaceAccess {
+            write_files: false,
+            terminal: false,
+            ..open
+        };
+        assert_eq!(ids(&presets_for(&f, none)), ["supervised"]);
+    }
+
+    #[test]
     fn json_shape_omits_form_elicitation_and_secrets() {
         let model = ModelReviewConfig {
             base_url: "https://example.test/secret-path".into(),
@@ -350,6 +414,7 @@ mod tests {
             form_elicitation: true,
             manual_approval: true,
             boolean_options: false,
+            yolo: false,
         };
         let edits = policy(AutoRisk::Medium, false);
         let rules = review(true);

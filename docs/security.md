@@ -107,6 +107,31 @@ Auto-approve (`[auto_approve.<agent>]`) and shell review (`[shell_review.<agent>
 
 **Tests.** `acpd/tests/auto_approve.rs` runs the same agent, policy and request twice: the host answers it by itself without the switch and leaves it to the person with the switch; removing the guard made that test fail. `acpd/tests/lifecycle.rs` has the matching Linux-only shell test. `acpd/src/presets.rs` and the desktop tests cover when the preset is offered and that only it sets the flag.
 
+## Per-session "Auto-approve everything"
+
+`workspaceAccess.yolo` (boolean, default false, omitted when false) asks the host to answer the session's permission requests and shell lines itself, so a person is not asked about each edit and command. Unlike `manualApproval` it **allows** things, so the host refuses it unless the operator turned it on for that agent:
+
+```toml
+[yolo.goose]
+enabled = true
+```
+
+Without that table, or for an agent on another host, `POST /v1/sessions` with `yolo` fails ("not turned on for this agent"), and so does combining it with `manualApproval`. A paired device therefore cannot grant itself this on its own, and a delegated task never inherits it (a child starts without it).
+
+**What it answers.** The auto-approve watcher runs for the session with the highest ceiling (never readable from configuration): the agent's own permission requests and the host's file-write consents are answered allow-once, whatever their risk. Shell lines and terminals use the built-in rules reviewer, with no model: a line the rules would only ask about is allowed, and each answer is marked on the tool card as an automatic review ("auto-approve everything").
+
+**What still stops.**
+
+- Credential and settings paths, and anything the deny rules refuse, are left to the person. A request that names a path outside the session folder is left to the person too.
+- A line on the hard-deny list (sudo/su, power and mkfs, recursive delete of root, home or system paths, raw device writes, pipes into shells) is refused. On Windows the shells are not parsed, so a short best-effort list (recursive delete of a drive or user folder, diskpart, format, bcdedit, registry-key deletion, shutdown, user accounts) stands in; the AppContainer sandbox is the real boundary there.
+- A line that names a path outside the folder, or carries environment overrides, still asks.
+- Forms and every other question that needs a person's input still ask.
+- The OS sandbox, workspace containment and the scope check on terminal consents are unchanged. An agent that edits with its own tools (`ownTools`) is still answered by the agent, not the host, and its requests stay with the person.
+
+**How it is offered.** `GET /v1/presets` lists `yolo` ("Auto-approve everything") only when `[yolo.<agent>]` is enabled, the agent is local and writes or commands are allowed. The desktop never remembers it: every session has to choose it again. After it, check the result in Git.
+
+**Tests.** `acpd/tests/yolo.rs` (answers execute/delete/fetch; still leaves `.env` and `../outside.txt`; an ordinary session on the same host is still asked; refused when not allowed or combined with manual approval); `acpd/tests/lifecycle.rs` (Linux: an asked line runs, `rm -rf /` is refused, a path outside the folder asks); unit tests in `shell_review.rs`, `presets.rs` and `config.rs`. Removing the outside-path guard made the `../outside.txt` case fail.
+
 ## Implemented network security
 
 Bind to loopback by default. Remote listeners require TLS through a verified reverse proxy or a built-in TLS listener. Android rejects cleartext remote WebSocket URLs and certificate validation failures. Never install a permissive trust manager.

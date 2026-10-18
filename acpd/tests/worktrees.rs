@@ -50,6 +50,7 @@ impl Fixture {
             form_elicitation: false,
             manual_approval: false,
             boolean_options: false,
+            yolo: false,
         };
         self.manager
             .open_configured("test-agent", folder, None, vec![], all)

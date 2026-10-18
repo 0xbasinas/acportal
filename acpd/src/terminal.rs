@@ -510,6 +510,13 @@ impl PreparedTerminal {
     pub fn sandboxed(&self) -> bool {
         self.sandboxed
     }
+    /// The command and its arguments as one line, for rules that read text. Not what is run.
+    pub fn command_line(&self) -> String {
+        std::iter::once(self.request.command.as_str())
+            .chain(self.request.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
     /// The exact shell line, when this request runs through the host shell.
     pub fn shell_line(&self) -> Option<&str> {
         self.shell.then_some(self.request.command.as_str())

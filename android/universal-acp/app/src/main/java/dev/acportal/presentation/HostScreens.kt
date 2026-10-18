@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -168,7 +169,7 @@ import kotlinx.serialization.json.*
         }
     }
 }
-@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null,askEverything:Boolean=false,onAskEverything:((Boolean)->Unit)?=null,loadEarlier:(suspend (String,String)->EarlierSessions?)?=null,onOpenEarlier:((String,String,String)->Unit)?=null) {
+@Composable fun NewSessionScreen(details:HostDetails?,browsed:List<Workspace>?,loading:Boolean,onBack:()->Unit,onBrowse:(HostProfile,String)->Unit,onCreate:(String,String)->Unit,onMcp:(()->Unit)?=null,onAccess:((String)->Unit)?=null,initialAgentId:String?=null,browseError:String?=null,browseLoading:Boolean=loading,onDismissBrowse:()->Unit={},onReload:()->Unit={},onChangeConnection:(()->Unit)?=null,folderClient:dev.acportal.data.FolderClient?=null,onAddAgent:(()->Unit)?=null,askEverything:Boolean=false,onAskEverything:((Boolean)->Unit)?=null,loadEarlier:(suspend (String,String)->EarlierSessions?)?=null,onOpenEarlier:((String,String,String)->Unit)?=null,permissionId:String="supervised",onPermission:((String)->Unit)?=null,loadPresets:(suspend (String)->List<PermissionPreset>?)?=null) {
     var agentId by rememberSaveable {mutableStateOf(initialAgentId.orEmpty())}
     var path by rememberSaveable {mutableStateOf("")}
     var workspacePicker by rememberSaveable {mutableStateOf(false)}
@@ -261,7 +262,8 @@ import kotlinx.serialization.json.*
                         }
                     }
                     details.agents.firstOrNull {it.id==agentId && it.ownTools}?.let {item(key="own-tools") {OwnToolsNotice(Modifier.padding(horizontal=24.dp,vertical=8.dp))}}
-                    if(onAskEverything!=null && HOST_FEATURE_MANUAL_APPROVAL in details.features)item(key="ask-everything") {
+                    if(loadPresets!=null && onPermission!=null && HOST_FEATURE_PRESETS in details.features)item(key="permissions") {PermissionsRow(agentId,permissionId,onPermission,loadPresets)}
+                    else if(onAskEverything!=null && HOST_FEATURE_MANUAL_APPROVAL in details.features)item(key="ask-everything") {
                         Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp).toggleable(askEverything,role=Role.Switch,onValueChange=onAskEverything).testTag("ask-everything"),verticalAlignment=Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Ask for everything",style=MaterialTheme.typography.titleMedium)
@@ -285,8 +287,13 @@ import kotlinx.serialization.json.*
         }
     }
 }
+/** The group of sessions that run outside every project. */
+internal const val NO_PROJECT="::no-project"
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap()) {
+@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap(),turnTimes:TurnTimes=emptyMap(),onClearEnded:((List<StoredSession>)->Unit)?=null,onGit:((String,String)->Unit)?=null,projects:Map<String,HostProjects> = emptyMap()) {
+    var shutGroups by rememberSaveable {mutableStateOf(emptyList<String>())}
+    var openEnded by rememberSaveable {mutableStateOf(emptyList<String>())}
+    var clearEnded by remember {mutableStateOf<List<StoredSession>>(emptyList())}
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit) {while(true) {delay(60_000);now=System.currentTimeMillis()}}
     var archived by rememberSaveable {mutableStateOf(initialUiState.sessionsArchived)}
@@ -306,6 +313,31 @@ import kotlinx.serialization.json.*
     val keyboard=LocalSoftwareKeyboardController.current
     val focus=LocalFocusManager.current
     val visible=records.filter { (stored,info)->stored.archived==archived && (!activeOnly || (liveActivities["${stored.hostId}/${stored.id}"]!=LiveSessionActivity.STOPPED && info.status in listOf("ready","running","authentication_required"))) && (query.isBlank() || summaryOf(stored,info).searchText.contains(query,ignoreCase=true)) }
+    val sessionRow:@Composable (StoredSession,SessionInfo,Boolean)->Unit={stored,info,ended->
+                var menu by remember {mutableStateOf(false)}
+                val summary=summaryOf(stored,info)
+                // A session started on the desktop has no copy here yet; use the host's title.
+                val title=if(summary.title==SESSION_TITLE_PLACEHOLDER)sharedTitles["${stored.hostId}/${stored.id}"] ?: summary.title else summary.title
+                val activity=summary.activity
+                val worked=workedMillis(turnTimes["${stored.hostId}/${stored.id}"])
+                val liveActivity=liveActivities["${stored.hostId}/${stored.id}"]
+                val status=when {
+                    liveActivity==LiveSessionActivity.READY && info.status=="authentication_required" -> info.statusLabel()
+                    liveActivity!=null -> liveActivity.label
+                    info.status=="running" -> "Last reported: Working"
+                    else -> info.statusLabel()
+                }
+                Row(Modifier.fillMaxWidth().testTag("session-${info.id}").clickable {onOpen(stored)}.padding(start=24.dp,end=12.dp,top=10.dp,bottom=16.dp),verticalAlignment=Alignment.Top) {
+                    Text("•",Modifier.padding(end=12.dp,top=2.dp),color=if(liveActivity in listOf(LiveSessionActivity.READY,LiveSessionActivity.WORKING,LiveSessionActivity.WAITING_APPROVAL))ConnectedGreen else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {Text(title,style=MaterialTheme.typography.titleMedium,color=if(ended)MaterialTheme.colorScheme.onSurfaceVariant else androidx.compose.ui.graphics.Color.Unspecified,maxLines=2,overflow=TextOverflow.Ellipsis);Text("${info.agentId} · $status"+(if(worked>0)" · ${briefDuration(worked)} worked" else ""),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant);activity?.let {Text("${if(it.reportedByAgent)"Agent updated" else "Saved"} ${activityTimeLabel(it.timestamp,now)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+                    if(ended && info.supportsLoad() && info.acpSessionId.isNotBlank())OutlinedButton({onResume(stored)},Modifier.heightIn(min=48.dp).testTag("resume-${info.id}"),contentPadding=PaddingValues(horizontal=14.dp)) {Text("Resume")}
+                    Box {IconButton({menu=true},Modifier.size(48.dp)) {Icon(Icons.Outlined.MoreVert,"Session actions",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)};DropdownMenu(menu,{menu=false}) {
+                        DropdownMenuItem(text={Text(if(stored.archived)"Unarchive" else "Archive")},onClick={menu=false;onArchive(stored)})
+                        if(info.supportsLoad() && info.acpSessionId.isNotBlank())DropdownMenuItem(text={Text("Resume in a new process")},onClick={menu=false;onResume(stored)})
+                        DropdownMenuItem(text={Text("Terminate and delete",color=MaterialTheme.colorScheme.error)},onClick={menu=false;delete=stored})
+                    }}
+                }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
     val scrollFilters=maxHeight<420.dp || LocalDensity.current.fontScale>1.3f
     val tabs:@Composable ()->Unit={
@@ -337,36 +369,34 @@ import kotlinx.serialization.json.*
             Box(if(scrollFilters)Modifier.fillMaxWidth().heightIn(min=240.dp) else Modifier.fillParentMaxSize()) {EmptyState(title,description)}
         }
         else {
-            visible.groupBy {it.first.hostId to it.second.workspace}.forEach { (group,entries)->
-                item {Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp),horizontalArrangement=Arrangement.SpaceBetween) {Text(group.second.substringAfterLast('/').substringAfterLast('\\'),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(hosts.find {it.id==group.first}?.label ?: "Connection",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-                items(entries,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->
-                    var menu by remember {mutableStateOf(false)}
-                    val summary=summaryOf(stored,info)
-                    // A session started on the desktop has no copy here yet; use the host's title.
-                    val title=if(summary.title==SESSION_TITLE_PLACEHOLDER)sharedTitles["${stored.hostId}/${stored.id}"] ?: summary.title else summary.title
-                    val activity=summary.activity
-                    val liveActivity=liveActivities["${stored.hostId}/${stored.id}"]
-                    val status=when {
-                        liveActivity==LiveSessionActivity.READY && info.status=="authentication_required" -> info.statusLabel()
-                        liveActivity!=null -> liveActivity.label
-                        info.status=="running" -> "Last reported: Working"
-                        else -> info.statusLabel()
-                    }
-                    Row(Modifier.fillMaxWidth().testTag("session-${info.id}").clickable {onOpen(stored)}.padding(start=24.dp,end=12.dp,top=10.dp,bottom=16.dp),verticalAlignment=Alignment.Top) {
-                        Text("•",Modifier.padding(end=12.dp,top=2.dp),color=if(liveActivity in listOf(LiveSessionActivity.READY,LiveSessionActivity.WORKING,LiveSessionActivity.WAITING_APPROVAL))ConnectedGreen else MaterialTheme.colorScheme.onSurfaceVariant)
-                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {Text(title,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis);Text("${info.agentId} · $status",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant);activity?.let {Text("${if(it.reportedByAgent)"Agent updated" else "Saved"} ${activityTimeLabel(it.timestamp,now)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-                        Box {IconButton({menu=true},Modifier.size(48.dp)) {Icon(Icons.Outlined.MoreVert,"Session actions",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)};DropdownMenu(menu,{menu=false}) {
-                            DropdownMenuItem(text={Text(if(stored.archived)"Unarchive" else "Archive")},onClick={menu=false;onArchive(stored)})
-                            if(info.supportsLoad() && info.acpSessionId.isNotBlank())DropdownMenuItem(text={Text("Resume in a new process")},onClick={menu=false;onResume(stored)})
-                            DropdownMenuItem(text={Text("Terminate and delete",color=MaterialTheme.colorScheme.error)},onClick={menu=false;delete=stored})
-                        }}
-                    }
+            // A session belongs to the project folder that contains it; one outside every project (a scratch folder) is "No project". A host not read yet groups by the session's own folder.
+            visible.groupBy {entry->val known=projects[entry.first.hostId];entry.first.hostId to (if(known==null)entry.second.workspace else owningProject(entry.second.workspace,known) ?: NO_PROJECT)}.entries.sortedBy {it.key.second==NO_PROJECT}.forEach { (group,entries)->
+                val groupKey="${group.first}|${group.second}"
+                val folded=groupKey in shutGroups
+                val ended=entries.filter {it.second.status=="interrupted"}
+                val running=entries.filterNot {it.second.status=="interrupted"}
+                val endedOpen=groupKey in openEnded
+                item(key="group:$groupKey") {Row(Modifier.fillMaxWidth().clickable {shutGroups=if(folded)shutGroups-groupKey else shutGroups+groupKey}.padding(horizontal=24.dp,vertical=12.dp).semantics {stateDescription=if(folded)"Collapsed" else "Expanded"}.testTag("group-$groupKey"),verticalAlignment=Alignment.CenterVertically) {
+                    Icon(if(folded)Icons.Outlined.ChevronRight else Icons.Outlined.ExpandMore,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(group.second==NO_PROJECT)"No project" else folderName(group.second),Modifier.padding(start=8.dp).weight(1f),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text("${entries.size} · "+(hosts.find {it.id==group.first}?.label ?: "Connection"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
+                    if(onGit!=null && group.second!=NO_PROJECT)IconButton({onGit(group.first,group.second)},Modifier.size(48.dp).testTag("git-$groupKey")) {Icon(Icons.Outlined.CallSplit,"Git for ${group.second.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
+                }}
+                if(!folded) {
+                    items(running,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->sessionRow(stored,info,false) }
+                    if(ended.isNotEmpty())item(key="ended:$groupKey") {Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=4.dp).heightIn(min=48.dp).clickable {openEnded=if(endedOpen)openEnded-groupKey else openEnded+groupKey}.semantics {stateDescription=if(endedOpen)"Expanded" else "Collapsed"}.testTag("ended-row-$groupKey"),verticalAlignment=Alignment.CenterVertically) {
+                        Icon(if(endedOpen)Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if(endedOpen)"Ended" else "${ended.size} ended",Modifier.padding(start=8.dp).weight(1f),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(onClearEnded!=null)OutlinedButton({clearEnded=ended.map {it.first}},Modifier.heightIn(min=48.dp).testTag("clear-ended-$groupKey"),contentPadding=PaddingValues(horizontal=14.dp)) {Text("Clear")}
+                    }}
+                    if(endedOpen)items(ended,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->sessionRow(stored,info,true) }
                 }
             }
         }
         }
     }
     }
+    if(clearEnded.isNotEmpty())AlertDialog(onDismissRequest={clearEnded=emptyList()},title={Text("Remove ${clearEnded.size} ended session${if(clearEnded.size==1)"" else "s"}?")},text={Text("Their saved conversations on this phone are removed and the host forgets them. Files in your folders are not touched.")},confirmButton={TextButton({val list=clearEnded;clearEnded=emptyList();onClearEnded?.invoke(list)}) {Text("Remove",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({clearEnded=emptyList()}) {Text("Cancel")}})
     delete?.let {stored->AlertDialog(onDismissRequest={delete=null},title={Text("Terminate this session?")},text={Text("The host agent process will stop and this phone's session cache will be removed.")},confirmButton={TextButton({delete=null;onDelete(stored)}) {Text("Terminate")}},dismissButton={TextButton({delete=null}) {Text("Cancel")}})}
 }
 @Composable fun SettingsScreen(settings:PortalSettings,onTheme:(String)->Unit,onCache:(Boolean)->Unit,onConnections:(()->Unit)?=null,onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onAgents:(()->Unit)?=null,onUpdate:(()->Unit)?=null,updateValue:String?=null) {

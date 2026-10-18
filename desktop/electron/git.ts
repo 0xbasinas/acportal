@@ -138,9 +138,11 @@ export function registerGit(ipc: IpcMain, wrap: Wrap, win: () => BrowserWindow |
       if (viaHost) {
         const t = Date.now()
         const r = await viaHost(op, cwd, params, input)
-        const entry: GitLogEntry = { at: t, cwd, args: r.args.map((a) => (op === 'commit' && a === params.message ? JSON.stringify(a.length > 60 ? a.slice(0, 57) + '…' : a) : a)), why: WHY[op] ?? '', ok: r.code === 0, ms: Date.now() - t }
-        if (!READ_ONLY.has(op) || (r.code !== 0 && !QUIET.has(op))) win()?.webContents.send('git:log', entry)
-        if (r.code !== 0) throw new Error((r.err || r.out).trim().split('\n').slice(-3).join(' ') || `git exited ${r.code}`)
+        // `git diff --no-index` exits 1 when the file differs from nothing, which is the normal case.
+        const good = r.code === 0 || (op === 'diff-new' && r.code === 1 && r.out !== '')
+        const entry: GitLogEntry = { at: t, cwd, args: r.args.map((a) => (op === 'commit' && a === params.message ? JSON.stringify(a.length > 60 ? a.slice(0, 57) + '…' : a) : a)), why: WHY[op] ?? '', ok: good, ms: Date.now() - t }
+        if (!READ_ONLY.has(op) || (!good && !QUIET.has(op))) win()?.webContents.send('git:log', entry)
+        if (!good) throw new Error((r.err || r.out).trim().split('\n').slice(-3).join(' ') || `git exited ${r.code}`)
         return { out: r.out, args: entry.args }
       }
       if (!LOOPBACK.test(address(hostRef))) throw new Error('This host does not run git for the app (update acpd for /v1/git)')

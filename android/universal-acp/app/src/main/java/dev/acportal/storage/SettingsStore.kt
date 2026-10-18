@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.map
 import dev.acportal.protocol.WireJson
 import kotlinx.serialization.encodeToString
 import dev.acportal.protocol.WorkspaceAccess
+import dev.acportal.protocol.TurnTimes
+import dev.acportal.protocol.HostProjects
 import dev.acportal.data.workspacePolicyKey
 
 private val Context.portalSettings by preferencesDataStore("settings")
@@ -28,6 +30,17 @@ class SettingsStore(context: Context,private val dataStore:DataStore<Preferences
         val policies=WireJson.decodeFromString<Map<String,WorkspaceAccess>>(preferences[access] ?: "{}").filterKeys {!it.startsWith("$hostId|")}
         preferences[access]=WireJson.encodeToString(policies)
     }}
+    private val projects = stringPreferencesKey("host_projects")
+    /** The folders each host allows and where it keeps scratch folders, so Sessions can group by project. */
+    val hostProjects = dataStore.data.map {preferences->try {WireJson.decodeFromString<Map<String,HostProjects>>(preferences[projects] ?: "{}")} catch(_:Exception) {emptyMap()}}
+    suspend fun saveHostProjects(hostId:String,value:HostProjects) {dataStore.edit {preferences->
+        val all=try {WireJson.decodeFromString<Map<String,HostProjects>>(preferences[projects] ?: "{}")} catch(_:Exception) {emptyMap()}
+        if(all[hostId]!=value)preferences[projects]=WireJson.encodeToString(all+(hostId to value))
+    }}
+    private val turns = stringPreferencesKey("turn_times")
+    /** How long each turn took on this phone, by session. Small and bounded; see [dev.acportal.protocol.TurnClock]. */
+    val turnTimes = dataStore.data.map {preferences->try {WireJson.decodeFromString<TurnTimes>(preferences[turns] ?: "{}")} catch(_:Exception) {emptyMap()}}
+    suspend fun saveTurnTimes(value:TurnTimes) {dataStore.edit {it[turns]=WireJson.encodeToString(value)}}
     val mcpAliases = dataStore.data.map { WireJson.decodeFromString<Map<String,String>>(it[mcp] ?: "{}") }
     suspend fun mcpAlias(hostId:String,alias:String?) { dataStore.edit { preferences->
         val aliases=WireJson.decodeFromString<Map<String,String>>(preferences[mcp] ?: "{}").toMutableMap()

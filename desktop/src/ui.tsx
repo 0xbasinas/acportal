@@ -1,10 +1,11 @@
-import { ReactNode, createContext, useContext } from 'react'
+import { ReactNode, createContext, useContext, useState } from 'react'
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Command, CornerDownRight, FileCode2, FilePlus2, FolderGit2, FolderMinus, FolderOpen, GitBranch, GitCommitHorizontal,
   GitCompareArrows, GitMerge, GripVertical, GitPullRequest, History, Inbox, Paperclip, Pencil, Plus, Redo2, RotateCw, Search, Server, Settings as Gear, ShieldAlert, Sparkles, Square,
   Terminal, Trash2, Undo2, Upload, Workflow, Wrench, X, Archive, GraduationCap, MessageSquare, Bot, Network, ChevronUp, Filter
 } from 'lucide-react'
 import { DiffBlock, diffLines, lineStats } from './acp'
+import { plain, subfolder } from './projects'
 
 const ic = { size: 15, strokeWidth: 1.75, 'aria-hidden': true } as const
 /** One icon set (Lucide), one size and stroke, everywhere. */
@@ -35,22 +36,25 @@ export function Empty({ icon, title, children, actions }: { icon?: ReactNode; ti
 
 /** The session folder, so diffs inside it show a relative path (the full path stays in the tooltip). */
 export const PathRoot = createContext<string | undefined>(undefined)
-const relPath = (p: string, root?: string): string => { const r = root?.replace(/[\\/]$/, ''); return r && (p.startsWith(r + '/') || p.startsWith(r + '\\')) ? p.slice(r.length + 1) : p }
-export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: number; onMore?: () => void }): ReactNode {
+const relPath = (p: string, root?: string): string => (root ? subfolder(p, root) : undefined) ?? plain(p)
+/** One file's diff. Its header folds the card: the path and the +/- counts stay, the lines go. */
+export function DiffView({ d, maxLines, onMore, defaultOpen = true }: { d: DiffBlock; maxLines?: number; onMore?: () => void; defaultOpen?: boolean }): ReactNode {
   const root = useContext(PathRoot)
+  const [open, setOpen] = useState(defaultOpen)
   const lines = diffLines(d)
   const shown = maxLines ? lines.slice(0, maxLines) : lines
   const s = lineStats(d)
   return (
-    <div className="diff">
-      <div className="diff-head">
-        <span className="diff-path">{d.oldText ? I.file : I.newfile}<span className="mono" title={d.path}>{relPath(d.path, root)}</span></span>
+    <div className={'diff' + (open ? '' : ' collapsed')}>
+      <div className="diff-head foldable" role="button" tabIndex={0} aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${relPath(d.path, root)}`} title={open ? 'Collapse this file' : 'Expand this file'}
+        onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open) } }}>
+        <span className="diff-path"><span className={'chev-ic' + (open ? '' : ' shut')}>{I.down}</span>{d.oldText ? I.file : I.newfile}<span className="mono" title={d.path}>{relPath(d.path, root)}</span></span>
         <span className="diff-stat mono">
           <span className="green">+{s.added}</span><span className="red">−{s.removed}</span>
           <span className="bar">{Array.from({ length: 5 }, (_, i) => { const t = s.added + s.removed || 1; const g = Math.round((s.added / t) * 5); return <i key={i} className={i < g ? 'g' : 'r'} /> })}</span>
         </span>
       </div>
-      <div className="diff-body mono">
+      {open && <div className="diff-body mono">
         <table>
           <tbody>
             {shown.map((l, k) =>
@@ -67,8 +71,8 @@ export function DiffView({ d, maxLines, onMore }: { d: DiffBlock; maxLines?: num
             )}
           </tbody>
         </table>
-      </div>
-      {maxLines && lines.length > maxLines && (
+      </div>}
+      {open && maxLines && lines.length > maxLines && (
         <div className="diff-more">
           <button className="link" onClick={onMore}>Show {lines.length - maxLines} more lines</button>
         </div>

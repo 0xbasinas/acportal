@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { ElicitSchema, Item, PermissionItem, Timeline } from './acp'
 import { DiffView, Empty, I, PathRoot } from './ui'
 import { Markdown } from './Markdown'
+import { duration, turnTimes } from './turns'
 
 const nice = (n: string): string => (/^[a-z]+(_[a-z]+)+$/.test(n) ? n.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : n)
 
@@ -123,9 +124,13 @@ function Row({ item, agent, onAnswer, onReview, onElicit }: { item: Item; agent:
   }
 }
 
-export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit, root }: { root?: string; t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
+export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit, root, turnKey }: { root?: string; turnKey?: string; t: Timeline; agent: string; onAnswer: (id: string | number, o: string | null) => void; onReview: () => void; readOnly?: boolean; onElicit: (id: string | number, result: unknown) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  // Turns whose steps the reader opened again; every finished turn starts folded.
+  const [shown, setShown] = useState<Set<string>>(() => new Set())
+  const times = turnKey ? turnTimes(turnKey) : {}
+  const blocks = fold(t.items, t.busy)
   useEffect(() => {
     const el = ref.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
@@ -135,13 +140,67 @@ export function Conversation({ t, agent, onAnswer, onReview, readOnly, onElicit,
     <div className="scroll" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
       <div className="convo">
         {t.gap && <div className="sub amber">Older history was trimmed by the host; this view starts later.</div>}
-        {t.items.length === 0 && <div style={{ minHeight: 320, display: 'flex' }}><Empty icon={I.chat} title={readOnly ? 'Nothing here yet' : 'Start the conversation'}>{readOnly ? 'This task has not produced output.' : `Ask ${agent} to change, explain or test something in this folder.`}</Empty></div>}
-        {t.items.map((i) => <Row key={String(i.id)} item={i} agent={agent} onAnswer={onAnswer} onReview={onReview} onElicit={onElicit} />)}
-        {t.busy && <div className="working"><span className="pulse" />{agent} is working…</div>}
+        {t.items.length === 0 && t.loading && !t.preview?.length && <div className="sub" style={{ padding: 24, textAlign: 'center' }}>Loading the conversation…</div>}
+        {t.items.length === 0 && t.loading && Boolean(t.preview?.length) && <div className="preview"><div className="sub" style={{ paddingBottom: 6 }}>Showing the saved copy while the host catches up…</div>{fold(t.preview!, false).map((b) => b.kind === 'row' ? <Row key={String(b.item.id)} item={b.item} agent={agent} onAnswer={noopAnswer} onReview={onReview} onElicit={noopAnswer} /> : null)}</div>}
+        {t.items.length === 0 && !t.loading && <div style={{ minHeight: 320, display: 'flex' }}><Empty icon={I.chat} title={readOnly ? 'Nothing here yet' : 'Start the conversation'}>{readOnly ? 'This task has not produced output.' : `Ask ${agent} to change, explain or test something in this folder.`}</Empty></div>}
+        {blocks.map((b) => b.kind === 'row'
+          ? <Row key={String(b.item.id)} item={b.item} agent={agent} onAnswer={onAnswer} onReview={onReview} onElicit={onElicit} />
+          : <Steps key={'steps' + b.id} block={b} took={times[b.id]?.took} open={shown.has(b.id)} onToggle={() => setShown((s) => { const n = new Set(s); if (!n.delete(b.id)) n.add(b.id); return n })}>
+              {b.items.map((i) => <Row key={String(i.id)} item={i} agent={agent} onAnswer={onAnswer} onReview={onReview} onElicit={onElicit} />)}
+            </Steps>)}
+        {t.busy && <Working agent={agent} since={times[[...t.items].reverse().find((i) => i.kind === 'user')?.id ?? '']?.at} />}
       </div>
     </div>
     </PathRoot.Provider>
   )
+}
+
+type Block = { kind: 'row'; item: Item } | { kind: 'steps'; id: string; items: Item[]; tools: number }
+
+/** After a turn has its final reply, the steps before that reply (thoughts, tool calls, earlier
+ *  remarks) fold into one line. Anything still waiting on the user, and the running turn, stay open. */
+export function fold(items: Item[], busy: boolean): Block[] {
+  const out: Block[] = []
+  let i = 0
+  while (i < items.length) {
+    if (items[i].kind !== 'user') { out.push({ kind: 'row', item: items[i] }); i++; continue }
+    const user = items[i]
+    let end = i + 1
+    while (end < items.length && items[end].kind !== 'user') end++
+    const turn = items.slice(i + 1, end)
+    const running = busy && end === items.length
+    const finalAt = turn.map((x) => x.kind).lastIndexOf('agent')
+    const before = finalAt > 0 ? turn.slice(0, finalAt) : []
+    const waiting = before.some((x) => (x.kind === 'permission' || x.kind === 'elicitation') && !x.answered)
+    out.push({ kind: 'row', item: user })
+    if (running || finalAt < 0 || waiting || before.length === 0) { for (const x of turn) out.push({ kind: 'row', item: x }) }
+    else {
+      out.push({ kind: 'steps', id: String(user.id), items: before, tools: before.filter((x) => x.kind === 'tool' || x.kind === 'permission').length })
+      for (const x of turn.slice(finalAt)) out.push({ kind: 'row', item: x })
+    }
+    i = end
+  }
+  return out
+}
+
+function Steps({ block, took, open, onToggle, children }: { block: Extract<Block, { kind: 'steps' }>; took?: number; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const n = block.tools
+  const what = n ? `${n} step${n === 1 ? '' : 's'}` : 'thinking'
+  return (
+    <div className="steps">
+      <button className="steps-head" aria-expanded={open} onClick={onToggle}>
+        <span className={'chev-ic' + (open ? '' : ' shut')}>{I.down}</span>
+        <span>{took !== undefined ? `Worked for ${duration(took)}` : 'Worked'} · {what}</span>
+      </button>
+      {open && <div className="steps-body">{children}</div>}
+    </div>
+  )
+}
+
+function Working({ agent, since }: { agent: string; since?: number }) {
+  const [, tick] = useState(0)
+  useEffect(() => { if (since === undefined) return; const id = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(id) }, [since])
+  return <div className="working"><span className="pulse" />{agent} is working…{since !== undefined && <span className="sub"> {duration(Date.now() - since)}</span>}</div>
 }
 
 type Elicit = Extract<Item, { kind: 'elicitation' }>
@@ -279,3 +338,5 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
 export function shellName(s: string): string {
   return ({ sh: 'sh', cmd: 'cmd.exe', powershell: 'PowerShell', bash: 'Git Bash' } as Record<string, string>)[s] ?? s
 }
+
+const noopAnswer = (): void => {}

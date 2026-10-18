@@ -496,6 +496,11 @@ async fn presets(
         shell_review: host.config.shell_review.get(&query.agent),
         own_tools: definition.own_tools,
         remote: definition.transport == "ws" || definition.url.is_some(),
+        yolo: host
+            .config
+            .yolo
+            .get(&query.agent)
+            .is_some_and(|yolo| yolo.enabled),
     };
     Ok(Json(json!({
         "presets": crate::presets::presets_for(&facts, crate::connection::WorkspaceAccess::default())
@@ -570,6 +575,7 @@ async fn probe_agent(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions
@@ -608,6 +614,7 @@ async fn earlier_sessions(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions
@@ -1470,7 +1477,7 @@ async fn socket_session(
     // Send events individually so the bounded history cannot become one giant WS frame.
     if !send_json(&mut outgoing, json!({"type":"replay_start","gap":replay.gap,"latestSequence":cursor,"processing":session.connection.is_busy()})).await { return }
     for event in replay.events {
-        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"direction":event.direction,"message":event.message})).await { return }
+        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"at":event.at,"direction":event.direction,"message":event.message})).await { return }
     }
     for permission in replay.pending_permissions {
         if !send_json(
@@ -1498,7 +1505,7 @@ async fn socket_session(
                 match event {
                     Ok(event) if event.sequence > cursor => {
                         cursor = event.sequence;
-                        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"direction":event.direction,"message":event.message})).await { break }
+                        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"at":event.at,"direction":event.direction,"message":event.message})).await { break }
                     }
                     Ok(_) => {},
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

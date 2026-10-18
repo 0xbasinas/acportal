@@ -74,6 +74,16 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
   const sure = confirmDanger ?? ((t: string) => confirm(t))
   const [available, setAvailable] = useState<'host' | 'local' | false>()
   const [cwd, setCwd] = useState(repos[0]?.path ?? '')
+  // Files folded in the Changes tab, as `s:<path>` (staged) or `u:<path>` (unstaged).
+  const [folded, setFolded] = useState<Set<string>>(() => new Set())
+  // Files ticked for one stage or unstage: `u:<path>` (unstaged or new) or `s:<path>` (staged).
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  useEffect(() => { setPicked(new Set()) }, [cwd])
+  // New (untracked) files opened to read their content: `n:<path>`. Their text is fetched on first
+  // open with `diff-new`, and again after any change, so what is shown is what is on disk.
+  const [openNew, setOpenNew] = useState<Set<string>>(() => new Set())
+  const [newDiffs, setNewDiffs] = useState<Record<string, { state: 'loading' } | { state: 'done'; diff?: FileDiff } | { state: 'error'; error: string }>>({})
+  useEffect(() => { setOpenNew(new Set()); setNewDiffs({}) }, [cwd])
   const [merging, setMerging] = useState(false)
   const [tab, setTab] = useState<Tab>('Changes')
   const [learn, setLearn] = useState(() => localStorage.getItem('acportal.learnGit') === '1')
@@ -101,6 +111,12 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
   const [, force] = useState(0)
   const [newWt, setNewWt] = useState('')
   const [menu, setMenu] = useState(false)
+  useEffect(() => {
+    const want = (status?.files ?? []).filter((f) => f.untracked && openNew.has('n:' + f.path)).map((f) => f.path).filter((p) => !newDiffs[p])
+    if (!want.length) return
+    setNewDiffs((d) => { const n = { ...d }; for (const p of want) n[p] = { state: 'loading' }; return n })
+    for (const p of want) void window.api.git.run(hostId, cwd, 'diff-new', { file: p }).then((r) => setNewDiffs((d) => ({ ...d, [p]: r.ok ? { state: 'done', diff: parseDiff(r.value.out)[0] } : { state: 'error', error: r.error } })))
+  }, [openNew, status, newDiffs, hostId, cwd])
 
   useEffect(() => { const l = (): void => force((n) => n + 1); listeners.add(l); return () => void listeners.delete(l) }, [])
   useEffect(() => { void window.api.git.available(hostId).then((r) => setAvailable(r.ok ? r.value : false)); void window.api.git.explain().then((r) => r.ok && setWhy(r.value)) }, [hostId])
@@ -133,6 +149,7 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
     const cd: Record<string, string> = {}
     for (const f of st.files.filter((x) => x.conflict)) cd[f.path] = (await git('diff', { file: f.path })) ?? ''
     setConflictDiffs(cd)
+    setNewDiffs({})
   }, [available, cwd, git, hostId])
   useEffect(() => { void refresh() }, [refresh])
 
@@ -149,6 +166,33 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
     setNote(label)
     await refresh()
     return true
+  }
+  /** Stages or unstages several files, one `git add` / `git restore --staged` each, as ONE step on the
+   * undo stack. It stops at the first failure and keeps the files done so far undoable. */
+  async function actMany(paths: string[], stage: boolean): Promise<void> {
+    if (!paths.length) return
+    const op = stage ? 'add' : 'restore-staged'
+    const back = stage ? 'restore-staged' : 'add'
+    setBusy(true)
+    const done: string[] = []
+    let failure: string | undefined
+    for (const file of paths) {
+      const r = await window.api.git.run(hostId, cwd, op, { file })
+      if (!r.ok) { failure = r.error; break }
+      done.push(file)
+    }
+    setBusy(false)
+    if (done.length) {
+      const verb = stage ? 'Staged' : 'Unstaged'
+      const list = (c: string): string => `git ${c} -- ${done.length > 3 ? done.slice(0, 3).join(' ') + ' …' : done.join(' ')}`
+      setUndo((u) => [{ label: `${verb} ${done.length} file${done.length > 1 ? 's' : ''}`, undoCmd: stage ? list('restore --staged') : list('add'), undo: async () => { for (const f of done) if ((await git(back, { file: f })) === undefined) return undefined; return true }, redoCmd: stage ? list('add') : list('restore --staged'), redo: async () => { for (const f of done) if ((await git(op, { file: f })) === undefined) return undefined; return true } }, ...u].slice(0, 30))
+      setRedo([])
+      setNote(`${verb} ${done.length} file${done.length > 1 ? 's' : ''}`)
+    }
+    setPicked(new Set())
+    await refresh()
+    // The refresh clears the error banner; a failure must stay visible.
+    if (failure) setErr(`${failure} (${done.length} of ${paths.length} files ${stage ? 'staged' : 'unstaged'} before it stopped; Undo takes those back.)`)
   }
   async function step(dir: 'undo' | 'redo'): Promise<void> {
     const from = dir === 'undo' ? undo : redo
@@ -203,15 +247,44 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
   const gh = remote ? githubRepo(remote) : undefined
   const current = status?.branch ?? ''
 
-  const HunkView = ({ f, stagedSide }: { f: FileDiff; stagedSide: boolean }) => (
-    <div className="diff">
+  const unstagedPaths = [...untracked.map((f) => f.path), ...unstaged.map((f) => f.path)]
+  const stagedPaths = staged.map((f) => f.path)
+  const chosenUnstaged = unstagedPaths.filter((p) => picked.has('u:' + p))
+  const chosenStaged = stagedPaths.filter((p) => picked.has('s:' + p))
+  const toggle = (id: string): void => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const tick = (id: string, path: string) => <input type="checkbox" className="pick" checked={picked.has(id)} onChange={() => toggle(id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${path}`} />
+  /** Select all, and the buttons that act on the ticked files (or on every file in the list). */
+  const multiBar = (side: 'u' | 's', paths: string[], chosen: string[]) => (
+    <div className="multi-bar">
+      <label className="pick-all"><input type="checkbox" className="pick" disabled={!paths.length || busy} checked={paths.length > 0 && chosen.length === paths.length}
+        ref={(el) => { if (el) el.indeterminate = chosen.length > 0 && chosen.length < paths.length }}
+        onChange={(e) => setPicked((s) => { const n = new Set([...s].filter((x) => !x.startsWith(side + ':'))); if (e.target.checked) for (const p of paths) n.add(side + ':' + p); return n })} />
+        {chosen.length ? `${chosen.length} selected` : 'Select all'}</label>
+      {side === 'u' ? <>
+        <GitBtn learn={learn} primary label={chosen.length ? `Stage ${chosen.length} selected` : 'Stage selected'} disabled={!chosen.length || busy} cmd={`git add -- ${chosen.length} files`} why="Stages every ticked file, one git add each. One Undo takes them all back." onClick={() => void actMany(chosen, true)} />
+        <GitBtn learn={learn} label="Stage all" disabled={!paths.length || busy} cmd={`git add -- ${paths.length} files`} why="Stages every file listed here." onClick={() => void actMany(paths, true)} />
+      </> : (
+        <GitBtn learn={learn} label={chosen.length ? `Unstage ${chosen.length} selected` : 'Unstage selected'} disabled={!chosen.length || busy} cmd={`git restore --staged -- ${chosen.length} files`} why="Unstages every ticked file." onClick={() => void actMany(chosen, false)} />
+      )}
+    </div>
+  )
+
+  const HunkView = ({ f, stagedSide }: { f: FileDiff; stagedSide: boolean }) => {
+    const id = (stagedSide ? 's:' : 'u:') + f.path
+    const shut = folded.has(id)
+    const fold = (): void => setFolded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+    return (
+    <div className={'diff' + (shut ? ' collapsed' : '')}>
       <div className="diff-head">
-        <span className="diff-path">{I.file}<span className="mono">{f.path}</span></span>
+        <span className="head-left">
+          {tick((stagedSide ? 's:' : 'u:') + f.path, f.path)}
+          <button className="diff-path fold-btn" aria-expanded={!shut} aria-label={`${shut ? 'Expand' : 'Collapse'} ${f.path}`} title={shut ? 'Expand this file' : 'Collapse this file'} onClick={fold}><span className={'chev-ic' + (shut ? ' shut' : '')}>{I.down}</span>{I.file}<span className="mono">{f.path}</span></button>
+        </span>
         <GitBtn learn={learn} label={stagedSide ? 'Unstage file' : 'Stage file'} cmd={stagedSide ? `git restore --staged -- ${f.path}` : `git add -- ${f.path}`} why={W(stagedSide ? 'restore-staged' : 'add')}
           onClick={() => void act(`${stagedSide ? 'Unstaged' : 'Staged'} ${f.path}`, stagedSide ? 'restore-staged' : 'add', { file: f.path }, undefined, { cmd: stagedSide ? `git add -- ${f.path}` : `git restore --staged -- ${f.path}`, run: () => git(stagedSide ? 'add' : 'restore-staged', { file: f.path }) })} />
       </div>
-      {f.binary && <div className="sub" style={{ padding: 10 }}>Binary file</div>}
-      {f.hunks.map((h, i) => (
+      {!shut && f.binary && <div className="sub" style={{ padding: 10 }}>Binary file</div>}
+      {!shut && f.hunks.map((h, i) => (
         <div key={i}>
           <div className="hunk-head mono">
             <span>{h.header}</span>
@@ -224,7 +297,8 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
         </div>
       ))}
     </div>
-  )
+    )
+  }
 
   const branchBtn = (
     <div className="pop-anchor">
@@ -285,15 +359,41 @@ export function GitView({ hostId, repos, onBack, suggest, agents, defaultAgent, 
                   <div style={{ marginTop: 14 }}><GitBtn learn={learn} danger label="Abort the merge" cmd="git merge --abort" why={W('merge-abort')} onClick={() => void act('Aborted the merge', 'merge-abort')} /></div>
                 </div>
               )}
+              {files.length > 0 && <div className="fold-bar">
+                <button className="btn ghost sm" title="Show every file's changes, and the content of new files" onClick={() => { setFolded(new Set()); setOpenNew(new Set(untracked.map((f) => 'n:' + f.path))) }}>Expand all</button>
+                <button className="btn ghost sm" title="Fold every file to its name" onClick={() => { setFolded(new Set([...unstaged.map((f) => 'u:' + f.path), ...staged.map((f) => 's:' + f.path)])); setOpenNew(new Set()) }}>Collapse all</button>
+              </div>}
               <div className="group-h"><span>Unstaged</span><span className="count">{unstaged.length + untracked.length}</span></div>
               {unstaged.length + untracked.length === 0 && <div className="hint">Nothing unstaged. The working folder matches the index.</div>}
-              {untracked.map((f) => (
-                <div className="diff" key={f.path}><div className="diff-head"><span className="diff-path">{I.newfile}<span className="mono">{f.path}</span><span className="tag green">new</span></span>
-                  <GitBtn learn={learn} label="Stage file" cmd={`git add -- ${f.path}`} why={W('add')} onClick={() => void act(`Staged ${f.path}`, 'add', { file: f.path }, undefined, { cmd: `git restore --staged -- ${f.path}`, run: () => git('restore-staged', { file: f.path }) })} /></div></div>
-              ))}
+              {unstagedPaths.length > 0 && multiBar('u', unstagedPaths, chosenUnstaged)}
+              {untracked.map((f) => {
+                const id = 'n:' + f.path
+                const open = openNew.has(id)
+                const d = newDiffs[f.path]
+                const toggleNew = (): void => setOpenNew((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+                return (
+                <div className={'diff' + (open ? '' : ' collapsed')} key={f.path}><div className="diff-head"><span className="head-left">{tick('u:' + f.path, f.path)}<button className="diff-path fold-btn" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the new file ${f.path}`} title={open ? 'Hide the content' : 'Show the content of this new file'} onClick={toggleNew}><span className={'chev-ic' + (open ? '' : ' shut')}>{I.down}</span>{I.newfile}<span className="mono">{f.path}</span><span className="tag green">new</span></button></span>
+                  <GitBtn learn={learn} label="Stage file" cmd={`git add -- ${f.path}`} why={W('add')} onClick={() => void act(`Staged ${f.path}`, 'add', { file: f.path }, undefined, { cmd: `git restore --staged -- ${f.path}`, run: () => git('restore-staged', { file: f.path }) })} /></div>
+                  {open && <div className="diff-body mono">
+                    {(!d || d.state === 'loading') && <div className="sub" style={{ padding: 10 }} role="status">Reading the file…</div>}
+                    {d?.state === 'error' && <div className="sub" style={{ padding: 10 }}>{/unknown_git_operation/.test(d.error)
+                      ? 'This host is older than the app and cannot show a new file yet. Stop acpd, rebuild it (cargo build -p acpd, or run scripts/dev-desktop.ps1) and start it again.'
+                      : 'Could not read this file: ' + d.error}</div>}
+                    {d?.state === 'done' && !d.diff && <div className="sub" style={{ padding: 10 }}>This file is empty.</div>}
+                    {d?.state === 'done' && d.diff?.binary && <div className="sub" style={{ padding: 10 }}>Binary file</div>}
+                    {d?.state === 'done' && d.diff && !d.diff.binary && (() => {
+                      const rows = d.diff.hunks.flatMap((h) => h.lines.slice(1))
+                      return <><table><tbody>{rows.slice(0, 500).map((l, k) => <tr key={k} className="add"><td className="sign">+</td><td className="t">{l.slice(1)}</td></tr>)}</tbody></table>
+                        {rows.length > 500 && <div className="sub" style={{ padding: 10 }}>{rows.length - 500} more lines are not shown.</div>}</>
+                    })()}
+                  </div>}
+                </div>
+                )
+              })}
               {unstaged.map((f) => <HunkView key={f.path} f={f} stagedSide={false} />)}
               <div className="group-h" style={{ marginTop: 18 }}><span>Staged</span><span className="count">{staged.length}</span></div>
               {staged.length === 0 && <div className="hint">Nothing staged yet. Stage a file or a single hunk to build the next commit.</div>}
+              {stagedPaths.length > 0 && multiBar('s', stagedPaths, chosenStaged)}
               {staged.map((f) => <HunkView key={f.path} f={f} stagedSide />)}
             </div>
             <div className="card commit-box">
