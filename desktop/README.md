@@ -51,6 +51,16 @@ out) and a host with no default agents (its own config in `.local/dev-host`) in 
 installs the packages (including the Electron download that npm's `ignore-scripts` skips), opens a
 terminal with a pairing code and runs the app.
 
+## Where Git is
+
+- **Each project:** hover a project row in the sidebar and press its branch icon to open the Git view on that project's folder (next to the + for a new session).
+- **From the keyboard:** Ctrl G, or *Open Git* in the command palette (Ctrl K), opens the Git view on the current session's folder, else the first project. The sidebar footer has only *Settings*. The folder picker at the top of the view switches between projects, the session's folder and open task worktrees.
+- **A session:** its branch pill in the session header opens the Git view on that session's folder. The session header no longer has a separate Git icon.
+
+## Staging several files
+
+In the Git view's Changes tab every file has a checkbox. *Select all* ticks the whole list, *Stage selected* stages the ticked files and *Stage all* stages every file in the list (new files included); the Staged list has the same *Unstage selected*. Each file is one `git add` (or `git restore --staged`), so a lock or a failing file stops the run there, says how many files were done, and *Undo* (Ctrl Z) takes back exactly those in one step. File cards can also be folded with the chevron next to the name, *Expand all* and *Collapse all* above the list open or fold every file at once, and a new (untracked) file opens to show its content (read with the host's read-only `diff-new`; an older host says it cannot show it).
+
 ## Windows notes
 
 - The app sets its Windows app id (`dev.acportal.desktop`, the installer's `appId`) so the taskbar button shows the acportal logo instead of Electron's. The window icon alone is not used for that button.

@@ -3,10 +3,15 @@ import type { Run } from './runs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, EarlierSessions, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
+import { forget, keep, recall } from './transcripts'
+import { briefDuration, duration, turnEnded, turnStarted, turnTimes, workedMs } from './turns'
+
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
 import { Attachment, Composer, Conversation, Permission } from './Session'
 import { GitView } from './Git'
+import { gitRepos } from './gitRepos'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
 import { McpServer, Section, Settings, Theme, mcpWire } from './Settings'
 import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
@@ -19,7 +24,7 @@ import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setReque
 import { OptionsButton } from './OptionPicker'
 import { groupByProject, inside, isScratch, subfolder } from './projects'
 
-type View = { kind: 'git' } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
+type View = { kind: 'git'; path?: string } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 /** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
@@ -197,7 +202,17 @@ export default function App() {
       setTimelines((all) => {
         const before = all[sid]
         const next = reduce(before ?? emptyTimeline(), env as Record<string, unknown>)
+        // Time each turn that runs while this app watches (not one replayed from history).
+        if (!before?.replaying) {
+          const e = env as { type?: string; direction?: string; sequence?: number; message?: { method?: string } }
+          if (e.type === 'event' && e.direction === 'client' && e.message?.method === 'session/prompt' && typeof e.sequence === 'number') turnStarted(key, 'u' + e.sequence)
+          if (before?.busy && !next.busy) { const last = [...next.items].reverse().find((i) => i.kind === 'user'); if (last) turnEnded(key, last.id) }
+        }
         if (next.title && next.title !== before?.title) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: next.title }))
+        // Save a copy after a short quiet period, so an ended session can still be read.
+        const copy = key
+        clearTimeout(saveTimers.get(copy))
+        saveTimers.set(copy, setTimeout(() => { saveTimers.delete(copy); keep(copy.split('/')[0], sid, next) }, 1500))
         return { ...all, [sid]: next }
       })
     })
@@ -208,12 +223,20 @@ export default function App() {
   async function attach(sid: string, ref: typeof attached, readOnly = false, takeover = false): Promise<void> {
     if (!hostId || (ref.current === `${hostId}/${sid}` && !takeover)) return
     if (ref.current) void window.api.session.detach(ref.current)
-    setTimelines((all) => ({ ...all, [sid]: emptyTimeline() }))
+    // A session whose process ended has nothing to connect to: show the copy this app saved.
+    if (ref === attached && sessions.find((x) => x.id === sid)?.status === 'interrupted') {
+      ref.current = undefined
+      setTimelines((all) => ({ ...all, [sid]: recall(hostId, sid) ?? emptyTimeline() }))
+      return
+    }
+    // Show what this computer saved while the host sends the conversation again.
+    setTimelines((all) => ({ ...all, [sid]: { ...emptyTimeline(), loading: true, preview: recall(hostId, sid)?.items } }))
     const r = await window.api.session.attach(hostId, sid, 0, readOnly, takeover)
     if (r.ok) { ref.current = r.value; if (ref === attached) void window.api.watch.focus(r.value) }
-    else flash(r.error)
+    else { flash(r.error); setTimelines((all) => ({ ...all, [sid]: { ...(all[sid] ?? emptyTimeline()), loading: false, preview: undefined } })) }
   }
-  useEffect(() => { if (selected) void attach(selected, attached) }, [selected, hostId])
+  const selectedEnded = sessions.find((x) => x.id === selected)?.status === 'interrupted'
+  useEffect(() => { if (selected) void attach(selected, attached) }, [selected, hostId, selectedEnded])
 
   const session = sessions.find((s) => s.id === selected)
   const tl = selected ? timelines[selected] : undefined
@@ -335,7 +358,7 @@ export default function App() {
         if (!w.ok) return `Could not switch branch: ${w.error}`
       }
     }
-    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}), ...(status?.features?.includes('booleanOptions') ? { booleanOptions: true } : {}) }
+    const access = { readFiles: opts.read, writeFiles: opts.write, terminal: opts.terminal, ...(opts.manual ? { manualApproval: true } : {}), ...(opts.yolo ? { yolo: true } : {}), ...(status?.features?.includes('formElicitation') ? { formElicitation: true } : {}), ...(status?.features?.includes('booleanOptions') ? { booleanOptions: true } : {}) }
     const r = await api<SessionInfo>('POST', '/v1/sessions', { agentId, workspace: target, loadSessionId: opts.load ?? null, workspaceAccess: access, mcpServers: mcp.filter((m) => m.enabled && opts.mcp).map(mcpWire), ...(branchOpt ? { branch: branchOpt } : {}) })
     if (!r.ok) return ({ unsupported_mcp_transport: 'This agent does not support HTTP/SSE MCP servers; turn those off in Settings → MCP servers', branch_failed: 'Git could not make or switch to that branch (uncommitted changes in the way, or the branch is checked out elsewhere).', worktree_path_unavailable: 'The worktree folder already exists or is outside the host folders.', invalid_branch_name: 'That is not a valid branch name.', not_a_repository: 'This folder is not a git repository.' } as Record<string, string>)[r.code ?? ''] ?? r.error
     if (opts.firstPrompt) setTimeout(() => setDraft({ text: opts.firstPrompt!, n: Date.now() }), 300)
@@ -345,6 +368,32 @@ export default function App() {
     lastCreated.current = r.value.id
   }
   const lastCreated = useRef<string | undefined>(undefined)
+  // An ended session is continued by asking the agent to load it into a new session. The new one
+  // takes over the old one's title and the old record goes, so the list never shows both.
+  const [resuming, setResuming] = useState<string>()
+  // Removes ended sessions from the host's list (their records only; nothing in the folders changes).
+  async function clearEnded(list: SessionInfo[]): Promise<void> {
+    if (!list.length || !confirm(`Remove ${list.length} ended session${list.length === 1 ? '' : 's'}? Their saved conversation copies on this computer go too. Files in your folders are not touched.`)) return
+    let failed = 0
+    for (const s of list) { const d = await api('DELETE', `/v1/sessions/${s.id}`); if (d.ok) forget(hostId!, s.id); else failed++ }
+    if (selected && list.some((s) => s.id === selected)) setSelected(undefined)
+    if (failed) flash(`${failed} could not be removed.`)
+    void refresh()
+  }
+  async function resume(s: SessionInfo): Promise<void> {
+    if (resuming) return
+    setResuming(s.id)
+    lastCreated.current = undefined
+    const err = await createSession(s.agentId, s.workspace, { ...defaultOpts, load: s.acpSessionId })
+    setResuming(undefined)
+    const fresh = lastCreated.current
+    if (err || !fresh) return flash(`${agentName(s.agentId)} could not load that conversation${err ? ': ' + err : ''}. The saved copy stays here and can still be read.`)
+    const old = titles()[s.id]
+    if (old) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [fresh]: old }))
+    await api('DELETE', `/v1/sessions/${s.id}`)
+    forget(hostId!, s.id)
+    void refresh()
+  }
   const openComposer = (text?: string, folder?: string): void => {
     setSelected(undefined); setView({ kind: 'workspace' }); setComposeFolder(folder)
     if (text !== undefined) setCompose({ text, n: Date.now() })
@@ -354,7 +403,7 @@ export default function App() {
     setStarting({ hostId: hostId!, title, agent: r.agent, workspace: r.workspace })
     lastCreated.current = undefined
     const b = r.branch
-    const e = await createSession(r.agent, r.workspace, { read: r.access.read, manual: r.access.manual, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
+    const e = await createSession(r.agent, r.workspace, { read: r.access.read, manual: r.access.manual, yolo: r.access.yolo, write: r.access.write, terminal: r.access.terminal, mcp: r.access.mcp, worktree: b.worktree, newBranch: b.mode === 'new', ...(b.mode === 'current' ? {} : { branch: b.name }), ...(b.mode === 'new' && b.base ? { base: b.base } : {}) })
     setStarting(undefined)
     if (e) return e
     const sid = lastCreated.current
@@ -590,13 +639,19 @@ export default function App() {
                     const startingHere = starting && starting.hostId === h.id && (g.path ? !startingScratch && inside(starting.workspace, g.path) : startingScratch || !ws.some((w) => inside(starting.workspace, w.path)))
                     const closed = shutProjects[key] ?? (!g.sessions.length && !startingHere)
                     const toggle = (): void => setShutProjects((c) => { const n = { ...c, [key]: !closed }; try { localStorage.setItem('acportal.shutProjects', JSON.stringify(n)) } catch { /* ignore */ } return n })
+                    const isEnded = (s: { status: string }): boolean => s.status === 'interrupted'
+                    const endedCount = g.sessions.filter(isEnded).length
+                    const endedKey = key + '|ended'
+                    const endedShut = shutProjects[endedKey] ?? true
+                    const toggleEnded = (): void => setShutProjects((c) => { const n = { ...c, [endedKey]: !endedShut }; try { localStorage.setItem('acportal.shutProjects', JSON.stringify(n)) } catch { /* ignore */ } return n })
                     return (
                       <div key={g.key} className="project-group">
                         <div className="row compact project-row" role="button" aria-expanded={!closed} onClick={toggle} title={g.path ? `${g.path} on ${h.name}` : 'Sessions outside every project folder'}>
                           <span className={'chev-ic' + (closed ? ' shut' : '')}>{I.down}</span>
                           <span className="row-ic">{g.path ? I.folder : I.noProject}</span><span className="grow ell">{g.name}</span>
                           <span className="count">{g.sessions.length || ''}</span>
-                          {g.path && <button className="icon-btn project-new" title={`New session in ${g.name}`} aria-label={`New session in ${g.name}`} onClick={(e) => { e.stopPropagation(); if (!live) openOn(h.id); openComposer(undefined, g.path) }}>{I.plus}</button>}
+                          {g.path && <button className="icon-btn project-git" title={`Git for ${g.name}`} aria-label={`Git for ${g.name}`} onClick={(e) => { e.stopPropagation(); if (!live) openOn(h.id); setView({ kind: 'git', path: g.path }) }}>{I.branch}</button>}
+          {g.path && <button className="icon-btn project-new" title={`New session in ${g.name}`} aria-label={`New session in ${g.name}`} onClick={(e) => { e.stopPropagation(); if (!live) openOn(h.id); openComposer(undefined, g.path) }}>{I.plus}</button>}
                         </div>
                         {!closed && startingHere && (
                           <div className="row session nested active" aria-busy="true" title={`Starting ${agentName(starting!.agent)} in ${starting!.workspace}`}>
@@ -605,7 +660,7 @@ export default function App() {
                             <span className="row-note">Starting…</span>
                           </div>
                         )}
-                        {!closed && g.sessions.map((s) => {
+                        {!closed && g.sessions.filter((s) => !isEnded(s) || !endedShut || (live && s.id === selected)).map((s) => {
                           const t = live ? timelines[s.id] : undefined
                           const waiting = live && s.id === selected ? pendingIn(s.id) : waitingOn(h.id, s.id)
                           const sst = waiting ? 'waiting' : (t?.busy || (!(live && s.id === selected) && watch[`${h.id}/${s.id}`]?.busy)) ? 'running' : s.status
@@ -614,17 +669,30 @@ export default function App() {
                           // One line per session: the dot shows the state, the tooltip the rest;
                           // only states that need attention get a word on the row.
                           const where = br ? `on ${br}` : sub ?? (!g.path ? baseName(s.workspace) : undefined)
+                          const worked = workedMs(`${h.id}/${s.id}`)
                           const note = !waiting && sst !== 'ready' && sst !== 'running' ? stateWord(sst) : undefined
                           return (
-                            <div key={s.id} className={'row session nested' + (live && s.id === selected ? ' active' : '')} onClick={() => openOn(h.id, s.id)}
+                            <div key={s.id} className={'row session nested' + (live && s.id === selected ? ' active' : '') + (s.status === 'interrupted' ? ' ended' : '')} onClick={() => openOn(h.id, s.id)}
                               title={[title(s), waiting ? `${waiting} waiting` : stateWord(sst), where].filter(Boolean).join(' · ')}>
                               <span className={'dot ' + stateDot(sst) + (sst === 'running' ? ' live' : '')} />
                               <span className="grow title">{title(s)}</span>
-                              {note && <span className={'row-note' + (s.status === 'interrupted' ? ' red' : '')}>{note}</span>}
+                              {worked > 0 && <span className="row-note" title={`Time spent working in this session: ${duration(worked)}`}>{briefDuration(worked)}</span>}
+                              {s.status === 'interrupted'
+                                ? <button className="row-resume" title="The host restarted and this session's process ended. Resume asks the agent to load the conversation again in a new session." aria-label={`Resume ${title(s)}`}
+                                    disabled={Boolean(resuming)} onClick={(e) => { e.stopPropagation(); if (!live) openOn(h.id); void resume(s) }}>{resuming === s.id ? 'Resuming…' : 'Resume'}</button>
+                                : note && <span className="row-note">{note}</span>}
                               {waiting > 0 && <span className="badge">{waiting}</span>}
                             </div>
                           )
                         })}
+                        {!closed && endedCount > 0 && (
+                          <div className="row compact ended-row" role="button" aria-expanded={!endedShut} onClick={toggleEnded}
+                            title="Sessions whose process ended when the host restarted. Their conversation is not kept; Resume asks the agent to load it again.">
+                            <span className={'chev-ic' + (endedShut ? ' shut' : '')}>{I.down}</span>
+                            <span className="grow ell">{endedShut ? `${endedCount} ended` : 'Ended'}</span>
+                            <button className="row-resume" title="Remove every ended session in this project from the list" onClick={(e) => { e.stopPropagation(); void clearEnded(g.sessions.filter(isEnded)) }}>Clear</button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -635,7 +703,6 @@ export default function App() {
         })}
       </div>
       <div className="side-foot">
-        <button className="foot-btn" onClick={() => setView({ kind: 'git' })} title="Git (Ctrl G)">{I.branch}Git</button>
         <button className="foot-btn" onClick={() => setView({ kind: 'settings', section: 'General' })} title="Settings (Ctrl ,)">{I.gear}Settings</button>
       </div>
     </aside>
@@ -643,12 +710,8 @@ export default function App() {
 
   let center
   if (view.kind === 'git' && hostId) {
-    const repos = [
-      ...(session ? [{ path: session.workspace, label: baseName(session.workspace) + ' · session' }] : []),
-      ...workspaces.filter((w) => w.path !== session?.workspace).map((w) => ({ path: w.path, label: baseName(w.path) })),
-      ...tasks.filter((t) => t.worktree?.path && t.worktree.outcome !== 'merged').map((t) => ({ path: t.worktree!.path!, label: t.worktree!.branch + ' · task' }))
-    ]
-    center = <GitView hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })}
+    const repos = gitRepos({ asked: view.path, sessionFolder: session?.workspace, workspaces, tasks })
+    center = <GitView key={view.path ?? 'default'} hostId={hostId} repos={repos} onBack={() => setView({ kind: 'workspace' })}
       suggest={status?.features?.includes('commitMessage') ? suggestCommit : undefined}
       pullRequests={status?.features?.includes('pullRequests')} ghCli={status?.gh}
       suggestPr={status?.features?.includes('commitMessage') ? suggestPr : undefined}
@@ -698,7 +761,7 @@ export default function App() {
         newScratch={status?.features?.includes('scratchSessions') ? newScratch : undefined}
         loadPresets={presetsOn ? loadPresets : undefined}
         loadEarlier={earlierOn ? loadEarlier : undefined}
-        openEarlier={(agent, workspace, sessionId, access) => createSession(agent, workspace, { ...defaultOpts, load: sessionId, read: access.read, write: access.write, terminal: access.terminal, mcp: access.mcp, manual: access.manual })} />
+        openEarlier={(agent, workspace, sessionId, access) => createSession(agent, workspace, { ...defaultOpts, load: sessionId, read: access.read, write: access.write, terminal: access.terminal, mcp: access.mcp, manual: access.manual, yolo: access.yolo })} />
     )
   } else if (!session) {
     const repair = !online && hostError && /[Pp]air again/.test(hostError)
@@ -730,11 +793,10 @@ export default function App() {
             <h1>{title(session)}</h1>
             <div className="sub crumbs"><span>{agentName(session.agentId)}</span><span className={tl?.busy ? 'live-word' : ''}>{tl?.busy ? 'Running' : stateWord(session.status)}</span><span className="mono ell" title={session.workspace}>{shortPath(session.workspace)}</span></div>
           </div>
-          {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}{br}</button>}
+          {br && <button className="branch-pill mono" title="Branches (Ctrl G)" onClick={() => setView({ kind: 'git', path: session.workspace })}>{I.branch}{br}</button>}
           <OptionsButton selectors={selectors.filter((s) => s.choices.length)} valueOf={(s) => liveValue(s, tl)} disabled={interrupted}
             onPick={(sel, v) => { setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, v) })); const req = setRequest(sel, v); configure(req.method, req.params) }} />
           <span className="vsep" />
-          <button className="icon-btn" title="Git: changes, branches, history (Ctrl G)" onClick={() => setView({ kind: 'git' })}>{I.branch}</button>
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
           <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
@@ -749,9 +811,16 @@ export default function App() {
             {I.alert}<span>{c.kind === 'reconnecting' ? `Reconnecting (attempt ${c.attempt})… the turn keeps running on the host.` : c.kind === 'failed' ? c.reason : c.kind === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
           </div>
         )}
-        {interrupted && <div className="banner">{I.alert}<span>The host restarted and this session's process ended. Start a new session in the same folder to continue.</span></div>}
-        <Conversation root={session.workspace} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
-        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'Session interrupted' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
+        {interrupted && (
+          <div className="banner ended-banner">
+            {I.alert}
+            <span className="grow"><b>This session ended</b> when the host restarted.{' '}
+              <span className="sub">{tl?.items.length ? 'You are reading the copy saved on this computer.' : 'No copy was saved on this computer.'}</span></span>
+            <button className="btn primary" disabled={Boolean(resuming)} onClick={() => void resume(session)} title={`Asks ${agentName(session.agentId)} to load this conversation into a new session. Only agents that can load earlier sessions manage it; if it cannot, this copy stays.`}>{resuming === session.id ? 'Resuming…' : 'Resume'}</button>
+          </div>
+        )}
+        <Conversation root={session.workspace} turnKey={`${hostId}/${session.id}`} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'This session ended. Press Resume to continue it.' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
           history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} key={session.id}
           remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
           onText={shared ? (t) => { if (new TextEncoder().encode(t).length <= 64 * 1024) void api('PUT', `/v1/shared/drafts/${session.id}`, { text: t }) } : undefined} />
@@ -773,5 +842,5 @@ export default function App() {
   )
 }
 
-type NewOpts = { load?: string; manual?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
+type NewOpts = { load?: string; manual?: boolean; yolo?: boolean; read: boolean; write: boolean; terminal: boolean; worktree: boolean; branch?: string; newBranch: boolean; base?: string; mcp: boolean; firstPrompt?: string }
 const defaultOpts: NewOpts = { read: true, write: true, terminal: true, worktree: false, newBranch: false, mcp: true }

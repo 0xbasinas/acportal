@@ -391,6 +391,34 @@ describe('permission presets', () => {
     localStorage.removeItem('acportal.preset.goose')
   })
 
+  it('Auto-approve everything is sent as yolo, and is never remembered for the next session', async () => {
+    const withYolo = [
+      presets[0],
+      { id: 'yolo', label: 'Auto-approve everything', effects: ['The host answers requests itself.'], workspaceAccess: { readFiles: true, writeFiles: true, terminal: true, yolo: true } },
+    ]
+    localStorage.removeItem('acportal.preset.goose')
+    const { onStart } = setup({ loadPresets: vi.fn(async () => withYolo), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.click(chip(/Supervised/))
+    fireEvent.click(screen.getByRole('dialog', { name: 'Access rights' }).querySelector<HTMLElement>('[data-preset="yolo"]')!)
+    expect(chip(/Auto-approve everything/)).toBeTruthy()
+    fireEvent.change(prompt(), { target: { value: 'go' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(onStart).toHaveBeenCalled())
+    expect(onStart.mock.calls[0][0].access).toMatchObject({ read: true, write: true, terminal: true, yolo: true })
+    expect(localStorage.getItem('acportal.preset.goose')).not.toBe('yolo')
+    // A later session starts from the remembered choice, which must not be yolo.
+    localStorage.setItem('acportal.preset.goose', 'yolo')
+    cleanup()
+    const again = setup({ loadPresets: vi.fn(async () => withYolo), agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Supervised/)).toBeTruthy())
+    fireEvent.change(prompt(), { target: { value: 'next' } })
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    await waitFor(() => expect(again.onStart).toHaveBeenCalled())
+    expect(again.onStart.mock.calls[0][0].access.yolo).toBeFalsy()
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
   it('applies the next agent preset when the agent changes', async () => {
     localStorage.setItem('acportal.lastAgent', 'goose')
     localStorage.removeItem('acportal.preset.goose')

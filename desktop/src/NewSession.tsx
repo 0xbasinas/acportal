@@ -11,10 +11,10 @@ import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { type AgentSetup, choiceName, groupAgents, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
 import { OptionsPanel } from './OptionPicker'
-import { applyPreset, presetKey, sameRights, type Preset } from './presets'
+import { applyPreset, NEVER_REMEMBERED, presetKey, sameRights, type Preset } from './presets'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
-export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean; manual?: boolean }
+export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean; manual?: boolean; yolo?: boolean }
 export type { AgentSetup } from './agentSetup'
 export type StartRequest = { agent: string; workspace: string; branch: BranchPick; access: Access; text: string; atts: Attachment[]
   /** Session options picked here, in the order they were picked; applied in that order once the
@@ -231,7 +231,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
       setPresetsLoading(false)
       let remembered: string | null = null
       try { remembered = localStorage.getItem(presetKey(agent)) } catch { remembered = null }
-      const hit = remembered ? presets.find((p) => p.id === remembered) : undefined
+      const hit = remembered && remembered !== NEVER_REMEMBERED ? presets.find((p) => p.id === remembered) : undefined
       // A remembered id that the host no longer offers is ignored. The flags are
       // whatever this preset advertises, including after switching agents.
       const chosen = hit ?? presets.find((preset) => preset.id === 'supervised')
@@ -253,7 +253,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     presetTouch.current = true
     setPresetId(preset.id)
     setAccess((current) => applyPreset(current, preset))
-    try { localStorage.setItem(presetKey(agent), preset.id) } catch { /* ignore */ }
+    try { localStorage.setItem(presetKey(agent), preset.id === NEVER_REMEMBERED ? 'supervised' : preset.id) } catch { /* ignore */ }
   }
   const toggleRight = (key: 'read' | 'write' | 'terminal'): void => {
     presetTouch.current = true
@@ -261,7 +261,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
     const match = presetList.find((preset) => sameRights(next, preset))
     setAccess(next)
     setPresetId(match?.id)
-    try { localStorage.setItem(presetKey(agent), match?.id ?? 'custom') } catch { /* ignore */ }
+    try { localStorage.setItem(presetKey(agent), match && match.id !== NEVER_REMEMBERED ? match.id : 'custom') } catch { /* ignore */ }
   }
   const mode = selectors.find((selector) => selector.kind === 'mode' || selector.category === 'mode')
 
@@ -362,6 +362,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
         {presetList.length === 0 && !presetsLoading && <div className="ctx-h">Rights for this session</div>}
         {([['read', 'Read files'], ['write', 'Write files'], ['terminal', 'Run commands']] as const).map(([k, l]) => <Item key={k} on={access[k]} onPick={() => toggleRight(k)}>{l}</Item>)}
         <Item on={access.mcp && enabledMcp.length > 0} sub={enabledMcp.length ? String(enabledMcp.length) : 'none'} onPick={() => setAccess({ ...access, mcp: !access.mcp })}>MCP servers</Item>
+        {access.yolo && !chosenPreset && <div className="hint ctx-pad warn-text">The host approves this session's requests itself.</div>}
         {access.manual && !chosenPreset && <div className="hint ctx-pad">The host's auto-approve and shell rules are off for this session.</div>}
         {!chosenPreset && <div className="hint ctx-pad">Writes and commands still ask for your approval. Delegation is set on the host.</div>}
       </Chip>

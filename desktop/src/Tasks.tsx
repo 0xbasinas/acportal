@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Task } from './types'
 import { changedFiles, DiffBlock, Timeline } from './acp'
 import { DiffView, Empty, I, ago, stateWord, tildify } from './ui'
+import { plain, subfolder } from './projects'
 
 /** Trees: roots newest first, children oldest first; orphaned tasks become roots, cycles shown flat. */
 export function flattenTree(tasks: Task[], rootFilter?: string): { task: Task; depth: number }[] {
@@ -50,7 +51,9 @@ export function TaskRows({ rows, selected, onOpen }: { rows: { task: Task; depth
   )
 }
 
-export const rel = (p: string, ws?: string): string => (ws && p.startsWith(ws.replace(/\/$/, '') + '/') ? p.slice(ws.replace(/\/$/, '').length + 1) : tildify(p))
+/** A changed file's path as shown in the panel: relative to the session's folder, whichever way
+ * either is written (a Windows host reports `\\?\C:\x`, with backslashes), else shortened with `~`. */
+export const rel = (p: string, ws?: string): string => (ws ? subfolder(p, ws) : undefined) ?? tildify(plain(p))
 
 export function mergeError(code?: string, fallback?: string): string {
   return (
