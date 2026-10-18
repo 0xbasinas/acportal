@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -45,7 +48,7 @@ import dev.acportal.transport.ConnectionState
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
 
-@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onTakeControl:(()->Unit)?=null,onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(live.host.id+"/"+live.info.id),onPullRequest:(()->Unit)?=null,onTerminal:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
+@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onTakeControl:(()->Unit)?=null,onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(live.host.id+"/"+live.info.id),onPullRequest:(()->Unit)?=null,onTerminal:(()->Unit)?=null,onPreview:(()->Unit)?=null,onGit:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
     val diagnostics by live.diagnostics.collectAsStateWithLifecycle()
     val state by live.state.collectAsStateWithLifecycle()
     val connection by live.connection.collectAsStateWithLifecycle()
@@ -56,7 +59,7 @@ import kotlinx.coroutines.*
     val sharedHistory by live.sharedHistory.collectAsStateWithLifecycle()
     val remoteDraft by live.remoteDraft.collectAsStateWithLifecycle()
     TranscriptExportSurface(info,state) {exporting,onExport->
-        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl,sharedHistory=sharedHistory,remoteDraft=remoteDraft,onPullRequest=onPullRequest,onTerminal=onTerminal,turnTimes=turnTimes)
+        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl,sharedHistory=sharedHistory,remoteDraft=remoteDraft,onPullRequest=onPullRequest,onTerminal=onTerminal,onPreview=onPreview,onGit=onGit,turnTimes=turnTimes)
     }
 }
 
@@ -101,7 +104,7 @@ import kotlinx.coroutines.*
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null,sharedHistory:List<String> = emptyList(),remoteDraft:dev.acportal.data.RemoteDraft?=null,onPullRequest:(()->Unit)?=null,onTerminal:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
+@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null,sharedHistory:List<String> = emptyList(),remoteDraft:dev.acportal.data.RemoteDraft?=null,onPullRequest:(()->Unit)?=null,onTerminal:(()->Unit)?=null,onPreview:(()->Unit)?=null,onGit:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
     var draft by rememberSaveable(info.id) { mutableStateOf(initialDraft) }
     // A draft typed on another device replaces the box only while it still shows the earlier synced text.
     LaunchedEffect(remoteDraft?.at) {remoteDraft?.let {if(draft==it.replaces)draft=it.text}}
@@ -158,8 +161,13 @@ import kotlinx.coroutines.*
             DropdownMenu(showMenu,{showMenu=false},modifier=Modifier.widthIn(min=224.dp,max=280.dp),shape=RoundedCornerShape(16.dp),containerColor=MaterialTheme.colorScheme.surfaceContainer) {
                 DropdownMenuItem(text={Text("Session options")},leadingIcon={Icon(Icons.Outlined.Tune,null,Modifier.size(18.dp))},onClick={showMenu=false;showOptions=true})
                 onAccess?.let {callback->DropdownMenuItem(text={Text("Workspace access")},leadingIcon={Icon(Icons.Outlined.Shield,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()})}
-                onTerminal?.let {callback->DropdownMenuItem(text={Text("Open terminal")},leadingIcon={Icon(Icons.Outlined.Terminal,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()},modifier=Modifier.testTag("open-terminal"))}
+                // Things this host offers are in bold with a green dot, as in the design.
+                val on:@Composable ()->Unit={Box(Modifier.size(7.dp).background(ConnectedGreen,CircleShape))}
+                onTerminal?.let {callback->DropdownMenuItem(text={Text("Terminal",fontWeight=FontWeight.SemiBold)},trailingIcon=on,leadingIcon={Icon(Icons.Outlined.Terminal,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()},modifier=Modifier.testTag("open-terminal"))}
+                onPreview?.let {callback->DropdownMenuItem(text={Text("Preview",fontWeight=FontWeight.SemiBold)},trailingIcon=on,leadingIcon={Icon(Icons.Outlined.Language,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()},modifier=Modifier.testTag("open-preview"))}
+                onGit?.let {callback->DropdownMenuItem(text={Text("Git",fontWeight=FontWeight.SemiBold)},trailingIcon=on,leadingIcon={Icon(Icons.Outlined.CallSplit,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()},modifier=Modifier.testTag("open-git"))}
                 onPullRequest?.let {callback->DropdownMenuItem(text={Text("Open pull request")},leadingIcon={Icon(Icons.Outlined.Tune,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()},modifier=Modifier.testTag("open-pull-request"))}
+                HorizontalDivider(Modifier.padding(horizontal=12.dp),color=MaterialTheme.colorScheme.outlineVariant)
                 DropdownMenuItem(text={Text("Connection details")},leadingIcon={Icon(Icons.Outlined.Computer,null,Modifier.size(18.dp))},onClick={showMenu=false;connectionPage=1})
                 DropdownMenuItem(text={Text("Agent details")},leadingIcon={Icon(Icons.Outlined.Info,null,Modifier.size(18.dp))},onClick={showMenu=false;showAgent=true})
                 onMcp?.let {callback->DropdownMenuItem(text={Text("MCP servers")},leadingIcon={Icon(Icons.Outlined.Extension,null,Modifier.size(18.dp))},onClick={showMenu=false;callback()})}

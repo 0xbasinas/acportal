@@ -480,7 +480,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
         // Folders for sessions outside every project live below this one. A client groups a
         // session there under "No project" even when the host's state sits inside a project.
         "scratchRoot": plain_path(&{ let root = host.config.scratch_root(); root.canonicalize().unwrap_or(root) }),
-        "activeSessions":host.sessions.active_count().await}),
+        "activeSessions":host.sessions.active_count().await,
+        // The ports a phone may preview, only while preview is on.
+        "previewPorts": if host.sessions.launch_settings().config.preview.enabled { json!(host.sessions.launch_settings().config.preview.ports) } else { Value::Null }}),
     ))
 }
 #[derive(Deserialize)]

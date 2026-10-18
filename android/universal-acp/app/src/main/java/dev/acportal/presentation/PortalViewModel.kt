@@ -89,6 +89,9 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         onDone(repository.create(hostId,agentId,workspace,sessionId,askEverything,yolo))
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions? = try {repository.earlierSessions(hostId,agentId,workspace)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
+    suspend fun previewFetcher(hostId:String) = try {repository.previewFetcher(hostId)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
+    fun appendToDraft(live:LiveSession,current:String,addition:String) = repository.appendToDraft(live,current,addition)
+    fun attachPreviewShot(live:LiveSession,jpeg:ByteArray):String? = repository.attachPreviewShot(live,jpeg)
     suspend fun openTerminal(hostId:String,path:String,rows:Int,cols:Int):Result<String> = try {Result.success(repository.openTerminal(hostId,path,rows,cols))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
     fun endTerminal(hostId:String,id:String) { viewModelScope.launch {try {repository.endTerminal(hostId,id)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {}} }
     suspend fun terminalLink(hostId:String,terminalId:String,scope:kotlinx.coroutines.CoroutineScope,onData:(ByteArray)->Unit,onEvent:(kotlinx.serialization.json.JsonObject)->Unit,onState:(String,String?)->Unit) = repository.terminalLink(hostId,terminalId,scope,onData,onEvent,onState)

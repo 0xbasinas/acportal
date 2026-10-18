@@ -41,6 +41,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class SavedSessionRoute(val hostId:String,val id:String):NavKey
 @Serializable data class PullRequestRoute(val hostId:String,val id:String):NavKey
 @Serializable data class GitRoute(val hostId:String,val path:String):NavKey
+@Serializable data class PreviewRoute(val hostId:String,val id:String,val port:Int?=null):NavKey
 @Serializable data class TerminalRoute(val hostId:String,val path:String,val terminalId:String?=null):NavKey
 @Serializable data class FolderPullRequestRoute(val hostId:String,val path:String):NavKey
 @Serializable data object PairRoute:NavKey
@@ -141,9 +142,12 @@ import kotlinx.serialization.Serializable
                             LaunchedEffect(key.hostId,key.id,stored!=null,info?.status) { if(info?.status!="interrupted")stored?.let(vm::open) }
                             val live=ui.live?.takeIf { it.host.id==key.hostId && it.info.id==key.id }
                             val terminalAction:(()->Unit)?=if(HOST_FEATURE_TERMINAL in (ui.details?.takeIf {it.host.id==key.hostId}?.features ?: emptyList())) ({stack.add(TerminalRoute(key.hostId,live?.info?.workspace ?: info?.workspace.orEmpty()))}) else null
+                            val features=ui.details?.takeIf {it.host.id==key.hostId}?.features ?: emptyList()
+                            val previewAction:(()->Unit)?=if(HOST_FEATURE_PREVIEW in features) ({stack.add(PreviewRoute(key.hostId,key.id))}) else null
+                            val gitAction:(()->Unit)?=if(HOST_FEATURE_GIT in features) ({vm.details(key.hostId);stack.add(GitRoute(key.hostId,live?.info?.workspace ?: info?.workspace.orEmpty()))}) else null
                             val pullRequestAction:(()->Unit)?=if(HOST_FEATURE_PULL_REQUESTS in (ui.details?.takeIf {it.host.id==key.hostId}?.features ?: emptyList())) ({stack.add(PullRequestRoute(key.hostId,key.id))}) else null
                             if(info?.status=="interrupted") InterruptedSessionScreen(info,ui.loading,back,{vm.resume(stored,openSession)},{vm.create(stored.hostId,info.agentId,info.workspace,openSession)},onViewSaved={stack.add(SavedSessionRoute(key.hostId,key.id))})
-                            else if(live!=null && stored!=null) SessionScreen(live,stored,onBack=back,onPrompt={text,uri->vm.prompt(live,text,uri)},onCancel={vm.cancel(live)},onPermission={permission,option->vm.permission(live,permission,option)},onElicitation={permission,action,content->vm.elicitation(live,permission,action,content)},onConfigure={method,params->vm.configure(live,method,params)},onDraft={vm.draft(stored,it)},onReconnect={vm.reconnect(live)},onTakeControl={vm.takeControl(live)},onDisconnect={vm.disconnect(live)},onMcp={stack.add(McpRoute(key.hostId))},onAccess={stack.add(WorkspaceAccessRoute(key.hostId,live.info.workspace,key.id))},onPullRequest=pullRequestAction,onTerminal=terminalAction,onRemoveLocal={vm.removeLocalCopy(live)},turnTimes=allTurnTimes["${key.hostId}/${key.id}"].orEmpty(),onAddAttachment={attachment,version->vm.addAttachment(live,attachment,version)},onRemoveAttachment={vm.removeAttachment(live,it)},onDismissError={vm.dismissSessionError(live)},onSessions={stack.clear();stack.add(SessionsRoute)},onPairHost={stack.clear();stack.add(HostsRoute);stack.add(PairHostRoute(key.hostId))},conversationState=conversationState)
+                            else if(live!=null && stored!=null) SessionScreen(live,stored,onBack=back,onPrompt={text,uri->vm.prompt(live,text,uri)},onCancel={vm.cancel(live)},onPermission={permission,option->vm.permission(live,permission,option)},onElicitation={permission,action,content->vm.elicitation(live,permission,action,content)},onConfigure={method,params->vm.configure(live,method,params)},onDraft={vm.draft(stored,it)},onReconnect={vm.reconnect(live)},onTakeControl={vm.takeControl(live)},onDisconnect={vm.disconnect(live)},onMcp={stack.add(McpRoute(key.hostId))},onAccess={stack.add(WorkspaceAccessRoute(key.hostId,live.info.workspace,key.id))},onPullRequest=pullRequestAction,onTerminal=terminalAction,onPreview=previewAction,onGit=gitAction,onRemoveLocal={vm.removeLocalCopy(live)},turnTimes=allTurnTimes["${key.hostId}/${key.id}"].orEmpty(),onAddAttachment={attachment,version->vm.addAttachment(live,attachment,version)},onRemoveAttachment={vm.removeAttachment(live,it)},onDismissError={vm.dismissSessionError(live)},onSessions={stack.clear();stack.add(SessionsRoute)},onPairHost={stack.clear();stack.add(HostsRoute);stack.add(PairHostRoute(key.hostId))},conversationState=conversationState)
                             else if(stored!=null && info!=null)SavedSessionScreen(info,stored,hosts.firstOrNull {it.id==key.hostId},ui.loading,back,{vm.draft(stored,it)},{vm.open(stored)},conversationState=conversationState)
                             else Column(Modifier.fillMaxSize()) {ScreenHeader("Session unavailable",onBack=back);EmptyState("This session is no longer saved","Return to Sessions to choose another conversation.")}
                         }
@@ -153,6 +157,18 @@ import kotlinx.serialization.Serializable
                             var suggestions by remember(key) {mutableStateOf<GitSuggestions?>(null)}
                             LaunchedEffect(key) {suggestions=vm.suggestions(key.hostId,key.path)}
                             GitScreen(key.path,host?.label,GitRun {op,params,input->vm.git(key.hostId,key.path,op,params,input)},if(hasPullRequests) ({stack.add(FolderPullRequestRoute(key.hostId,key.path))}) else null,back,suggestions)
+                        }
+                        entry<PreviewRoute> {key->
+                            val stored=sessions.find {it.hostId==key.hostId && it.id==key.id}
+                            val live=ui.live?.takeIf {it.host.id==key.hostId && it.info.id==key.id}
+                            var fetcher by remember(key) {mutableStateOf<dev.acportal.data.PreviewFetcher?>(null)}
+                            LaunchedEffect(key) {fetcher=vm.previewFetcher(key.hostId)}
+                            val ports=ui.details?.takeIf {it.host.id==key.hostId}?.previewPorts.orEmpty()
+                            fetcher?.let {ready->
+                                PreviewScreen(hosts.firstOrNull {it.id==key.hostId}?.label,ready,ports,key.port,
+                                    onSendAddress={address->stored?.let {s->vm.draft(s,(s.draft.trimEnd()+"\n"+address).trim());live?.let {l->vm.appendToDraft(l,s.draft,address)}};back()},
+                                    onScreenshot=live?.let {l->{bytes:ByteArray->vm.attachPreviewShot(l,bytes)}},onBack=back)
+                            } ?: Column(Modifier.fillMaxSize()) {ScreenHeader("Preview",onBack=back)}
                         }
                         entry<TerminalRoute> {key->
                             TerminalScreen(key.path,hosts.firstOrNull {it.id==key.hostId}?.label,
