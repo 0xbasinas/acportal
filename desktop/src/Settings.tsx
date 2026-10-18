@@ -4,10 +4,11 @@ import type { AgentInfo, Host, HostStatus, Workspace } from './types'
 import { groupAgents } from './agentSetup'
 import { I, tildify } from './ui'
 import { BrowserSettings } from './BrowserSettings'
+import { TerminalSettings } from './TerminalSettings'
 
 export type Theme = 'dark' | 'light' | 'system'
-const ICONS: Record<string, React.ReactNode> = { General: I.gear, Agents: I.bot, 'MCP servers': I.server, Hosts: I.term, Workspaces: I.folder, 'Approvals & review': I.shield, Browser: I.globe, Appearance: I.spark, Keyboard: I.cmd }
-const SECTIONS = ['General', 'Agents', 'MCP servers', 'Hosts', 'Workspaces', 'Approvals & review', 'Browser', 'Appearance', 'Keyboard'] as const
+const ICONS: Record<string, React.ReactNode> = { General: I.gear, Agents: I.bot, 'MCP servers': I.server, Hosts: I.term, Workspaces: I.folder, 'Approvals & review': I.shield, Terminal: I.term, Browser: I.globe, Appearance: I.spark, Keyboard: I.cmd }
+const SECTIONS = ['General', 'Agents', 'MCP servers', 'Hosts', 'Workspaces', 'Approvals & review', 'Terminal', 'Browser', 'Appearance', 'Keyboard'] as const
 export type Section = (typeof SECTIONS)[number]
 
 export function Settings(props: {
@@ -99,6 +100,7 @@ export function Settings(props: {
             <div className="set-row"><div style={{ flex: 1 }}><div>Host smart review</div><div className="sub mono">[shell_review.&lt;agent&gt;] in the host config</div></div></div>
           </>
         )}
+        {section === 'Terminal' && <TerminalSettings api={props.api} hostName={props.current?.name} online={props.online} onChanged={props.onAgentsChanged} />}
         {section === 'Browser' && <BrowserSettings />}
         {section === 'Appearance' && (
           <>

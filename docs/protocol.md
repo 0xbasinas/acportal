@@ -166,9 +166,13 @@ Live delivery holds only weak references to journal events. If the journal evict
 Android retains incoming text, image, audio, embedded resources and resource links from message chunks and tool content. The same standard blocks are used for capability-checked outgoing attachments. Optional message IDs preserve message boundaries. Session metadata patches and complete usage snapshots follow the current [prompt-turn update definitions](https://agentclientprotocol.com/protocol/v1/prompt-turn) and [session metadata semantics](https://agentclientprotocol.com/protocol/v1/session-list). Unsupported content variants remain visible through a fallback; no agent URL is fetched automatically. Media bytes are omitted from Markdown export while embedded text and resource identities remain readable.
 
 
+## Switching terminals and preview (`/v1/settings/features`)
+
+`GET` → `{"terminal":{"enabled","setHere"},"preview":{"enabled","ports","setHere"}}`; `setHere` is true when the value was set from an app and not by the host's `config.toml`. `PUT` with any of `{"terminal": bool|null, "previewEnabled": bool|null, "previewPorts": [u16]|null}` (a missing key is left alone, `null` clears an app-set value so `config.toml` applies again, unknown keys 422, ports must be 1..65535 and at most 32) answers with the new state. Phone role only. Applied at once and stored in `user-settings.json`.
+
 ## Terminals (`/v1/terminals`, feature `terminal`)
 
-Interactive shells, only when the host's config has `[terminal] enabled = true` (the feature is listed in `/v1/status` only then). Phone-role devices only; the folder must be inside a workspace root or a task worktree, like Git.
+Interactive shells, only when `[terminal]` is on (in `config.toml` or set from an app) (the feature is listed in `/v1/status` only then). Phone-role devices only; the folder must be inside a workspace root or a task worktree, like Git.
 
 - `GET /v1/terminals` → `{"enabled", "terminals":[{id, folder, shell, rows, cols, createdAt, attached, controller, exitCode}]}`.
 - `POST /v1/terminals` `{"folder", "rows", "cols"}` → 201 with the terminal. 403 `terminal_disabled` / `path_not_allowed`, 429 `too_many_terminals`.

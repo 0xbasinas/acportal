@@ -20,7 +20,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct TerminalConfig {
-    /// Allow phones to open shells on this computer. Only the host's config file can turn this on.
+    /// Allow paired devices to open shells on this computer. Turned on here, or from an app (kept in `user-settings.json`, which wins).
     pub enabled: bool,
     pub max_terminals: usize,
     /// A terminal nobody is attached to is closed after this many minutes.

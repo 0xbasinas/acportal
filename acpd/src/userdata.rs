@@ -18,6 +18,10 @@ const FILE: &str = "user-settings.json";
 pub struct UserData {
     pub workspace_roots: Vec<PathBuf>,
     pub agents: Vec<AgentDefinition>,
+    /// Set from the desktop app or phone: terminals on or off. Absent: the host's `config.toml` decides.
+    pub terminal: Option<bool>,
+    pub preview_enabled: Option<bool>,
+    pub preview_ports: Option<Vec<u16>>,
 }
 
 /// A path without the Windows verbatim prefix (`\?\C:\x` becomes `C:\x`), for display and storage.
@@ -78,6 +82,15 @@ impl UserData {
                 config.workspace_roots.push(root.clone());
             }
         }
+        if let Some(enabled) = self.terminal {
+            config.terminal.enabled = enabled;
+        }
+        if let Some(enabled) = self.preview_enabled {
+            config.preview.enabled = enabled;
+        }
+        if let Some(ports) = &self.preview_ports {
+            config.preview.ports = ports.clone();
+        }
         for agent in &self.agents {
             if let Err(error) = registry.upsert(agent.clone()) {
                 tracing::warn!(agent = %agent.id, %error, "skipping invalid phone-added agent");
@@ -116,6 +129,7 @@ mod tests {
         let data = UserData {
             workspace_roots: vec![dir.path().to_path_buf()],
             agents: vec![],
+            ..Default::default()
         };
         data.save(dir.path()).unwrap();
         data.save(dir.path()).unwrap();

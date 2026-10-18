@@ -866,7 +866,7 @@ export default function App() {
         {termOpen && hostId && host && (
           <TerminalDock hostId={hostId} hostName={host.name} folder={session?.workspace} enabled={Boolean(status?.features?.includes('terminal'))}
             height={termHeight} onHeight={(n) => { setTermHeight(n); localStorage.setItem('acportal.termHeight', String(n)) }} onClose={() => setTermOpen(false)}
-            onOpenUrl={(u) => openBrowser(u)} api={api} />
+            onOpenUrl={(u) => openBrowser(u)} onOpenSettings={() => setView({ kind: 'settings', section: 'Terminal' })} api={api} />
         )}
         {hostId && (
           <StatusBar terminal={{ available: Boolean(status?.features?.includes('terminal')), open: termOpen, onToggle: toggleTerminal }} browser={{ open: browser.open, onToggle: toggleBrowser }} />
