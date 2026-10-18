@@ -172,6 +172,8 @@ Settings routes choose a connection before reading MCP, agents or workspace acce
 
 ## UI work
 
+The Penpot designs are exported to [design/](design/README.md): one PNG (`design/png/`) and one standalone HTML file (`design/html/`) per screen, 158 in all, mobile and desktop, dark and light. The boards were deleted from Penpot after export, so these files are the design record. Look at the PNG of the matching screen before changing its UI.
+
 Follow `docs/ui-reference.md`: near-black surfaces, neutral cards, white primary actions, muted secondary text, restrained green status, 24 dp gutters, compact bottom navigation and a wider navigation rail. Check both dark and light themes.
 
 Verify small windows and large fonts with reachable controls, real keyboard behavior and touch bounds. Synthetic dimensions/font overrides test layout only; separate native keyboard/device checks are needed. Sessions search stays in one sticky header so keyboard height changes do not move its composition and lose focus. At compact height or large text, its All/Active tabs scroll below search. Compact Changes, MCP and Workspace access controls use scrolling content to remain reachable.
