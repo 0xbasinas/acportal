@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 18 October 2026 terminal shell picker
+
+- Host: `shell::available_shells()` (Windows: cmd, pwsh, Windows PowerShell, Git Bash; Unix: `$SHELL`, `/etc/shells`, sh) and `shell` on `POST /v1/terminals` (ids only, `unknown_shell` otherwise; paths are never sent to clients). Tests: `a_terminal_starts_in_the_shell_that_was_picked`, `the_listing_offers_shells_and_a_terminal_opens_in_the_one_chosen`.
+- Desktop dock: a menu beside "+"; the last pick is remembered and used for the first terminal next time. 2 tests. Checked live: cmd, PowerShell 7 and Git Bash tabs opened in the same folder.
+- Not done: the phone has no shell picker yet (it opens the host's default).
+
 ## 18 October 2026 Settings → Terminal (switching terminals and preview from the app)
 
 - Host: `GET`/`PUT /v1/settings/features` (`api/features.rs`; phone role; applied through the same reload as adding a folder; stored in `user-settings.json`; `null` falls back to `config.toml` as it was at host start). `tests/feature_settings.rs` 3 (on and off without a restart and `/v1/status` follows, null fallback, peer role refused, bad ports and unknown keys refused).

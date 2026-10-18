@@ -75,6 +75,8 @@ pub enum TerminalError {
     Disabled,
     TooMany,
     NotFound,
+    /// The shell asked for is not one this host offers.
+    UnknownShell,
     /// Another device holds the keyboard.
     NotController,
     TooLarge,
@@ -232,6 +234,7 @@ impl Terminals {
         device: Uuid,
         rows: u16,
         cols: u16,
+        shell: Option<&str>,
     ) -> Result<TerminalInfo, TerminalError> {
         if !config.enabled {
             return Err(TerminalError::Disabled);
@@ -239,7 +242,10 @@ impl Terminals {
         let (rows, cols) = (rows.clamp(2, 500), cols.clamp(2, 1000));
         // cmd.exe cannot start in a verbatim (\?) path, which canonicalizing produces on Windows.
         let folder = &crate::userdata::plain_path(folder);
-        let shell = choose_shell(config).map_err(|e| TerminalError::Failed(e.to_string()))?;
+        let shell = match shell {
+            Some(id) => shell_by_id(id)?,
+            None => choose_shell(config).map_err(|e| TerminalError::Failed(e.to_string()))?,
+        };
         let env = shell_env(std::env::vars(), config.inherit_env);
         {
             let terms = self.terms.lock().unwrap();
@@ -571,6 +577,23 @@ fn choose_shell(config: &TerminalConfig) -> anyhow::Result<Chosen> {
             name,
         })
     }
+}
+/// A shell the person picked, from the ones this host offers (never a path from a client).
+fn shell_by_id(id: &str) -> Result<Chosen, TerminalError> {
+    let option = crate::shell::available_shells()
+        .into_iter()
+        .find(|o| o.id == id)
+        .ok_or(TerminalError::UnknownShell)?;
+    let args = match option.id.as_str() {
+        "pwsh" | "powershell" if cfg!(windows) => vec!["-NoLogo".to_string()],
+        "bash" if cfg!(windows) => vec!["--login".to_string(), "-i".to_string()],
+        _ => Vec::new(),
+    };
+    Ok(Chosen {
+        program: option.path,
+        args,
+        name: option.id,
+    })
 }
 fn file_stem(path: &Path) -> String {
     path.file_stem()

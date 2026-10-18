@@ -4,6 +4,7 @@
 
 Merged into `main` (PRs #57–#61); evidence and limits in [TODO_DONE](TODO_DONE.md). Open:
 
+- [ ] Phone: a shell picker on the Terminal screen (the host and desktop have one; the phone opens the host's default).
 - [ ] Phone terminal on the emulator or a real phone: the Ctrl toggle, arrow keys, Take control, and a reconnect after the connection drops (only typing and a command were tried).
 - [ ] Phone preview: attach a Screenshot with an agent that accepts images (only the "does not accept images" message was seen).
 - [ ] Try terminal and preview with a real agent and a real phone over HTTPS; everything so far used the mock agent and an emulator.

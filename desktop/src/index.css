@@ -843,3 +843,11 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .term-confirm-actions { display: flex; gap: 8px; }
 .linkish { color: var(--text); text-decoration: underline; font-size: inherit; }
 .linkish:disabled { opacity: .5; }
+
+.term-new { position: relative; display: inline-flex; align-items: center; }
+.term-pick { width: 18px; margin-left: -6px; }
+.term-scrim { position: fixed; inset: 0; z-index: 9; background: transparent; border: 0; cursor: default; }
+.term-menu { position: absolute; right: 0; bottom: 34px; min-width: 220px; z-index: 10; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); padding: 6px; }
+.term-menu-h { padding: 6px 10px; font-size: 11px; color: var(--text-3); }
+.term-menu button { width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--text); }
+.term-menu button:hover { background: var(--hover); }
