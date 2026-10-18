@@ -36,4 +36,4 @@ Then open `http://127.0.0.1:8801/index.html`. A screen can be linked directly wi
 
 ## Regenerating the PNGs
 
-The PNGs were rendered with headless Chrome at the frame size of each file (`--window-size=<width>,<height> --screenshot=<png> <file>`), at scale 1.
+The PNGs were rendered with headless Chrome at scale 1, with the frame left-aligned, then cropped to the frame's exact size. Headless Chrome will not open a window narrower than about 500 px, so a 390 px mobile frame has to be rendered in a wider window and cropped; without that the frame is shifted and cut off.
