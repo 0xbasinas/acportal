@@ -21,6 +21,8 @@ Offer **Allow and remember** on a pending request. It creates a *host-side rule 
 5. A **Rules** screen lists every rule with agent, scope, pattern, creation device and time, hit count and last used, with Revoke. Rules that have not matched in 30 days are flagged. Each use is an audit event with the rule id ([adr-audit-and-trace](adr-audit-and-trace.md)); the audit trail is where "who allowed this" is answered.
 6. The ACP option sent to the agent for a rule-approved request is `allow_once`, as with auto-approve today. The agent never receives `allow_always`, so removing the rule takes effect on the next request even for agents that cache grants.
 
+[adr-policy-engine](adr-policy-engine.md) proposes making these rules, auto-approve and shell review inputs to one policy evaluation with simulation; rules stored here would become `ask`-class overrides there.
+
 ## Options Considered
 
 ### Option A: host-side rules with narrow patterns, one scope list (chosen)

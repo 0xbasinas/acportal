@@ -20,6 +20,8 @@ Phase one is GitHub Issues through `gh`; Linear is a deep-link import. No tracke
 4. **Linear (import only)**: the apps accept `acportal://new-task?...` and a pasted Linear issue URL or deeplink payload, show the text for review, and create a task. No Linear API token is stored and the host never calls Linear. A Linear MCP server can still be configured as an agent MCP definition under existing rules.
 5. **Board hook**: tasks with a tracker link show the issue number and state on the attention board ([adr-attention-board](adr-attention-board.md)).
 
+Unattended dispatch from a queue (Symphony, Baton) and status write-back (Orca moves work through workflow states) are deliberately not part of this ADR; they are in [adr-ticket-dispatcher](adr-ticket-dispatcher.md).
+
 ## Options Considered
 
 ### Option A: GitHub via `gh`, Linear via import (chosen)

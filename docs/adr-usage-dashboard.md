@@ -15,10 +15,11 @@ So the data arrives but is not kept: usage is visible only on a live session or 
 Record usage per session on the host and show it passively.
 
 1. The host stores, per session, the last `usage_update` and a small time series (one sample per minute at most, 24 hours of samples, bounded). Cost is kept per currency and never summed across currencies.
-2. `GET /v1/usage?since=` returns per-session totals and per-day sums by agent and project. Agents that never send `usage_update` appear as "not reported", not as zero.
-3. Clients show: the status bar (current session tokens and cost when reported), the Sessions list (small figure per row), and a usage page (per day, per agent, per project).
-4. Context size (`used` out of `size`) gets a warning style at 80% and 95% so a person can start a new session before compaction.
-5. No enforcement. A later ADR may add soft limits that only *ask the phone*, never silently stop a prompt. For reference, Bellows offers a daily budget per machine that warns or blocks new turns once reached; the soft form here would be a warn-and-ask at a configured daily figure, with the block left out until there is evidence it is wanted.
+2. Attribution: rows carry agent, project, device, recipe, task and credential profile ([adr-account-profiles](adr-account-profiles.md)) where known, so cost can be summed by any of them; gateway guides stress per-developer and per-repo attribution and warn that such figures differ from invoices by a few percent, so the page says "as the agent reported".
+3. `GET /v1/usage?since=` returns per-session totals and per-day sums by agent and project. Agents that never send `usage_update` appear as "not reported", not as zero.
+4. Clients show: the status bar (current session tokens and cost when reported), the Sessions list (small figure per row), and a usage page (per day, per agent, per project).
+5. Context size (`used` out of `size`) gets a warning style at 80% and 95% so a person can start a new session before compaction.
+6. No enforcement. A later ADR may add soft limits that only *ask the phone*, never silently stop a prompt. For reference, Bellows offers a daily budget per machine that warns or blocks new turns once reached; the soft form here would be a warn-and-ask at a configured daily figure, with the block left out until there is evidence it is wanted.
 
 ACP status (as read 18 October 2026): session usage (`used`, `size`, cumulative `cost` with an ISO 4217 currency, delivered as `usage_update`) is **completed** (5 June 2026), so this ADR's inputs are standard. Per-turn token accounting is a separate draft (end-turn token usage) with open questions about cumulative versus per-turn values; this ADR uses per-session figures and per-day deltas computed on the host until that settles. See [adr-acp-capabilities-roadmap](adr-acp-capabilities-roadmap.md).
 

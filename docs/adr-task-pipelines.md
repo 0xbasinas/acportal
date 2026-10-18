@@ -25,6 +25,8 @@ Add **pipelines**: ordered lists of at most five steps, built from recipes, with
 5. **Never**: merge, push or open a pull request without a person. The last step may be `confirm` followed by the existing phone-confirmed merge. Scheduled use ([adr-scheduled-runs](adr-scheduled-runs.md)) inherits this.
 6. The attention board shows the pipeline as one row with the current step; the activity panel ([adr-activity-panel](adr-activity-panel.md)) nests its steps.
 
+Design note: Bernstein schedules from a task graph with a deterministic scheduler that uses no LLM tokens, and Microsoft's Conductor routes conditionally without an LLM in the loop. The runner here is the same kind of thing: a deterministic state machine over host-evaluated gates; models only do the work inside a step. The [merge queue](adr-merge-queue.md) and [claim verification](adr-claim-verification.md) feed the final gate.
+
 ## Options Considered
 
 ### Option A: linear pipelines of recipes with host-evaluated gates (chosen)

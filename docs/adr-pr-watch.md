@@ -16,10 +16,11 @@ Add a **PR watch** that turns new feedback into a *proposed* prompt. It never se
 
 1. A watch is created from a session or task that opened a PR. State: PR number, repository, last seen check-run and review ids. Stored with the task record.
 2. The host polls through `gh` on a long interval (default 60 seconds, backing off to 10 minutes when nothing changes; stops when the PR is merged or closed). It uses `gh`'s own authentication; no token is stored here.
-3. On new failing checks or new review comments, the host builds a bounded summary (check name, first lines of the failing log, comment text with path and line) and publishes it as a `pr_feedback` item on the session, using the `_meta` convention already used for host items.
-4. The client shows the item with **Send to agent**, **Dismiss** and **Always send for this task**. Only an explicit tap, or the per-task opt-in, sends a prompt. The opt-in has a ceiling of three automatic rounds per watch, then asks again.
-5. A watch never merges, approves, pushes or edits the PR. Merge stays with the existing phone-confirmed merge action and branch protection.
-6. Comment and log text comes from other people or from CI; it is shown as untrusted quoted content and wrapped in a fenced block in the prompt, so it is not presented to the agent as the user's own instruction.
+3. **Route to the origin**: feedback is attached to the session or task that produced the branch (Agent Orchestrator routes CI failures, review comments and conflicts back to the producing session), not to a new one; if that session is gone, the item offers Start fresh with a handoff note ([adr-context-handoff](adr-context-handoff.md)).
+4. On new failing checks or new review comments, the host builds a bounded summary (check name, first lines of the failing log, comment text with path and line) and publishes it as a `pr_feedback` item on the session, using the `_meta` convention already used for host items.
+5. The client shows the item with **Send to agent**, **Dismiss** and **Always send for this task**. Only an explicit tap, or the per-task opt-in, sends a prompt. The opt-in has a ceiling of three automatic rounds per watch, then asks again.
+6. A watch never merges, approves, pushes or edits the PR. Merge stays with the existing phone-confirmed merge action and branch protection.
+7. Comment and log text comes from other people or from CI; it is shown as untrusted quoted content and wrapped in a fenced block in the prompt, so it is not presented to the agent as the user's own instruction.
 
 ## Options Considered
 

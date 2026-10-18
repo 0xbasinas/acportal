@@ -22,6 +22,8 @@ Do not build a general container runtime yet. Decide the **seam** and a spike.
 6. Windows and macOS support the same field only if the engine is installed; `doctor` reports engine, version, and a `--network none` probe.
 7. First scope is a spike on Linux with Podman or Docker, one image supplied by the operator. Building or pulling images is out of scope.
 
+See [adr-launcher-model](adr-launcher-model.md): a container launcher must answer the callback-locality questions there (the worktree is mounted at the same absolute path precisely so `fs/*` callbacks act on the right files) and pass the shared conformance suite.
+
 ## Options Considered
 
 ### Option A: a thin container launcher behind the existing process abstraction (chosen, spike first)

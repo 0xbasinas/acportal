@@ -21,6 +21,8 @@ Specify a **WSL launcher** for agents, with explicit path translation at the one
 5. **Worktrees** for WSL-native repositories are created with the distro's own git (run through `wsl.exe`) so ownership and line endings stay consistent; mixing Windows git and WSL git on one repository is warned about, not attempted.
 6. **Doctor**: checks `wsl.exe` exists, the distro is running or startable, the agent executable resolves inside it, `wslpath` works, and which filesystem the workspace is on.
 
+See [adr-launcher-model](adr-launcher-model.md) for the questions every launcher must answer and the shared conformance suite this launcher must pass.
+
 ## Options Considered
 
 ### Option A: a launcher that wraps `wsl.exe` and translates paths at the boundary (chosen)

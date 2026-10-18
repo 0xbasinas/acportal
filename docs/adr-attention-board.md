@@ -25,7 +25,9 @@ Add one read-only **attention** projection and one board view that uses it. No n
 1. Host: `GET /v1/attention` returns bounded rows, one per session or task, each with `state`, `since`, `host`, `workspace`, `agent`, and a short `reason`. States are fixed: `working`, `needs_approval`, `needs_input` (form elicitation), `needs_review` (a finished task with an unmerged worktree or failing checks), `failed`, `merged`, `idle`. The host derives them from data it already owns; it does not call an agent.
 2. Clients combine the rows from every paired host. Desktop shows columns (Needs you, Working, Needs review, Done) and a flat list. Android shows the same states as sections on the Sessions page, plus badges.
 3. Notifications: desktop uses the OS notification API; Android uses a notification channel fed by the existing WebSocket while the app runs. A push service is out of scope (see Options).
-4. Acting from the board only opens the existing session, approval sheet or merge screen. The board never approves, merges or resends a prompt by itself.
+4. **Unread state** (Orca can mark threads unread to return later): each row has a seen/unread flag per device, synced through the host, so "finished" items you already looked at on the desktop do not badge the phone. Marking unread is a manual action.
+5. **Long waits**: an item in `needs_approval` for longer than a configurable time (default off) raises an `approval_waiting_long` event for [host hooks](adr-host-hooks.md), so the operator can add a second notification channel. The agent keeps waiting; nothing is auto-approved or auto-denied.
+6. Acting from the board only opens the existing session, approval sheet or merge screen. The board never approves, merges or resends a prompt by itself.
 
 ## Options Considered
 

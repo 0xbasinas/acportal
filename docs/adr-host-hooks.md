@@ -14,7 +14,7 @@ This host sees every agent event and decision as the ACP client, and it is the p
 
 Add host-configured **hooks**: an event, an optional filter, and an action. Actions are limited and always host-controlled.
 
-1. Events (closed list): `turn_started`, `turn_ended`, `approval_needed`, `approval_decided`, `write_applied` (a host-approved write finished), `task_finished`, `task_failed`, `checks_failed`, `pr_opened`, `session_ended`, `budget_exceeded`.
+1. Events (closed list): `turn_started`, `turn_ended`, `approval_needed`, `approval_decided`, `write_applied` (a host-approved write finished), `task_finished`, `task_failed`, `checks_failed`, `pr_opened`, `session_ended`, `budget_exceeded`, `approval_waiting_long`, `stuck_suspected` ([adr-stuck-detection](adr-stuck-detection.md)).
 2. Actions (closed list):
    - `run`: a literal executable and argument array (never a shell line), run in the task's worktree with a 60-second timeout, a minimal environment plus `ACP_EVENT`, `ACP_SESSION`, `ACP_TASK`, `ACP_PATH` and `ACP_WORKTREE`, through the existing sandbox where one is configured. Output is captured, bounded and shown in the task. Example: format the written file after `write_applied` with a path filter.
    - `notify`: an HTTPS POST of a small JSON body (event name, session title, host name, a deep link) to a configured URL, or to an [ntfy](https://ntfy.sh)-style topic. Never includes prompt or file content. Works with a self-hosted ntfy or webhook receiver, so a phone gets push without this project operating a relay.
