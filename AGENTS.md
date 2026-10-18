@@ -172,7 +172,7 @@ Settings routes choose a connection before reading MCP, agents or workspace acce
 
 ## UI work
 
-The Penpot designs are exported to [design/](design/README.md): one PNG (`design/png/`) and one standalone HTML file (`design/html/`) per screen, 158 in all, mobile and desktop, dark and light. The boards were deleted from Penpot after export, so these files are the design record. Look at the PNG of the matching screen before changing its UI.
+The Penpot designs are exported to [design/](design/README.md): one PNG (`design/png/`) and one standalone HTML file (`design/html/`) per screen, 158 in all, mobile and desktop, dark and light. The boards were deleted from Penpot after export, so these files are the design record. Look at the PNG of the matching screen before changing its UI. `design/real-app/` holds screenshots of the running desktop app (dark and light) for comparison with the designs.
 
 Follow `docs/ui-reference.md`: near-black surfaces, neutral cards, white primary actions, muted secondary text, restrained green status, 24 dp gutters, compact bottom navigation and a wider navigation rail. Check both dark and light themes.
 
