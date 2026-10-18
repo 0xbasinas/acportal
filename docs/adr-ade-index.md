@@ -1,5 +1,7 @@
 # Agentic development environment ideas: index and research notes
 
+Two rounds of research on 18 October 2026: the first gave twelve ADRs, the second added twelve more (the rows from "credential proxy" down).
+
 **Date:** 18 October 2026
 **Status:** All ADRs listed here are *Proposed*. None changes code. Each says "No code from this ADR until they accept it."
 
@@ -19,15 +21,28 @@
 | [project context](adr-project-context.md) | Show instruction files, optional shared rules, start from a spec | Kiro specs, Roo personas | filesystem containment |
 | [container isolation](adr-container-isolation.md) | Optional container launcher for an agent (spike first) | Sculptor, Copilot local sandboxes | launcher, process tree, doctor |
 | [editor handoff](adr-editor-handoff.md) | Open a worktree in VS Code, Zed or JetBrains (desktop, local host) | Copilot "Open", Superset | Electron main process |
+| [credential proxy](adr-credential-proxy.md) | Host egress proxy: domain allowlist, provider keys injected outside the agent | Anthropic secure-deployment guide, sandbox-runtime | sandbox, container ADR, doctor |
+| [steer and queue](adr-steer-and-queue.md) | Queue, steer (cancel and replace) or interrupt while an agent works, host-owned | Claude Code and Codex steering, Nimbalyst queue | session actor, request-id cache |
+| [agent skills](adr-agent-skills.md) | Discover, review, install and cross-install `SKILL.md` skills | Agent Skills standard, Codex `@` skills, Cursor marketplace | workspace containment, consent |
+| [audit and trace](adr-audit-and-trace.md) | Permission audit trail and opt-in OpenTelemetry export, no content | Langfuse-style traces, the "no audit trail" gap | `traceparent`, logging sink |
+| [session search](adr-session-search.md) | Full-text search over saved sessions per device, metadata search across hosts | Codex find, Nimbalyst voice find | Room (schema 4), session catalog |
+| [issue tracker](adr-issue-tracker.md) | Start tasks from GitHub Issues (`gh`) and Linear deep links | Superset Tasks, Copilot and Linear, Linear deeplinks | `api/pr.rs`, tasks |
+| [Android integration](adr-android-integration.md) | Share target, dictation, camera, notifications, widget, tile | Nimbalyst mobile, ChatGPT iOS widgets | attachments, attention board |
+| [agent browser tools](adr-agent-browser-tools.md) | Post-turn screenshots first, then a scoped browser MCP tool | Playwright MCP, Cursor 3 browser and demos | desktop browser, preview, external MCP |
+| [risk-ranked review](adr-risk-ranked-review.md) | Deterministic path-based risk labels, grouping, per-hunk revert | Meta RADAR, risk-gated review, Zed hunks | shell-review rules, checks |
+| [multi-repo tasks](adr-multi-repo-tasks.md) | Task groups across up to five repositories, ordered merges | Cursor multi-root, Vibe Kanban multi-repo, `gh-stack` | tasks, worktrees, PR flow |
+| [context handoff](adr-context-handoff.md) | Context meter and a reviewed "continue in a new session" note, also cross-host | Compaction behaviour, Cursor cloud handoff | `usage_update`, worktrees |
+| [device rights](adr-device-roles.md) | Observer, approver, operator, owner per device with expiry | Coder roles, Copilot org policy | pairing store, route middleware |
 
 ## Suggested order
 
-1. **Attention board** and **session modes**: they make existing features legible and share one set of states.
-2. **Review comments** and **turn checkpoints**: they share the review surface and make auto-approve safer.
-3. **Workspace scripts** and **registry browser**: they remove setup friction for new worktrees and new agents.
-4. **Usage dashboard** and **editor handoff**: small, independent.
-5. **PR watch**, **scheduled runs**, **project context**: depend on earlier work or on a real `gh` check.
-6. **Container isolation**: spike only; the largest and most platform-specific.
+1. **Attention board**, **session modes** and **device rights**: make existing features legible and safe to share; they share one set of states and routes.
+2. **Steer and queue**, **review comments**, **risk-ranked review** and **turn checkpoints**: the review and control loop, built on one review surface.
+3. **Android integration** (share target and dictation first) and **session search**: cheap, visible wins on the phone.
+4. **Workspace scripts**, **registry browser** and **agent skills**: remove setup friction for worktrees and agents.
+5. **Audit and trace**, **usage dashboard** and **context handoff**: observability, ahead of any unattended work.
+6. **PR watch**, **issue tracker**, **scheduled runs**, **multi-repo tasks**, **project context**, **editor handoff**: depend on earlier work or on a real `gh` check.
+7. **Credential proxy**, **agent browser tools** and **container isolation**: security-sensitive and platform-specific; spike first, and decide [external MCP](adr-external-mcp.md) before browser control.
 
 ## Research notes
 
@@ -42,8 +57,23 @@ Read 18 October 2026 through web search and page fetches. Most sources are vendo
 - **Agentic IDEs**: Cursor (parallel agents; one source says up to eight), Windsurf (automatic context), Google Antigravity (several agents in separate workspaces), Kiro (specs and hooks), Zed (open source, agent panel), Cline and Roo Code (bring your own key; Roo has personas and auto-approval workflows). [DataCamp list](https://www.datacamp.com/blog/best-agentic-ide), [Codecademy comparison](https://www.codecademy.com/article/agentic-ide-comparison-cursor-vs-windsurf-vs-antigravity).
 - **ACP**: the Registry went live on 28 January 2026; `session/list`, `session_info_update` and session config options were stabilised in February and March 2026. [Zed announcement](https://zed.dev/blog/acp-registry), [updates page](https://agentclientprotocol.com/updates).
 - **Worktree limits**: worktrees share ports and databases, and guides say no tool isolates both. [Upsun guide](https://developer.upsun.com/posts/ai/git-worktrees-for-parallel-ai-coding-agents).
+- **Mobile clients**: Nimbalyst's iOS app syncs sessions with end-to-end encryption, sends notifications for completion, errors and approvals, shows a Lock Screen and Dynamic Island view ranked by waiting time, supports voice (Alpha), camera attachments and queued prompts; it is iOS-only (an Android icon appeared in a release note). Forge Remote, CC Pocket, Omnara and Port22 are phone apps for Claude Code and Codex; the ChatGPT iOS app added Home Screen widgets for recent tasks on 2 October 2026. Anthropic's Remote Control is Claude Code only. [Nimbalyst mobile docs](https://nimbalyst.com/docs/mobile/mobile-app.md), [mobile app roundup](https://nimbalyst.com/blog/best-mobile-apps-for-claude-code-2026/), [Codex changelog](https://learn.chatgpt.com/docs/changelog).
+- **Codex app**: worktrees in the sidebar, automations that run locally or in a worktree with a review queue, skills in the `@` menu, composer predictions (beta, 9 October 2026), a review file tree. Third-party guides disagree on launch dates. [changelog](https://learn.chatgpt.com/docs/changelog), [guide](https://intuitionlabs.ai/articles/openai-codex-app-ai-coding-agents).
+- **Cursor 3** (2 April 2026): Agents Window with local, worktree, cloud and SSH agents in one sidebar, cloud handoff, `/worktree`, `/best-of-n`, `/multitask`, integrated browser, multi-root workspaces, marketplace plugins. Sources disagree on Design Mode. [guide](https://www.digitalapplied.com/blog/cursor-3-agents-window-complete-guide).
+- **Warp**: management view of all running agents with notifications, agent permission allowlists and denylists, Warp Drive shared knowledge. Mostly June 2025 launch coverage. [SD Times](https://sdtimes.com/ai/warp-2-0-evolves-its-terminal-experience-into-an-agentic-development-environment/).
+- **Zed**: parallel agents and a `spawn_agent` subagent tool (0.227.0, March 2026), multibuffer review with per-hunk accept or reject, session history for several external ACP agents, boolean toggles for ACP session configuration (1.11.0, July 2026). [release notes](https://zed.dev/releases/preview/0.227.0).
+- **Claude Code**: layers for memory, skills, subagents, hooks, plugins and MCP; checkpoints with rewind; read-only plan mode. Mostly secondary blog sources. [docs](https://code.claude.com/docs/en/features-overview).
+- **Skills**: the Agent Skills format is shared across many tools but each uses its own folder; marketplace counts conflict and one source reports a high rate of vulnerable skills. [overview](https://codex.danielvaughan.com/2026/05/09/cross-agent-skills-ecosystem-maturity-npm-analogy-codex-cli-portability/).
+- **Sandboxing and credentials**: keep credentials outside the agent and route egress through a proxy; allowlists limit exfiltration, not injection; the proxy sees only hostnames without TLS inspection. [Anthropic secure deployment](https://code.claude.com/docs/en/agent-sdk/secure-deployment), [egress control](https://blaxel.ai/blog/sandbox-egress-control-outbound-allow-listing).
+- **Observability**: OpenTelemetry-based tracing with session grouping (Langfuse and others); a Hacker News argument that coding agents lack traces, per-task cost, permission audit trails and replay. [Augment guide](https://www.augmentcode.com/guides/agent-observability-for-ai-coding).
+- **Browser verification**: Playwright MCP lets agents check UI work; sources note the check is ad hoc and recommend deterministic screenshot diffs. [Argos](https://argos-ci.com/blog/playwright-mcp-visual-testing).
+- **Review at scale**: risk scoring and gating ideas (Meta RADAR, vendor blueprints); warnings about same-model blind spots. [RADAR paper](https://arxiv.org/pdf/2605.30208), [blueprint](https://resources.rework.com/libraries/ai-agents/ai-code-review-agent).
+- **Trackers and stacked PRs**: Linear deeplinks open prefilled prompts in agent tools; GitHub stacked PRs entered public preview on 30 July 2026. [Linear changelog](https://linear.app/changelog/2026-02-26-deeplink-to-ai-coding-tools), [gh-stack guide](https://agentpedia.codes/blog/github-stacked-pull-requests-gh-stack-agent-guide.md).
+- **Steering**: steer, follow-up and interrupt as separate modes; conflicting reports on Claude Code's current behaviour. [patterns](https://agentpatterns.ai/patterns/agent-design/steering-running-agents/).
+- **Compaction and memory**: opaque compaction in some tools, third-party memory servers with unverified benchmarks. [deep dive](https://codex.danielvaughan.com/2026/04/14/context-compaction-deep-dive-codex-cli-claude-code-opencode/).
+- **Self-hosted teams**: Coder offers SSO, roles, audit logging and spend limits, partly paid; OpenHands is open source (features unconfirmed). [Coder](https://coder.com/solutions/agents).
 
-Not found: reliable details on Emdash, Crystal, Warp, Kiro steering files, Claude Code hooks and skills, Zed's review UI, or checkpoints in any orchestrator. Those ideas are marked as unconfirmed in the ADRs that touch them.
+Not found: reliable details on Emdash, Crystal, Paseo, Happy, Kiro steering files, Jules and Devin tracker integrations, OpenHands multi-user features, Graphite and Greptile, or checkpoints in any orchestrator. Those ideas are marked as unconfirmed in the ADRs that touch them.
 
 ## What this project already has
 

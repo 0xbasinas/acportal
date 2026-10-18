@@ -4,11 +4,13 @@
 
 ## Proposed ADRs for a fuller agent development environment (18 October 2026)
 
-Twelve proposals, none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
+Twenty-four proposals from two research rounds, none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
 
 - [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
 - [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
 - [ ] [PR watch](docs/adr-pr-watch.md), [scheduled runs](docs/adr-scheduled-runs.md), [project context](docs/adr-project-context.md), [container isolation](docs/adr-container-isolation.md) (spike only).
+- [ ] [Credential proxy](docs/adr-credential-proxy.md), [steer and queue](docs/adr-steer-and-queue.md), [agent skills](docs/adr-agent-skills.md), [audit and trace](docs/adr-audit-and-trace.md), [session search](docs/adr-session-search.md), [issue tracker](docs/adr-issue-tracker.md).
+- [ ] [Android integration](docs/adr-android-integration.md), [agent browser tools](docs/adr-agent-browser-tools.md), [risk-ranked review](docs/adr-risk-ranked-review.md), [multi-repo tasks](docs/adr-multi-repo-tasks.md), [context handoff](docs/adr-context-handoff.md), [device rights](docs/adr-device-roles.md).
 
 ## Terminals, preview, browser and status bar (18 October 2026)
 
