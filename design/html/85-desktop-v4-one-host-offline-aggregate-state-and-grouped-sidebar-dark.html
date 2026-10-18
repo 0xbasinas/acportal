@@ -1,0 +1,4126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>85 - Desktop v4 – One host offline: aggregate state and grouped sidebar / dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap">
+<style>
+html,body{margin:0;min-height:100%;background:#808080;}
+body{width:max-content;min-width:100%;}
+.frame{margin:0 auto;}
+/* 85 - Desktop v4 – One host offline: aggregate state and grouped sidebar / dark */
+.c-85-deskt-1d826ad697b8 {
+  position: relative;
+  width: 1440px;
+  height: 900px;
+  background: #0a0a0aFF;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* Rect */
+.rect-7aa139189db7 {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 1440px;
+  height: 36px;
+  background: #0a0a0aFF;
+}
+
+/* Sidebar */
+.sidebar-75f1da458cd7 {
+  position: absolute;
+  left: 0px;
+  top: 36px;
+  width: 300px;
+  height: 864px;
+  background: #111113FF;
+}
+
+/* Rect */
+.rect-6f1747749fae {
+  position: absolute;
+  left: 299px;
+  top: 36px;
+  width: 1px;
+  height: 864px;
+  background: #2b2b2eFF;
+}
+
+/* Host switcher */
+.host-switc-f5bb4107cdb7 {
+  position: absolute;
+  left: 10px;
+  top: 46px;
+  width: 280px;
+  height: 52px;
+  background: #29292dFF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-6818d2806be9 {
+  position: absolute;
+  left: 20px;
+  top: 56px;
+  width: 32px;
+  height: 32px;
+  background: #161616FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* S */
+.s-3ccd06af2d9a {
+  position: absolute;
+  left: 20px;
+  top: 63px;
+  width: 32px;
+  height: 20px;
+}
+.s-3ccd06af2d9a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.s-3ccd06af2d9a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.s-3ccd06af2d9a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.s-3ccd06af2d9a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Status dot */
+.status-dot-731c800dd145 {
+  position: absolute;
+  left: 46px;
+  top: 82px;
+  width: 10px;
+  height: 10px;
+  background: #72d5b0FF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Studio PC */
+.studio-p-c-319b71226808 {
+  position: absolute;
+  left: 62px;
+  top: 52px;
+  width: 170px;
+  height: 21px;
+}
+.studio-p-c-319b71226808 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-319b71226808 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-319b71226808 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-319b71226808 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 15px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Connected · 5 ms */
+.connected-65c940a84fdd {
+  position: absolute;
+  left: 62px;
+  top: 74px;
+  width: 170px;
+  height: 17px;
+}
+.connected-65c940a84fdd .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.connected-65c940a84fdd .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.connected-65c940a84fdd .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.connected-65c940a84fdd .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(114, 213, 176, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(114, 213, 176, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-63edf68e0378 {
+  position: absolute;
+  left: 230px;
+  top: 61px;
+  width: 34px;
+  height: 20px;
+  background: #161616FF;
+  border-start-start-radius: 6px;
+  border-start-end-radius: 6px;
+  border-end-start-radius: 6px;
+  border-end-end-radius: 6px;
+}
+
+/* 1/2 */
+.c-12-4483bc84f45e {
+  position: absolute;
+  left: 230px;
+  top: 64px;
+  width: 34px;
+  height: 15px;
+}
+.c-12-4483bc84f45e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-12-4483bc84f45e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-12-4483bc84f45e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.c-12-4483bc84f45e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(248, 113, 113, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(248, 113, 113, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌄ */
+.51b42a00b28e {
+  position: absolute;
+  left: 268px;
+  top: 60px;
+  width: 14px;
+  height: 20px;
+}
+.51b42a00b28e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.51b42a00b28e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.51b42a00b28e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.51b42a00b28e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-0aa16e938c2e {
+  position: absolute;
+  left: 16px;
+  top: 108px;
+  width: 268px;
+  height: 34px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 9px;
+  border-start-end-radius: 9px;
+  border-end-start-radius: 9px;
+  border-end-end-radius: 9px;
+}
+
+/* +  New session */
+.new-ses-7bde13abe499 {
+  position: absolute;
+  left: 30px;
+  top: 116px;
+  width: 160px;
+  height: 18px;
+}
+.new-ses-7bde13abe499 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.new-ses-7bde13abe499 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.new-ses-7bde13abe499 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.new-ses-7bde13abe499 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Rect */
+.rect-efcfde95cf1d {
+  position: absolute;
+  left: 228px;
+  top: 115px;
+  width: 54px;
+  height: 20px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Ctrl N */
+.ctrl-n-eb29a8910520 {
+  position: absolute;
+  left: 228px;
+  top: 118px;
+  width: 54px;
+  height: 15px;
+}
+.ctrl-n-eb29a8910520 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ctrl-n-eb29a8910520 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ctrl-n-eb29a8910520 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.ctrl-n-eb29a8910520 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-e1a53c296d7e {
+  position: absolute;
+  left: 16px;
+  top: 148px;
+  width: 268px;
+  height: 32px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 9px;
+  border-start-end-radius: 9px;
+  border-end-start-radius: 9px;
+  border-end-end-radius: 9px;
+}
+
+/* ⌕  Search or run a command */
+.search-0951448bc063 {
+  position: absolute;
+  left: 30px;
+  top: 155px;
+  width: 190px;
+  height: 17px;
+}
+.search-0951448bc063 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.search-0951448bc063 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.search-0951448bc063 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.search-0951448bc063 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-a2105975f6ab {
+  position: absolute;
+  left: 16px;
+  top: 190px;
+  width: 37px;
+  height: 22px;
+  background: #29292dFF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* All */
+.all-8934c6816b61 {
+  position: absolute;
+  left: 16px;
+  top: 194px;
+  width: 37px;
+  height: 15px;
+}
+.all-8934c6816b61 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.all-8934c6816b61 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.all-8934c6816b61 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.all-8934c6816b61 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-a3e7d6f4d28e {
+  position: absolute;
+  left: 59px;
+  top: 190px;
+  width: 89px;
+  height: 22px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* Status dot */
+.status-dot-1c50d99474e5 {
+  position: absolute;
+  left: 68px;
+  top: 198px;
+  width: 6px;
+  height: 6px;
+  background: #f87171FF;
+  border-start-start-radius: 3px;
+  border-start-end-radius: 3px;
+  border-end-start-radius: 3px;
+  border-end-end-radius: 3px;
+}
+
+/* Build box */
+.build-box-dae9ba092789 {
+  position: absolute;
+  left: 77px;
+  top: 194px;
+  width: 71px;
+  height: 15px;
+}
+.build-box-dae9ba092789 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-dae9ba092789 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-dae9ba092789 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-dae9ba092789 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-f2c300b64b2f {
+  position: absolute;
+  left: 154px;
+  top: 190px;
+  width: 89px;
+  height: 22px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* Status dot */
+.status-dot-56e196956919 {
+  position: absolute;
+  left: 163px;
+  top: 198px;
+  width: 6px;
+  height: 6px;
+  background: #72d5b0FF;
+  border-start-start-radius: 3px;
+  border-start-end-radius: 3px;
+  border-end-start-radius: 3px;
+  border-end-end-radius: 3px;
+}
+
+/* Studio PC */
+.studio-p-c-82143d33b6ad {
+  position: absolute;
+  left: 172px;
+  top: 194px;
+  width: 71px;
+  height: 15px;
+}
+.studio-p-c-82143d33b6ad .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-82143d33b6ad .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-82143d33b6ad .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-82143d33b6ad .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌄ */
+.9948c2d0352a {
+  position: absolute;
+  left: 18px;
+  top: 226px;
+  width: 12px;
+  height: 17px;
+}
+.9948c2d0352a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.9948c2d0352a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.9948c2d0352a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.9948c2d0352a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-d396dd8df995 {
+  position: absolute;
+  left: 34px;
+  top: 230px;
+  width: 8px;
+  height: 8px;
+  background: #f87171FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Build box */
+.build-box-60d31caad549 {
+  position: absolute;
+  left: 48px;
+  top: 225px;
+  width: 160px;
+  height: 18px;
+}
+.build-box-60d31caad549 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-60d31caad549 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-60d31caad549 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-60d31caad549 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Offline */
+.offline-5fd9612d08eb {
+  position: absolute;
+  left: 200px;
+  top: 226px;
+  width: 80px;
+  height: 15px;
+}
+.offline-5fd9612d08eb .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.offline-5fd9612d08eb .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.offline-5fd9612d08eb .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: right;
+}
+.offline-5fd9612d08eb .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(248, 113, 113, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(248, 113, 113, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Sessions keep running on the h */
+.sessions-k-22f0496c2daa {
+  position: absolute;
+  left: 24px;
+  top: 250px;
+  width: 250px;
+  height: 15px;
+}
+.sessions-k-22f0496c2daa .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.sessions-k-22f0496c2daa .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.sessions-k-22f0496c2daa .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.sessions-k-22f0496c2daa .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Projects */
+.projects-519a71b523e9 {
+  position: absolute;
+  left: 24px;
+  top: 270px;
+  width: 100px;
+  height: 15px;
+}
+.projects-519a71b523e9 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.projects-519a71b523e9 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.projects-519a71b523e9 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.projects-519a71b523e9 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ▢  project2 */
+.project-b7ccd9aed55b {
+  position: absolute;
+  left: 24px;
+  top: 288px;
+  width: 200px;
+  height: 18px;
+}
+.project-b7ccd9aed55b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.project-b7ccd9aed55b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.project-b7ccd9aed55b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.project-b7ccd9aed55b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Sessions */
+.sessions-aba8e1357724 {
+  position: absolute;
+  left: 24px;
+  top: 314px;
+  width: 100px;
+  height: 15px;
+}
+.sessions-aba8e1357724 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.sessions-aba8e1357724 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.sessions-aba8e1357724 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.sessions-aba8e1357724 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Status dot */
+.status-dot-8a5e27f8094a {
+  position: absolute;
+  left: 22px;
+  top: 339px;
+  width: 8px;
+  height: 8px;
+  background: #72d5b0FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Calc project todos */
+.calc-proje-8357d42e7f18 {
+  position: absolute;
+  left: 38px;
+  top: 333px;
+  width: 230px;
+  height: 18px;
+}
+.calc-proje-8357d42e7f18 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-proje-8357d42e7f18 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-proje-8357d42e7f18 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-proje-8357d42e7f18 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Ready */
+.ready-3f61d89bc4e7 {
+  position: absolute;
+  left: 38px;
+  top: 351px;
+  width: 200px;
+  height: 15px;
+}
+.ready-3f61d89bc4e7 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ready-3f61d89bc4e7 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ready-3f61d89bc4e7 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ready-3f61d89bc4e7 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-519e608d50cf {
+  position: absolute;
+  left: 10px;
+  top: 376px;
+  width: 280px;
+  height: 1px;
+  background: #2b2b2eFF;
+}
+
+/* ⌄ */
+.74a999a21e0c {
+  position: absolute;
+  left: 18px;
+  top: 388px;
+  width: 12px;
+  height: 17px;
+}
+.74a999a21e0c .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.74a999a21e0c .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.74a999a21e0c .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.74a999a21e0c .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-74a39039f2e5 {
+  position: absolute;
+  left: 34px;
+  top: 392px;
+  width: 8px;
+  height: 8px;
+  background: #72d5b0FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Studio PC */
+.studio-p-c-27ff6dff1370 {
+  position: absolute;
+  left: 48px;
+  top: 387px;
+  width: 160px;
+  height: 18px;
+}
+.studio-p-c-27ff6dff1370 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-27ff6dff1370 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-27ff6dff1370 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-27ff6dff1370 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 3 */
+.c-3-9e8b5d2a6051 {
+  position: absolute;
+  left: 200px;
+  top: 388px;
+  width: 80px;
+  height: 15px;
+}
+.c-3-9e8b5d2a6051 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-3-9e8b5d2a6051 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-3-9e8b5d2a6051 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: right;
+}
+.c-3-9e8b5d2a6051 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Projects */
+.projects-07cbe3462ff4 {
+  position: absolute;
+  left: 24px;
+  top: 412px;
+  width: 100px;
+  height: 15px;
+}
+.projects-07cbe3462ff4 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.projects-07cbe3462ff4 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.projects-07cbe3462ff4 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.projects-07cbe3462ff4 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ▢  project */
+.project-bd80d2dee191 {
+  position: absolute;
+  left: 24px;
+  top: 430px;
+  width: 200px;
+  height: 18px;
+}
+.project-bd80d2dee191 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.project-bd80d2dee191 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.project-bd80d2dee191 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.project-bd80d2dee191 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Sessions */
+.sessions-92625dcbd380 {
+  position: absolute;
+  left: 24px;
+  top: 456px;
+  width: 100px;
+  height: 15px;
+}
+.sessions-92625dcbd380 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.sessions-92625dcbd380 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.sessions-92625dcbd380 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.sessions-92625dcbd380 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Status dot */
+.status-dot-0b7a2f5a2b15 {
+  position: absolute;
+  left: 22px;
+  top: 481px;
+  width: 8px;
+  height: 8px;
+  background: #72d5b0FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Calc functions README */
+.calc-funct-b34995ff7e51 {
+  position: absolute;
+  left: 38px;
+  top: 475px;
+  width: 230px;
+  height: 18px;
+}
+.calc-funct-b34995ff7e51 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-funct-b34995ff7e51 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-funct-b34995ff7e51 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-funct-b34995ff7e51 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Ready */
+.ready-589674c3f0a9 {
+  position: absolute;
+  left: 38px;
+  top: 493px;
+  width: 200px;
+  height: 15px;
+}
+.ready-589674c3f0a9 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ready-589674c3f0a9 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ready-589674c3f0a9 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ready-589674c3f0a9 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-bc084c811c89 {
+  position: absolute;
+  left: 22px;
+  top: 523px;
+  width: 8px;
+  height: 8px;
+  background: #f87171FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* calc.py docstrings */
+.calcpy-do-a4a47f1342f2 {
+  position: absolute;
+  left: 38px;
+  top: 517px;
+  width: 230px;
+  height: 18px;
+}
+.calcpy-do-a4a47f1342f2 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calcpy-do-a4a47f1342f2 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calcpy-do-a4a47f1342f2 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calcpy-do-a4a47f1342f2 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Interrupted */
+.interrupte-d045d15360c7 {
+  position: absolute;
+  left: 38px;
+  top: 535px;
+  width: 200px;
+  height: 15px;
+}
+.interrupte-d045d15360c7 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.interrupte-d045d15360c7 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.interrupte-d045d15360c7 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.interrupte-d045d15360c7 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-926897b48dd2 {
+  position: absolute;
+  left: 22px;
+  top: 565px;
+  width: 8px;
+  height: 8px;
+  background: #f87171FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Goose in calc */
+.goose-in-c-2c18e4947596 {
+  position: absolute;
+  left: 38px;
+  top: 559px;
+  width: 230px;
+  height: 18px;
+}
+.goose-in-c-2c18e4947596 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.goose-in-c-2c18e4947596 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.goose-in-c-2c18e4947596 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.goose-in-c-2c18e4947596 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Interrupted */
+.interrupte-ad923e5cab4a {
+  position: absolute;
+  left: 38px;
+  top: 577px;
+  width: 200px;
+  height: 15px;
+}
+.interrupte-ad923e5cab4a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.interrupte-ad923e5cab4a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.interrupte-ad923e5cab4a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.interrupte-ad923e5cab4a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-54cbcd4d4b66 {
+  position: absolute;
+  left: 10px;
+  top: 602px;
+  width: 280px;
+  height: 1px;
+  background: #2b2b2eFF;
+}
+
+/* Rect */
+.rect-3cb95a078fbd {
+  position: absolute;
+  left: 0px;
+  top: 852px;
+  width: 300px;
+  height: 1px;
+  background: #2b2b2eFF;
+}
+
+/* ⑂ Git      ⚙ Settings */
+.git-a6e009ddc357 {
+  position: absolute;
+  left: 24px;
+  top: 866px;
+  width: 240px;
+  height: 18px;
+}
+.git-a6e009ddc357 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.git-a6e009ddc357 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.git-a6e009ddc357 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.git-a6e009ddc357 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Calc functions README */
+.calc-funct-f083d95066d2 {
+  position: absolute;
+  left: 324px;
+  top: 52px;
+  width: 300px;
+  height: 22px;
+}
+.calc-funct-f083d95066d2 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-funct-f083d95066d2 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-funct-f083d95066d2 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-funct-f083d95066d2 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 16px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Goose · Ready · ~/project/calc */
+.goose-re-dc1f0bb9713e {
+  position: absolute;
+  left: 324px;
+  top: 74px;
+  width: 400px;
+  height: 17px;
+}
+.goose-re-dc1f0bb9713e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.goose-re-dc1f0bb9713e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.goose-re-dc1f0bb9713e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.goose-re-dc1f0bb9713e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-b07adaefeb0d {
+  position: absolute;
+  left: 300px;
+  top: 100px;
+  width: 1140px;
+  height: 1px;
+  background: #2b2b2eFF;
+}
+
+/* Rect */
+.rect-68e4d2f35db1 {
+  position: absolute;
+  left: 340px;
+  top: 130px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-0976f8fe587e {
+  position: absolute;
+  left: 340px;
+  top: 200px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-9af676bf7a61 {
+  position: absolute;
+  left: 340px;
+  top: 270px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-91bb2d2f05fd {
+  position: absolute;
+  left: 340px;
+  top: 340px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-dfa99d3b76e4 {
+  position: absolute;
+  left: 340px;
+  top: 410px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-0b0a2c4ff037 {
+  position: absolute;
+  left: 340px;
+  top: 480px;
+  width: 700px;
+  height: 50px;
+  background: #161616FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-1955a588db1e {
+  position: absolute;
+  left: 324px;
+  top: 780px;
+  width: 772px;
+  height: 96px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 14px;
+  border-start-end-radius: 14px;
+  border-end-start-radius: 14px;
+  border-end-end-radius: 14px;
+}
+
+/* Message Goose… */
+.message-go-a0ee688721fc {
+  position: absolute;
+  left: 340px;
+  top: 796px;
+  width: 400px;
+  height: 20px;
+}
+.message-go-a0ee688721fc .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.message-go-a0ee688721fc .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.message-go-a0ee688721fc .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.message-go-a0ee688721fc .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌀   ⟲ */
+.16edbe847dd6 {
+  position: absolute;
+  left: 340px;
+  top: 846px;
+  width: 60px;
+  height: 20px;
+}
+.16edbe847dd6 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.16edbe847dd6 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.16edbe847dd6 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.16edbe847dd6 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-1385d1fd5de0 {
+  position: absolute;
+  left: 846px;
+  top: 846px;
+  width: 47px;
+  height: 20px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Enter */
+.enter-92d3ec724ebb {
+  position: absolute;
+  left: 846px;
+  top: 849px;
+  width: 47px;
+  height: 15px;
+}
+.enter-92d3ec724ebb .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.enter-92d3ec724ebb .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.enter-92d3ec724ebb .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.enter-92d3ec724ebb .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* send · */
+.send-89182e859ce9 {
+  position: absolute;
+  left: 899px;
+  top: 848px;
+  width: 40px;
+  height: 15px;
+}
+.send-89182e859ce9 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.send-89182e859ce9 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.send-89182e859ce9 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.send-89182e859ce9 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(110, 110, 118, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(110, 110, 118, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-e8f301c796f9 {
+  position: absolute;
+  left: 936px;
+  top: 846px;
+  width: 89px;
+  height: 20px;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Shift Enter */
+.shift-ente-49ce74a2d41e {
+  position: absolute;
+  left: 936px;
+  top: 849px;
+  width: 89px;
+  height: 15px;
+}
+.shift-ente-49ce74a2d41e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.shift-ente-49ce74a2d41e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.shift-ente-49ce74a2d41e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.shift-ente-49ce74a2d41e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-1de836ffe0e3 {
+  position: absolute;
+  left: 1052px;
+  top: 840px;
+  width: 30px;
+  height: 30px;
+  background: #29292dFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* ↑ */
+.b45386ce79d0 {
+  position: absolute;
+  left: 1052px;
+  top: 846px;
+  width: 30px;
+  height: 20px;
+}
+.b45386ce79d0 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.b45386ce79d0 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.b45386ce79d0 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.b45386ce79d0 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Host popover */
+.host-popov-8e08664eff71 {
+  position: absolute;
+  left: 10px;
+  top: 104px;
+  width: 360px;
+  height: 290px;
+  background: #161616FF;
+  border: 1px solid #353538FF;
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
+}
+
+/* Hosts */
+.hosts-0d09993b391f {
+  position: absolute;
+  left: 24px;
+  top: 116px;
+  width: 100px;
+  height: 17px;
+}
+.hosts-0d09993b391f .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.hosts-0d09993b391f .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.hosts-0d09993b391f .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.hosts-0d09993b391f .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Status dot */
+.status-dot-58769b0ffd0f {
+  position: absolute;
+  left: 200px;
+  top: 120px;
+  width: 7px;
+  height: 7px;
+  background: #f87171FF;
+  border-start-start-radius: 3.5px;
+  border-start-end-radius: 3.5px;
+  border-end-start-radius: 3.5px;
+  border-end-end-radius: 3.5px;
+}
+
+/* 1 of 2 hosts connected */
+.c-1-of-2-hos-af6d9a5d73cc {
+  position: absolute;
+  left: 212px;
+  top: 116px;
+  width: 150px;
+  height: 15px;
+}
+.c-1-of-2-hos-af6d9a5d73cc .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-1-of-2-hos-af6d9a5d73cc .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-1-of-2-hos-af6d9a5d73cc .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.c-1-of-2-hos-af6d9a5d73cc .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(248, 113, 113, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(248, 113, 113, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-379da4f93391 {
+  position: absolute;
+  left: 16px;
+  top: 142px;
+  width: 348px;
+  height: 90px;
+  background: #29292dFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* Status dot */
+.status-dot-b61f424b315a {
+  position: absolute;
+  left: 30px;
+  top: 154px;
+  width: 8px;
+  height: 8px;
+  background: #72d5b0FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Studio PC */
+.studio-p-c-a558449884f7 {
+  position: absolute;
+  left: 46px;
+  top: 148px;
+  width: 200px;
+  height: 18px;
+}
+.studio-p-c-a558449884f7 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-a558449884f7 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-a558449884f7 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-a558449884f7 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Chip */
+.chip-01a8f06db4d5 {
+  position: absolute;
+  left: 121.5px;
+  top: 148px;
+  width: 72px;
+  height: 16px;
+  background: #29292dFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* current */
+.current-41948fc40209 {
+  position: absolute;
+  left: 121.5px;
+  top: 149px;
+  width: 72px;
+  height: 14px;
+}
+.current-41948fc40209 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.current-41948fc40209 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.current-41948fc40209 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.current-41948fc40209 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* 127.0.0.1:8798 */
+.c-127001-0f7f75332cc8 {
+  position: absolute;
+  left: 46px;
+  top: 168px;
+  width: 200px;
+  height: 15px;
+}
+.c-127001-0f7f75332cc8 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-127001-0f7f75332cc8 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-127001-0f7f75332cc8 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.c-127001-0f7f75332cc8 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Connected · 5 ms · acpd 0.1.0  */
+.connected-3a000b336abe {
+  position: absolute;
+  left: 46px;
+  top: 186px;
+  width: 300px;
+  height: 15px;
+}
+.connected-3a000b336abe .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.connected-3a000b336abe .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.connected-3a000b336abe .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.connected-3a000b336abe .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(114, 213, 176, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(114, 213, 176, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Chip */
+.chip-c307bd1a25da {
+  position: absolute;
+  left: 46px;
+  top: 204px;
+  width: 46px;
+  height: 18px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* git */
+.git-0027f71d1a51 {
+  position: absolute;
+  left: 46px;
+  top: 206px;
+  width: 46px;
+  height: 14px;
+}
+.git-0027f71d1a51 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.git-0027f71d1a51 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.git-0027f71d1a51 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.git-0027f71d1a51 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-4fd490df8912 {
+  position: absolute;
+  left: 96px;
+  top: 204px;
+  width: 90px;
+  height: 18px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* worktrees */
+.worktrees-a1618acdbee2 {
+  position: absolute;
+  left: 96px;
+  top: 206px;
+  width: 90px;
+  height: 14px;
+}
+.worktrees-a1618acdbee2 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.worktrees-a1618acdbee2 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.worktrees-a1618acdbee2 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.worktrees-a1618acdbee2 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-3470820dd215 {
+  position: absolute;
+  left: 190px;
+  top: 204px;
+  width: 61px;
+  height: 18px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* tasks */
+.tasks-12ea46789b1b {
+  position: absolute;
+  left: 190px;
+  top: 206px;
+  width: 61px;
+  height: 14px;
+}
+.tasks-12ea46789b1b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.tasks-12ea46789b1b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.tasks-12ea46789b1b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.tasks-12ea46789b1b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-8235863041ef {
+  position: absolute;
+  left: 255px;
+  top: 204px;
+  width: 61px;
+  height: 18px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* forms */
+.forms-124e17408977 {
+  position: absolute;
+  left: 255px;
+  top: 206px;
+  width: 61px;
+  height: 14px;
+}
+.forms-124e17408977 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.forms-124e17408977 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.forms-124e17408977 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.forms-124e17408977 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ↻ */
+.56177d757474 {
+  position: absolute;
+  left: 340px;
+  top: 150px;
+  width: 16px;
+  height: 20px;
+}
+.56177d757474 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.56177d757474 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.56177d757474 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.56177d757474 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-02eb365b0926 {
+  position: absolute;
+  left: 30px;
+  top: 250px;
+  width: 8px;
+  height: 8px;
+  background: #f87171FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Build box */
+.build-box-d62961d47e66 {
+  position: absolute;
+  left: 46px;
+  top: 244px;
+  width: 200px;
+  height: 18px;
+}
+.build-box-d62961d47e66 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-d62961d47e66 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-d62961d47e66 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-d62961d47e66 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 127.0.0.1:8799 */
+.c-127001-11df65ad7468 {
+  position: absolute;
+  left: 46px;
+  top: 264px;
+  width: 200px;
+  height: 15px;
+}
+.c-127001-11df65ad7468 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-127001-11df65ad7468 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-127001-11df65ad7468 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.c-127001-11df65ad7468 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Offline · Nothing is listening */
+.offline-7ea5bc0aebe0 {
+  position: absolute;
+  left: 46px;
+  top: 282px;
+  width: 300px;
+  height: 15px;
+}
+.offline-7ea5bc0aebe0 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.offline-7ea5bc0aebe0 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.offline-7ea5bc0aebe0 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.offline-7ea5bc0aebe0 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(248, 113, 113, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(248, 113, 113, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ↻ */
+.d738ecb4c23a {
+  position: absolute;
+  left: 340px;
+  top: 246px;
+  width: 16px;
+  height: 20px;
+}
+.d738ecb4c23a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.d738ecb4c23a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.d738ecb4c23a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.d738ecb4c23a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-9e1323648eaf {
+  position: absolute;
+  left: 10px;
+  top: 334px;
+  width: 360px;
+  height: 1px;
+  background: #2b2b2eFF;
+}
+
+/* Rect */
+.rect-efb4fb98fd74 {
+  position: absolute;
+  left: 22px;
+  top: 342px;
+  width: 86px;
+  height: 26px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 7px;
+  border-start-end-radius: 7px;
+  border-end-start-radius: 7px;
+  border-end-end-radius: 7px;
+}
+
+/* + Add host */
+.add-host-d3c43be776d0 {
+  position: absolute;
+  left: 22px;
+  top: 348px;
+  width: 86px;
+  height: 15px;
+}
+.add-host-d3c43be776d0 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.add-host-d3c43be776d0 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.add-host-d3c43be776d0 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.add-host-d3c43be776d0 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Rect */
+.rect-588b4b25e628 {
+  position: absolute;
+  left: 114px;
+  top: 342px;
+  width: 121px;
+  height: 26px;
+  background: #161616FF;
+  border: 1px solid #2b2b2eFF;
+  border-start-start-radius: 7px;
+  border-start-end-radius: 7px;
+  border-end-start-radius: 7px;
+  border-end-end-radius: 7px;
+}
+
+/* ↻ Reconnect all */
+.reconnec-2ac66cfef81f {
+  position: absolute;
+  left: 114px;
+  top: 348px;
+  width: 121px;
+  height: 15px;
+}
+.reconnec-2ac66cfef81f .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.reconnec-2ac66cfef81f .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.reconnec-2ac66cfef81f .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.reconnec-2ac66cfef81f .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(232, 232, 234, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(232, 232, 234, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ⚙ Manage hosts */
+.manage-h-5d130dc690ac {
+  position: absolute;
+  left: 260px;
+  top: 348px;
+  width: 100px;
+  height: 15px;
+}
+.manage-h-5d130dc690ac .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.manage-h-5d130dc690ac .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.manage-h-5d130dc690ac .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.manage-h-5d130dc690ac .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(156, 156, 164, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(156, 156, 164, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+</style>
+</head>
+<body>
+<!-- frame: 85 - Desktop v4 – One host offline: aggregate state and grouped sidebar / dark -->
+<div class="frame c-85-deskt-1d826ad697b8">
+  <!-- rect: Rect -->
+  <div class="shape rect rect-7aa139189db7">
+  </div>
+  <!-- rect: Sidebar -->
+  <div class="shape rect sidebar-75f1da458cd7">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-6f1747749fae">
+  </div>
+  <!-- rect: Host switcher -->
+  <div class="shape rect host-switc-f5bb4107cdb7">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-6818d2806be9">
+  </div>
+  <!-- text: S -->
+  <div class="shape text s-3ccd06af2d9a">
+    <div class="text-node-html" id="html-text-node-a0d691a2-0d07-4ffb-ab13-3ccd06af2d9a" data-x="61680" data-y="63">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">S</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-731c800dd145">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-319b71226808">
+    <div class="text-node-html" id="html-text-node-6e52e083-bc5e-4709-abfb-319b71226808" data-x="61722" data-y="52">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Connected · 5 ms -->
+  <div class="shape text connected-65c940a84fdd">
+    <div class="text-node-html" id="html-text-node-38190725-7575-4ab0-a2ea-65c940a84fdd" data-x="61722" data-y="74">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Connected · 5 ms</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-63edf68e0378">
+  </div>
+  <!-- text: 1/2 -->
+  <div class="shape text c-12-4483bc84f45e">
+    <div class="text-node-html" id="html-text-node-88ec8811-cb95-471a-8992-4483bc84f45e" data-x="61890" data-y="64">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">1/2</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text 51b42a00b28e">
+    <div class="text-node-html" id="html-text-node-e7adfe62-81e0-4e32-bcdc-51b42a00b28e" data-x="61928" data-y="60">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-0aa16e938c2e">
+  </div>
+  <!-- text: +  New session -->
+  <div class="shape text new-ses-7bde13abe499">
+    <div class="text-node-html" id="html-text-node-45756d16-7bbf-489e-861f-7bde13abe499" data-x="61690" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">+ New session</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-efcfde95cf1d">
+  </div>
+  <!-- text: Ctrl N -->
+  <div class="shape text ctrl-n-eb29a8910520">
+    <div class="text-node-html" id="html-text-node-a52c42c6-885d-48d0-95a1-eb29a8910520" data-x="61888" data-y="118">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ctrl N</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-e1a53c296d7e">
+  </div>
+  <!-- text: ⌕  Search or run a command -->
+  <div class="shape text search-0951448bc063">
+    <div class="text-node-html" id="html-text-node-132d78c1-ead5-4653-9eec-0951448bc063" data-x="61690" data-y="155">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌕ Search or run a command</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-a2105975f6ab">
+  </div>
+  <!-- text: All -->
+  <div class="shape text all-8934c6816b61">
+    <div class="text-node-html" id="html-text-node-552f1455-2ba5-4a48-bbd4-8934c6816b61" data-x="61676" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">All</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-a3e7d6f4d28e">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-1c50d99474e5">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-dae9ba092789">
+    <div class="text-node-html" id="html-text-node-e66073ca-dc87-470c-9070-dae9ba092789" data-x="61737" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-f2c300b64b2f">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-56e196956919">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-82143d33b6ad">
+    <div class="text-node-html" id="html-text-node-92b9fba2-adb3-44f5-8c1a-82143d33b6ad" data-x="61832" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text 9948c2d0352a">
+    <div class="text-node-html" id="html-text-node-a1da502b-60e1-4b3c-8db8-9948c2d0352a" data-x="61678" data-y="226">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-d396dd8df995">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-60d31caad549">
+    <div class="text-node-html" id="html-text-node-a23ca0c7-b0a2-49a1-9828-60d31caad549" data-x="61708" data-y="225">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Offline -->
+  <div class="shape text offline-5fd9612d08eb">
+    <div class="text-node-html" id="html-text-node-daefd3ba-4446-425c-9edc-5fd9612d08eb" data-x="61860" data-y="226">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Offline</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Sessions keep running on the h -->
+  <div class="shape text sessions-k-22f0496c2daa">
+    <div class="text-node-html" id="html-text-node-922ada49-4a78-4ca5-ab38-22f0496c2daa" data-x="61684" data-y="250">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Sessions keep running on the host.</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Projects -->
+  <div class="shape text projects-519a71b523e9">
+    <div class="text-node-html" id="html-text-node-8b3d84d0-bc79-4c3f-a801-519a71b523e9" data-x="61684" data-y="270">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Projects</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ▢  project2 -->
+  <div class="shape text project-b7ccd9aed55b">
+    <div class="text-node-html" id="html-text-node-b0fa3b4b-a8f6-4dd6-bbdd-b7ccd9aed55b" data-x="61684" data-y="288">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">▢ project2</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Sessions -->
+  <div class="shape text sessions-aba8e1357724">
+    <div class="text-node-html" id="html-text-node-af24c651-aa56-4ae6-a0fe-aba8e1357724" data-x="61684" data-y="314">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Sessions</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-8a5e27f8094a">
+  </div>
+  <!-- text: Calc project todos -->
+  <div class="shape text calc-proje-8357d42e7f18">
+    <div class="text-node-html" id="html-text-node-1b95e469-b878-4ab8-843b-8357d42e7f18" data-x="61698" data-y="333">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc project todos</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Ready -->
+  <div class="shape text ready-3f61d89bc4e7">
+    <div class="text-node-html" id="html-text-node-cf288553-0829-4c6c-844c-3f61d89bc4e7" data-x="61698" data-y="351">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ready</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-519e608d50cf">
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text 74a999a21e0c">
+    <div class="text-node-html" id="html-text-node-877e761e-2d6d-4d37-8cd5-74a999a21e0c" data-x="61678" data-y="388">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-74a39039f2e5">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-27ff6dff1370">
+    <div class="text-node-html" id="html-text-node-f3aa161d-08ab-45a2-a133-27ff6dff1370" data-x="61708" data-y="387">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 3 -->
+  <div class="shape text c-3-9e8b5d2a6051">
+    <div class="text-node-html" id="html-text-node-8c41beb7-a6c4-4496-b5aa-9e8b5d2a6051" data-x="61860" data-y="388">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">3</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Projects -->
+  <div class="shape text projects-07cbe3462ff4">
+    <div class="text-node-html" id="html-text-node-1009b520-b6c0-4bd0-bf8a-07cbe3462ff4" data-x="61684" data-y="412">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Projects</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ▢  project -->
+  <div class="shape text project-bd80d2dee191">
+    <div class="text-node-html" id="html-text-node-297f5a6a-9224-4c6e-9e0f-bd80d2dee191" data-x="61684" data-y="430">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">▢ project</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Sessions -->
+  <div class="shape text sessions-92625dcbd380">
+    <div class="text-node-html" id="html-text-node-a06e20ac-510c-4598-b82d-92625dcbd380" data-x="61684" data-y="456">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Sessions</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-0b7a2f5a2b15">
+  </div>
+  <!-- text: Calc functions README -->
+  <div class="shape text calc-funct-b34995ff7e51">
+    <div class="text-node-html" id="html-text-node-b870bcc5-1a9b-4ab1-a2c7-b34995ff7e51" data-x="61698" data-y="475">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc functions README</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Ready -->
+  <div class="shape text ready-589674c3f0a9">
+    <div class="text-node-html" id="html-text-node-a9c6e2af-24d9-4b6c-95a4-589674c3f0a9" data-x="61698" data-y="493">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ready</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-bc084c811c89">
+  </div>
+  <!-- text: calc.py docstrings -->
+  <div class="shape text calcpy-do-a4a47f1342f2">
+    <div class="text-node-html" id="html-text-node-04a0f3cb-c1b1-4f74-a670-a4a47f1342f2" data-x="61698" data-y="517">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">calc.py docstrings</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Interrupted -->
+  <div class="shape text interrupte-d045d15360c7">
+    <div class="text-node-html" id="html-text-node-49bec215-1c8f-42f3-b4ec-d045d15360c7" data-x="61698" data-y="535">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Interrupted</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-926897b48dd2">
+  </div>
+  <!-- text: Goose in calc -->
+  <div class="shape text goose-in-c-2c18e4947596">
+    <div class="text-node-html" id="html-text-node-62fca907-eec5-40f2-943b-2c18e4947596" data-x="61698" data-y="559">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose in calc</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Interrupted -->
+  <div class="shape text interrupte-ad923e5cab4a">
+    <div class="text-node-html" id="html-text-node-70ea9443-aa78-4cc7-831e-ad923e5cab4a" data-x="61698" data-y="577">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Interrupted</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-54cbcd4d4b66">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-3cb95a078fbd">
+  </div>
+  <!-- text: ⑂ Git      ⚙ Settings -->
+  <div class="shape text git-a6e009ddc357">
+    <div class="text-node-html" id="html-text-node-1f470012-8d5b-4ede-9251-a6e009ddc357" data-x="61684" data-y="866">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⑂ Git ⚙ Settings</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Calc functions README -->
+  <div class="shape text calc-funct-f083d95066d2">
+    <div class="text-node-html" id="html-text-node-dc413e7a-ccc4-4004-bb85-f083d95066d2" data-x="61984" data-y="52">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc functions README</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Goose · Ready · ~/project/calc -->
+  <div class="shape text goose-re-dc1f0bb9713e">
+    <div class="text-node-html" id="html-text-node-b40c0d5b-2c9f-40a1-ba0c-dc1f0bb9713e" data-x="61984" data-y="74">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose · Ready · ~/project/calc-acportal-add-subtract-docs</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-b07adaefeb0d">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-68e4d2f35db1">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-0976f8fe587e">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-9af676bf7a61">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-91bb2d2f05fd">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-dfa99d3b76e4">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-0b0a2c4ff037">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-1955a588db1e">
+  </div>
+  <!-- text: Message Goose… -->
+  <div class="shape text message-go-a0ee688721fc">
+    <div class="text-node-html" id="html-text-node-00affd9e-ca76-4d38-8e5c-a0ee688721fc" data-x="62000" data-y="796">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Message Goose…</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌀   ⟲ -->
+  <div class="shape text 16edbe847dd6">
+    <div class="text-node-html" id="html-text-node-2050fd2f-32c3-4a74-b8fc-16edbe847dd6" data-x="62000" data-y="846">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌀ ⟲</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-1385d1fd5de0">
+  </div>
+  <!-- text: Enter -->
+  <div class="shape text enter-92d3ec724ebb">
+    <div class="text-node-html" id="html-text-node-2b79da6d-0f85-4f2b-8214-92d3ec724ebb" data-x="62506" data-y="849">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Enter</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: send · -->
+  <div class="shape text send-89182e859ce9">
+    <div class="text-node-html" id="html-text-node-8820d2b0-9506-4f27-b295-89182e859ce9" data-x="62559" data-y="848">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">send ·</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-e8f301c796f9">
+  </div>
+  <!-- text: Shift Enter -->
+  <div class="shape text shift-ente-49ce74a2d41e">
+    <div class="text-node-html" id="html-text-node-89831a56-8b1e-40c1-b741-49ce74a2d41e" data-x="62596" data-y="849">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Shift Enter</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-1de836ffe0e3">
+  </div>
+  <!-- text: ↑ -->
+  <div class="shape text b45386ce79d0">
+    <div class="text-node-html" id="html-text-node-cca7b391-9462-4a29-86ff-b45386ce79d0" data-x="62712" data-y="846">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↑</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Host popover -->
+  <div class="shape rect host-popov-8e08664eff71">
+  </div>
+  <!-- text: Hosts -->
+  <div class="shape text hosts-0d09993b391f">
+    <div class="text-node-html" id="html-text-node-5fc47d99-812b-4ed3-8800-0d09993b391f" data-x="61684" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Hosts</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-58769b0ffd0f">
+  </div>
+  <!-- text: 1 of 2 hosts connected -->
+  <div class="shape text c-1-of-2-hos-af6d9a5d73cc">
+    <div class="text-node-html" id="html-text-node-d71b4814-4698-49de-88b4-af6d9a5d73cc" data-x="61872" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">1 of 2 hosts connected</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-379da4f93391">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-b61f424b315a">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-a558449884f7">
+    <div class="text-node-html" id="html-text-node-33a1c464-b954-45b7-a2e2-a558449884f7" data-x="61706" data-y="148">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-01a8f06db4d5">
+  </div>
+  <!-- text: current -->
+  <div class="shape text current-41948fc40209">
+    <div class="text-node-html" id="html-text-node-216eb5ac-01c8-46cd-8011-41948fc40209" data-x="61781.5" data-y="149">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">current</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 127.0.0.1:8798 -->
+  <div class="shape text c-127001-0f7f75332cc8">
+    <div class="text-node-html" id="html-text-node-6eeffcf9-c012-4998-a065-0f7f75332cc8" data-x="61706" data-y="168">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">127.0.0.1:8798</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Connected · 5 ms · acpd 0.1.0  -->
+  <div class="shape text connected-3a000b336abe">
+    <div class="text-node-html" id="html-text-node-5f3127c5-6a6b-4d21-b0b3-3a000b336abe" data-x="61706" data-y="186">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Connected · 5 ms · acpd 0.1.0 · 3 agents</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-c307bd1a25da">
+  </div>
+  <!-- text: git -->
+  <div class="shape text git-0027f71d1a51">
+    <div class="text-node-html" id="html-text-node-538c8816-2310-45af-9397-0027f71d1a51" data-x="61706" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">git</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-4fd490df8912">
+  </div>
+  <!-- text: worktrees -->
+  <div class="shape text worktrees-a1618acdbee2">
+    <div class="text-node-html" id="html-text-node-0f9fd021-9c7b-4c3f-8f97-a1618acdbee2" data-x="61756" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">worktrees</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-3470820dd215">
+  </div>
+  <!-- text: tasks -->
+  <div class="shape text tasks-12ea46789b1b">
+    <div class="text-node-html" id="html-text-node-c4f188b0-278b-4b05-b531-12ea46789b1b" data-x="61850" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">tasks</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-8235863041ef">
+  </div>
+  <!-- text: forms -->
+  <div class="shape text forms-124e17408977">
+    <div class="text-node-html" id="html-text-node-180bb70a-73f2-47e5-bc97-124e17408977" data-x="61915" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">forms</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ↻ -->
+  <div class="shape text 56177d757474">
+    <div class="text-node-html" id="html-text-node-d5def0f2-ca82-4bd9-aa60-56177d757474" data-x="62000" data-y="150">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-02eb365b0926">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-d62961d47e66">
+    <div class="text-node-html" id="html-text-node-f218a0e7-a84f-4257-be60-d62961d47e66" data-x="61706" data-y="244">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 127.0.0.1:8799 -->
+  <div class="shape text c-127001-11df65ad7468">
+    <div class="text-node-html" id="html-text-node-71722f12-ae72-44a8-966b-11df65ad7468" data-x="61706" data-y="264">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">127.0.0.1:8799</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Offline · Nothing is listening -->
+  <div class="shape text offline-7ea5bc0aebe0">
+    <div class="text-node-html" id="html-text-node-7459639e-1b00-4ab7-ae05-7ea5bc0aebe0" data-x="61706" data-y="282">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Offline · Nothing is listening at that address</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ↻ -->
+  <div class="shape text d738ecb4c23a">
+    <div class="text-node-html" id="html-text-node-01ef9719-4817-4f22-8c9d-d738ecb4c23a" data-x="62000" data-y="246">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-9e1323648eaf">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-efb4fb98fd74">
+  </div>
+  <!-- text: + Add host -->
+  <div class="shape text add-host-d3c43be776d0">
+    <div class="text-node-html" id="html-text-node-f28ca153-600d-4d2f-8d8f-d3c43be776d0" data-x="61682" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">+ Add host</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-588b4b25e628">
+  </div>
+  <!-- text: ↻ Reconnect all -->
+  <div class="shape text reconnec-2ac66cfef81f">
+    <div class="text-node-html" id="html-text-node-f0d87f18-a471-469b-adb5-2ac66cfef81f" data-x="61774" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻ Reconnect all</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⚙ Manage hosts -->
+  <div class="shape text manage-h-5d130dc690ac">
+    <div class="text-node-html" id="html-text-node-1b896588-9f2a-45bc-99b1-5d130dc690ac" data-x="61920" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⚙ Manage hosts</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
