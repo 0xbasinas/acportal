@@ -2,6 +2,14 @@
 
 - [ ] Browser element picker: iframes and shadow DOM, picking several elements in one go, and a phone version.
 
+## Proposed ADRs for a fuller agent development environment (18 October 2026)
+
+Twelve proposals, none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
+
+- [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
+- [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
+- [ ] [PR watch](docs/adr-pr-watch.md), [scheduled runs](docs/adr-scheduled-runs.md), [project context](docs/adr-project-context.md), [container isolation](docs/adr-container-isolation.md) (spike only).
+
 ## Terminals, preview, browser and status bar (18 October 2026)
 
 Merged into `main` (PRs #57–#61); evidence and limits in [TODO_DONE](TODO_DONE.md). Open:
