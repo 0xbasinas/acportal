@@ -56,7 +56,8 @@ history_bytes = 8388608
 # api_key_env = "DEEPSEEK_API_KEY"
 
 # Interactive shells for the desktop app and phones (a real shell as your user, NOT sandboxed).
-# Off unless you turn it on here; no app can turn it on for you. See docs/security.md.
+# Off unless you turn it on here, or from the desktop app (Settings → Terminal; kept apart from this file and
+# winning over it). See docs/security.md.
 # [terminal]
 # enabled = false
 # max_terminals = 4                  # open at once

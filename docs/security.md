@@ -134,7 +134,7 @@ Without that table, or for an agent on another host, `POST /v1/sessions` with `y
 
 ## Preview of a local dev server on a phone
 
-`[preview] enabled` (off by default, host config only) lets a paired phone-role device fetch pages from dev servers on the host's computer, for the ports listed in `[preview] ports` and nowhere else.
+`[preview] enabled` (off by default; switched like terminals, in `config.toml` or from Settings → Terminal) lets a paired phone-role device fetch pages from dev servers on the host's computer, for the ports listed in `[preview] ports` and nowhere else.
 
 - **What it can reach.** `127.0.0.1:{port}` for a listed port. Not another host, not another port, not a path outside the dev server: the host builds the address itself and refuses `..`. Redirects are not followed by the host; one that points back at the dev server is turned into a path on the page's own origin.
 - **What it cannot do.** `GET`/`HEAD` only, so the phone cannot post forms or call a dev server's write endpoints through it. The page's cookies are not kept and the phone's token, cookies and `Origin` are not passed on, so a dev server never sees the credential for the host.
@@ -146,7 +146,9 @@ Tests: `acpd/tests/preview_api.rs`.
 
 ## Host terminals
 
-`[terminal] enabled` (off by default, host config file only) lets a paired **phone-role** device open an interactive shell on the computer, from the desktop app or the phone. This is the one feature that hands a client a general shell, so read the limits:
+`[terminal] enabled` (off by default) lets a paired **phone-role** device open an interactive shell on the computer, from the desktop app or the phone. This is the one feature that hands a client a general shell, so read the limits:
+
+- **Who can switch it on.** The host's `config.toml`, or a paired phone-role device through `PUT /v1/settings/features` (the desktop app's Settings → Terminal asks first). The second kind is stored in `user-settings.json` with the folders and agents added from an app, applies at once, wins over `config.toml` and can be cleared (`null`) to fall back to it. This is no new level of access: a paired device can already add a folder and register an agent command, which also runs as the host user. A peer host cannot change it. If you do not want a paired device able to turn it on, do not pair it.
 
 - **It runs as you, unsandboxed.** The agent sandbox (`terminal.rs`, AppContainer, bwrap) does not apply; a person is typing. Anyone holding a paired device token can run commands as the host user in the allowed folders, and then anywhere that user can reach. Turn it on only if you accept that for every paired phone; revoking a device ends its access. Peer hosts cannot use it.
 - **Folders.** It starts in a folder inside the workspace roots or a task worktree, same check as Git. Inside the shell the person can of course `cd` anywhere.

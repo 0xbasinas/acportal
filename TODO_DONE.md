@@ -1,5 +1,11 @@
 # Completed work and verification history
 
+## 18 October 2026 Settings → Terminal (switching terminals and preview from the app)
+
+- Host: `GET`/`PUT /v1/settings/features` (`api/features.rs`; phone role; applied through the same reload as adding a folder; stored in `user-settings.json`; `null` falls back to `config.toml` as it was at host start). `tests/feature_settings.rs` 3 (on and off without a restart and `/v1/status` follows, null fallback, peer role refused, bad ports and unknown keys refused).
+- Desktop: Settings → Terminal (`TerminalSettings.tsx`): switch with a confirmation that says the shell is unsandboxed, the preview switch and port list; the dock's "off" card links to it. 5 tests; 130 desktop tests pass. Checked live against a host with terminals off: the dock offered "Turn on in Settings", the switch asked, confirmed, and the dock opened a shell without restarting the host.
+- Design note: this reverses "only the host's config file can turn it on" (docs/security.md updated); a paired device could already register an agent command, so it is a convenience rather than new access.
+
 ## 18 October 2026 terminals, preview, browser and status bar (`main`, PRs #57–#61)
 
 - Host terminals (#57): `pty.rs` (Unix `openpty` with `setsid` and `TIOCSCTTY`; Windows ConPTY with explicit invalid standard handles, the shell created inside a kill-on-close job through a job-list attribute), `terminals.rs` (manager: 4 terminals, 1 MiB output ring by byte offset, single keyboard owner with Take control, 64 KiB frames, 64-deep input queue answered with `terminal_busy`, idle close after 30 minutes with nobody attached, clean environment allow-list unless `inherit_env`), `api/terminals.rs` (`/v1/terminals`, phone role, allowed folders, subprotocol `acpd.terminal.v1`). Config `[terminal]`, off by default. `portable-pty` was rejected for its dependency weight (about a dozen crates and a legacy `winapi`). Tests: `tests/terminals.rs` 4, `tests/terminals_api.rs` 3, unit tests 3. Full Windows suite passes; Linux CI (stable and Rust 1.88) passes. A Linux-only test race (shell output after the marker) was found by CI and fixed. Windows fix found live: a canonical `\\?\C:\…` folder cannot be a `cmd.exe` working directory, so the host strips the prefix.

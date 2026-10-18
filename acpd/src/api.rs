@@ -32,6 +32,7 @@ use uuid::Uuid;
 
 mod bridge;
 mod checks;
+mod features;
 mod git;
 mod pr;
 mod preview;
@@ -57,6 +58,9 @@ pub struct Host {
     terminals: Arc<crate::terminals::Terminals>,
     /// Talks to local dev servers for `/v1/preview`: loopback only, no redirects, no proxy.
     preview_client: reqwest::Client,
+    /// What the host's own `config.toml` says (before anything set from an app), so clearing an app-set value can fall back to it.
+    file_terminal: bool,
+    file_preview: (bool, Vec<u16>),
 }
 struct Gateway {
     /// Current controller: lease generation and whether another client may take it over.
@@ -169,6 +173,8 @@ fn input_error(_: impl std::fmt::Display) -> ApiError {
 
 impl Host {
     pub fn new(mut config: Config, mut registry: Registry) -> Result<Self> {
+        let file_terminal = config.terminal.enabled;
+        let file_preview = (config.preview.enabled, config.preview.ports.clone());
         UserData::load(&config.state_directory)?.apply(&mut config, &mut registry);
         config.validate()?;
         let security = SecurityStore::open(&config.state_directory)?;
@@ -193,6 +199,8 @@ impl Host {
             config: Arc::new(config),
             agent_setups: Arc::new(Mutex::new(HashMap::new())),
             terminals: crate::terminals::Terminals::new(),
+            file_terminal,
+            file_preview,
             preview_client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .no_proxy()
@@ -266,6 +274,10 @@ impl Host {
             .route(
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
+            )
+            .route(
+                "/v1/settings/features",
+                get(features::get).put(features::put),
             )
             .route("/v1/preview/{port}", get(preview::proxy_root))
             .route("/v1/preview/{port}/", get(preview::proxy_root))

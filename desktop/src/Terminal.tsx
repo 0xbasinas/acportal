@@ -130,6 +130,8 @@ export function TerminalDock(props: {
   onHeight: (n: number) => void
   onClose: () => void
   onOpenUrl: (url: string) => void
+  /** Opens Settings → Terminal, where terminals are turned on. */
+  onOpenSettings?: () => void
   api: Api
 }) {
   const { api, hostId, folder } = props
@@ -200,7 +202,9 @@ export function TerminalDock(props: {
       {!props.enabled ? (
         <div className="term-off">
           <b>Terminals are off on this host</b>
-          <p>A terminal is a real shell with your rights, so the host leaves it off until you turn it on in its own configuration. Add this to <span className="mono">config.toml</span> on {props.hostName}, then restart <span className="mono">acpd</span>:</p>
+          <p>A terminal is a real shell with your rights, so it stays off until you turn it on.</p>
+          {props.onOpenSettings && <button className="btn primary" onClick={props.onOpenSettings}>Turn on in Settings</button>}
+          <p className="sub" style={{ marginTop: 10 }}>Or add this to <span className="mono">config.toml</span> on {props.hostName} and restart <span className="mono">acpd</span>:</p>
           <pre className="mono">[terminal]{'\n'}enabled = true</pre>
         </div>
       ) : (
