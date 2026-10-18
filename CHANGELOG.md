@@ -6,6 +6,8 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+18 October 2026, element picker: in the desktop browser, *Send to agent → Pick an element on the page…* attaches a description and a picture of the element the person clicks.
+
 18 October 2026, later: Settings → Terminal in the desktop app turns terminals and the phone preview (and its ports) on or off on the host (`GET`/`PUT /v1/settings/features`, applied at once, kept in `user-settings.json`).
 
 18 October 2026, on `main` (PRs #57–#61):

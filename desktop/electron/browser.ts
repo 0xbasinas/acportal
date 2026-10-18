@@ -5,7 +5,8 @@
 import { BrowserWindow, IpcMain, Session, WebContents, WebContentsView, session, shell } from 'electron'
 import { browserPrefs, classify, isLoopbackHost, isWebUrl, type BrowserPrefs } from './browserRules'
 import { usable } from './window'
-import type { BrowserState, BrowserTab } from './browserTypes'
+import type { BrowserState, BrowserTab, PickedElement } from './browserTypes'
+import { PICK_CANCEL, PICK_ELEMENT, PICK_WORLD, pickedText } from './browserPicker'
 
 export type { BrowserState }
 
@@ -207,8 +208,8 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
   }
 
   /** Shrinks the page picture until it fits what an agent can be sent. */
-  const picture = async (wc: WebContents): Promise<{ data: string; mimeType: string; size: number; width: number; height: number }> => {
-    let image = await wc.capturePage()
+  const picture = async (wc: WebContents, rect?: Electron.Rectangle): Promise<{ data: string; mimeType: string; size: number; width: number; height: number }> => {
+    let image = await (rect ? wc.capturePage(rect) : wc.capturePage())
     const natural = image.getSize()
     for (const [width, quality] of [[1280, 80], [1024, 70], [800, 60], [640, 50], [480, 40]] as const) {
       const scaled = natural.width > width ? image.resize({ width }) : image
@@ -275,6 +276,50 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
     return shot
   }))
   ipc.handle('browser:thaw', wrap(() => { layout() }))
+  // The person clicks an element on the page; a description and a picture of it come back.
+  let picking = false
+  ipc.handle('browser:pick', wrap(async () => {
+    const wc = view?.webContents
+    if (!wc || !view) throw new Error('There is no page to pick from')
+    if (picking) throw new Error('Already choosing an element')
+    picking = true
+    publish({ picking: true })
+    try {
+      const raw = (await wc.executeJavaScriptInIsolatedWorld(PICK_WORLD, [{ code: `(${PICK_ELEMENT})()` }])) as PickedElement | null
+      if (!raw || typeof raw !== 'object' || typeof raw.selector !== 'string') return null
+      // Everything from the page is data: only fields of the expected shape are kept, and bounded.
+      const num = (n: unknown): number => (Number.isFinite(n) ? Math.round(Number(n)) : 0)
+      const str = (s: unknown, max: number): string => (typeof s === 'string' ? s.slice(0, max) : '')
+      const rec = (o: unknown, keep: number, max: number): Record<string, string> =>
+        o && typeof o === 'object' ? Object.fromEntries(Object.entries(o as Record<string, unknown>).slice(0, keep).map(([k, v]) => [str(k, 40), str(v, max)])) : {}
+      const element: PickedElement = {
+        tag: str(raw.tag, 40), selector: str(raw.selector, 400), attributes: rec(raw.attributes, 16, 200), text: str(raw.text, 420),
+        html: str(raw.html, 1600), htmlTruncated: raw.htmlTruncated === true,
+        rect: { x: num(raw.rect?.x), y: num(raw.rect?.y), width: num(raw.rect?.width), height: num(raw.rect?.height) },
+        viewport: { width: num(raw.viewport?.width), height: num(raw.viewport?.height) },
+        parents: Array.isArray(raw.parents) ? raw.parents.slice(0, 3).map((p) => str(p, 80)) : [], styles: rec(raw.styles, 16, 80),
+        url: str(raw.url, 2000), title: str(raw.title, 120)
+      }
+      let shot: Awaited<ReturnType<typeof picture>> | undefined
+      try {
+        const zoom = wc.getZoomFactor()
+        const size = view.getBounds()
+        const x = Math.max(0, Math.round(element.rect.x * zoom)), y = Math.max(0, Math.round(element.rect.y * zoom))
+        const width = Math.min(size.width - x, Math.round(element.rect.width * zoom)), height = Math.min(size.height - y, Math.round(element.rect.height * zoom))
+        if (width > 4 && height > 4) shot = await picture(wc, { x, y, width, height })
+      } catch { /* the text alone is still useful */ }
+      return { element, text: pickedText(element), shot }
+    } catch {
+      return null
+    } finally {
+      picking = false
+      publish({ picking: false })
+    }
+  }))
+  ipc.handle('browser:pick-cancel', wrap(async () => {
+    const wc = view?.webContents
+    if (wc && picking) await wc.executeJavaScriptInIsolatedWorld(PICK_WORLD, [{ code: PICK_CANCEL }]).catch(() => undefined)
+  }))
   ipc.handle('browser:capture', wrap(async () => {
     const wc = view?.webContents
     if (!wc) throw new Error('There is no page to capture')

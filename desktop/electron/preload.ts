@@ -116,6 +116,8 @@ const api = {
     thaw: (): Promise<Result<void>> => ipcRenderer.invoke('browser:thaw'),
     capture: (): Promise<Result<{ data: string; mimeType: string; size: number; width: number; height: number; title: string; url: string }>> => ipcRenderer.invoke('browser:capture'),
     selection: (): Promise<Result<string>> => ipcRenderer.invoke('browser:selection'),
+    pick: (): Promise<Result<{ text: string; shot?: { data: string; mimeType: string; size: number; width: number; height: number }; element: { selector: string; url: string; title: string } } | null>> => ipcRenderer.invoke('browser:pick'),
+    pickCancel: (): Promise<Result<void>> => ipcRenderer.invoke('browser:pick-cancel'),
     onState: (cb: (s: BrowserState) => void): (() => void) => {
       const l = (_e: IpcRendererEvent, s: BrowserState): void => cb(s)
       ipcRenderer.on('browser:state', l)

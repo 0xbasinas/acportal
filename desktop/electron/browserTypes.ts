@@ -20,8 +20,26 @@ export type BrowserState = {
   remembers: boolean
   /** Open tabs, in order. */
   tabs: BrowserTab[]
+  /** The person is choosing an element on the page. */
+  picking?: boolean
   /** Find in page: how many matches, and which one is current. Absent when not searching. */
   find?: { matches: number; active: number }
+}
+
+/** An element the person picked on the page (untrusted text from the page). */
+export type PickedElement = {
+  tag: string
+  selector: string
+  attributes: Record<string, string>
+  text: string
+  html: string
+  htmlTruncated: boolean
+  rect: { x: number; y: number; width: number; height: number }
+  viewport: { width: number; height: number }
+  parents: string[]
+  styles: Record<string, string>
+  url: string
+  title: string
 }
 
 export type BrowserTab = { id: number; title: string; url: string; active: boolean; loading: boolean }
