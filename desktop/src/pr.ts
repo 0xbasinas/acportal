@@ -16,3 +16,9 @@ export function prBlockedReason(feature: boolean, gh: 'found' | 'missing' | unde
 export function prBase(name: string): string {
   return name.replace(/^origin\//, '')
 }
+
+/** A pull request needs a branch other than the one it merges into. The base is usually the remote
+ * branch (`origin/main`) and the current branch the local one (`main`), so compare the plain names. */
+export function isBaseBranch(base: string, current: string): boolean {
+  return Boolean(base) && prBase(base) === current
+}

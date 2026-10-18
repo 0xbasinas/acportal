@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { PullRequestForm } from '../src/Git'
-import { prBase, prBlockedReason, prCommand } from '../src/pr'
+import { isBaseBranch, prBase, prBlockedReason, prCommand } from '../src/pr'
 
 describe('pull request command shown in the Git view', () => {
   it('keeps a tricky title as one quoted argument and puts the body nowhere', () => {
@@ -52,5 +52,15 @@ describe('pull request from a fork', () => {
       owner="octo-cat" onOwner={() => {}} onTitle={() => {}} onBody={() => {}} onDraft={() => {}} onSuggest={() => {}} onCreate={() => {}} />)
     expect(document.querySelector('.learn-cmd')?.textContent).toContain('--head "octo-cat:feature"')
     expect(screen.getByLabelText('Fork owner')).toBeTruthy()
+  })
+})
+
+describe('a pull request needs another branch', () => {
+  it('compares the plain names, because the base is the remote branch and the current one the local branch', () => {
+    expect(isBaseBranch('origin/main', 'main')).toBe(true)
+    expect(isBaseBranch('main', 'main')).toBe(true)
+    expect(isBaseBranch('origin/main', 'feature/x')).toBe(false)
+    expect(isBaseBranch('origin/release/1.0', 'release/1.0')).toBe(true)
+    expect(isBaseBranch('', 'main')).toBe(false)
   })
 })

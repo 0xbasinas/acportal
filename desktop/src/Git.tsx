@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Branch, Compare, DagRow, FileDiff, GraphRow, Status, Worktree, githubRepo, layoutDag, parseBranches, parseCompare, parseDag, parseDiff, parseGraph, parseStatus, parseWorktrees } from './gitparse'
-import { prBase, prBlockedReason, prCommand } from './pr'
+import { isBaseBranch, prBase, prBlockedReason, prCommand } from './pr'
 import { Empty, I, baseName, tildify } from './ui'
 
 type LogEntry = { at: number; cwd: string; args: string[]; why: string; ok: boolean; ms: number }
@@ -542,11 +542,11 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
           <GitBtn learn={learn} icon={I.compare} label="Compare" disabled={!base || base === current} cmd={`git log --left-right ${base}...HEAD`} why={W('compare')} onClick={() => void compare()} />
           <span style={{ flex: 1 }} />
           <GitBtn learn={learn} icon={I.upload} primary={!published || Boolean(status?.ahead)} label={published ? 'Push' : 'Publish branch'} disabled={!current} cmd={`git push --set-upstream origin ${current}`} why={W('push')}
-            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current }).then((ok) => { if (ok && pullRequests) setOffer(true) })} />
+            onClick={() => void act(published ? `Pushed ${current}` : `Published ${current}`, 'push', { branch: current }).then((ok) => { if (ok && pullRequests && !isBaseBranch(base, current)) setOffer(true) })} />
           {pullRequests ? (
-            <GitBtn learn={learn} icon={I.pr} label="Open pull request" disabled={Boolean(prBlocked) || !current || !base || base === current}
+            <GitBtn learn={learn} icon={I.pr} label="Open pull request" disabled={Boolean(prBlocked) || !current || !base || isBaseBranch(base, current)}
               cmd={prCommand({ title: prTitle || 'Title', base: prBase(base), head: current, draft })}
-              why={prBlocked ?? 'Open a pull request with gh on the host. The description is read from stdin.'}
+              why={prBlocked ?? (isBaseBranch(base, current) ? 'You are on the branch the pull request would merge into. Switch to another branch first.' : 'Open a pull request with gh on the host. The description is read from stdin.')}
               onClick={() => setOffer(true)} />
           ) : (
             prUrl && <button className="btn" title={prUrl} onClick={() => window.open(prUrl)}>{I.pr}Open pull request</button>
@@ -555,7 +555,7 @@ function Branches({ branches, current, status, learn, W, gh, git, act, sure, onC
         </div>
         {!gh && <div className="hint" style={{ marginTop: 8 }}>{status ? 'Pull request links appear when origin is on GitHub.' : ''} Push uses the host's own git credentials; the app stores none.</div>}
         {prBlocked && <div className="hint" style={{ marginTop: 8 }}>{prBlocked}</div>}
-        {offer && pullRequests && !prBlocked && (
+        {offer && pullRequests && !prBlocked && !isBaseBranch(base, current) && (
           <PullRequestForm learn={learn} title={prTitle} body={prBody} draft={draft} base={prBase(base)} head={current} busy={prBusy}
             canSuggest={Boolean(suggestPr && msgAgent)} note={prNote} link={prLink} owner={prOwner} onOwner={setPrOwner}
             onTitle={setPrTitle} onBody={setPrBody} onDraft={setDraft}
