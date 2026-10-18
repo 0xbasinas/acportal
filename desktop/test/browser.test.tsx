@@ -29,6 +29,8 @@ function fakeBrowser(initial: BrowserState = page, selection = 'Sum: 42') {
     thaw: vi.fn(async () => ({ ok: true as const, value: undefined })),
     capture: vi.fn(async () => ({ ok: true as const, value: { data: 'QUJD', mimeType: 'image/jpeg', size: 3, width: 10, height: 10, title: 'Calc demo', url: 'http://localhost:5199/' } })),
     selection: vi.fn(async () => ({ ok: true as const, value: selection })),
+    pick: vi.fn(async () => ({ ok: true as const, value: { text: 'Element picked from http://localhost:5199/\nSelector: button#add', shot: { data: 'QUJD', mimeType: 'image/jpeg', size: 3, width: 49, height: 27 }, element: { selector: 'div#calc > button#add', url: 'http://localhost:5199/', title: 'Calc demo' } } })),
+    pickCancel: vi.fn(async () => ({ ok: true as const, value: undefined })),
     onState: vi.fn((cb: (s: BrowserState) => void) => { push = cb; return () => {} }),
     onShortcut: vi.fn(() => () => {})
   }
@@ -135,6 +137,37 @@ describe('the browser panel', () => {
     panel({ canShare: false })
     await screen.findByLabelText('Address')
     expect((screen.getByRole('button', { name: /Send to agent/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('picking an element', () => {
+  it('attaches the description and a picture of the element the person clicked', async () => {
+    const b = fakeBrowser()
+    const props = panel()
+    await screen.findByLabelText('Address')
+    fireEvent.click(screen.getByRole('button', { name: /Send to agent/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Pick an element/ }))
+    await waitFor(() => expect(b.api.pick).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(props.onShare).toHaveBeenCalledTimes(1))
+    const [text, shot] = props.onShare.mock.calls[0][0].attachments as Attachment[]
+    expect(text).toMatchObject({ name: 'element button#add', mimeType: 'text/plain', uri: 'http://localhost:5199/' })
+    expect(text.text).toContain('Selector: button#add')
+    expect(shot).toMatchObject({ name: 'element.jpg', mimeType: 'image/jpeg', data: 'QUJD' })
+  })
+  it('sends nothing when the pick is cancelled, and shows what to do while it waits', async () => {
+    const b = fakeBrowser()
+    b.api.pick.mockResolvedValueOnce({ ok: true as const, value: null as never })
+    const props = panel()
+    await screen.findByLabelText('Address')
+    b.push({ ...page, picking: true })
+    expect(screen.getByText(/Click an element on the page/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(b.api.pickCancel).toHaveBeenCalled()
+    b.push({ ...page, picking: false })
+    fireEvent.click(screen.getByRole('button', { name: /Send to agent/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Pick an element/ }))
+    await waitFor(() => expect(b.api.pick).toHaveBeenCalled())
+    expect(props.onShare).not.toHaveBeenCalled()
   })
 })
 

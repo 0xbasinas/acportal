@@ -844,6 +844,9 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .linkish { color: var(--text); text-decoration: underline; font-size: inherit; }
 .linkish:disabled { opacity: .5; }
 
+.browser-picking { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12px; background: color-mix(in srgb, #4c9aff 16%, var(--surface)); border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
+.browser-picking > span { flex: 1; }
+.browser-picking .btn { height: 24px; padding: 0 10px; font-size: 12px; }
 .term-new { position: relative; display: inline-flex; align-items: center; }
 .term-pick { width: 18px; margin-left: -6px; }
 .term-scrim { position: fixed; inset: 0; z-index: 9; background: transparent; border: 0; cursor: default; }

@@ -1,5 +1,7 @@
 # Remaining work
 
+- [ ] Browser element picker: iframes and shadow DOM, picking several elements in one go, and a phone version.
+
 ## Terminals, preview, browser and status bar (18 October 2026)
 
 Merged into `main` (PRs #57–#61); evidence and limits in [TODO_DONE](TODO_DONE.md). Open:

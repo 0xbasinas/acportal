@@ -123,6 +123,19 @@ export function BrowserPanel(props: {
     } finally { setBusy(undefined) }
   }
 
+  /** The person chooses an element on the page; its description (and a picture of it) is attached to their next message. */
+  const pickElement = async (): Promise<void> => {
+    setMenu(false); setProblem(undefined)
+    await new Promise((r) => setTimeout(r, 200)) // let the page be shown again before it is asked to take clicks
+    const r = await window.api.browser.pick()
+    if (!r.ok) { setProblem(r.error); return }
+    if (!r.value) return
+    const { text, shot, element } = r.value
+    const attachments: Attachment[] = [{ name: `element ${element.selector.split(' > ').pop() ?? ''}`.slice(0, 60), mimeType: 'text/plain', size: new TextEncoder().encode(text).length, text, path: element.url, uri: element.url }]
+    if (shot) attachments.push({ name: 'element.jpg', mimeType: shot.mimeType, size: shot.size, data: shot.data, path: element.url, uri: element.url })
+    props.onShare({ attachments })
+  }
+
   const seconds = s?.loadedMs !== undefined ? `${(s.loadedMs / 1000).toFixed(1)} s` : undefined
   const foot = s?.note ?? problem ?? (s?.loading ? 'Loading…' : seconds ? `Loaded in ${seconds}  ·  ${s?.remembers ? 'sign-ins are kept between launches' : 'isolated: no sign-ins kept'}` : s?.remembers ? 'Sign-ins are kept between launches' : 'Isolated: no sign-ins kept')
   const hot = Boolean(s?.note || problem)
@@ -168,6 +181,7 @@ export function BrowserPanel(props: {
               <div className="browser-menu-h">Attach to your next message</div>
               <button role="menuitem" onClick={() => void share('shot')} disabled={busy === 'shot'}>{I.camera}<span>{busy === 'shot' ? 'Taking the picture…' : 'Screenshot of the page'}</span></button>
               <button role="menuitem" onClick={() => void share('text')} disabled={!selection}>{I.quote}<span>Selected text{selection ? <span className="sub"> · “{selection.length > 24 ? selection.slice(0, 24) + '…' : selection}”</span> : <span className="sub"> · nothing selected</span>}</span></button>
+              <button role="menuitem" onClick={() => void pickElement()}>{I.code}<span>Pick an element on the page…</span></button>
               <button role="menuitem" onClick={() => void share('url')}>{I.link}<span>Page address</span></button>
               <div className="browser-menu-f">Nothing is sent until you send.</div>
             </div>
@@ -186,6 +200,12 @@ export function BrowserPanel(props: {
           <button type="button" className="icon-btn" aria-label="Next match" disabled={!s?.find?.matches} onClick={() => find(true, true)}>{I.down}</button>
           <button type="button" className="icon-btn" aria-label="Close find" onClick={stopFind}>{I.close}</button>
         </form>
+      )}
+      {s?.picking && (
+        <div className="browser-picking" role="status">
+          <span>Click an element on the page. It goes to your next message. <span className="kbd">Esc</span> cancels.</span>
+          <button className="btn" onClick={() => void window.api.browser.pickCancel()}>Cancel</button>
+        </div>
       )}
       {menu && <button className="browser-scrim" aria-label="Close the menu" onClick={() => setMenu(false)} />}
       <div className="browser-area" ref={area}>
