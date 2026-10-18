@@ -406,6 +406,7 @@ impl Peer {
             form_elicitation: false,
             manual_approval: false,
             boolean_options: false,
+            yolo: false,
         };
         let session = match self
             .host

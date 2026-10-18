@@ -136,6 +136,13 @@ pub struct WorkspaceAccess {
     /// host advertises `session.configOptions.boolean`. Older phones omit it and see only selects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub boolean_options: bool,
+    /// Per session, and only where the host config allows it for the agent
+    /// (`[yolo.<agent>] enabled`): the host answers the agent's permission requests and shell
+    /// lines itself instead of asking the person. It keeps the deny rules, the workspace
+    /// containment and the OS sandbox. Unlike `manual_approval` it does allow things, so the host
+    /// refuses it unless the operator turned it on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
 }
 impl Default for WorkspaceAccess {
     fn default() -> Self {
@@ -146,6 +153,7 @@ impl Default for WorkspaceAccess {
             form_elicitation: false,
             manual_approval: false,
             boolean_options: false,
+            yolo: false,
         }
     }
 }
@@ -693,6 +701,7 @@ impl AcpConnection {
                 form_elicitation: false,
                 manual_approval: false,
                 boolean_options: false,
+                yolo: false,
             },
             None,
         )
@@ -728,7 +737,11 @@ impl AcpConnection {
             workspace,
             (limits.max_frame_bytes - 256) / 6,
         )?);
-        let review = ShellReviewer::new(review, &definition.id)?.map(Arc::new);
+        let review = if access.yolo {
+            Some(Arc::new(ShellReviewer::everything(&definition.id)))
+        } else {
+            ShellReviewer::new(review, &definition.id)?.map(Arc::new)
+        };
         Self::spawn_inner(
             definition,
             launch.into(),
@@ -1564,6 +1577,7 @@ mod tests {
         assert!(default.capabilities().get("session").is_none());
         let opted = WorkspaceAccess {
             boolean_options: true,
+            yolo: false,
             ..default
         };
         assert_eq!(

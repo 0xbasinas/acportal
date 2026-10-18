@@ -496,6 +496,11 @@ async fn presets(
         shell_review: host.config.shell_review.get(&query.agent),
         own_tools: definition.own_tools,
         remote: definition.transport == "ws" || definition.url.is_some(),
+        yolo: host
+            .config
+            .yolo
+            .get(&query.agent)
+            .is_some_and(|yolo| yolo.enabled),
     };
     Ok(Json(json!({
         "presets": crate::presets::presets_for(&facts, crate::connection::WorkspaceAccess::default())
@@ -570,6 +575,7 @@ async fn probe_agent(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions
@@ -608,6 +614,7 @@ async fn earlier_sessions(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions

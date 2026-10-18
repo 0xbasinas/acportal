@@ -39,6 +39,7 @@ pub(super) struct GitInput {
 pub(super) const READ_ONLY: &[&str] = &[
     "status",
     "diff",
+    "diff-new",
     "log",
     "log-dag",
     "worktree-list",
@@ -89,6 +90,22 @@ pub(super) fn args(op: &str, p: &HashMap<String, String>) -> Result<Vec<String>,
             if let Some(f) = opt(p, "file")? {
                 a.push(f.into());
             }
+            a
+        }
+        // A file git does not track yet, as an all-added diff. `--no-index` reads any path it is
+        // given, so `run` checks that the file lies inside the repository before this runs. The
+        // exit status is 1 whenever the files differ; the output is what matters.
+        "diff-new" => {
+            let mut a = s(&[
+                "diff",
+                "--no-index",
+                "--no-color",
+                "--no-ext-diff",
+                "-U3",
+                "--",
+                "/dev/null",
+            ]);
+            a.push(param(p, "file")?.into());
             a
         }
         "log" => s(&[
@@ -275,6 +292,23 @@ pub(super) fn allowed(host: &Host, path: &FsPath) -> Option<PathBuf> {
     (real.is_dir() && real.starts_with(worktrees)).then_some(real)
 }
 
+/// Whether `file` names a regular file inside `folder`: relative, no `..`, and still inside after
+/// symbolic links are resolved, so a link in the repository cannot lead out of it.
+fn file_inside(folder: &FsPath, file: &str) -> bool {
+    if FsPath::new(file).is_absolute()
+        || file.starts_with('/')
+        || file.starts_with('\\')
+        || file.contains(':')
+        || file.split(['/', '\\']).any(|part| part == "..")
+    {
+        return false;
+    }
+    let (Ok(target), Ok(root)) = (folder.join(file).canonicalize(), folder.canonicalize()) else {
+        return false;
+    };
+    target.is_file() && target.starts_with(root)
+}
+
 pub(super) fn ref_ok(name: &str) -> bool {
     std::process::Command::new("git")
         .args(["check-ref-format", "--branch", name])
@@ -292,6 +326,9 @@ pub(super) async fn run(
     let cwd =
         allowed(&host, &input.path).ok_or(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"))?;
     let argv = args(&op, &input.params)?;
+    if op == "diff-new" && !file_inside(&cwd, &input.params["file"]) {
+        return Err(ApiError(StatusCode::FORBIDDEN, "path_not_allowed"));
+    }
     if op == "worktree-add" {
         let target = PathBuf::from(&input.params["path"]);
         let parent = target
@@ -536,6 +573,7 @@ pub(super) async fn commit_message(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions
@@ -613,6 +651,7 @@ async fn pull_request_message(host: Host, input: CommitMessageInput) -> ApiResul
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions

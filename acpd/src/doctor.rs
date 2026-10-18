@@ -131,6 +131,7 @@ pub async fn agent_check(
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let opened = manager
         .open_configured(agent, workspace, None, Vec::new(), access)

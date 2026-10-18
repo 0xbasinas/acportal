@@ -24,6 +24,11 @@ history_bytes = 8388608
 # Optional, per agent id: automatic review of agent shell lines. Off unless present
 # with rules = true; otherwise every shell line waits for approval on the phone.
 # See docs/security.md ("Shell-line auto-review") for what this does and does not protect.
+# Let sessions of an agent choose "Auto-approve everything" (the host then answers its requests itself;
+# deny rules, the folder and the sandbox still apply). See docs/security.md.
+# [yolo.my-agent]
+# enabled = true
+
 # [shell_review.my-agent]
 # rules = true                       # deterministic allowlist + hard-deny list
 # inert_env = false                  # default true: inert env overrides (PAGER=cat, TERM, NO_COLOR,

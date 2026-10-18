@@ -32,6 +32,7 @@ async fn restart_retains_effective_access_and_explicit_load_can_choose_new_acces
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let session = host
         .sessions
@@ -59,6 +60,7 @@ async fn restart_retains_effective_access_and_explicit_load_can_choose_new_acces
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let loaded = host
         .sessions

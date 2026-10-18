@@ -58,6 +58,7 @@ async fn workspace_access_is_negotiated_and_enforced_even_when_agent_ignores_it(
             form_elicitation: false,
             manual_approval: false,
             boolean_options: false,
+            yolo: false,
         };
         let manager = manager(
             workspace.path(),
@@ -2052,5 +2053,100 @@ async fn waiting_for_an_offline_user_does_not_trigger_agent_timeout() {
     tokio::time::sleep(Duration::from_millis(1300)).await;
     session.cancel().await.unwrap();
     assert_eq!(prompt.await.unwrap().unwrap()["stopReason"], "cancelled");
+    manager.shutdown().await;
+}
+
+/// "Auto-approve everything": a line the rules would only ask about runs without the person, a line
+/// on the hard-deny list is still refused, and a line naming a path outside the folder still asks.
+/// Linux only, like the other shell-line tests.
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn an_everything_session_runs_asked_lines_but_not_denied_or_outside_ones() {
+    use acpd::{config::YoloConfig, connection::WorkspaceAccess};
+    let workspace = tempfile::tempdir().unwrap();
+    let config = Config {
+        workspace_roots: vec![workspace.path().into()],
+        runtime: RuntimeConfig {
+            request_timeout_seconds: 5,
+            max_sessions: 4,
+            ..Default::default()
+        },
+        yolo: std::collections::BTreeMap::from([(
+            "test-agent".to_owned(),
+            YoloConfig { enabled: true },
+        )]),
+        ..Default::default()
+    };
+    let registry =
+        Registry::parse(&serde_json::to_string(&vec![definition(&[])]).unwrap()).unwrap();
+    let manager = SessionManager::new(config, registry).unwrap();
+    let session = manager
+        .open_configured(
+            "test-agent",
+            workspace.path(),
+            None,
+            Vec::new(),
+            WorkspaceAccess {
+                yolo: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let session_id = session.metadata().acp_session_id;
+    // A redirect is a line the rules only ask about; here nobody is asked.
+    let created = timeout(
+        Duration::from_secs(3),
+        create_shell(&session, &session_id, "echo hi > out.txt").await,
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let scope = json!({"sessionId":session_id,"terminalId":created["terminalId"]});
+    session
+        .connection
+        .request(
+            "_mock/terminal",
+            json!({"method":"terminal/wait_for_exit","request":scope}),
+        )
+        .await
+        .unwrap();
+    assert!(workspace.path().join("out.txt").exists());
+    assert!(session.connection.replay(0).pending_permissions.is_empty());
+    // The hard-deny list still refuses.
+    let denied = timeout(
+        Duration::from_secs(3),
+        create_shell(&session, &session_id, "rm -rf /").await,
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(
+        denied.downcast_ref::<AgentRpcError>().unwrap().0,
+        acpd::connection::CALLBACK_DENIED
+    );
+    // A path outside the folder still goes to the person.
+    let outside = create_shell(
+        &session,
+        &session_id,
+        "echo hi > /tmp/acpd-yolo-outside.txt",
+    )
+    .await;
+    let consent = next_permission(&session.connection).await;
+    assert_eq!(
+        consent["params"]["_meta"]["acpdSource"],
+        "host-shell-command"
+    );
+    session
+        .connection
+        .permission(
+            consent["id"].clone(),
+            json!({"outcome":"selected","optionId":"acpd-shell-deny"}),
+        )
+        .await
+        .unwrap();
+    assert!(outside.await.unwrap().is_err());
     manager.shutdown().await;
 }

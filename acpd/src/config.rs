@@ -1,4 +1,11 @@
 use crate::{auto_approve::AutoApproveConfig, shell_review::ShellReviewConfig};
+
+/// Lets sessions of one agent ask for "auto-approve everything". Off unless named here.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct YoloConfig {
+    pub enabled: bool,
+}
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -18,6 +25,8 @@ pub struct Config {
     pub shell_review: BTreeMap<String, ShellReviewConfig>,
     /// Per-agent host-side auto-approval of permission requests (off for an agent not listed).
     pub auto_approve: BTreeMap<String, AutoApproveConfig>,
+    /// Per-agent permission for a session to ask the host to approve everything (see `docs/security.md`).
+    pub yolo: BTreeMap<String, YoloConfig>,
     /// Experimental agent-to-agent delegation. Off by default.
     pub orchestrator: OrchestratorConfig,
     /// Windows hosts only: which shell runs host shell lines and checks.
@@ -274,6 +283,7 @@ impl Default for Config {
             state_directory: default_state_directory(),
             logging: LoggingConfig::default(),
             shell_review: BTreeMap::new(),
+            yolo: BTreeMap::new(),
             auto_approve: BTreeMap::new(),
             orchestrator: OrchestratorConfig::default(),
             windows: Default::default(),
@@ -414,6 +424,16 @@ impl Config {
             .is_some_and(|file| file.file_name().is_none())
         {
             bail!("log file must name a file")
+        }
+        for agent in self.yolo.keys() {
+            if agent.is_empty()
+                || agent.len() > 64
+                || !agent
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                bail!("yolo keys must be agent ids")
+            }
         }
         for (agent, review) in &self.shell_review {
             if agent.is_empty()
@@ -567,6 +587,40 @@ mod tests {
             dir.path().canonicalize().unwrap()
         );
     }
+    #[test]
+    fn yolo_is_off_unless_an_agent_is_named() {
+        assert!(Config::default().yolo.is_empty());
+        let on: Config = toml::from_str(
+            "[yolo.goose]
+enabled = true
+",
+        )
+        .unwrap();
+        assert!(on.yolo["goose"].enabled);
+        on.validate().unwrap();
+        let off: Config = toml::from_str(
+            "[yolo.goose]
+",
+        )
+        .unwrap();
+        assert!(!off.yolo["goose"].enabled);
+        assert!(
+            toml::from_str::<Config>(
+                "[yolo.goose]
+all = true
+"
+            )
+            .is_err()
+        );
+        let bad: Config = toml::from_str(
+            "[yolo.'a b']
+enabled = true
+",
+        )
+        .unwrap();
+        assert!(bad.validate().is_err());
+    }
+
     #[test]
     fn shell_review_is_off_by_default_and_parses_per_agent() {
         assert!(Config::default().shell_review.is_empty());

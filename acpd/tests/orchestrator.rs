@@ -516,6 +516,7 @@ async fn rights_cannot_exceed_the_callers_and_default_to_read_only() {
         form_elicitation: false,
         manual_approval: false,
         boolean_options: false,
+        yolo: false,
     };
     let root = fx.root_in("test-agent", "", read_only).await;
     let agent = agent_of(&root).await;
