@@ -27,6 +27,7 @@ fn error(e: TerminalError) -> ApiError {
         TerminalError::Disabled => ApiError(StatusCode::FORBIDDEN, "terminal_disabled"),
         TerminalError::TooMany => ApiError(StatusCode::TOO_MANY_REQUESTS, "too_many_terminals"),
         TerminalError::NotFound => ApiError(StatusCode::NOT_FOUND, "terminal_not_found"),
+        TerminalError::UnknownShell => ApiError(StatusCode::BAD_REQUEST, "unknown_shell"),
         TerminalError::NotController => ApiError(StatusCode::CONFLICT, "not_controller"),
         TerminalError::TooLarge => ApiError(StatusCode::PAYLOAD_TOO_LARGE, "input_too_large"),
         TerminalError::Busy => ApiError(StatusCode::TOO_MANY_REQUESTS, "terminal_busy"),
@@ -38,7 +39,7 @@ fn error(e: TerminalError) -> ApiError {
 pub(super) async fn list(State(host): State<Host>) -> ApiResult<Json<Value>> {
     let enabled = host.sessions.launch_settings().config.terminal.enabled;
     Ok(Json(
-        json!({"enabled":enabled,"terminals":host.terminals.list()}),
+        json!({"enabled":enabled,"terminals":host.terminals.list(),"shells":crate::shell::available_shells()}),
     ))
 }
 
@@ -50,6 +51,9 @@ pub(super) struct Open {
     rows: u16,
     #[serde(default = "cols")]
     cols: u16,
+    /// One of the ids from `shells` in the listing; absent = the host's default.
+    #[serde(default)]
+    shell: Option<String>,
 }
 fn rows() -> u16 {
     24
@@ -72,16 +76,18 @@ pub(super) async fn open(
     let terminals = host.terminals.clone();
     let device = auth.device.id;
     let (rows, cols) = (input.rows, input.cols);
-    let info =
-        tokio::task::spawn_blocking(move || terminals.open(&config, &folder, device, rows, cols))
-            .await
-            .map_err(super::internal)?
-            .map_err(|e| {
-                if let TerminalError::Failed(why) = &e {
-                    tracing::warn!(error = %why, "terminal could not start");
-                }
-                error(e)
-            })?;
+    let shell = input.shell;
+    let info = tokio::task::spawn_blocking(move || {
+        terminals.open(&config, &folder, device, rows, cols, shell.as_deref())
+    })
+    .await
+    .map_err(super::internal)?
+    .map_err(|e| {
+        if let TerminalError::Failed(why) = &e {
+            tracing::warn!(error = %why, "terminal could not start");
+        }
+        error(e)
+    })?;
     tracing::info!(terminal = %info.id, device = %device, folder = %info.folder, shell = %info.shell, "terminal opened by device");
     Ok((StatusCode::CREATED, Json(json!(info))))
 }
@@ -225,6 +231,7 @@ async fn run(
                         TerminalError::TooLarge => "input_too_large",
                         TerminalError::Ended => "terminal_ended",
                         TerminalError::NotFound => "terminal_not_found",
+                        TerminalError::UnknownShell => "unknown_shell",
                         _ => "terminal_failed",
                     };
                     if socket.send(text(json!({"type":"error","code":code}))).await.is_err() { return }

@@ -182,7 +182,11 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<T>>,
 {
-    timeout(Duration::from_secs(20), async {
+    // Windows waits for an agent process to let go of a folder before git can remove it, and the
+    // hosted runners are slow: the host itself retries for two minutes, so a short wait here only
+    // makes the test flaky (it failed on a loaded runner in about half of the runs).
+    let wait = if cfg!(windows) { 90 } else { 20 };
+    timeout(Duration::from_secs(wait), async {
         loop {
             if let Some(value) = check().await {
                 return value;

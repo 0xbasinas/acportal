@@ -847,3 +847,10 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .browser-picking { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12px; background: color-mix(in srgb, #4c9aff 16%, var(--surface)); border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
 .browser-picking > span { flex: 1; }
 .browser-picking .btn { height: 24px; padding: 0 10px; font-size: 12px; }
+.term-new { position: relative; display: inline-flex; align-items: center; }
+.term-pick { width: 18px; margin-left: -6px; }
+.term-scrim { position: fixed; inset: 0; z-index: 9; background: transparent; border: 0; cursor: default; }
+.term-menu { position: absolute; right: 0; bottom: 34px; min-width: 220px; z-index: 10; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); padding: 6px; }
+.term-menu-h { padding: 6px 10px; font-size: 11px; color: var(--text-3); }
+.term-menu button { width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--text); }
+.term-menu button:hover { background: var(--hover); }

@@ -8,6 +8,7 @@ import { I } from './ui'
 export type TermInfo = { id: string; folder: string; shell: string; rows: number; cols: number; exitCode?: number | null; controller?: string | null }
 type Api = <T>(method: string, path: string, body?: unknown) => Promise<{ ok: true; value: T } | { ok: false; error: string; code?: string }>
 
+const SHELL_KEY = 'acportal.termShell'
 const clampHeight = (n: number): number => Math.min(Math.max(n, 160), 720)
 
 /** The first dev-server address in a piece of terminal output, as a page this computer can show. */
@@ -140,28 +141,36 @@ export function TerminalDock(props: {
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [shells, setShells] = useState<{ id: string; name: string }[]>([])
+  const [menu, setMenu] = useState(false)
 
   useEffect(() => {
     let live = true
     setLoaded(false)
     if (!props.enabled) { setList([]); setLoaded(true); return }
-    void api<{ terminals: TermInfo[] }>('GET', '/v1/terminals').then((r) => {
+    void api<{ terminals: TermInfo[]; shells?: { id: string; name: string }[] }>('GET', '/v1/terminals').then((r) => {
       if (!live) return
-      if (r.ok) { setList(r.value.terminals); setActive((a) => a ?? r.value.terminals[0]?.id) } else setError(r.error)
+      if (r.ok) { setShells(r.value.shells ?? []); setList(r.value.terminals); setActive((a) => a ?? r.value.terminals[0]?.id) } else setError(r.error)
       setLoaded(true)
     })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostId, props.enabled])
 
-  const create = useCallback(async () => {
+  /** The shell last picked, if this host still offers it; otherwise the host chooses. */
+  const remembered = useCallback((): string | undefined => {
+    try { const id = localStorage.getItem(SHELL_KEY); return id && shells.some((s) => s.id === id) ? id : undefined } catch { return undefined }
+  }, [shells])
+  const create = useCallback(async (pick?: string) => {
     if (!folder || busy) return
-    setBusy(true); setError(undefined)
-    const r = await api<TermInfo>('POST', '/v1/terminals', { folder, rows: 24, cols: 80 })
+    setBusy(true); setError(undefined); setMenu(false)
+    if (pick) { try { localStorage.setItem(SHELL_KEY, pick) } catch { /* not remembered */ } }
+    const shell = pick ?? remembered()
+    const r = await api<TermInfo>('POST', '/v1/terminals', { folder, rows: 24, cols: 80, ...(shell ? { shell } : {}) })
     setBusy(false)
     if (r.ok) { setList((l) => [...l, r.value]); setActive(r.value.id) }
     else setError(r.code === 'too_many_terminals' ? 'The host allows only a few terminals at once. Close one first.' : r.code === 'path_not_allowed' ? 'The host does not allow terminals in this folder.' : r.error)
-  }, [api, folder, busy])
+  }, [api, folder, busy, remembered])
 
   const closeTab = useCallback(async (id: string) => {
     await api('DELETE', `/v1/terminals/${id}`)
@@ -196,7 +205,23 @@ export function TerminalDock(props: {
             </span>
           ))}
         </div>
-        <button className="icon-btn" aria-label="New terminal" title={folder ? 'New terminal in this session’s folder' : 'Open a session to start a terminal in its folder'} disabled={!props.enabled || !folder || busy} onClick={() => void create()}>{I.plus}</button>
+        <span className="term-new">
+          <button className="icon-btn" aria-label="New terminal" title={folder ? 'New terminal in this session’s folder' : 'Open a session to start a terminal in its folder'} disabled={!props.enabled || !folder || busy} onClick={() => void create()}>{I.plus}</button>
+          {shells.length > 1 && (
+            <button className="icon-btn term-pick" aria-label="Choose a shell" aria-haspopup="menu" aria-expanded={menu} title="Choose which shell to open" disabled={!props.enabled || !folder || busy} onClick={() => setMenu((m) => !m)}>{I.down}</button>
+          )}
+          {menu && (
+            <>
+              <button className="term-scrim" aria-label="Close the menu" onClick={() => setMenu(false)} />
+              <div className="term-menu" role="menu">
+                <div className="term-menu-h">Open a new terminal in</div>
+                {shells.map((s) => (
+                  <button key={s.id} role="menuitem" onClick={() => void create(s.id)}>{s.name}{remembered() === s.id && <span className="sub"> · last used</span>}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </span>
         <button className="icon-btn" aria-label="Close the terminal panel" onClick={props.onClose}>{I.close}</button>
       </div>
       {!props.enabled ? (

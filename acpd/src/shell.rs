@@ -267,6 +267,74 @@ pub fn is_msys_program(path: &Path) -> bool {
     file.take(16 << 20).read_to_end(&mut bytes).is_ok() && is_msys_image(&bytes)
 }
 
+/// A shell a person can pick for an interactive terminal. The id is what a client sends; the host
+/// looks the program up itself, so a client can never name an executable.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShellOption {
+    pub id: String,
+    pub name: String,
+    #[serde(skip)]
+    pub path: PathBuf,
+}
+
+/// The shells installed on this host that a terminal can start.
+pub fn available_shells() -> Vec<ShellOption> {
+    let mut out: Vec<ShellOption> = Vec::new();
+    let mut add = |id: &str, name: &str, path: Option<PathBuf>| {
+        if let Some(path) = path.filter(|p| p.is_file())
+            && !out.iter().any(|o| o.id == id)
+        {
+            out.push(ShellOption {
+                id: id.to_string(),
+                name: name.to_string(),
+                path,
+            });
+        }
+    };
+    #[cfg(windows)]
+    {
+        add("cmd", "Command Prompt", windows::cmd());
+        add("pwsh", "PowerShell 7", windows::pwsh());
+        add("powershell", "Windows PowerShell", windows::powershell());
+        add(
+            "bash",
+            "Git Bash",
+            windows::find_bash(host().bash_path.as_deref()),
+        );
+    }
+    #[cfg(unix)]
+    {
+        let mut paths: Vec<PathBuf> = Vec::new();
+        if let Some(shell) = std::env::var_os("SHELL").map(PathBuf::from)
+            && shell.is_absolute()
+        {
+            paths.push(shell);
+        }
+        if let Ok(text) = std::fs::read_to_string("/etc/shells") {
+            for line in text.lines().map(str::trim) {
+                if line.starts_with('/') {
+                    paths.push(PathBuf::from(line));
+                }
+            }
+        }
+        paths.push(PathBuf::from("/bin/sh"));
+        for path in paths {
+            let id = file_name(&path);
+            if matches!(id.as_str(), "nologin" | "false" | "git-shell" | "") {
+                continue;
+            }
+            let name = match id.as_str() {
+                "bash" => "Bash".to_string(),
+                "zsh" => "Zsh".to_string(),
+                "sh" => "sh".to_string(),
+                other => other.to_string(),
+            };
+            add(&id, &name, Some(path));
+        }
+    }
+    out
+}
+
 #[cfg(windows)]
 mod windows {
     use super::*;

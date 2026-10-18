@@ -284,3 +284,52 @@ async fn a_shell_over_the_socket_resumes_from_an_offset() {
         .unwrap();
     assert_eq!(info["terminals"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn the_listing_offers_shells_and_a_terminal_opens_in_the_one_chosen() {
+    let h = H::start(on()).await;
+    let list: Value = h
+        .client
+        .get(format!("http://{}/v1/terminals", h.addr))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let shells = list["shells"].as_array().unwrap();
+    assert!(!shells.is_empty());
+    assert!(
+        shells
+            .iter()
+            .all(|s| s["id"].is_string() && s["name"].is_string() && s.get("path").is_none()),
+        "no program paths leave the host"
+    );
+    let id = shells[0]["id"].as_str().unwrap();
+    let app = h.root.join("app");
+    let ok = h
+        .client
+        .post(format!("http://{}/v1/terminals", h.addr))
+        .bearer_auth(&h.token)
+        .json(&json!({"folder": app, "shell": id}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 201);
+    let body: Value = ok.json().await.unwrap();
+    assert_eq!(body["shell"], id);
+    let bad = h
+        .client
+        .post(format!("http://{}/v1/terminals", h.addr))
+        .bearer_auth(&h.token)
+        .json(&json!({"folder": app, "shell": "/bin/sh"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400);
+    assert_eq!(
+        bad.json::<Value>().await.unwrap()["error"]["code"],
+        "unknown_shell"
+    );
+}

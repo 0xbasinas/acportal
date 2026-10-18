@@ -5,6 +5,12 @@
 - `electron/browserPicker.ts` (isolated-world script, `pickedText`), `browser:pick` / `browser:pick-cancel`, the menu item and the "Click an element" bar in `Browser.tsx`. Checked live by driving the running app: hovering shows the overlay, the click returns the selector `button#add`, its text, size, styles and HTML and a JPEG of the element, the page's own button was not activated, the overlay is removed, a password input's value never appears in the result, and Esc and the Cancel button both end the pick with nothing sent. 7 new desktop tests (134 pass).
 - Limits: the picture is of the element's rectangle as drawn (a covered or scrolled-off element can be wrong); one element per pick; no iframe or shadow-DOM descent; it needs an open session to send to.
 
+## 18 October 2026 terminal shell picker
+
+- Host: `shell::available_shells()` (Windows: cmd, pwsh, Windows PowerShell, Git Bash; Unix: `$SHELL`, `/etc/shells`, sh) and `shell` on `POST /v1/terminals` (ids only, `unknown_shell` otherwise; paths are never sent to clients). Tests: `a_terminal_starts_in_the_shell_that_was_picked`, `the_listing_offers_shells_and_a_terminal_opens_in_the_one_chosen`.
+- Desktop dock: a menu beside "+"; the last pick is remembered and used for the first terminal next time. 2 tests. Checked live: cmd, PowerShell 7 and Git Bash tabs opened in the same folder.
+- Not done: the phone has no shell picker yet (it opens the host's default).
+
 ## 18 October 2026 Settings → Terminal (switching terminals and preview from the app)
 
 - Host: `GET`/`PUT /v1/settings/features` (`api/features.rs`; phone role; applied through the same reload as adding a folder; stored in `user-settings.json`; `null` falls back to `config.toml` as it was at host start). `tests/feature_settings.rs` 3 (on and off without a restart and `/v1/status` follows, null fallback, peer role refused, bad ports and unknown keys refused).
