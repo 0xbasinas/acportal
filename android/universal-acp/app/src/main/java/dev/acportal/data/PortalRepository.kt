@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>,val features:List<String> = emptyList())
+data class HostDetails(val host:HostProfile,val agents:List<AgentInfo>,val workspaces:List<Workspace>,val sessions:List<SessionInfo>,val recent:List<RecentWorkspace>,val features:List<String> = emptyList(),val previewPorts:List<Int> = emptyList())
 /** A draft from another device: apply it only while the composer still shows [replaces]. */
 data class RemoteDraft(val text:String,val replaces:String,val at:Long)
 class LiveSession(val host:HostProfile,info:SessionInfo,val transport:AgentTransport,initial:SessionState) {
@@ -128,7 +128,7 @@ class PortalRepository(
             for (session in sessions) saveMetadata(host.id,session)
             try {settings.saveHostProjects(host.id,HostProjects(workspaces.map {it.path},status.scratchRoot))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
             if(HOST_FEATURE_SHARED_DRAFTS in status.features)try {applyShared(host.id,api.shared(host))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
-            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features)
+            HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features,status.previewPorts.orEmpty())
         } catch (cancelled:CancellationException) { throw cancelled }
         catch (failure:Exception) { dao.markHostOffline(host.id);throw failure }
     }
@@ -154,6 +154,23 @@ class PortalRepository(
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
+    /** Answers a preview page's requests through the host with this host's credential. */
+    suspend fun previewFetcher(hostId:String):PreviewFetcher {
+        val host=dao.host(hostId) ?: error("Host is no longer saved")
+        return PreviewFetcher(api.client,host.address,vault.read(host.credentialAlias))
+    }
+    /** Puts `addition` at the end of the message being written, in the open composer too. */
+    fun appendToDraft(live:LiveSession,current:String,addition:String) {
+        live.remoteDraft.value=RemoteDraft((current.trimEnd()+"\n"+addition).trim(),current,System.currentTimeMillis())
+    }
+    /** Adds a picture of the preview to the next message, or says why it cannot. */
+    fun attachPreviewShot(live:LiveSession,jpeg:ByteArray):String? {
+        if(!live.info.promptCapability("image"))return "This agent does not accept images in prompts."
+        val content=kotlinx.serialization.json.buildJsonObject {
+            put("_meta",attachmentMetadata("preview.jpg"));put("type","image");put("mimeType","image/jpeg");put("data",android.util.Base64.encodeToString(jpeg,android.util.Base64.NO_WRAP))
+        }
+        return try {addAttachment(live,PromptAttachment("preview.jpg",content));null} catch(failure:IllegalArgumentException) {failure.message ?: "The picture could not be attached."} catch(failure:IllegalStateException) {failure.message ?: "The picture could not be attached."}
+    }
     /** Opens a shell on the host in `path`; the id is then passed to [terminalLink]. */
     suspend fun openTerminal(hostId:String,path:String,rows:Int,cols:Int):String = withContext(Dispatchers.IO) {api.openTerminal(dao.host(hostId) ?: error("Host is no longer saved"),path,rows,cols)}
     suspend fun endTerminal(hostId:String,id:String) = withContext(Dispatchers.IO) {api.closeTerminal(dao.host(hostId) ?: error("Host is no longer saved"),id)}

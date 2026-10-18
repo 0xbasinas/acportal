@@ -71,7 +71,9 @@ data class HostStatus(val hostId: String, val name: String, val version: String,
     /** `found` or `missing`: whether the host can start `gh` (not whether it is signed in). */
     val gh: String? = null,
     /** Where the host makes the empty folders for sessions outside every project; older hosts omit it. */
-    val scratchRoot: String? = null)
+    val scratchRoot: String? = null,
+    /** The dev-server ports a phone may preview; present only while preview is on. */
+    val previewPorts: List<Int>? = null)
 /** Host feature: forwards agent form elicitations when the phone opts in at session creation. */
 const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
 /** Host accepts `workspaceAccess.manualApproval` (the "Ask for everything" switch). Older hosts reject the field. */
@@ -86,6 +88,10 @@ const val HOST_FEATURE_AGENT_SESSION_LIST = "agentSessionList"
 const val HOST_FEATURE_PULL_REQUESTS = "pullRequests"
 /** The host's config turned interactive terminals on (`[terminal] enabled`). */
 const val HOST_FEATURE_TERMINAL = "terminal"
+/** The host runs git for the phone (`/v1/git`). */
+const val HOST_FEATURE_GIT = "git"
+/** The host's config lets this phone view dev servers on the host's computer (`[preview] enabled`). */
+const val HOST_FEATURE_PREVIEW = "preview"
 /** `POST /v1/commit-message`: an agent on the host writes a commit message or pull request text. */
 const val HOST_FEATURE_COMMIT_MESSAGE = "commitMessage"
 /** Host keeps drafts, titles and prompt history for all paired devices (`/v1/shared`). */

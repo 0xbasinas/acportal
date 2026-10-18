@@ -132,6 +132,18 @@ Without that table, or for an agent on another host, `POST /v1/sessions` with `y
 
 **Tests.** `acpd/tests/yolo.rs` (answers execute/delete/fetch; still leaves `.env` and `../outside.txt`; an ordinary session on the same host is still asked; refused when not allowed or combined with manual approval); `acpd/tests/lifecycle.rs` (Linux: an asked line runs, `rm -rf /` is refused, a path outside the folder asks); unit tests in `shell_review.rs`, `presets.rs` and `config.rs`. Removing the outside-path guard made the `../outside.txt` case fail.
 
+## Preview of a local dev server on a phone
+
+`[preview] enabled` (off by default, host config only) lets a paired phone-role device fetch pages from dev servers on the host's computer, for the ports listed in `[preview] ports` and nowhere else.
+
+- **What it can reach.** `127.0.0.1:{port}` for a listed port. Not another host, not another port, not a path outside the dev server: the host builds the address itself and refuses `..`. Redirects are not followed by the host; one that points back at the dev server is turned into a path on the page's own origin.
+- **What it cannot do.** `GET`/`HEAD` only, so the phone cannot post forms or call a dev server's write endpoints through it. The page's cookies are not kept and the phone's token, cookies and `Origin` are not passed on, so a dev server never sees the credential for the host.
+- **What it exposes.** Anything a listed dev server serves, to every paired phone. A dev server often serves source files and may expose admin or debug routes; list only ports whose content you are willing to show a paired phone. Peer hosts cannot use it.
+- **The page is untrusted.** On the phone it runs in a view that can reach only the host through the app's own fetcher, with no bridge to the app.
+- **Audit.** The host logs the device, port and method at debug level, never the path or query.
+
+Tests: `acpd/tests/preview_api.rs`.
+
 ## Host terminals
 
 `[terminal] enabled` (off by default, host config file only) lets a paired **phone-role** device open an interactive shell on the computer, from the desktop app or the phone. This is the one feature that hands a client a general shell, so read the limits:

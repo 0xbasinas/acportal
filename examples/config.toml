@@ -64,3 +64,9 @@ history_bytes = 8388608
 # scrollback_kib = 1024              # output kept for reconnecting clients
 # # shell = "/bin/zsh"               # default: $SHELL or /bin/sh; on Windows the [windows] shell choice
 # inherit_env = false                # true hands the shell the host's whole environment, secrets included
+
+# Show a dev server running on this computer on a paired phone, through the host's own connection.
+# Off unless you turn it on, and only these ports on 127.0.0.1 can be reached. See docs/security.md.
+# [preview]
+# enabled = false
+# ports = [3000, 4173, 5173, 5174, 8000, 8080]
