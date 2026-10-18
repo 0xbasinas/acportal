@@ -4,7 +4,7 @@
 
 ## Proposed ADRs for a fuller agent development environment (18 October 2026)
 
-Thirty-five proposals from three research rounds, none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
+Forty-four proposals from four research rounds (the fourth also amends six earlier ADRs), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
 
 - [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
 - [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
@@ -13,6 +13,8 @@ Thirty-five proposals from three research rounds, none implemented; start at [th
 - [ ] [Android integration](docs/adr-android-integration.md), [agent browser tools](docs/adr-agent-browser-tools.md), [risk-ranked review](docs/adr-risk-ranked-review.md), [multi-repo tasks](docs/adr-multi-repo-tasks.md), [context handoff](docs/adr-context-handoff.md), [device rights](docs/adr-device-roles.md).
 - [ ] [Workflow recipes](docs/adr-workflow-recipes.md), [session sharing](docs/adr-session-sharing.md), [host web client](docs/adr-host-web-client.md), [terminal persistence](docs/adr-terminal-persistence.md), [plan review](docs/adr-plan-review.md), [overlap warning](docs/adr-overlap-warning.md).
 - [ ] [Devcontainer import](docs/adr-devcontainer-import.md), [warm worktrees](docs/adr-warm-worktrees.md), [host hooks](docs/adr-host-hooks.md), [composer helpers](docs/adr-composer-mentions.md), [MCP Apps spike](docs/adr-mcp-apps.md).
+- [ ] [Protocol inspector](docs/adr-protocol-inspector.md), [approval rules](docs/adr-approval-rules.md), [activity panel](docs/adr-activity-panel.md), [context attachments](docs/adr-context-attachments.md), [task pipelines](docs/adr-task-pipelines.md).
+- [ ] [Idle suspend](docs/adr-idle-suspend.md), [git forges](docs/adr-git-forges.md), [outbound relay](docs/adr-outbound-relay.md) (specified only; read with [remote routes](docs/adr-remote-routes.md)), [chat bridge](docs/adr-chat-bridge.md).
 
 ## Terminals, preview, browser and status bar (18 October 2026)
 

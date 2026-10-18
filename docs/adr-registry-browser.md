@@ -19,7 +19,9 @@ Add a registry browser to Add agent on desktop and Android, backed by the host.
 3. **Adding** an entry writes a normal disabled registry entry (`enabled: false`) with a literal executable and argument array. For `npx`/`uvx` the executable is the resolved `npx`/`uvx` path and the package spec is an argument; for `binary` the archive must match the manifest `sha256` before it is unpacked into a host-owned directory. Nothing is run at add time.
 4. A person enables it explicitly, then runs the existing `doctor --agent` sign-in check. An entry is marked "from registry, version X" so an update can be offered later; updates are never automatic.
 5. `env` values from a manifest are shown for review and copied as plain, non-secret values only.
-6. Unknown manifest fields are ignored; a manifest that fails validation is listed as unavailable with the reason.
+6. **Upgrades install beside the old version**: the new distribution unpacks to a new directory, runs `doctor --agent` (initialize and `session/new`, no prompt), and only then switches the registry entry; a failed check leaves the old version untouched (AcpAgent Client does this). Binary downloads are checked against the manifest `sha256`. If `npx` needs Node and none is found, the screen says so and offers the install instructions; the host does not download a runtime on its own in the first cut.
+7. **Sign-in flows** from `authMethods` are shown as the agent advertises them. "Agent auth" (the agent opens a browser) is started by the agent on the host's machine; a method that needs a login command is run in a *host terminal* the person sees and controls, never silently. The result is checked by the same sign-in diagnostics doctor already has.
+8. Unknown manifest fields are ignored; a manifest that fails validation is listed as unavailable with the reason.
 
 ## Options Considered
 

@@ -14,13 +14,14 @@ Happy (an open-source mobile and web client for Claude Code and Codex) advertise
 
 Add **guest links**: access to exactly one session, at `observer` or `approver` level, for a limited time. This builds on the rights levels in [adr-device-roles](adr-device-roles.md) and the remote-route work in [adr-remote-routes](adr-remote-routes.md); it adds no relay.
 
-1. The owner picks **Share session**, a level (`observer` default, `approver` after an extra confirmation), and an expiry (15 minutes to 24 hours, default 1 hour). The host creates a guest credential scoped to that session id and shows a one-use link or QR code. The code lasts 60 seconds to redeem, as pairing codes do today.
+1. The owner picks **Share session**, a level (`observer` default, `suggester`, or `approver` after an extra confirmation), and an expiry (15 minutes to 24 hours, default 1 hour). The host creates a guest credential scoped to that session id and shows a one-use link or QR code. The code lasts 60 seconds to redeem, as pairing codes do today.
 2. The guest credential is a device token with `scope = session:<id>` and the chosen rights. The route middleware refuses any route not tied to that session, including the session list, other sessions, hosts, settings, git, terminals, preview and the audit trail of other sessions. A guest cannot see workspace paths outside the session's own.
 3. **Reach**: the guest connects to the host address the link names. The host operator must already expose that address (a tailnet, a published HTTPS route, per the remote-routes ADR). This ADR does not make a host reachable.
 4. The guest's web client is the host-served page in [adr-host-web-client](adr-host-web-client.md), so no app install is needed.
 5. The owner sees who is connected (guest label and level) in the session header and can **remove the guest** at once. Ending the session, the expiry or revocation closes open sockets.
 6. Every guest action that changes anything (approver decisions, control requests) is written to the audit trail with the guest label ([adr-audit-and-trace](adr-audit-and-trace.md)). A guest never gains control handoff; at `approver` they can approve or deny and cancel, and cannot prompt.
-7. Content: a guest sees everything in the session, including file contents and command output. The share screen says this in plain words and repeats it on the guest's page.
+7. **Suggester level** (Bellows offers watch, suggest and type roles): a suggester can submit text suggestions. Each lands in the session as a *proposed prompt* attributed to the guest, queued but never sent. Only the owner can accept (it is then sent once like any prompt), edit or discard it. This lets a colleague help without being able to drive the agent. Bellows also lets a session be handed over as a single file for a teammate to continue with their own agent; see the handoff export in [adr-context-handoff](adr-context-handoff.md).
+8. Content: a guest sees everything in the session, including file contents and command output. The share screen says this in plain words and repeats it on the guest's page.
 
 ## Options Considered
 

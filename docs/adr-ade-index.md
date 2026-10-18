@@ -1,6 +1,6 @@
 # Agentic development environment ideas: index and research notes
 
-Three rounds of research on 18 October 2026: the first gave twelve ADRs, the second twelve more ("credential proxy" to "device rights"), the third eleven more ("workflow recipes" down).
+Four rounds of research on 18 October 2026: the first gave twelve ADRs, the second twelve more ("credential proxy" to "device rights"), the third eleven more ("workflow recipes" to "MCP Apps spike"), and a fourth round on ACP desktop and mobile clients added nine ("protocol inspector" down) and amended six earlier ADRs.
 
 **Date:** 18 October 2026
 **Status:** All ADRs listed here are *Proposed*. None changes code. Each says "No code from this ADR until they accept it."
@@ -44,6 +44,15 @@ Three rounds of research on 18 October 2026: the first gave twelve ADRs, the sec
 | [host hooks](adr-host-hooks.md) | Event hooks: run, notify (ntfy or webhook), capped prompt | Claude Code hooks, Kiro hooks, Warp notifications | host event stream, sandbox |
 | [composer helpers](adr-composer-mentions.md) | Slash commands, `@` mentions, deterministic next-prompt suggestions | Codex `@` menu and composer predictions | `available_commands_update` |
 | [MCP Apps spike](adr-mcp-apps.md) | Written research spike only, before any code | MCP Apps, A2A | form elicitation |
+| [protocol inspector](adr-protocol-inspector.md) | Metadata timeline always; opt-in redacted content capture; redacted export | ACP Inspector, AcpAgent Client traffic panel | `frame_metadata`, `connection.rs` |
+| [approval rules](adr-approval-rules.md) | "Allow and remember" creates a narrow, revocable host rule, never ACP `allow_always` | Bellows local rules, Warp lists | `auto_approve.rs`, `shell_review.rs` |
+| [activity panel](adr-activity-panel.md) | One list of everything running, nested, with stop and resource use | Threadlines "nothing runs invisibly", Kepler Agent Graph, Harnss tasks | `terminals.rs`, tasks, `process_tree.rs` |
+| [context attachments](adr-context-attachments.md) | Chip tray to add terminal, diff, tool and page context; image annotation | Threadlines, Harnss annotation, Intelligent Terminal | attachments, browser picker |
+| [task pipelines](adr-task-pipelines.md) | Linear pipelines of recipes with host-evaluated gates | Gold Band workflows, Kepler Actions, Codeg to-dos | recipes, checks, review prompt |
+| [idle suspend](adr-idle-suspend.md) | Opt-in suspend of idle agent processes via `session/close`, resume via `session/load` | AcpAgent Client suspend | `close_politely`, session catalog |
+| [git forges](adr-git-forges.md) | Forge adapters over `gh`, `glab`, `tea` for PRs and issues | Codeg, Kepler | `api/pr.rs` |
+| [outbound relay](adr-outbound-relay.md) | Specified only: self-hosted E2EE relay, host dials out | AgentDeck, Mobvibe, Reemoat, Happy, Bellows | remote routes ADR |
+| [chat bridge](adr-chat-bridge.md) | Notify first; then a Telegram bot with low-risk approvals as a low-rights device | OpenACP, ACP Router, cc-connect and a dozen more | host hooks, device rights |
 
 ## Suggested order
 
@@ -55,6 +64,7 @@ Three rounds of research on 18 October 2026: the first gave twelve ADRs, the sec
 6. **PR watch**, **issue tracker**, **scheduled runs**, **multi-repo tasks**, **project context**, **editor handoff**: depend on earlier work or on a real `gh` check.
 7. **Credential proxy**, **agent browser tools** and **container isolation**: security-sensitive and platform-specific; spike first, and decide [external MCP](adr-external-mcp.md) before browser control.
 8. **Third-round additions**: start with the small, high-use ones: **composer helpers** (slash commands use data the Android reducer already holds), **plan review** (extends the desktop's existing plan item), **overlap warning** and **host hooks** (`notify` first: it answers push notifications without a relay). **Host web client** unlocks iPhone and **session sharing**; do it after **device rights**. **Terminal persistence** fixes the biggest known phone-terminal gap. **Workflow recipes** feed scheduled runs and the issue tracker. **Devcontainer import** and **warm worktrees** wait for workspace scripts. The **MCP Apps spike** is reading, not building.
+9. **Fourth-round additions (ACP clients)**: **approval rules** and **activity panel** are the most visible gaps on both clients (the host never grants `allow_always`, and there is no single list of what is running). **Protocol inspector** is cheap given `frame_metadata` and pays back in every compatibility problem. **Context attachments** and **task pipelines** build on recipes and the review surface. **Idle suspend** needs one real-agent check first. **Git forges** should land before PR watch and the issue tracker if GitLab matters to you. **Chat bridge** stage 1 is already host hooks. **Outbound relay** is specified but should wait until tunnels have been tried on a real phone.
 
 ## Research notes
 
@@ -94,6 +104,15 @@ Read 18 October 2026 through web search and page fetches. Most sources are vendo
 - **MCP Apps and A2A**: interactive tool UIs and an Agent Card protocol, both described only in secondary sources. [MCP roadmap summary](https://mcpplaygroundonline.com/blog/mcp-2026-roadmap-whats-changing-for-developers.md).
 - **Environments**: `devcontainer.json` is the portable layer (Codespaces, DevPod, Daytona, Coder); Ona (formerly Gitpod) pivoted to agent sandboxes with prebuilds; one source claims an acquisition that I could not corroborate. [comparison](https://www.morphllm.com/comparisons/codespaces-alternative).
 - **Phone terminal stacks**: Mosh plus tmux plus a mobile SSH client (Blink, Termius), with keepalive settings and named sessions; Mosh cannot forward ports. [Blink and Tailscale](https://docs.blink.sh/integrations/tailscale+mosh), [phone setup guide](https://getmoshi.app/articles/best-setup-coding-agent-phone).
+- **The ACP client landscape** (official clients page, read 18 October 2026): over 100 entries in editors (Zed, JetBrains, VS Code extensions, Neovim, Emacs, Obsidian, Sublime, Qt Creator, Unity, Visual Studio), terminals (Toad, Nori, Hydra, Raven, Microsoft's Intelligent Terminal), notebooks (marimo, Jupyter, DuckDB), mobile (AgentDeck, Agmente, Ferngeist, Happy, Mobvibe, Runmote, Shellular, VACP, GetPullRequest), about 15 chat bridges, and many desktop and web apps. [clients page](https://agentclientprotocol.com/get-started/clients.md).
+- **Harnss** (desktop, Electron/React, multi-engine): Ask First / Accept Edits / Allow All modes switchable mid-session, plan mode, Agent Store from the ACP registry, background task agents panel, per-project MCP with in-app OAuth, git panel with commit-message suggestions, embedded browser and terminal, image annotation, on-device Whisper dictation, full-text session search, import of Claude Code CLI sessions. [repository](https://github.com/OpenSource03/harnss).
+- **Codeg** (desktop, server and Docker): 19 built-in agents, `@` to run several agents in one thread, to-dos with a worktree and optional schedule that wait for review, three-pane merge editor, forge support for GitHub, GitLab, Gitea and Forgejo, reads session history from agent CLI stores, Telegram/Lark/WeChat channels, token analytics, `codeg-cli`, ten languages and token-level theming. [repository](https://github.com/xintaofei/codeg).
+- **AgentDeck** (Android): QR pairing with a pairing id that derives encryption keys, a self-hostable relay carrying only ciphertext, push through an FCM forwarder with ids only, push-to-talk voice, a live view of an emulator or browser tab the agent is driving. [repository](https://github.com/mantou132/AgentDeck).
+- **AcpAgent Client** (Windows, Flutter): traffic panel with redacted JSON-RPC, registry install with sha256 checks and side-by-side upgrades, agent and terminal sign-in flows, session suspend via `session/close`, "waiting for you" badges. GPL-3.0 and it reuses Zed code, so nothing here should be copied. [repository](https://github.com/ClickPM/AcpAgentClient). **ACP Inspector**: protocol log with method filter, capability card, inline permission handling. [repository](https://github.com/newioapp/acp-inspector).
+- **Bellows**: live session sharing with watch, suggest and type roles (suggestions queued until accepted), team policy to block `.env` access and hold destructive git operations, daily machine budgets, hash-linked audit trail, hand a session over as a file. [site](https://bellowsai.app).
+- **Kepler** (GitKraken): parallel agents in worktrees across repositories, Actions for implementing issues and reviewing PRs, Agent Graph, kanban view, issue trackers (Jira, Linear, Trello, GitHub, GitLab), SSH and WSL, answering agent questions from a phone. [site](https://www.gitkraken.com/kepler).
+- **Perch** (macOS, remote agents over SSH): steering and queueing support differs per agent; pending messages stay visible until history confirms them; reconnect recovery is still work in progress by its own account. [repository](https://github.com/chenweigao/perch). **Threadlines** (T3 Code fork, MIT): attach terminal lines to the next message, token and cost dashboards across machines, QR phone pairing, "nothing runs invisibly". [repository](https://github.com/Threadlines/threadlines).
+- **Reemoat**, **Mobvibe**, **Gold Band**, **Intelligent Terminal**: outbound-dialling daemons with an E2EE relay and a control plane; a gateway relay with E2EE; per-node agent workflows with acceptance criteria; Microsoft's Windows Terminal fork with an ACP agent pane, shell context and failed-command hand-off. [Reemoat](https://github.com/rends-east/reemoat), [Mobvibe](https://github.com/Eric-Song-Nop/mobvibe), [Gold Band](https://github.com/diodeme/Gold-Band), [Intelligent Terminal](https://github.com/microsoft/intelligent-terminal).
 
 Not found: reliable details on Emdash, Crystal, Paseo, Happy, Kiro steering files, Jules and Devin tracker integrations, OpenHands multi-user features, Graphite and Greptile, VibeTunnel, a Goose scheduler, `goose serve`, or checkpoints in any orchestrator. Those ideas are marked as unconfirmed in the ADRs that touch them.
 
@@ -104,6 +123,10 @@ Not found: reliable details on Emdash, Crystal, Paseo, Happy, Kiro steering file
 - **Team features** (SSO, groups, spend limits): Coder's territory; [device rights](adr-device-roles.md) is the single-owner version.
 - **A2A interoperability**: a stated non-goal of the orchestrator design; revisit with the MCP Apps spike.
 - **Vim keys and keyboard-first navigation** (Mux): small desktop polish.
+- **Reading agent CLIs' on-disk session stores** (Codeg, Harnss import Claude Code sessions): declined for now. Each agent's format is private and changes; ACP `session/list` and `session/load` (already used by Earlier sessions) are the uniform route.
+- **Live view of an emulator or browser the agent is driving** (AgentDeck): see [agent browser tools](adr-agent-browser-tools.md); mirroring a device needs its own review.
+- **Interface languages and token-level theming** (Codeg: ten languages, twelve themes): Android has resources; the desktop has none that I found. A localisation ADR when there is demand.
+- **Infinite canvas of cards** (Codeg): a layout idea, not needed for the phone.
 - **Wear OS or a watch tile** for approvals waiting: cheap if [Android integration](adr-android-integration.md) lands.
 
 ## What this project already has

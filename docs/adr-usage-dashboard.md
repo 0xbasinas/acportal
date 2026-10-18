@@ -18,7 +18,7 @@ Record usage per session on the host and show it passively.
 2. `GET /v1/usage?since=` returns per-session totals and per-day sums by agent and project. Agents that never send `usage_update` appear as "not reported", not as zero.
 3. Clients show: the status bar (current session tokens and cost when reported), the Sessions list (small figure per row), and a usage page (per day, per agent, per project).
 4. Context size (`used` out of `size`) gets a warning style at 80% and 95% so a person can start a new session before compaction.
-5. No enforcement. A later ADR may add soft limits that only *ask the phone*, never silently stop a prompt.
+5. No enforcement. A later ADR may add soft limits that only *ask the phone*, never silently stop a prompt. For reference, Bellows offers a daily budget per machine that warns or blocks new turns once reached; the soft form here would be a warn-and-ask at a configured daily figure, with the block left out until there is evidence it is wanted.
 
 ## Options Considered
 

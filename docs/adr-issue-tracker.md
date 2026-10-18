@@ -46,6 +46,7 @@ Phase one is GitHub Issues through `gh`; Linear is a deep-link import. No tracke
 
 - Prompt-injection risk: issue and comment text can contain instructions. The fenced, labelled block and the review step reduce but do not remove this; the same reasoning as [adr-pr-watch](adr-pr-watch.md).
 - Tests: a fake `gh` returning an oversized body; fence handling when the body contains triple backticks; branch-name sanitising.
+- If [adr-git-forges](adr-git-forges.md) is accepted, issue listing goes through the forge adapter (GitLab issues via `glab`).
 - The `acportal://` scheme must be registered by the desktop installer and the Android manifest; both treat it as untrusted input.
 
 ## Action Items

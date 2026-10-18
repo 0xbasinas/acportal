@@ -19,7 +19,9 @@ Offer three explicit actions while a turn is running, owned by the host so every
 3. **Interrupt**: today's cancel.
 4. The queue is bounded (10 prompts, 64 KiB each), lives in memory with the session, and is lost with the session. A host restart drops it and the clients say so.
 5. A phone that is offline keeps its text as a **draft**. Drafts never become queued prompts on reconnect without a tap. This preserves the invariant that nothing is sent on reconnect without a user action.
-6. Queued items and their order are published in the session journal as `_meta` entries so reconnecting clients see them.
+6. **Pending stays visible until confirmed.** A queued or just-sent prompt is shown as pending until the journal contains the matching user message (Perch keeps pending messages visible until runtime history confirms them). If the agent never confirms, the item shows "Not confirmed" with Retry and Discard; nothing is resent on its own.
+7. **Per-agent behaviour is data, not code.** Perch documents that steering and queueing support differs by agent. The host records what each agent actually did in a small capability note per agent id (observed, not assumed) and the UI labels "Steer" accordingly. No branch on agent names in the apps.
+8. Queued items and their order are published in the session journal as `_meta` entries so reconnecting clients see them.
 
 ## Options Considered
 

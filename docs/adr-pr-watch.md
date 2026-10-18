@@ -46,6 +46,7 @@ Add a **PR watch** that turns new feedback into a *proposed* prompt. It never se
 ## Consequences
 
 - `docs/security.md`: feedback text is untrusted input to the agent; the fenced wrapper reduces but does not remove injection risk, which is why the automatic path is capped and opt-in.
+- If [adr-git-forges](adr-git-forges.md) is accepted, the poller calls the forge adapter instead of `gh`, so GitLab works too.
 - Only the fake `gh` has been exercised so far; a real `gh pr create` against a throwaway repository (already in TODO) is a prerequisite.
 - Tests: a fake `gh` that returns a failing check then a pass; the cap of three rounds; the watch ends on merge.
 

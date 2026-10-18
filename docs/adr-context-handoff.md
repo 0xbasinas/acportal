@@ -22,7 +22,8 @@ ACP agents send `usage_update` with `used` and `size`, which this host already r
    The person sees the note, can edit it, and it becomes the first prompt of a new session in the same worktree. Nothing is sent until they confirm. The old session stays open and readable.
 3. **Optional agent-written summary**: a button asks the *current* session for "a short handoff summary of decisions, open problems and next steps", shown for review and pasted into the note. It costs one prompt and is labelled as the agent's words.
 4. **Another host**: if the worktree has a pushed branch (a push is an explicit, existing phone-confirmed action), the note offers "continue on host B": the other host checks out that branch into a new worktree and starts a session with the note. Without a remote branch, the option is hidden; no files are copied between hosts by this feature. Peers use the existing peer bridge when the hosts are paired as peers, otherwise the desktop or phone drives both hosts, since it already holds both connections.
-5. Agent-side conversation state is *not* moved. A new session on another agent or host starts with the note, not with the old transcript. The screen says so.
+5. **Export as a file**: the note can be saved as a single `.acp-handoff.json` file (note text, branch and base commit, changed-file list, check results, no tokens and no host address) so a teammate on another machine can import it into their own host and continue with their own agent. Import shows the whole note for review and creates nothing until confirmed; it never copies files, so the teammate needs the branch. Bellows offers the same idea as handing a session over as one file.
+6. Agent-side conversation state is *not* moved. A new session on another agent or host starts with the note, not with the old transcript. The screen says so.
 
 ## Options Considered
 
