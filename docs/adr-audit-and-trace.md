@@ -20,6 +20,8 @@ Two layers, both off the critical path.
 4. **Tamper evidence.** Each audit line carries the SHA-256 of the previous line (a hash chain, as Bellows describes for its audit trail). `acpd audit verify` recomputes the chain and reports the first break. A chain proves later edits or deletions inside the file, not that the host user did not delete the whole file or the tail; an operator who needs more writes the chain head to an external place with a `notify` hook ([adr-host-hooks](adr-host-hooks.md)) after each day.
 5. Retention: the audit file defaults to 30 days or 16 MiB, whichever is smaller, configurable. Export is best effort and not a durable record.
 
+Note on agent-side telemetry: ACP had an *agent telemetry export* RFD that relied on the client injecting variables when it launched the agent; it was removed on 2 July 2026 because that does not work for remote transports where the client does not launch the agent, and users were pointed to standard OpenTelemetry SDK environment configuration instead. That supports exporting from the host (which sees every event) rather than asking agents to export.
+
 ## Options Considered
 
 ### Option A: local audit trail now, OTLP export as an option (chosen)

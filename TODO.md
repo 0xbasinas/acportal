@@ -4,7 +4,7 @@
 
 ## Proposed ADRs for a fuller agent development environment (18 October 2026)
 
-Forty-four proposals from four research rounds (the fourth also amends six earlier ADRs), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
+Fifty-four proposals from five research rounds (the last two also amend fifteen earlier ADRs; start with the [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md)), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
 
 - [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
 - [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
@@ -15,6 +15,8 @@ Forty-four proposals from four research rounds (the fourth also amends six earli
 - [ ] [Devcontainer import](docs/adr-devcontainer-import.md), [warm worktrees](docs/adr-warm-worktrees.md), [host hooks](docs/adr-host-hooks.md), [composer helpers](docs/adr-composer-mentions.md), [MCP Apps spike](docs/adr-mcp-apps.md).
 - [ ] [Protocol inspector](docs/adr-protocol-inspector.md), [approval rules](docs/adr-approval-rules.md), [activity panel](docs/adr-activity-panel.md), [context attachments](docs/adr-context-attachments.md), [task pipelines](docs/adr-task-pipelines.md).
 - [ ] [Idle suspend](docs/adr-idle-suspend.md), [git forges](docs/adr-git-forges.md), [outbound relay](docs/adr-outbound-relay.md) (specified only; read with [remote routes](docs/adr-remote-routes.md)), [chat bridge](docs/adr-chat-bridge.md).
+- [ ] [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md), [conversation fork](docs/adr-conversation-fork.md), [conflict resolution](docs/adr-conflict-resolution.md), [keep awake](docs/adr-keep-awake.md), [WSL agents](docs/adr-wsl-agents.md).
+- [ ] [Terminal blocks](docs/adr-terminal-blocks.md), [agent scorecards](docs/adr-agent-scorecards.md), [first-run setup](docs/adr-first-run-setup.md), [data lifecycle](docs/adr-data-lifecycle.md), [file viewer](docs/adr-file-viewer.md).
 
 ## Terminals, preview, browser and status bar (18 October 2026)
 

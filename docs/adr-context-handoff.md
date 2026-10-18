@@ -12,6 +12,7 @@ ACP agents send `usage_update` with `used` and `size`, which this host already r
 
 ## Decision
 
+0. **Compaction is the agent's act, shown by us.** ACP's draft compaction RFD has the *agent* send `compaction_update` (with `compactionId`, `status` of in progress, completed, failed or cancelled, and an optional summary) and optional summary chunks; clients only display them and cannot trigger compaction. Once a client advertises `clientCapabilities.session.compaction`, the timeline shows a compaction card with the summary expandable, so a person can see what the agent kept. This ADR's handoff note is the *client-side* alternative when the person wants to start fresh (see [adr-acp-capabilities-roadmap](adr-acp-capabilities-roadmap.md)). Where the agent supports `session/fork`, see [adr-conversation-fork](adr-conversation-fork.md).
 1. **Context meter**: the session header shows `used / size` where the agent reports it, with warning styles at 80% and 95% and the words "reported by the agent". If it reports nothing, the meter is absent.
 2. **Continue in a new session** (action in the session menu and at the 80% warning): the host builds a **handoff note** from state it can state with certainty, with no model call:
    - the original task prompt and the last N user prompts (bounded),

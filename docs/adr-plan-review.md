@@ -14,6 +14,7 @@ ACP has a `plan` session update: a list of entries with content, priority and st
 
 Show the ACP plan as a first-class, pinned object, and add a small set of actions that turn into ordinary prompts. Nothing here needs a new protocol call.
 
+0. **Protocol note**: a draft RFD (2 April 2026) adds `plan_update`, which creates or replaces a whole plan by `planId` as `items`, a `file` URI or `markdown`, and `plan_removed`, gated by a client `plan` capability; the existing `plan` update stays for fallback. When advertised, the card supports several plans at once and file or Markdown plans directly (the "Pin as plan" fallback below becomes rarely needed). See [adr-acp-capabilities-roadmap](adr-acp-capabilities-roadmap.md).
 1. **Plan card**: pinned at the top of the conversation and in the task view, showing entries with status (pending, in progress, completed) and priority. It updates live from `plan` updates and keeps a history of versions, so a reviewer sees what changed between versions.
 2. **Actions**, each producing one reviewable prompt:
    - **Approve and continue**: "The plan is approved. Proceed." Used in Plan mode.

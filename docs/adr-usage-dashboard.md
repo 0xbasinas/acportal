@@ -20,6 +20,8 @@ Record usage per session on the host and show it passively.
 4. Context size (`used` out of `size`) gets a warning style at 80% and 95% so a person can start a new session before compaction.
 5. No enforcement. A later ADR may add soft limits that only *ask the phone*, never silently stop a prompt. For reference, Bellows offers a daily budget per machine that warns or blocks new turns once reached; the soft form here would be a warn-and-ask at a configured daily figure, with the block left out until there is evidence it is wanted.
 
+ACP status (as read 18 October 2026): session usage (`used`, `size`, cumulative `cost` with an ISO 4217 currency, delivered as `usage_update`) is **completed** (5 June 2026), so this ADR's inputs are standard. Per-turn token accounting is a separate draft (end-turn token usage) with open questions about cumulative versus per-turn values; this ADR uses per-session figures and per-day deltas computed on the host until that settles. See [adr-acp-capabilities-roadmap](adr-acp-capabilities-roadmap.md).
+
 ## Options Considered
 
 ### Option A: host-recorded, passive display (chosen)

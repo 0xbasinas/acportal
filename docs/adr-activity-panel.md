@@ -15,11 +15,12 @@ This host starts many kinds of things: agent processes, host terminals (`termina
 One **Activity** panel per host, built from state the host already owns, with a stop control for each item.
 
 1. `GET /v1/activity` returns bounded rows: `kind` (`agent`, `terminal`, `task`, `check`, `preview`, `hook`, `automation`, `watch`), `id`, `parent` (session or task id, so rows nest), `title`, `state`, `started`, `cpu_ms` and `rss_kb` where the OS gives them for the process tree (best effort, absent on failure), and `stoppable`.
-2. The desktop shows it as a docked panel next to the terminal dock and the status bar count ("7 running"); Android shows it from the host menu. Rows nest under their session or task and can be collapsed.
-3. **Stop** uses the existing stop paths: cancel turn, kill terminal, cancel task, release preview, cancel a check, end an agent. No new kill mechanism, and the host never uses a stored PID as authority (existing rule); it uses the handles it already holds.
-4. **Resource column**: process-tree CPU time and resident memory are read through the same platform code that tracks process lifetime (`process_tree.rs`), so a sort by memory finds the heavy agent. Values are labelled approximate.
-5. **Idle and long-running flags**: an agent with no turn for 30 minutes, or a terminal with no output for 2 hours, gets a quiet "idle" tag with a Stop action. Nothing is stopped automatically (see [adr-idle-suspend](adr-idle-suspend.md) for the automatic option).
-6. Everything the panel lists is already visible somewhere; the panel adds no new content, only a unified view.
+2. Subagents: when the client advertises `subagents` (draft RFD; baseline in v2), the agent announces children with `subagent_update` (id, title, state `running`, `requires_action` or `idle`, and a `cancel` capability). Children appear as nested rows under their parent session; the only control is Stop through `session/cancel` when `cancel` is set, and a dropped connection shows the last state as stale, not as success or failure. Children never get a prompt box.
+3. The desktop shows it as a docked panel next to the terminal dock and the status bar count ("7 running"); Android shows it from the host menu. Rows nest under their session or task and can be collapsed.
+4. **Stop** uses the existing stop paths: cancel turn, kill terminal, cancel task, release preview, cancel a check, end an agent. No new kill mechanism, and the host never uses a stored PID as authority (existing rule); it uses the handles it already holds.
+5. **Resource column**: process-tree CPU time and resident memory are read through the same platform code that tracks process lifetime (`process_tree.rs`), so a sort by memory finds the heavy agent. Values are labelled approximate.
+6. **Idle and long-running flags**: an agent with no turn for 30 minutes, or a terminal with no output for 2 hours, gets a quiet "idle" tag with a Stop action. Nothing is stopped automatically (see [adr-idle-suspend](adr-idle-suspend.md) for the automatic option).
+7. Everything the panel lists is already visible somewhere; the panel adds no new content, only a unified view.
 
 ## Options Considered
 
