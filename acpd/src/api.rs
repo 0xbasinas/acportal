@@ -35,6 +35,7 @@ mod checks;
 mod git;
 mod pr;
 mod shared;
+mod terminals;
 
 #[derive(Clone)]
 pub struct Host {
@@ -51,6 +52,8 @@ pub struct Host {
     shared: Arc<Mutex<shared::Store>>,
     /// Modes, models and config options each agent reported in a probe (`POST /v1/agents/{id}/probe`).
     agent_setups: Arc<Mutex<HashMap<String, Value>>>,
+    /// Interactive shells (off unless `[terminal] enabled`).
+    terminals: Arc<crate::terminals::Terminals>,
 }
 struct Gateway {
     /// Current controller: lease generation and whether another client may take it over.
@@ -186,6 +189,7 @@ impl Host {
             shared: Arc::new(Mutex::new(shared::Store::load(&config.state_directory))),
             config: Arc::new(config),
             agent_setups: Arc::new(Mutex::new(HashMap::new())),
+            terminals: crate::terminals::Terminals::new(),
         })
     }
     /// The delegation orchestrator, for embedders and tests that drive it directly.
@@ -255,6 +259,9 @@ impl Host {
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
             )
+            .route("/v1/terminals", get(terminals::list).post(terminals::open))
+            .route("/v1/terminals/{id}", delete(terminals::close))
+            .route("/v1/terminals/{id}/ws", get(terminals::connect))
             .route("/v1/device", delete(revoke_self))
             .route_layer(middleware::from_fn(phones_only))
             .route_layer(middleware::from_fn_with_state(self.clone(), authenticate));
@@ -447,6 +454,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     ];
     if host.config.orchestrator.enabled {
         features.push("orchestrator");
+    }
+    if host.sessions.launch_settings().config.terminal.enabled {
+        features.push("terminal");
     }
     Ok(Json(
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),

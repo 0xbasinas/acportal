@@ -31,6 +31,8 @@ pub struct Config {
     pub orchestrator: OrchestratorConfig,
     /// Windows hosts only: which shell runs host shell lines and checks.
     pub windows: crate::shell::WindowsConfig,
+    /// Interactive shells opened from the desktop app or a phone. Off by default.
+    pub terminal: crate::terminals::TerminalConfig,
 }
 
 /// Experimental delegation between agents (see `docs/orchestrator-design.md`). Changes apply to
@@ -287,6 +289,7 @@ impl Default for Config {
             auto_approve: BTreeMap::new(),
             orchestrator: OrchestratorConfig::default(),
             windows: Default::default(),
+            terminal: Default::default(),
         }
     }
 }
@@ -385,6 +388,7 @@ impl Config {
         Ok(config)
     }
     pub fn validate(&self) -> Result<()> {
+        self.terminal.validate()?;
         if self.server.tls_certificate.is_some() != self.server.tls_private_key.is_some() {
             bail!("TLS certificate and private key must be configured together")
         }

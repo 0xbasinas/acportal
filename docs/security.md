@@ -132,6 +132,20 @@ Without that table, or for an agent on another host, `POST /v1/sessions` with `y
 
 **Tests.** `acpd/tests/yolo.rs` (answers execute/delete/fetch; still leaves `.env` and `../outside.txt`; an ordinary session on the same host is still asked; refused when not allowed or combined with manual approval); `acpd/tests/lifecycle.rs` (Linux: an asked line runs, `rm -rf /` is refused, a path outside the folder asks); unit tests in `shell_review.rs`, `presets.rs` and `config.rs`. Removing the outside-path guard made the `../outside.txt` case fail.
 
+## Host terminals
+
+`[terminal] enabled` (off by default, host config file only) lets a paired **phone-role** device open an interactive shell on the computer, from the desktop app or the phone. This is the one feature that hands a client a general shell, so read the limits:
+
+- **It runs as you, unsandboxed.** The agent sandbox (`terminal.rs`, AppContainer, bwrap) does not apply; a person is typing. Anyone holding a paired device token can run commands as the host user in the allowed folders, and then anywhere that user can reach. Turn it on only if you accept that for every paired phone; revoking a device ends its access. Peer hosts cannot use it.
+- **Folders.** It starts in a folder inside the workspace roots or a task worktree, same check as Git. Inside the shell the person can of course `cd` anywhere.
+- **Agents cannot see or use these terminals.** They are not ACP terminals; there is no API from a session to a person's shell.
+- **Environment.** The shell starts with a short list of ordinary variables (PATH, home, locale, temp, Windows system variables) plus `TERM=xterm-256color`. The host's provider keys and tokens are not passed unless `inherit_env = true`.
+- **Limits.** At most `max_terminals` (4), 64 KiB per input or output frame, a bounded input queue (a flood is answered with `terminal_busy`, not buffered), 1 MiB of kept output per terminal, one device holds the keyboard (another can take it, explicitly).
+- **Lifetime.** Closing, an idle terminal with nobody attached for `idle_minutes`, or host shutdown kills the shell and its process tree (process group on Unix, kill-on-close job on Windows, the same containment as agents). A finished terminal is dropped after a minute.
+- **Audit.** The host log records open and close with device, folder and shell name. It never records what was typed or printed. Output held in memory is not written to disk.
+
+Tests: `acpd/tests/terminals.rs` (a real shell on a pty: command, resize, replay offsets, exit code, limits, keyboard ownership, idle close) and `acpd/tests/terminals_api.rs` (off by default, role, folder, limit, socket round trip with resume).
+
 ## The desktop app's in-app browser
 
 The desktop app can show a page next to a conversation. This is a boundary of its own: the page is untrusted and must not reach the app, the host token or the person's other sites.
