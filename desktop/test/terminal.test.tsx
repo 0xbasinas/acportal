@@ -38,9 +38,9 @@ function fakeApi() {
   return { term, data: (k: string, s: string) => act(() => data(k, new TextEncoder().encode(s))), event: (k: string, e: Record<string, unknown>) => act(() => event(k, e)) }
 }
 
-const dock = (extra: Partial<Parameters<typeof TerminalDock>[0]> = {}, list: TermInfo[] = [info]) => {
+const dock = (extra: Partial<Parameters<typeof TerminalDock>[0]> = {}, list: TermInfo[] = [info], shells: { id: string; name: string }[] = []) => {
   const api = vi.fn(async (method: string, path: string) => {
-    if (method === 'GET') return { ok: true as const, value: { terminals: list } }
+    if (method === 'GET') return { ok: true as const, value: { terminals: list, shells } }
     if (method === 'POST') return { ok: true as const, value: { ...info, id: 't2' } }
     return { ok: true as const, value: undefined }
   })
@@ -105,6 +105,30 @@ describe('the terminal dock', () => {
     expect(f.term.take).toHaveBeenCalledWith('h/t1')
     f.event('h/t1', { type: 'exit', code: 3 })
     expect(await screen.findByText(/The shell ended \(exit code 3\)/)).toBeTruthy()
+  })
+
+  it('lets the person pick which shell to open, and remembers it for the next first terminal', async () => {
+    localStorage.clear()
+    fakeApi()
+    const shells = [{ id: 'cmd', name: 'Command Prompt' }, { id: 'pwsh', name: 'PowerShell 7' }]
+    const { api } = dock({}, [info], shells)
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose a shell' }))
+    expect(screen.getByRole('menu').textContent).toMatch(/Command Prompt/)
+    fireEvent.click(screen.getByRole('menuitem', { name: /PowerShell 7/ }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/v1/terminals', { folder: '/work/app', rows: 24, cols: 80, shell: 'pwsh' }))
+    expect(localStorage.getItem('acportal.termShell')).toBe('pwsh')
+    cleanup()
+    // The next dock with no terminals starts in the shell last used.
+    const second = dock({}, [], shells)
+    await waitFor(() => expect(second.api).toHaveBeenCalledWith('POST', '/v1/terminals', { folder: '/work/app', rows: 24, cols: 80, shell: 'pwsh' }))
+  })
+
+  it('offers no shell menu when the host has only one, and leaves the choice to the host', async () => {
+    localStorage.clear()
+    fakeApi()
+    const { api } = dock({}, [], [{ id: 'sh', name: 'sh' }])
+    await waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/v1/terminals', { folder: '/work/app', rows: 24, cols: 80 }))
+    expect(screen.queryByRole('button', { name: 'Choose a shell' })).toBeNull()
   })
 
   it('closes a terminal on the host when its tab is closed', async () => {

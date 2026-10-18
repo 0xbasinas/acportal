@@ -174,8 +174,8 @@ Android retains incoming text, image, audio, embedded resources and resource lin
 
 Interactive shells, only when `[terminal]` is on (in `config.toml` or set from an app) (the feature is listed in `/v1/status` only then). Phone-role devices only; the folder must be inside a workspace root or a task worktree, like Git.
 
-- `GET /v1/terminals` → `{"enabled", "terminals":[{id, folder, shell, rows, cols, createdAt, attached, controller, exitCode}]}`.
-- `POST /v1/terminals` `{"folder", "rows", "cols"}` → 201 with the terminal. 403 `terminal_disabled` / `path_not_allowed`, 429 `too_many_terminals`.
+- `GET /v1/terminals` → `{"enabled", "terminals":[{id, folder, shell, rows, cols, createdAt, attached, controller, exitCode}], "shells":[{"id","name"}]}`. `shells` are the ones this host can start (Windows: `cmd`, `pwsh`, `powershell`, `bash` for Git Bash; Unix: `$SHELL`, the entries of `/etc/shells` and `sh`, by file name).
+- `POST /v1/terminals` `{"folder", "rows", "cols", "shell"?}` (`shell` is one of the ids above; absent means the host's default; any other value is 400 `unknown_shell`, never a path) → 201 with the terminal. 403 `terminal_disabled` / `path_not_allowed`, 429 `too_many_terminals`.
 - `DELETE /v1/terminals/{id}` → 204; the shell and everything it started are killed.
 - `GET /v1/terminals/{id}/ws?after=N`, subprotocol `acpd.terminal.v1`, `Authorization: Bearer`. The server sends a JSON text `hello` ({terminal, gap, you}), then output as **binary** frames: 8-byte big-endian byte offset of the first byte, then up to 64 KiB of output; `gap` is true when part of what `after` asked for was already dropped from the 1 MiB history. Then JSON `exit` {code}, `controller`, `error` {code} and `reconnect_required` (the client fell behind; reconnect with `after` = bytes it has). The client sends keystrokes as **binary** frames (up to 64 KiB, only while it holds the keyboard), and JSON `{"type":"resize","rows","cols"}` or `{"type":"take"}` (take the keyboard from another device).
 

@@ -6,6 +6,8 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+18 October 2026, shell picker: the host lists the shells it can start (`shells` in `GET /v1/terminals`) and `POST /v1/terminals` takes a `shell` id; the desktop dock has a menu to open a terminal in a chosen shell.
+
 18 October 2026, later: Settings → Terminal in the desktop app turns terminals and the phone preview (and its ports) on or off on the host (`GET`/`PUT /v1/settings/features`, applied at once, kept in `user-settings.json`).
 
 18 October 2026, on `main` (PRs #57–#61):
