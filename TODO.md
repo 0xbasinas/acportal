@@ -1,5 +1,20 @@
 # Remaining work
 
+## Terminals, preview, browser and status bar (18 October 2026)
+
+Merged into `main` (PRs #57–#61); evidence and limits in [TODO_DONE](TODO_DONE.md). Open:
+
+- [ ] Phone terminal on the emulator or a real phone: the Ctrl toggle, arrow keys, Take control, and a reconnect after the connection drops (only typing and a command were tried).
+- [ ] Phone preview: attach a Screenshot with an agent that accepts images (only the "does not accept images" message was seen).
+- [ ] Try terminal and preview with a real agent and a real phone over HTTPS; everything so far used the mock agent and an emulator.
+- [ ] Linux and macOS: the pty code passes the Linux CI tests but was never used in a real shell there; macOS CI is skipped for this PR set.
+- [ ] Preview limits: POST bodies and WebSocket hot reload do not work through the phone WebView. Decide whether either is worth a host-side fix (a streaming proxy would need its own security review).
+- [ ] Desktop: the "Dev server on :5173 → Open in browser" pop-up from board 106 (it is a bar above the terminal today) and the terminal/browser sections of Settings (board 110).
+- [ ] Browser find selects the match in the page, so *Send to agent → Selected text* would send it; use a highlight that is not the selection if that matters.
+- [ ] Terminal: no tmux-style persistence across a host restart (a restarted host starts with no terminals), no per-terminal title, no copy-paste helpers on the phone beyond the WebView's own.
+- [ ] Review the two security notes (host terminals are unsandboxed and run as the host user; preview exposes whatever a listed dev server serves to every paired phone).
+- [ ] Remove the leftover local and remote branch `feature/desktop-browser` if it is no longer needed.
+
 ## T3 Code ideas (`experiment/t3code-ideas`, PR #53, 17 October 2026)
 
 Implemented and checked locally on Windows (details in [TODO_DONE](TODO_DONE.md)): pull requests from the Git view (fork heads, timeout cleanup), permission presets with "Ask for everything" (inherited by delegated tasks and kept on resume), agent profiles, OS service install, ACP `session/close`, earlier sessions (`session/list`) and boolean config options on desktop and Android, an Android pull request form. Design only: [external MCP](docs/adr-external-mcp.md) and [remote routes](docs/adr-remote-routes.md). Research notes: [docs/t3code](docs/t3code/findings.md). The agent prompts used for this work are kept outside the repository.

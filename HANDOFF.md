@@ -1,5 +1,9 @@
 # ACP Portal agent handoff
 
+## Addendum (18 October 2026, `main`): terminals, preview, browser, status bar
+
+PRs #57–#61 are merged into `main` and their branches deleted. What exists now, where it lives and what is unverified is in [AGENTS](AGENTS.md), [TODO](TODO.md#terminals-preview-browser-and-status-bar-18-october-2026) and [TODO_DONE](TODO_DONE.md). To try it: put `[terminal] enabled = true` and `[preview] enabled = true` with `ports = [5173]` in the host's `config.toml`, restart `acpd`, pair a phone or the desktop app, then use the terminal button (desktop session header, **Ctrl/⌘ `**) or Session menu → Terminal / Preview (phone). Next useful action: the open items in [TODO](TODO.md), starting with a real phone and a real agent. The orchestrator material below still describes the `experiment/orchestrator` work (PR #45); check which parts have since merged before relying on it.
+
 ## Current handoff (16 October 2026, `experiment/orchestrator`, PR #45 into `main`)
 
 This section is the current handoff. The dated sections under [Earlier handoffs](#earlier-handoffs-historical) are history and may describe states that have since changed.

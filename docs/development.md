@@ -59,6 +59,13 @@ Network tests start the actual Axum router and connect over loopback sockets. Th
 
 Android JVM tests cover streamed chunks, duplicate events, tool patches, permission acknowledgments, invalid options, unknown updates, diff line numbers, URL validation, WebSocket authorization/subprotocol/cursors, credential expiry and reconnect without prompt replay. Device tests cover page navigation and the explicit permission choices. Run `:app:connectedDebugAndroidTest` with an attached emulator or phone.
 
+## Terminal, preview, browser and status bar tests
+
+- Host: `acpd/tests/terminals.rs` (a real shell on a pty: command, resize, replay offsets, exit code, limits, keyboard ownership, idle close), `acpd/tests/terminals_api.rs` (off by default, role, folder, limit, WebSocket round trip with resume) and `acpd/tests/preview_api.rs` (off by default, listed ports only, GET only, token/cookies not passed on, redirects, nothing listening). The terminal tests run a real shell, so they need `cmd.exe` on Windows or `/bin/sh` on Unix.
+- Desktop (vitest): `terminal.test.tsx`, `statusbar.test.tsx`, `browser.test.tsx` (panel, tabs, find) and `browserRules.test.tsx`. The xterm packages are mocked in jsdom. Main-process behaviour (tabs, find, the terminal socket) was checked by driving the running app over `--remote-debugging-port`.
+- Android: `TerminalSocketTest` (MockWebServer: resumes from the last byte, no repeated output) and `PreviewAddressTest`. The WebView screens were checked on an emulator against a local host with `[terminal]` and `[preview]` on; in debug builds the terminal page can be inspected over `chrome://inspect` (`WebView.setWebContentsDebuggingEnabled`).
+- Trying it by hand: add `[terminal] enabled = true` and `[preview] enabled = true` with a port to the host's `config.toml`, restart `acpd`, then Session menu → Terminal / Preview on the phone, or the terminal button in the desktop session header.
+
 ## Local verification record
 
 On 7 October, the agent availability correction passed 67 Rust tests, formatting and strict Clippy. New regressions verify that interrupted/exited records cannot imply a live process, configured failures retain priority, waiting sign-in is reported accurately and a usable live process takes precedence over another session's sign-in requirement. Existing authenticated network tests now check availability after actual daemon restart and before/after ACP sign-in.

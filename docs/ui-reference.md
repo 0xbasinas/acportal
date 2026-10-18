@@ -2,6 +2,8 @@
 
 11 October 2026: editable Penpot boards 32–35 in file `7eed092c-bad6-802e-8008-bea06e03019c`, Page 1, cover saved empty conversations in both themes and the large-text scrolled body. The header and composer stay fixed while the recovery card and empty-state explanation share the scrolling viewport. Existing boards 01–31 remain unchanged. Native actual MainActivity checks pass normal/2× font to this scope; see [evidence](final-acceptance.md#native-page-state-traversal).
 
+18 October 2026: Penpot boards 106–114 (same file, below the earlier boards) design the terminal and browser. Desktop: 106 terminal dock, 107 browser beside the conversation, 108 browser in the dock with the Send to agent menu, 109 terminals off on this host, 110 Settings for terminal and browser, each dark and light. Phone: 111 terminal with the keys row, 112 terminal off on this host, 113 preview, 114 the session menu with Terminal, Preview and Git. Implemented in [desktop/README](../desktop/README.md) and [Android](android.md#terminal-and-preview-phone); not built from the boards: the dev-server pop-up in 106 is a bar above the terminal instead, and 110's Settings sections for terminal are not present (host-side config only).
+
 9 October 2026: [native CLI setup and motion](native-cli-and-motion.md) adds short host commands and 150/100 ms ordinary page fades with NavDisplay size interpolation disabled. Selected-tab taps retain the route. Predictive Back and sheet defaults are preserved; physical frame-time and broader motion acceptance remain open.
 
 The user's 16 PNG mockups in `C:/Users/<you>/Downloads/Page 1` are the visual reference for the Android app. They supersede the earlier teal Material styling. All 16 were inspected directly.
