@@ -287,8 +287,10 @@ import kotlinx.serialization.json.*
         }
     }
 }
+/** The group of sessions that run outside every project. */
+internal const val NO_PROJECT="::no-project"
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap(),turnTimes:TurnTimes=emptyMap(),onClearEnded:((List<StoredSession>)->Unit)?=null,onGit:((String,String)->Unit)?=null) {
+@Composable fun SessionsScreen(sessions:List<StoredSession>,hosts:List<HostProfile>,onOpen:(StoredSession)->Unit,onArchive:(StoredSession)->Unit,onResume:(StoredSession)->Unit,onDelete:(StoredSession)->Unit,onRefresh:()->Unit,onNew:(()->Unit)?=null,liveActivities:Map<String,LiveSessionActivity> = emptyMap(),initialUiState:StoredUiState=StoredUiState(),onFiltersChanged:((Boolean,Boolean,String)->Unit)?=null,summaries:Map<String,SessionListSummary>?=null,sharedTitles:Map<String,String> = emptyMap(),turnTimes:TurnTimes=emptyMap(),onClearEnded:((List<StoredSession>)->Unit)?=null,onGit:((String,String)->Unit)?=null,projects:Map<String,HostProjects> = emptyMap()) {
     var shutGroups by rememberSaveable {mutableStateOf(emptyList<String>())}
     var openEnded by rememberSaveable {mutableStateOf(emptyList<String>())}
     var clearEnded by remember {mutableStateOf<List<StoredSession>>(emptyList())}
@@ -367,7 +369,8 @@ import kotlinx.serialization.json.*
             Box(if(scrollFilters)Modifier.fillMaxWidth().heightIn(min=240.dp) else Modifier.fillParentMaxSize()) {EmptyState(title,description)}
         }
         else {
-            visible.groupBy {it.first.hostId to it.second.workspace}.forEach { (group,entries)->
+            // A session belongs to the project folder that contains it; one outside every project (a scratch folder) is "No project". A host not read yet groups by the session's own folder.
+            visible.groupBy {entry->val known=projects[entry.first.hostId];entry.first.hostId to (if(known==null)entry.second.workspace else owningProject(entry.second.workspace,known) ?: NO_PROJECT)}.entries.sortedBy {it.key.second==NO_PROJECT}.forEach { (group,entries)->
                 val groupKey="${group.first}|${group.second}"
                 val folded=groupKey in shutGroups
                 val ended=entries.filter {it.second.status=="interrupted"}
@@ -375,9 +378,9 @@ import kotlinx.serialization.json.*
                 val endedOpen=groupKey in openEnded
                 item(key="group:$groupKey") {Row(Modifier.fillMaxWidth().clickable {shutGroups=if(folded)shutGroups-groupKey else shutGroups+groupKey}.padding(horizontal=24.dp,vertical=12.dp).semantics {stateDescription=if(folded)"Collapsed" else "Expanded"}.testTag("group-$groupKey"),verticalAlignment=Alignment.CenterVertically) {
                     Icon(if(folded)Icons.Outlined.ChevronRight else Icons.Outlined.ExpandMore,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(group.second.substringAfterLast('/').substringAfterLast('\\'),Modifier.padding(start=8.dp).weight(1f),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text(if(group.second==NO_PROJECT)"No project" else folderName(group.second),Modifier.padding(start=8.dp).weight(1f),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)
                     Text("${entries.size} · "+(hosts.find {it.id==group.first}?.label ?: "Connection"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
-                    if(onGit!=null)IconButton({onGit(group.first,group.second)},Modifier.size(48.dp).testTag("git-$groupKey")) {Icon(Icons.Outlined.CallSplit,"Git for ${group.second.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    if(onGit!=null && group.second!=NO_PROJECT)IconButton({onGit(group.first,group.second)},Modifier.size(48.dp).testTag("git-$groupKey")) {Icon(Icons.Outlined.CallSplit,"Git for ${group.second.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                 }}
                 if(!folded) {
                     items(running,key={"${it.first.hostId}/${it.first.id}"}) { (stored,info)->sessionRow(stored,info,false) }

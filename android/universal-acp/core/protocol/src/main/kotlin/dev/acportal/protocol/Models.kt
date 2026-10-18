@@ -69,7 +69,9 @@ data class SessionInfo(
 @Serializable
 data class HostStatus(val hostId: String, val name: String, val version: String, val activeSessions: Int = 0, val features: List<String> = emptyList(),
     /** `found` or `missing`: whether the host can start `gh` (not whether it is signed in). */
-    val gh: String? = null)
+    val gh: String? = null,
+    /** Where the host makes the empty folders for sessions outside every project; older hosts omit it. */
+    val scratchRoot: String? = null)
 /** Host feature: forwards agent form elicitations when the phone opts in at session creation. */
 const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
 /** Host accepts `workspaceAccess.manualApproval` (the "Ask for everything" switch). Older hosts reject the field. */

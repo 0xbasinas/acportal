@@ -55,3 +55,22 @@ class GitChangesTest {
         assertFalse(isBaseBranch("main", null))
     }
 }
+
+class HunkPatchTest {
+    private val diff = "diff --git a/a.txt b/a.txt\nindex 1..2 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n@@ -10,2 +10,3 @@\n ten\n+eleven\n twelve\n\\ No newline at end of file\n"
+    @Test fun aHunkBecomesAPatchWithTheFileHeaderAndItsOwnLinesOnly() {
+        val file = parseUnifiedDiff(diff).single()
+        assertEquals(2, file.hunks.size)
+        val second = hunkPatch(file, 1)!!
+        assertEquals("diff --git a/a.txt b/a.txt\nindex 1..2 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -10,2 +10,3 @@\n ten\n+eleven\n twelve\n\\ No newline at end of file\n", second)
+        assertFalse(second.contains("-old"))
+        assertTrue(hunkPatch(file, 0)!!.contains("-old"))
+    }
+    @Test fun noPatchForAMissingHunkOrABinaryFile() {
+        val file = parseUnifiedDiff(diff).single()
+        assertNull(hunkPatch(file, 2))
+        val binary = parseUnifiedDiff("diff --git a/i.png b/i.png\nindex 1..2 100644\nBinary files a/i.png and b/i.png differ\n").single()
+        assertNull(hunkPatch(binary, 0))
+        assertTrue(binary.hunks.isEmpty())
+    }
+}

@@ -45,7 +45,18 @@ fun parseGitStatus(out: String): GitStatus {
 
 /** One line of a unified diff: \`+\` added, \`-\` removed, space for context; hunk headers are kept as \`@\`. */
 data class GitDiffLine(val kind: Char, val text: String)
-data class FileDiffText(val path: String, val added: Int, val removed: Int, val lines: List<GitDiffLine>)
+/**
+ * One file of a diff. [header] holds the lines before the first hunk (diff --git, index, ---, +++) and
+ * [hunks] each hunk as git wrote it, so one hunk can be sent back to git as a patch.
+ */
+data class FileDiffText(val path: String, val added: Int, val removed: Int, val lines: List<GitDiffLine>, val header: List<String> = emptyList(), val hunks: List<List<String>> = emptyList())
+
+/** A patch of one hunk of [file], for git apply --cached (stage) or --cached -R (unstage). Null when the file cannot be patched by hunk. */
+fun hunkPatch(file: FileDiffText, hunk: Int): String? {
+    val body = file.hunks.getOrNull(hunk) ?: return null
+    if (file.header.none { it.startsWith("+++ ") } || file.header.any { it.startsWith("Binary files") || it.startsWith("GIT binary patch") }) return null
+    return (file.header + body).joinToString("\n") + "\n"
+}
 
 /** Parses \`git diff\` output into one entry per file. Binary files have no lines. */
 fun parseUnifiedDiff(out: String): List<FileDiffText> {
@@ -55,21 +66,29 @@ fun parseUnifiedDiff(out: String): List<FileDiffText> {
     var added = 0
     var removed = 0
     var inHunk = false
+    var header = ArrayList<String>()
+    var hunks = ArrayList<ArrayList<String>>()
     fun flush() {
-        path?.let { files += FileDiffText(it, added, removed, lines) }
-        path = null; lines = ArrayList(); added = 0; removed = 0; inHunk = false
+        path?.let { files += FileDiffText(it, added, removed, lines, header, hunks) }
+        path = null; lines = ArrayList(); added = 0; removed = 0; inHunk = false; header = ArrayList(); hunks = ArrayList()
     }
     for (line in out.lines()) {
         if (line.startsWith("diff --git ")) {
             flush()
             path = line.removePrefix("diff --git ").substringAfterLast(" b/").trim()
+            header += line
         } else if (!inHunk && line.startsWith("+++ ")) {
             val target = line.removePrefix("+++ ").trim()
             if (target != "/dev/null") path = target.removePrefix("b/")
+            header += line
         } else if (line.startsWith("@@")) {
             inHunk = true
             lines += GitDiffLine('@', line)
+            hunks += arrayListOf(line)
+        } else if (!inHunk && path != null && line.isNotEmpty()) {
+            header += line
         } else if (inHunk && path != null && line.isNotEmpty()) {
+            hunks.lastOrNull()?.add(line)
             when (line[0]) {
                 '+' -> { added++; lines += GitDiffLine('+', line.substring(1)) }
                 '-' -> { removed++; lines += GitDiffLine('-', line.substring(1)) }

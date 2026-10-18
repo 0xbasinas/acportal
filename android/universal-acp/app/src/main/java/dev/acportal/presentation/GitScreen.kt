@@ -26,7 +26,11 @@ import dev.acportal.protocol.*
 import kotlinx.coroutines.launch
 
 /** What the host's git said, or why it could not run. The text of a failed command is shown as is. */
-typealias GitRun = suspend (op:String,params:Map<String,String>)->Result<String>
+fun interface GitRun {
+    /** [input] is a patch for the apply operations; every other operation takes none. */
+    suspend fun run(op:String,params:Map<String,String>,input:String?):Result<String>
+}
+suspend operator fun GitRun.invoke(op:String,params:Map<String,String>):Result<String> = run(op,params,null)
 
 /** Lines of one diff drawn before the rest is summarised, so a huge file stays light. */
 internal const val GIT_LINES_SHOWN = 200
@@ -55,6 +59,9 @@ private sealed interface NewFile {
     var picked by rememberSaveable {mutableStateOf(emptyList<String>())}
     var open by rememberSaveable {mutableStateOf(emptyList<String>())}
     var committing by rememberSaveable {mutableStateOf(false)}
+    var tab by rememberSaveable {mutableIntStateOf(0)}
+    // Bumped by Refresh so the History, Branches and Worktrees pages read again too.
+    var version by remember {mutableIntStateOf(0)}
     var message by rememberSaveable {mutableStateOf("")}
     val scope=rememberCoroutineScope()
 
@@ -82,7 +89,7 @@ private sealed interface NewFile {
         newFiles=newFiles+wanted.associateWith {NewFile.Loading}
         for(path in wanted) {
             val read=run("diff-new",mapOf("file" to path))
-            newFiles=newFiles+(path to read.fold({NewFile.Done(parseUnifiedDiff(it).firstOrNull())},{failure->NewFile.Failed(if(failure.message.orEmpty().contains("unknown_git_operation"))"This host is older than the app and cannot show a new file yet. Update and restart acpd." else "Could not read this file: ${failure.message}")}))
+            newFiles=newFiles+(path to read.fold({NewFile.Done(parseUnifiedDiff(it).firstOrNull())},{failure->NewFile.Failed(if(failure.message.orEmpty().contains("older than the app"))"This host is older than the app and cannot show a new file yet. Update and restart acpd." else "Could not read this file: ${failure.message}")}))
         }
     }
 
@@ -104,6 +111,16 @@ private sealed interface NewFile {
         }
     }
 
+    fun hunk(diffs:Map<String,FileDiffText>,path:String,index:Int,stage:Boolean) {
+        val patch=diffs[path]?.let {hunkPatch(it,index)}
+        if(busy)return
+        if(patch==null) {error="This change cannot be staged by hunk. Stage the whole file instead.";return}
+        busy=true;notice=null
+        scope.launch {
+            run.run(if(stage)"apply-cached" else "apply-cached-reverse",emptyMap(),patch).fold({notice=if(stage)"Staged one change of $path" else "Unstaged one change of $path"},{error=it.message ?: "Git refused that change."})
+            load();busy=false
+        }
+    }
     val current=status
     val unstaged=current?.unstaged.orEmpty()
     val staged=current?.staged.orEmpty()
@@ -112,8 +129,10 @@ private sealed interface NewFile {
     val allKeys=unstaged.map {"u:${it.path}"}+staged.map {"s:${it.path}"}
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Git · ${folder.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')}",subtitle=listOfNotNull(hostLabel,current?.branch?.let {"on $it"} ?: if(current!=null)"detached head" else null,current?.let {"${it.files.size} changed"}).joinToString(" · ").ifBlank {null},onBack=onBack,action={
-            IconButton({scope.launch {load()}},enabled=!loading && !busy) {Icon(Icons.Outlined.Refresh,"Refresh changes",Modifier.size(20.dp))}
+            IconButton({version++;scope.launch {load()}},enabled=!loading && !busy) {Icon(Icons.Outlined.Refresh,"Refresh changes",Modifier.size(20.dp))}
         })
+        GitTabs(tab) {tab=it}
+        if(tab==0) {
         if(loading && current==null)Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {CircularProgressIndicator()}
         else if(current==null)Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text(error ?: "Git could not be read for this folder.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
@@ -128,16 +147,25 @@ private sealed interface NewFile {
             }}
             if(unstaged.isNotEmpty()) {
                 item(key="unstaged-head") {SectionHead("Unstaged · ${unstaged.size}",unstaged.map {"u:${it.path}"},picked,{picked=it},busy,if(tickedUnstaged.isNotEmpty())"Stage selected (${tickedUnstaged.size})" else null,{change("staged",tickedUnstaged.map {"add" to it.path})},"stage-selected")}
-                items(unstaged,key={"u:${it.path}"}) {file->FileCard(file,"u:${file.path}",unstagedDiffs[file.path],newFiles[file.path],"u:${file.path}" in picked,"u:${file.path}" in open,{on->picked=if(on)picked+"u:${file.path}" else picked-"u:${file.path}"},{on->open=if(on)open+"u:${file.path}" else open-"u:${file.path}"},"Stage",!busy) {change("staged",listOf("add" to file.path))}}
+                items(unstaged,key={"u:${it.path}"}) {file->FileCard(file,"u:${file.path}",unstagedDiffs[file.path],newFiles[file.path],"u:${file.path}" in picked,"u:${file.path}" in open,{on->picked=if(on)picked+"u:${file.path}" else picked-"u:${file.path}"},{on->open=if(on)open+"u:${file.path}" else open-"u:${file.path}"},"Stage",!busy,{index->hunk(unstagedDiffs,file.path,index,true)}) {change("staged",listOf("add" to file.path))}}
             }
             if(staged.isNotEmpty()) {
                 item(key="staged-head") {SectionHead("Staged · ${staged.size}",staged.map {"s:${it.path}"},picked,{picked=it},busy,if(tickedStaged.isNotEmpty())"Unstage selected (${tickedStaged.size})" else null,{change("unstaged",tickedStaged.map {"restore-staged" to it.path})},"unstage-selected")}
-                items(staged,key={"s:${it.path}"}) {file->FileCard(file,"s:${file.path}",stagedDiffs[file.path],null,"s:${file.path}" in picked,"s:${file.path}" in open,{on->picked=if(on)picked+"s:${file.path}" else picked-"s:${file.path}"},{on->open=if(on)open+"s:${file.path}" else open-"s:${file.path}"},"Unstage",!busy) {change("unstaged",listOf("restore-staged" to file.path))}}
+                items(staged,key={"s:${it.path}"}) {file->FileCard(file,"s:${file.path}",stagedDiffs[file.path],null,"s:${file.path}" in picked,"s:${file.path}" in open,{on->picked=if(on)picked+"s:${file.path}" else picked-"s:${file.path}"},{on->open=if(on)open+"s:${file.path}" else open-"s:${file.path}"},"Unstage",!busy,{index->hunk(stagedDiffs,file.path,index,false)}) {change("unstaged",listOf("restore-staged" to file.path))}}
                 item(key="commit") {Button({committing=true},Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("git-commit"),enabled=!busy) {Text("Commit ${staged.size} ${if(staged.size==1)"file" else "files"}…")}}
             }
             if(onPullRequest!=null && current.branch!=null)item(key="pull-request") {
                 if(isBaseBranch("main",current.branch) || isBaseBranch("master",current.branch))Text("You are on ${current.branch}, the base branch. Switch to a feature branch on the host to open a pull request.",Modifier.testTag("git-base-branch"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 else OutlinedButton(onPullRequest,Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("git-open-pr")) {Text("Open pull request from ${current.branch}")}
+            }
+        }
+        } else Box(Modifier.weight(1f).fillMaxWidth()) {
+            key(version,tab) {
+                when(tab) {
+                    1->GitHistoryTab(run,Modifier.fillMaxSize())
+                    2->GitBranchesTab(run,{scope.launch {load()}},Modifier.fillMaxSize())
+                    else->GitWorktreesTab(run,folder,Modifier.fillMaxSize())
+                }
             }
         }
     }
@@ -162,7 +190,7 @@ private sealed interface NewFile {
     }
 }
 
-@Composable private fun FileCard(file:GitFile,key:String,diff:FileDiffText?,newFile:NewFile?,ticked:Boolean,isOpen:Boolean,onTick:(Boolean)->Unit,onOpen:(Boolean)->Unit,actionLabel:String,enabled:Boolean,onAction:()->Unit) {
+@Composable private fun FileCard(file:GitFile,key:String,diff:FileDiffText?,newFile:NewFile?,ticked:Boolean,isOpen:Boolean,onTick:(Boolean)->Unit,onOpen:(Boolean)->Unit,actionLabel:String,enabled:Boolean,onHunk:((Int)->Unit)?=null,onAction:()->Unit) {
     Surface(Modifier.fillMaxWidth().testTag("file-$key"),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Row(Modifier.fillMaxWidth().clickable {onOpen(!isOpen)}.semantics {stateDescription=if(isOpen)"Expanded" else "Collapsed"}.padding(end=8.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -186,7 +214,17 @@ private sealed interface NewFile {
                 if(shown==null)Text(if(file.untracked)"Reading the file…" else "No text changes to show (a binary file, a rename or a mode change).",Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 else if(shown.lines.isEmpty())Text(if(file.untracked)"This file is empty or not text." else "No text changes to show (a binary file, a rename or a mode change).",Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 else Column(Modifier.fillMaxWidth().padding(bottom=8.dp)) {
+                    var hunkIndex=-1
                     shown.lines.take(GIT_LINES_SHOWN).forEach {line->
+                        if(line.kind=='@') {
+                            hunkIndex++
+                            val thisHunk=hunkIndex
+                            Row(Modifier.fillMaxWidth().padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                                Text(line.text.substringBefore(" @@")+" @@",Modifier.weight(1f),fontFamily=FontFamily.Monospace,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                if(onHunk!=null && !file.untracked && shown.hunks.isNotEmpty())TextButton({onHunk(thisHunk)},enabled=enabled,modifier=Modifier.heightIn(min=40.dp).testTag("hunk-$key-$thisHunk")) {Text("$actionLabel change")}
+                            }
+                            return@forEach
+                        }
                         Text(when(line.kind) {'+'->"+ ";'-'->"− ";'@'->"";else->"  "}+line.text,Modifier.fillMaxWidth().padding(horizontal=12.dp),fontFamily=FontFamily.Monospace,fontSize=12.sp,
                             color=when(line.kind) {'+'->ConnectedGreen;'-'->MaterialTheme.colorScheme.error;else->MaterialTheme.colorScheme.onSurfaceVariant},maxLines=3,overflow=TextOverflow.Ellipsis)
                     }

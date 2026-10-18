@@ -22,6 +22,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     val sessionSummaries=sessions.map {summaryMemo.update(it)}.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyMap())
     val liveActivities=repository.liveActivities
     val turnTimes=repository.turnTimes.asStateFlow()
+    val hostProjects=repository.settings.hostProjects.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyMap())
     val agentCatalogs=repository.agentCatalogs.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val savedUiState=repository.uiState.stateIn(viewModelScope,SharingStarted.Eagerly,null)
     fun mainPage(page:String) {viewModelScope.launch {repository.saveMainPage(page)}}
@@ -88,7 +89,7 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
         onDone(repository.create(hostId,agentId,workspace,sessionId,askEverything,yolo))
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions? = try {repository.earlierSessions(hostId,agentId,workspace)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
-    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>):Result<String> = try {repository.git(hostId,path,op,params)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
+    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = try {repository.git(hostId,path,op,params,input)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
     suspend fun currentBranch(hostId:String,path:String): String? = try {repository.currentBranch(hostId,path)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
     /** The pull request's address, or the readable reason it was not opened. */
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): Result<String> = try {Result.success(repository.openPullRequest(hostId,request))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}

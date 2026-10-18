@@ -61,7 +61,11 @@ class PortalRepository(
     /** How long each turn took, measured here while a turn ran; persisted so rows can show time worked. */
     val turnTimes = MutableStateFlow<TurnTimes>(emptyMap())
     init {scope.launch {try {turnTimes.update {current->settings.turnTimes.first().let {saved->saved+current}}} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}}
-    private fun recordTurn(change:(TurnTimes)->TurnTimes) {val next=turnTimes.updateAndGet(change);scope.launch {try {settings.saveTurnTimes(next)} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}}
+    private fun recordTurn(change:(TurnTimes)->TurnTimes) {
+        val previous=turnTimes.value
+        val next=turnTimes.updateAndGet(change)
+        if(next!==previous)scope.launch {try {settings.saveTurnTimes(next)} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}
+    }
     private val mutableActivities = MutableStateFlow<Map<String,LiveSessionActivity>>(emptyMap())
     val liveActivities:StateFlow<Map<String,LiveSessionActivity>> = mutableActivities.asStateFlow()
     private val lifecycle = Mutex()
@@ -122,6 +126,7 @@ class PortalRepository(
             require(utf8Bytes(catalog,STORED_CATALOG_MAX_BYTES)<=STORED_CATALOG_MAX_BYTES) {"Agent discovery is too large to save"}
             dao.saveAgentCatalog(StoredAgentCatalog(host.id,catalog,updated.lastSeen))
             for (session in sessions) saveMetadata(host.id,session)
+            try {settings.saveHostProjects(host.id,HostProjects(workspaces.map {it.path},status.scratchRoot))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
             if(HOST_FEATURE_SHARED_DRAFTS in status.features)try {applyShared(host.id,api.shared(host))} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}
             HostDetails(updated,agents,workspaces,sessions,dao.recent(hostId),status.features)
         } catch (cancelled:CancellationException) { throw cancelled }
@@ -149,7 +154,7 @@ class PortalRepository(
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
-    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params)}
+    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params,input)}
     suspend fun currentBranch(hostId:String,path:String): String? = withContext(Dispatchers.IO) {api.currentBranch(dao.host(hostId) ?: error("Host is no longer saved"),path)}
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): String = withContext(Dispatchers.IO) {api.openPullRequest(dao.host(hostId) ?: error("Host is no longer saved"),request)}
     suspend fun presets(hostId:String,agentId:String): List<PermissionPreset> = withContext(Dispatchers.IO) {api.presets(dao.host(hostId) ?: error("Host is no longer saved"),agentId)}
@@ -211,32 +216,19 @@ class PortalRepository(
                 mutableActivities.update {it+(key to activity)}
             }
         }
-        // Time each turn that runs while this phone watches (not one replayed from history).
-        live.jobs += scope.launch {
-            var startedAt:Long?=null
-            var turnId:String?=null
-            live.state.map {(it.processing && !it.replaying) to it.items.lastOrNull {item->item is TimelineItem.Text && item.role=="user"}?.id}.distinctUntilChanged().collect {(running,userId)->
-                val now=System.currentTimeMillis()
-                if(running) {
-                    if(startedAt==null)startedAt=now
-                    if(turnId==null && userId!=null) {
-                        val known=turnTimes.value[key]?.get(userId)
-                        // A new prompt, or a turn this phone already timed that is still running.
-                        if(known==null) {turnId=userId;recordTurn {TurnClock.start(it,key,userId,startedAt!!)}}
-                        else if(known.took==null)turnId=userId
-                    }
-                } else {
-                    turnId?.let {id->recordTurn {TurnClock.end(it,key,id,now)}}
-                    startedAt=null;turnId=null
-                }
-            }
-        }
         live.jobs += scope.launch {
             transport.messages().collect { bytes ->
                 if (live.manuallyDetached) return@collect
                 try {
                     val envelope=WireJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).objectValue()
-                    live.state.update { SessionReducer.reduce(it,envelope) }
+                    var before=live.state.value
+                    live.state.update { before=it;SessionReducer.reduce(it,envelope) }
+                    // Time the turn this event starts or ends: by the host's timestamp when it sends one (so a
+                    // replayed turn counts), by this phone's clock for a live event from an older host.
+                    val hostTime=(envelope["at"] as? JsonPrimitive)?.longOrNull?.takeIf {it>0}
+                    val at=hostTime ?: if(before.replaying)null else System.currentTimeMillis()
+                    val after=live.state.value
+                    if(at!=null)recordTurn {TurnClock.observe(it,key,before,after,at)}
                     val message=envelope["message"].objectValue()
                     if(envelope["type"].text()=="control_taken")transport.controlTaken()
                     if(envelope["type"].text()=="session_closed")live.transportActions.withLock {live.manuallyDetached=true;transport.disconnect()}

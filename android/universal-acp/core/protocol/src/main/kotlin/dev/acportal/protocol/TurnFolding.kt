@@ -67,7 +67,13 @@ fun briefDuration(millis: Long): String {
 /** "5 steps", "1 step", or "thinking" when the turn only thought. */
 fun stepsLabel(block: TurnBlock.Steps): String = when (block.tools) { 0 -> "thinking"; 1 -> "1 step"; else -> "${block.tools} steps" }
 
-/** How long each turn took, measured by this phone while it watched the turn run. */
+/** The id of the newest user message: the turn that is running or has just finished. */
+fun lastUserMessageId(items: List<TimelineItem>): String? {
+    for (index in items.indices.reversed()) { val item = items[index]; if (item is TimelineItem.Text && item.role == "user") return item.id }
+    return null
+}
+
+/** How long each turn took, from the host's own timestamps when it sends them, else as watched live. */
 @Serializable
 data class TurnTime(val at: Long, val took: Long? = null)
 fun workedMillis(times: Map<String, TurnTime>?): Long = times?.values?.sumOf { it.took ?: 0L } ?: 0L
@@ -85,6 +91,20 @@ object TurnClock {
         val kept = (turns + (turnId to TurnTime(now))).entries.sortedBy { it.value.at }.takeLast(MAX_TURNS).associate { it.key to it.value }
         val next = (all - key) + (key to kept)
         return if (next.size > MAX_SESSIONS) next.entries.sortedBy { e -> e.value.values.maxOfOrNull { it.at } ?: 0L }.takeLast(MAX_SESSIONS).associate { it.key to it.value } else next
+    }
+    /**
+     * Times the turn an event started or ended, from the state before and after it. [at] is when the
+     * host journaled the event, so a turn replayed from history is timed too; pass null for an event
+     * with no host time while replaying, which is then ignored (an older host).
+     */
+    fun observe(all: TurnTimes, key: String, before: SessionState, after: SessionState, at: Long?): TurnTimes {
+        if (at == null) return all
+        var next = all
+        // A turn starts when processing begins, or when its prompt arrives after this phone already marked it busy.
+        val user = lastUserMessageId(after.items)
+        if (after.processing && user != null && (!before.processing || user != lastUserMessageId(before.items))) next = start(next, key, user, at)
+        if (before.processing && !after.processing) lastUserMessageId(before.items)?.let { next = end(next, key, it, at) }
+        return next
     }
     fun end(all: TurnTimes, key: String, turnId: String, now: Long): TurnTimes {
         val turns = all[key] ?: return all

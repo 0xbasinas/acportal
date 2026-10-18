@@ -78,3 +78,31 @@ class TurnClockTest {
         assertEquals(TurnClock.MAX_TURNS, all["h/new"]!!.size)
     }
 }
+
+class TurnObserveTest {
+    private fun state(processing: Boolean, vararg ids: String) = SessionState(processing = processing, items = ids.map { TimelineItem.Text(it, "user", "q") })
+    @Test fun aTurnIsTimedFromTheHostStampsOfItsFirstAndLastEvent() {
+        var all: TurnTimes = emptyMap()
+        all = TurnClock.observe(all, "h/s", state(false), state(true, "user-1"), 10_000)
+        all = TurnClock.observe(all, "h/s", state(true, "user-1"), state(false, "user-1"), 55_000)
+        assertEquals(45_000L, all["h/s"]!!["user-1"]!!.took)
+    }
+    @Test fun anEventWithNoTimeIsIgnoredAndOtherChangesDoNothing() {
+        val start = TurnClock.observe(emptyMap(), "h/s", state(false), state(true, "user-1"), null)
+        assertTrue(start.isEmpty())
+        val same = TurnClock.observe(emptyMap(), "h/s", state(true, "user-1"), state(true, "user-1"), 5)
+        assertTrue(same.isEmpty())
+        assertEquals("user-2", lastUserMessageId(state(true, "user-1", "user-2").items))
+        assertNull(lastUserMessageId(emptyList()))
+    }
+}
+
+class TurnObservePromptEchoTest {
+    private fun state(processing: Boolean, vararg ids: String) = SessionState(processing = processing, items = ids.map { TimelineItem.Text(it, "user", "q") })
+    @Test fun aPromptThatArrivesAfterThePhoneMarkedItselfBusyStillStartsTheTurn() {
+        val times = TurnClock.observe(emptyMap(), "h/s", state(true), state(true, "user-3"), 7_000)
+        assertEquals(7_000L, times["h/s"]!!["user-3"]!!.at)
+        // Streaming text for the same turn changes nothing.
+        assertSame(times, TurnClock.observe(times, "h/s", state(true, "user-3"), state(true, "user-3"), 9_000))
+    }
+}
