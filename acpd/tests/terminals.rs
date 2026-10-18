@@ -35,7 +35,9 @@ async fn a_shell_runs_a_command_resizes_and_ends_with_its_tree() {
     let terminals = Terminals::new();
     let folder = tempfile::tempdir().unwrap();
     let me = Uuid::new_v4();
-    let info = terminals.open(&on(), folder.path(), me, 24, 80).unwrap();
+    let info = terminals
+        .open(&on(), folder.path(), me, 24, 80, None)
+        .unwrap();
     let mut sub = terminals.subscribe(info.id, 0).unwrap();
     let mut seen = String::new();
     terminals
@@ -80,7 +82,9 @@ async fn the_shell_ending_itself_is_reported() {
     let terminals = Terminals::new();
     let folder = tempfile::tempdir().unwrap();
     let me = Uuid::new_v4();
-    let info = terminals.open(&on(), folder.path(), me, 24, 80).unwrap();
+    let info = terminals
+        .open(&on(), folder.path(), me, 24, 80, None)
+        .unwrap();
     let mut sub = terminals.subscribe(info.id, 0).unwrap();
     terminals.input(info.id, me, b"exit 3\r".to_vec()).unwrap();
     let end = Instant::now() + Duration::from_secs(20);
@@ -108,7 +112,7 @@ async fn refusals() {
     let me = Uuid::new_v4();
     assert_eq!(
         terminals
-            .open(&TerminalConfig::default(), folder.path(), me, 24, 80)
+            .open(&TerminalConfig::default(), folder.path(), me, 24, 80, None)
             .unwrap_err(),
         TerminalError::Disabled
     );
@@ -116,10 +120,16 @@ async fn refusals() {
         max_terminals: 2,
         ..on()
     };
-    let a = terminals.open(&two, folder.path(), me, 24, 80).unwrap();
-    terminals.open(&two, folder.path(), me, 24, 80).unwrap();
+    let a = terminals
+        .open(&two, folder.path(), me, 24, 80, None)
+        .unwrap();
+    terminals
+        .open(&two, folder.path(), me, 24, 80, None)
+        .unwrap();
     assert_eq!(
-        terminals.open(&two, folder.path(), me, 24, 80).unwrap_err(),
+        terminals
+            .open(&two, folder.path(), me, 24, 80, None)
+            .unwrap_err(),
         TerminalError::TooMany
     );
     // Only the device holding the keyboard types; another takes it on request.
@@ -155,7 +165,7 @@ async fn an_unattended_terminal_is_closed_when_idle() {
     let terminals = Terminals::new();
     let folder = tempfile::tempdir().unwrap();
     let info = terminals
-        .open(&on(), folder.path(), Uuid::new_v4(), 24, 80)
+        .open(&on(), folder.path(), Uuid::new_v4(), 24, 80, None)
         .unwrap();
     assert_eq!(terminals.reap(Duration::from_secs(3600)), 0);
     let sub = terminals.subscribe(info.id, 0).unwrap();
@@ -168,5 +178,40 @@ async fn an_unattended_terminal_is_closed_when_idle() {
     drop(sub);
     std::thread::sleep(Duration::from_millis(50));
     assert_eq!(terminals.reap(Duration::from_millis(1)), 1);
+    assert!(terminals.list().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_terminal_starts_in_the_shell_that_was_picked() {
+    let terminals = Terminals::new();
+    let folder = tempfile::tempdir().unwrap();
+    let me = Uuid::new_v4();
+    let shells = acpd::shell::available_shells();
+    assert!(!shells.is_empty(), "this host offers at least one shell");
+    // Each id is unique and a client can only choose among them.
+    let mut ids: Vec<_> = shells.iter().map(|s| s.id.clone()).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), shells.len());
+    let picked = &shells[0];
+    let info = terminals
+        .open(&on(), folder.path(), me, 24, 80, Some(&picked.id))
+        .unwrap();
+    assert_eq!(info.shell, picked.id);
+    terminals.close(info.id);
+    for bad in [
+        "definitely-not-a-shell",
+        r"C:\Windows\System32\cmd.exe",
+        "/bin/sh",
+        "",
+    ] {
+        assert_eq!(
+            terminals
+                .open(&on(), folder.path(), me, 24, 80, Some(bad))
+                .unwrap_err(),
+            TerminalError::UnknownShell,
+            "{bad} is not an id"
+        );
+    }
     assert!(terminals.list().is_empty());
 }
