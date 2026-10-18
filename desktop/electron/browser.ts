@@ -5,14 +5,32 @@
 import { BrowserWindow, IpcMain, Session, WebContents, WebContentsView, session, shell } from 'electron'
 import { browserPrefs, classify, isLoopbackHost, isWebUrl, type BrowserPrefs } from './browserRules'
 import { usable } from './window'
-import type { BrowserState } from './browserTypes'
+import type { BrowserState, BrowserTab } from './browserTypes'
 
 export type { BrowserState }
 
-const BLANK: BrowserState = { open: false, url: '', title: '', loading: false, canBack: false, canForward: false, zoom: 100, local: true, remembers: false }
+const BLANK: BrowserState = { open: false, url: '', title: '', loading: false, canBack: false, canForward: false, zoom: 100, local: true, remembers: false, tabs: [] }
+const MAX_TABS = 8
 const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 /** The largest picture sent to an agent, in bytes (the host's frame limit is 600 KB for everything attached). */
 const MAX_PICTURE = 420 * 1024
+
+/**
+ * Runs inside the page: selects the next or previous match of `q` (case-insensitive, wrapping) and
+ * says how many there are and which one is selected. Source text, so keep it self-contained.
+ */
+export const FIND_IN_PAGE = `function (q, forward, again) {
+  var text = document.body ? document.body.innerText : '';
+  var lower = text.toLowerCase(), needle = q.toLowerCase(), count = 0, at = 0;
+  while (needle && (at = lower.indexOf(needle, at)) !== -1) { count++; at += needle.length; }
+  var state = window.__acpFind;
+  if (!state || state.q !== q || !again) { state = window.__acpFind = { q: q, i: 0 }; var s = window.getSelection(); if (s) s.removeAllRanges(); }
+  if (!count) { state.i = 0; return { matches: 0, active: 0 }; }
+  var found = window.find(q, false, !forward, true);
+  if (!found) return { matches: count, active: 0 };
+  state.i = forward ? (state.i % count) + 1 : ((state.i - 2 + count) % count) + 1;
+  return { matches: count, active: state.i };
+}`
 
 /** The reason in plain words for a page that did not load. */
 export function loadFailure(code: number, description: string): string {
@@ -27,7 +45,10 @@ export function loadFailure(code: number, description: string): string {
 
 export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[], R>(fn: (...a: A) => R | Promise<R>) => (e: unknown, ...a: A) => Promise<unknown>; win: () => BrowserWindow | null; readPrefs: () => Record<string, unknown> }): { dispose: () => void } {
   const { ipc, wrap, win, readPrefs } = deps
+  // The active tab's view; `tabs` holds every open one, in order.
   let view: WebContentsView | null = null
+  let tabs: { id: number; view: WebContentsView }[] = []
+  let nextTab = 1
   let remembers = false
   let want = false // the page has a place to show it
   let bounds = { x: 0, y: 0, width: 0, height: 0 }
@@ -51,6 +72,7 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
       zoom: Math.round((wc?.getZoomFactor() ?? 1) * 100),
       local: !host || isLoopbackHost(host),
       remembers,
+      tabs: tabs.map<BrowserTab>((t) => ({ id: t.id, title: t.view.webContents.isDestroyed() ? '' : t.view.webContents.getTitle(), url: t.view.webContents.isDestroyed() ? '' : t.view.webContents.getURL(), active: t.view === view, loading: !t.view.webContents.isDestroyed() && t.view.webContents.isLoading() })),
       ...patch
     }
     usable(win())?.webContents.send('browser:state', state)
@@ -59,8 +81,10 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
   const layout = (): void => {
     if (!view) return
     const show = want && bounds.width > 0 && bounds.height > 0
-    view.setVisible(show)
-    if (show) view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) })
+    for (const t of tabs) {
+      t.view.setVisible(show && t.view === view)
+      if (show) t.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) })
+    }
   }
 
   /** A permission is never granted; a download is refused unless the person allowed downloads. */
@@ -84,21 +108,28 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
     return false
   }
 
+  const dropView = (v: WebContentsView): void => {
+    try { win()?.contentView.removeChildView(v) } catch { /* the window is already gone */ }
+    if (!v.webContents.isDestroyed()) v.webContents.close()
+  }
   const destroy = (): void => {
-    const v = view
+    const all = tabs
+    tabs = []
     view = null
     state = { ...BLANK }
-    if (v) {
-      try { win()?.contentView.removeChildView(v) } catch { /* the window is already gone */ }
-      if (!v.webContents.isDestroyed()) v.webContents.close()
-    }
+    for (const t of all) dropView(t.view)
     usable(win())?.webContents.send('browser:state', state)
   }
 
   const ensure = (): WebContentsView => {
     const p = prefs()
     if (view && remembers !== p.remember) destroy()
-    if (view) return view
+    return view ?? addTab()
+  }
+  /** A new tab, which becomes the active one. */
+  const addTab = (): WebContentsView => {
+    const p = prefs()
+    if (tabs.length >= MAX_TABS) throw new Error('Close a tab before opening another')
     const w = win()
     if (!w) throw new Error('The window is not ready')
     remembers = p.remember
@@ -106,13 +137,14 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
     harden(ses)
     const v = new WebContentsView({ webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false, spellcheck: false, webviewTag: false, navigateOnDragDrop: false } })
     view = v
+    tabs.push({ id: nextTab++, view: v })
     const wc = v.webContents
     wc.setWindowOpenHandler(({ url }) => { route(url, wc, false); return { action: 'deny' } })
     wc.on('will-navigate', (e, url) => { if (!route(url, wc, true)) e.preventDefault() })
     wc.on('will-redirect', (e, url) => { if (!route(url, wc, true)) e.preventDefault() })
     wc.on('did-start-loading', () => { started = Date.now(); publish({ error: undefined, loadedMs: undefined }) })
     wc.on('did-stop-loading', () => publish({ loadedMs: started ? Date.now() - started : undefined }))
-    wc.on('did-navigate', () => publish({ note: undefined }))
+    wc.on('did-navigate', () => publish({ note: undefined, find: undefined }))
     wc.on('did-navigate-in-page', () => publish())
     wc.on('page-title-updated', () => publish())
     wc.on('did-fail-load', (_e, code, description, _url, isMainFrame) => { if (isMainFrame && code !== -3) publish({ error: loadFailure(code, description) }) })
@@ -129,6 +161,9 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
       else if (mod && key === '-') { handled(); zoomBy(-1) }
       else if (mod && key === '0') { handled(); wc.setZoomFactor(1); publish() }
       else if (key === 'f12' || (mod && input.shift && key === 'i')) { handled(); toggleDevTools() }
+      else if (mod && key === 'f') { handled(); usable(win())?.webContents.send('browser:shortcut', 'find') }
+      else if (mod && key === 't') { handled(); usable(win())?.webContents.send('browser:shortcut', 'newtab') }
+      else if (mod && key === 'w') { handled(); closeTab(tabs.find((t) => t.view === v)?.id ?? -1) }
       else if (mod && key === 'l') { handled(); usable(win())?.webContents.send('browser:shortcut', 'address') }
       else if (mod && input.shift && key === 'b') { handled(); usable(win())?.webContents.send('browser:shortcut', 'toggle') }
     })
@@ -136,6 +171,25 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
     layout()
     publish()
     return v
+  }
+
+  const closeTab = (id: number): void => {
+    const at = tabs.findIndex((t) => t.id === id)
+    if (at < 0) return
+    const [gone] = tabs.splice(at, 1)
+    if (!tabs.length) { dropView(gone.view); destroy(); return }
+    if (gone.view === view) view = tabs[Math.min(at, tabs.length - 1)].view
+    dropView(gone.view)
+    layout()
+    publish({ find: undefined })
+  }
+  const selectTab = (id: number): void => {
+    const t = tabs.find((x) => x.id === id)
+    if (!t || t.view === view) return
+    void view?.webContents.executeJavaScript('window.getSelection && window.getSelection().removeAllRanges()', true).catch(() => undefined)
+    view = t.view
+    layout()
+    publish({ find: undefined })
   }
 
   const zoomBy = (direction: 1 | -1): void => {
@@ -172,6 +226,27 @@ export function registerBrowser(deps: { ipc: IpcMain; wrap: <A extends unknown[]
     publish()
     return state
   }))
+  ipc.handle('browser:new-tab', wrap((url?: string) => {
+    if (!view) { ensure(); if (url) route(url, view!.webContents, false); publish(); return state }
+    addTab()
+    if (url) route(url, view!.webContents, false)
+    publish()
+    return state
+  }))
+  ipc.handle('browser:select-tab', wrap((id: number) => { selectTab(id); return state }))
+  ipc.handle('browser:close-tab', wrap((id: number) => { closeTab(id); return state }))
+  ipc.handle('browser:find', wrap((text: string, forward = true, again = false) => {
+    const wc = view?.webContents
+    if (!wc) return
+    const q = String(text).slice(0, 200)
+    if (!q) { void wc.executeJavaScript('window.getSelection && window.getSelection().removeAllRanges()', true).catch(() => undefined); publish({ find: undefined }); return }
+    // Electron's own find reports nothing for a view that does not hold the keyboard focus, which is
+    // the find box in the app's window here, so the page is searched by script instead.
+    void wc.executeJavaScript(`(${FIND_IN_PAGE})(${JSON.stringify(q)}, ${forward}, ${again})`, true)
+      .then((r: { matches: number; active: number }) => { if (view?.webContents === wc) publish({ find: r }) })
+      .catch(() => undefined)
+  }))
+  ipc.handle('browser:find-stop', wrap(() => { void view?.webContents.executeJavaScript('window.getSelection && window.getSelection().removeAllRanges()', true).catch(() => undefined); publish({ find: undefined }) }))
   ipc.handle('browser:go', wrap((input: string) => { const v = ensure(); route(input, v.webContents, false); publish(); return state }))
   ipc.handle('browser:close', wrap(() => { destroy() }))
   ipc.handle('browser:bounds', wrap((b: { x: number; y: number; width: number; height: number } | null) => {

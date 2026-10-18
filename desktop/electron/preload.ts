@@ -98,6 +98,11 @@ const api = {
   browser: {
     open: (url?: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:open', url),
     go: (input: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:go', input),
+    newTab: (url?: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:new-tab', url),
+    selectTab: (id: number): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:select-tab', id),
+    closeTab: (id: number): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:close-tab', id),
+    find: (text: string, forward = true, again = false): Promise<Result<void>> => ipcRenderer.invoke('browser:find', text, forward, again),
+    findStop: (): Promise<Result<void>> => ipcRenderer.invoke('browser:find-stop'),
     close: (): Promise<Result<void>> => ipcRenderer.invoke('browser:close'),
     state: (): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:state'),
     bounds: (b: { x: number; y: number; width: number; height: number } | null): Promise<Result<void>> => ipcRenderer.invoke('browser:bounds', b),
@@ -116,8 +121,8 @@ const api = {
       ipcRenderer.on('browser:state', l)
       return () => ipcRenderer.removeListener('browser:state', l)
     },
-    onShortcut: (cb: (name: 'address' | 'toggle') => void): (() => void) => {
-      const l = (_e: IpcRendererEvent, n: 'address' | 'toggle'): void => cb(n)
+    onShortcut: (cb: (name: 'address' | 'toggle' | 'find' | 'newtab') => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, n: 'address' | 'toggle' | 'find' | 'newtab'): void => cb(n)
       ipcRenderer.on('browser:shortcut', l)
       return () => ipcRenderer.removeListener('browser:shortcut', l)
     }

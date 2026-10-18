@@ -18,4 +18,10 @@ export type BrowserState = {
   loadedMs?: number
   /** Sign-ins are kept between launches. */
   remembers: boolean
+  /** Open tabs, in order. */
+  tabs: BrowserTab[]
+  /** Find in page: how many matches, and which one is current. Absent when not searching. */
+  find?: { matches: number; active: number }
 }
+
+export type BrowserTab = { id: number; title: string; url: string; active: boolean; loading: boolean }

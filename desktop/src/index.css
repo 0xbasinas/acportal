@@ -815,3 +815,24 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .term-chip .btn { height: 24px; padding: 0 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .term-off { padding: 18px 24px; color: var(--text-2); font-size: 12.5px; overflow: auto; }
 .term-off pre { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: fit-content; color: var(--text); }
+
+/* Browser tabs and find in page. */
+.browser-tabs { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; flex: none; position: relative; z-index: 8; }
+.browser-tab { display: inline-flex; align-items: center; border-radius: 8px 8px 0 0; color: var(--text-2); max-width: 220px; }
+.browser-tab.on { background: var(--surface); color: var(--text); }
+.browser-tab button { font-size: 12px; padding: 5px 8px; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.browser-tab .browser-tab-x { padding: 5px 6px 5px 0; opacity: .6; display: grid; place-items: center; }
+.browser-tab .browser-tab-x:hover { opacity: 1; }
+.browser-find { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface); flex: none; position: relative; z-index: 8; }
+.browser-find input { flex: 1; min-width: 80px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 12px; }
+.browser-find input:focus { border-color: var(--text-3); }
+.browser-find .sub { min-width: 64px; text-align: right; font-size: 11px; }
+
+/* The status bar under the conversation. */
+.statusbar { display: flex; align-items: center; gap: 14px; height: 24px; padding: 0 12px; flex: none; border-top: 1px solid var(--line); background: var(--bg); font-size: 11px; color: var(--text-2); }
+.statusbar-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.statusbar .grow { flex: 1; }
+.statusbar-toggle { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; border-radius: 5px; color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.statusbar-toggle:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.statusbar-toggle.on { color: var(--text); font-weight: 600; }
+.statusbar-toggle:disabled { opacity: .45; cursor: default; }
