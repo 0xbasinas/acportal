@@ -244,6 +244,16 @@ async fn a_shell_over_the_socket_resumes_from_an_offset() {
         }
     }
     assert!(String::from_utf8_lossy(&seen).contains("over-the-wire"));
+    // The shell still prints the command's result and a new prompt; let it finish before resuming.
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(Duration::from_millis(800), ws.next()).await
+    {
+        if let Message::Binary(frame) = message {
+            let offset = u64::from_be_bytes(frame[..8].try_into().unwrap());
+            assert_eq!(offset, next, "frames are contiguous");
+            next = offset + (frame.len() - 8) as u64;
+        }
+    }
     drop(ws);
     // A new connection from the offset it already has gets nothing twice.
     let mut again = connect(next).await;

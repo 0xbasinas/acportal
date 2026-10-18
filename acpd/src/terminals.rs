@@ -237,6 +237,8 @@ impl Terminals {
             return Err(TerminalError::Disabled);
         }
         let (rows, cols) = (rows.clamp(2, 500), cols.clamp(2, 1000));
+        // cmd.exe cannot start in a verbatim (\?) path, which canonicalizing produces on Windows.
+        let folder = &crate::userdata::plain_path(folder);
         let shell = choose_shell(config).map_err(|e| TerminalError::Failed(e.to_string()))?;
         let env = shell_env(std::env::vars(), config.inherit_env);
         {
