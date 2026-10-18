@@ -1,6 +1,6 @@
 # Agentic development environment ideas: index and research notes
 
-Two rounds of research on 18 October 2026: the first gave twelve ADRs, the second added twelve more (the rows from "credential proxy" down).
+Three rounds of research on 18 October 2026: the first gave twelve ADRs, the second twelve more ("credential proxy" to "device rights"), the third eleven more ("workflow recipes" down).
 
 **Date:** 18 October 2026
 **Status:** All ADRs listed here are *Proposed*. None changes code. Each says "No code from this ADR until they accept it."
@@ -33,6 +33,17 @@ Two rounds of research on 18 October 2026: the first gave twelve ADRs, the secon
 | [multi-repo tasks](adr-multi-repo-tasks.md) | Task groups across up to five repositories, ordered merges | Cursor multi-root, Vibe Kanban multi-repo, `gh-stack` | tasks, worktrees, PR flow |
 | [context handoff](adr-context-handoff.md) | Context meter and a reviewed "continue in a new session" note, also cross-host | Compaction behaviour, Cursor cloud handoff | `usage_update`, worktrees |
 | [device rights](adr-device-roles.md) | Observer, approver, operator, owner per device with expiry | Coder roles, Copilot org policy | pairing store, route middleware |
+| [workflow recipes](adr-workflow-recipes.md) | Saved, parameterised jobs (agent, profile, prompt, checks, budget) as plain data | Goose recipes, Codex automations | prompt history, tasks |
+| [session sharing](adr-session-sharing.md) | Guest links scoped to one session, observer or approver, expiring | Happy invites, Coder roles | device rights, remote routes |
+| [host web client](adr-host-web-client.md) | Static web client served by the host (iOS, borrowed laptops, guests) | Mux server mode, OpenCode web, Happy web | desktop React code, pairing |
+| [terminal persistence](adr-terminal-persistence.md) | Scrollback, sequence reattach, liveness, phone key row | tmux and Mosh stacks, AgentAPI | `pty.rs`, `terminals.rs` |
+| [plan review](adr-plan-review.md) | Plan card with history, edit, comment, approve; Mermaid on desktop | Mux plan mode, Copilot Plan, Nimbalyst approvals | ACP `plan`, review comments |
+| [overlap warning](adr-overlap-warning.md) | Warn when parallel tasks touch the same files; `merge-tree` conflict probe | Mux divergence view | worktrees, git runner |
+| [devcontainer import](adr-devcontainer-import.md) | Read `devcontainer.json` as setup suggestions, never run it | Codespaces, DevPod, Coder, Ona | workspace scripts, container ADR |
+| [warm worktrees](adr-warm-worktrees.md) | Pool of prepared worktrees so tasks start ready | Ona prebuilds | workspace scripts |
+| [host hooks](adr-host-hooks.md) | Event hooks: run, notify (ntfy or webhook), capped prompt | Claude Code hooks, Kiro hooks, Warp notifications | host event stream, sandbox |
+| [composer helpers](adr-composer-mentions.md) | Slash commands, `@` mentions, deterministic next-prompt suggestions | Codex `@` menu and composer predictions | `available_commands_update` |
+| [MCP Apps spike](adr-mcp-apps.md) | Written research spike only, before any code | MCP Apps, A2A | form elicitation |
 
 ## Suggested order
 
@@ -43,6 +54,7 @@ Two rounds of research on 18 October 2026: the first gave twelve ADRs, the secon
 5. **Audit and trace**, **usage dashboard** and **context handoff**: observability, ahead of any unattended work.
 6. **PR watch**, **issue tracker**, **scheduled runs**, **multi-repo tasks**, **project context**, **editor handoff**: depend on earlier work or on a real `gh` check.
 7. **Credential proxy**, **agent browser tools** and **container isolation**: security-sensitive and platform-specific; spike first, and decide [external MCP](adr-external-mcp.md) before browser control.
+8. **Third-round additions**: start with the small, high-use ones: **composer helpers** (slash commands use data the Android reducer already holds), **plan review** (extends the desktop's existing plan item), **overlap warning** and **host hooks** (`notify` first: it answers push notifications without a relay). **Host web client** unlocks iPhone and **session sharing**; do it after **device rights**. **Terminal persistence** fixes the biggest known phone-terminal gap. **Workflow recipes** feed scheduled runs and the issue tracker. **Devcontainer import** and **warm worktrees** wait for workspace scripts. The **MCP Apps spike** is reading, not building.
 
 ## Research notes
 
@@ -72,8 +84,27 @@ Read 18 October 2026 through web search and page fetches. Most sources are vendo
 - **Steering**: steer, follow-up and interrupt as separate modes; conflicting reports on Claude Code's current behaviour. [patterns](https://agentpatterns.ai/patterns/agent-design/steering-running-agents/).
 - **Compaction and memory**: opaque compaction in some tools, third-party memory servers with unverified benchmarks. [deep dive](https://codex.danielvaughan.com/2026/04/14/context-compaction-deep-dive-codex-cli-claude-code-opencode/).
 - **Self-hosted teams**: Coder offers SSO, roles, audit logging and spend limits, partly paid; OpenHands is open source (features unconfirmed). [Coder](https://coder.com/solutions/agents).
+- **Toad** (Will McGugan, Textual): a terminal front-end for several agents through ACP, with Markdown rendering, fuzzy file search, a prompt editor and shell passthrough. [announcement](https://simonwillison.net/2025/Jul/23/announcing-toad/), [release post](https://willmcgugan.github.io/toad-released/).
+- **OpenCode 2.0** (reported 12 October 2026): terminal, desktop and web clients share one background server; `opencode serve` and `opencode web`; a rebuilt API, SDK and plugin system. Remote workspaces were experimental in March 2026. [report](https://zeli.app/de/story/50094994).
+- **Happy** (open source, MIT relay): mobile and web client for Claude Code and Codex with end-to-end encryption, session handoff and inviting others into a session. [repository](https://github.com/slopus/happy). **AgentAPI** (Coder, MIT): HTTP layer that drives agents through an in-memory terminal emulator; its listing warns to bind only to trusted interfaces. [listing](https://docsearch.algolia.com/mcp/docs/repo/coder/agentapi).
+- **Mux** (Coder): local, worktree and SSH workspaces, git divergence view, Plan/Exec modes with Mermaid, costs tab, compaction dialog, responsive server mode. [repository](https://github.com/coder/mux).
+- **Open-source agents**: Roo Code was archived with a final release on 15 May 2026 per one source and Kilo Code is the suggested successor; Cline is approval-first; OpenHands is autonomous and sandboxed; Aider is git-native; Plandex has a diff sandbox and plan branching. Licences and star counts differ between sources. [comparison](https://aifoss.dev/blog/open-source-coding-agents-state-2026/), [CLI agents compared](https://michaellivs.com/blog/cli-coding-agents-compared/).
+- **Goose** (Block, now under the Linux Foundation's Agentic AI Foundation with MCP and AGENTS.md): recipes as portable YAML with parameters and sub-recipes, subagents with parallel or sequential modes, many MCP extensions. Scheduler and `goose serve` details were not found. [overview](https://rywalker.com/research/goose).
+- **Cloud agents**: Jules (Google), Devin (Cognition, terminal release reported 9 April 2026) and Factory Droid appear in comparison pages with conflicting prices; no primary source read. [roundup](https://ssojet.com/blog/best-cloud-coding-agents).
+- **MCP Apps and A2A**: interactive tool UIs and an Agent Card protocol, both described only in secondary sources. [MCP roadmap summary](https://mcpplaygroundonline.com/blog/mcp-2026-roadmap-whats-changing-for-developers.md).
+- **Environments**: `devcontainer.json` is the portable layer (Codespaces, DevPod, Daytona, Coder); Ona (formerly Gitpod) pivoted to agent sandboxes with prebuilds; one source claims an acquisition that I could not corroborate. [comparison](https://www.morphllm.com/comparisons/codespaces-alternative).
+- **Phone terminal stacks**: Mosh plus tmux plus a mobile SSH client (Blink, Termius), with keepalive settings and named sessions; Mosh cannot forward ports. [Blink and Tailscale](https://docs.blink.sh/integrations/tailscale+mosh), [phone setup guide](https://getmoshi.app/articles/best-setup-coding-agent-phone).
 
-Not found: reliable details on Emdash, Crystal, Paseo, Happy, Kiro steering files, Jules and Devin tracker integrations, OpenHands multi-user features, Graphite and Greptile, or checkpoints in any orchestrator. Those ideas are marked as unconfirmed in the ADRs that touch them.
+Not found: reliable details on Emdash, Crystal, Paseo, Happy, Kiro steering files, Jules and Devin tracker integrations, OpenHands multi-user features, Graphite and Greptile, VibeTunnel, a Goose scheduler, `goose serve`, or checkpoints in any orchestrator. Those ideas are marked as unconfirmed in the ADRs that touch them.
+
+## Watch list (no ADR yet)
+
+- **Chat entry points** (start or answer an agent from Slack, Telegram, Discord): Cursor and Devin do this. Needs an inbound or long-polling integration and a security review; [host hooks](adr-host-hooks.md) `notify` covers the outbound half.
+- **Local models** (Ollama through Mux; Plandex's 14B+ guidance): agents choose their own models; a doctor check for a reachable local endpoint might help.
+- **Team features** (SSO, groups, spend limits): Coder's territory; [device rights](adr-device-roles.md) is the single-owner version.
+- **A2A interoperability**: a stated non-goal of the orchestrator design; revisit with the MCP Apps spike.
+- **Vim keys and keyboard-first navigation** (Mux): small desktop polish.
+- **Wear OS or a watch tile** for approvals waiting: cheap if [Android integration](adr-android-integration.md) lands.
 
 ## What this project already has
 
