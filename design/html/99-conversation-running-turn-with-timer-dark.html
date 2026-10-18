@@ -1,0 +1,1334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>99 - Conversation / running turn with timer / dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@100..900&display=swap">
+<style>
+html,body{margin:0;min-height:100%;background:#808080;}
+body{width:max-content;min-width:100%;}
+.frame{margin:0 auto;}
+/* 99 - Conversation / running turn with timer / dark */
+.c-99-conve-cf08050040f4 {
+  position: relative;
+  width: 390px;
+  height: 844px;
+  background: #0a0a0bFF;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* Status time */
+.status-tim-cf08059c2894 {
+  position: absolute;
+  left: 24px;
+  top: 16px;
+  height: 17px;
+}
+.status-tim-cf08059c2894 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.status-tim-cf08059c2894 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.status-tim-cf08059c2894 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.status-tim-cf08059c2894 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Battery */
+.battery-cf08063f23c5 {
+  position: absolute;
+  left: 344px;
+  top: 18px;
+  width: 20px;
+  height: 10px;
+  background: #edededFF;
+  border-start-start-radius: 3px;
+  border-start-end-radius: 3px;
+  border-end-start-radius: 3px;
+  border-end-end-radius: 3px;
+}
+
+/* Gesture bar */
+.gesture-ba-cf0806e3a746 {
+  position: absolute;
+  left: 139px;
+  top: 830px;
+  width: 112px;
+  height: 4px;
+  background: #edededFF;
+  border-start-start-radius: 2px;
+  border-start-end-radius: 2px;
+  border-end-start-radius: 2px;
+  border-end-end-radius: 2px;
+}
+
+/* Back */
+.back-cf080750dd28 {
+  position: absolute;
+  left: 24px;
+  top: 58px;
+  height: 27px;
+}
+.back-cf080750dd28 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.back-cf080750dd28 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.back-cf080750dd28 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.back-cf080750dd28 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 22px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Title */
+.title-cf0807ae7159 {
+  position: absolute;
+  left: 64px;
+  top: 57px;
+  width: 300px;
+}
+.title-cf0807ae7159 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.title-cf0807ae7159 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.title-cf0807ae7159 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.title-cf0807ae7159 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 20px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Subtitle */
+.subtitle-cf080822ef81 {
+  position: absolute;
+  left: 64px;
+  top: 86px;
+  width: 300px;
+}
+.subtitle-cf080822ef81 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.subtitle-cf080822ef81 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.subtitle-cf080822ef81 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.subtitle-cf080822ef81 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Divider */
+.divider-cf08088d927f {
+  position: absolute;
+  left: 0px;
+  top: 116px;
+  width: 390px;
+  height: 1px;
+  background: #2b2b30FF;
+}
+
+/* You bubble */
+.you-bubble-cf0808ed10df {
+  position: absolute;
+  left: 62px;
+  top: 136px;
+  width: 312px;
+  height: 70px;
+  background: #171719FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* You */
+.you-cf0809609c89 {
+  position: absolute;
+  left: 74px;
+  top: 146px;
+  height: 14px;
+}
+.you-cf0809609c89 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.you-cf0809609c89 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.you-cf0809609c89 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.you-cf0809609c89 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* The add test fails. Can you */
+.the-add-te-cf0809c7c768 {
+  position: absolute;
+  left: 74px;
+  top: 164px;
+  width: 288px;
+}
+.the-add-te-cf0809c7c768 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.the-add-te-cf0809c7c768 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.the-add-te-cf0809c7c768 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.the-add-te-cf0809c7c768 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Chevron */
+.chevron-cf080a8e8e35 {
+  position: absolute;
+  left: 24px;
+  top: 226px;
+  height: 17px;
+}
+.chevron-cf080a8e8e35 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.chevron-cf080a8e8e35 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.chevron-cf080a8e8e35 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.chevron-cf080a8e8e35 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Steps summary */
+.steps-summ-cf080b1e7ade {
+  position: absolute;
+  left: 44px;
+  top: 227px;
+  width: 300px;
+}
+.steps-summ-cf080b1e7ade .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.steps-summ-cf080b1e7ade .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.steps-summ-cf080b1e7ade .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.steps-summ-cf080b1e7ade .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Steps rail */
+.steps-rail-cf080c0fab43 {
+  position: absolute;
+  left: 29px;
+  top: 250px;
+  width: 1px;
+  height: 96px;
+  background: #2b2b30FF;
+}
+
+/* Thought */
+.thought-cf080c56d681 {
+  position: absolute;
+  left: 44px;
+  top: 254px;
+  width: 322px;
+}
+.thought-cf080c56d681 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.thought-cf080c56d681 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.thought-cf080c56d681 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.thought-cf080c56d681 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Tool icon */
+.tool-icon-cf080cb34fac {
+  position: absolute;
+  left: 44px;
+  top: 286px;
+  height: 16px;
+}
+.tool-icon-cf080cb34fac .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.tool-icon-cf080cb34fac .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.tool-icon-cf080cb34fac .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.tool-icon-cf080cb34fac .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* read · calc.py */
+.read-cal-cf080d03314a {
+  position: absolute;
+  left: 70px;
+  top: 286px;
+  width: 230px;
+}
+.read-cal-cf080d03314a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.read-cal-cf080d03314a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.read-cal-cf080d03314a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.read-cal-cf080d03314a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* State dot */
+.state-dot-cf080d6436f4 {
+  position: absolute;
+  left: 310px;
+  top: 291px;
+  width: 6px;
+  height: 6px;
+  background: #72c7a2FF;
+}
+
+/* Done */
+.done-cf080de8723a {
+  position: absolute;
+  left: 322px;
+  top: 286px;
+  height: 15px;
+}
+.done-cf080de8723a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.done-cf080de8723a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.done-cf080de8723a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.done-cf080de8723a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Tool icon */
+.tool-icon-cf080e9614cd {
+  position: absolute;
+  left: 44px;
+  top: 314px;
+  height: 16px;
+}
+.tool-icon-cf080e9614cd .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.tool-icon-cf080e9614cd .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.tool-icon-cf080e9614cd .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.tool-icon-cf080e9614cd .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* shell · cargo test */
+.shell-ca-cf080f3a05f7 {
+  position: absolute;
+  left: 70px;
+  top: 314px;
+  width: 230px;
+}
+.shell-ca-cf080f3a05f7 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.shell-ca-cf080f3a05f7 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.shell-ca-cf080f3a05f7 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.shell-ca-cf080f3a05f7 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* State dot */
+.state-dot-cf080fe6591a {
+  position: absolute;
+  left: 310px;
+  top: 319px;
+  width: 6px;
+  height: 6px;
+  background: #e0a64aFF;
+}
+
+/* Running */
+.running-cf0810371cd4 {
+  position: absolute;
+  left: 322px;
+  top: 314px;
+  height: 15px;
+}
+.running-cf0810371cd4 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.running-cf0810371cd4 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.running-cf0810371cd4 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.running-cf0810371cd4 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Pulse */
+.pulse-cf08107dd42b {
+  position: absolute;
+  left: 24px;
+  top: 382px;
+  width: 8px;
+  height: 8px;
+  background: #72c7a2FF;
+}
+
+/* Goose is working… */
+.goose-is-w-cf0810c75ceb {
+  position: absolute;
+  left: 40px;
+  top: 378px;
+  height: 16px;
+}
+.goose-is-w-cf0810c75ceb .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.goose-is-w-cf0810c75ceb .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.goose-is-w-cf0810c75ceb .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.goose-is-w-cf0810c75ceb .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Elapsed */
+.elapsed-cf081111c949 {
+  position: absolute;
+  left: 150px;
+  top: 378px;
+  height: 16px;
+}
+.elapsed-cf081111c949 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.elapsed-cf081111c949 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.elapsed-cf081111c949 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.elapsed-cf081111c949 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Composer */
+.composer-cf0811a2ceba {
+  position: absolute;
+  left: 16px;
+  top: 716px;
+  width: 358px;
+  height: 84px;
+  background: #161616FF;
+  border: 1px  #3a3a40FF;
+  border-start-start-radius: 16px;
+  border-start-end-radius: 16px;
+  border-end-start-radius: 16px;
+  border-end-end-radius: 16px;
+}
+
+/* Placeholder */
+.placeholde-cf0812514c5e {
+  position: absolute;
+  left: 32px;
+  top: 728px;
+  width: 320px;
+}
+.placeholde-cf0812514c5e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.placeholde-cf0812514c5e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.placeholde-cf0812514c5e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.placeholde-cf0812514c5e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Attach */
+.attach-cf08130dfc5e {
+  position: absolute;
+  left: 32px;
+  top: 762px;
+  height: 24px;
+}
+.attach-cf08130dfc5e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.attach-cf08130dfc5e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.attach-cf08130dfc5e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.attach-cf08130dfc5e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 20px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Agent */
+.agent-cf08135c3abb {
+  position: absolute;
+  left: 70px;
+  top: 768px;
+  height: 15px;
+}
+.agent-cf08135c3abb .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.agent-cf08135c3abb .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  
+  margin-right: 1px;
+  vertical-align: top;
+}
+.agent-cf08135c3abb .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: left;
+}
+.agent-cf08135c3abb .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(161, 161, 170, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: pre;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(161, 161, 170, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Stop */
+.stop-cf0813a38970 {
+  position: absolute;
+  left: 296px;
+  top: 758px;
+  width: 66px;
+  height: 32px;
+  background: #2b2b30FF;
+  border-start-start-radius: 16px;
+  border-start-end-radius: 16px;
+  border-end-start-radius: 16px;
+  border-end-end-radius: 16px;
+}
+
+/* ■ Stop */
+.stop-cf0813ffab7e {
+  position: absolute;
+  left: 296px;
+  top: 766px;
+  width: 66px;
+}
+.stop-cf0813ffab7e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.stop-cf0813ffab7e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.stop-cf0813ffab7e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.2;
+  margin: 0;
+  text-align: center;
+}
+.stop-cf0813ffab7e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(237, 237, 237, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(237, 237, 237, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+<!-- frame: 99 - Conversation / running turn with timer / dark -->
+<div class="frame c-99-conve-cf08050040f4">
+  <!-- text: Status time -->
+  <div class="shape text status-tim-cf08059c2894">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf08059c2894" data-x="1434" data-y="5816">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">9:41</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Battery -->
+  <div class="shape rect battery-cf08063f23c5">
+  </div>
+  <!-- rect: Gesture bar -->
+  <div class="shape rect gesture-ba-cf0806e3a746">
+  </div>
+  <!-- text: Back -->
+  <div class="shape text back-cf080750dd28">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080750dd28" data-x="1434" data-y="5858">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">←</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Title -->
+  <div class="shape text title-cf0807ae7159">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0807ae7159" data-x="1474" data-y="5857">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Fix the failing add test</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Subtitle -->
+  <div class="shape text subtitle-cf080822ef81">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080822ef81" data-x="1474" data-y="5886">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose · Running</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Divider -->
+  <div class="shape rect divider-cf08088d927f">
+  </div>
+  <!-- rect: You bubble -->
+  <div class="shape rect you-bubble-cf0808ed10df">
+  </div>
+  <!-- text: You -->
+  <div class="shape text you-cf0809609c89">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0809609c89" data-x="1484" data-y="5946">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">You</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: The add test fails. Can you -->
+  <div class="shape text the-add-te-cf0809c7c768">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0809c7c768" data-x="1484" data-y="5964">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">The add test fails. Can you look at it?</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Chevron -->
+  <div class="shape text chevron-cf080a8e8e35">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080a8e8e35" data-x="1434" data-y="6026">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Steps summary -->
+  <div class="shape text steps-summ-cf080b1e7ade">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080b1e7ade" data-x="1454" data-y="6027">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Working · 3 steps so far</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Steps rail -->
+  <div class="shape rect steps-rail-cf080c0fab43">
+  </div>
+  <!-- text: Thought -->
+  <div class="shape text thought-cf080c56d681">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080c56d681" data-x="1454" data-y="6054">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Looking at calc.py and its tests.</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Tool icon -->
+  <div class="shape text tool-icon-cf080cb34fac">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080cb34fac" data-x="1454" data-y="6086">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">›_</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: read · calc.py -->
+  <div class="shape text read-cal-cf080d03314a">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080d03314a" data-x="1480" data-y="6086">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">read · calc.py</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- circle: State dot -->
+  <div class="shape circle state-dot-cf080d6436f4">
+  </div>
+  <!-- text: Done -->
+  <div class="shape text done-cf080de8723a">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080de8723a" data-x="1732" data-y="6086">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Done</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Tool icon -->
+  <div class="shape text tool-icon-cf080e9614cd">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080e9614cd" data-x="1454" data-y="6114">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">›_</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: shell · cargo test -->
+  <div class="shape text shell-ca-cf080f3a05f7">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf080f3a05f7" data-x="1480" data-y="6114">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">shell · cargo test</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- circle: State dot -->
+  <div class="shape circle state-dot-cf080fe6591a">
+  </div>
+  <!-- text: Running -->
+  <div class="shape text running-cf0810371cd4">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0810371cd4" data-x="1732" data-y="6114">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Running</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- circle: Pulse -->
+  <div class="shape circle pulse-cf08107dd42b">
+  </div>
+  <!-- text: Goose is working… -->
+  <div class="shape text goose-is-w-cf0810c75ceb">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0810c75ceb" data-x="1450" data-y="6178">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose is working…</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Elapsed -->
+  <div class="shape text elapsed-cf081111c949">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf081111c949" data-x="1560" data-y="6178">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">0:42</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Composer -->
+  <div class="shape rect composer-cf0811a2ceba">
+  </div>
+  <!-- text: Placeholder -->
+  <div class="shape text placeholde-cf0812514c5e">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0812514c5e" data-x="1442" data-y="6528">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Message, @files</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Attach -->
+  <div class="shape text attach-cf08130dfc5e">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf08130dfc5e" data-x="1442" data-y="6562">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">+</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Agent -->
+  <div class="shape text agent-cf08135c3abb">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf08135c3abb" data-x="1480" data-y="6568">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Stop -->
+  <div class="shape rect stop-cf0813a38970">
+  </div>
+  <!-- text: ■ Stop -->
+  <div class="shape text stop-cf0813ffab7e">
+    <div class="text-node-html" id="html-text-node-3179bfe4-d3c6-80ba-8008-cf0813ffab7e" data-x="1706" data-y="6566">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">■ Stop</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

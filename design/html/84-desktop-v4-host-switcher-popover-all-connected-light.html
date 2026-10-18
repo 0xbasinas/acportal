@@ -1,0 +1,4366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>84 - Desktop v4 – Host switcher popover, all connected / light</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap">
+<style>
+html,body{margin:0;min-height:100%;background:#808080;}
+body{width:max-content;min-width:100%;}
+.frame{margin:0 auto;}
+/* 84 - Desktop v4 – Host switcher popover, all connected / light */
+.c-84-deskt-817bed7b866a {
+  position: relative;
+  width: 1440px;
+  height: 900px;
+  background: #fafafaFF;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* Rect */
+.rect-e5714cf8dc06 {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 1440px;
+  height: 36px;
+  background: #fafafaFF;
+}
+
+/* Sidebar */
+.sidebar-0bbb21572e83 {
+  position: absolute;
+  left: 0px;
+  top: 36px;
+  width: 300px;
+  height: 864px;
+  background: #f5f5f6FF;
+}
+
+/* Rect */
+.rect-978c7bd5e69a {
+  position: absolute;
+  left: 299px;
+  top: 36px;
+  width: 1px;
+  height: 864px;
+  background: #e0e0e3FF;
+}
+
+/* Host switcher */
+.host-switc-2298f59ca739 {
+  position: absolute;
+  left: 10px;
+  top: 46px;
+  width: 280px;
+  height: 52px;
+  background: #e6e6e8FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-a3dcb4033d5d {
+  position: absolute;
+  left: 20px;
+  top: 56px;
+  width: 32px;
+  height: 32px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* B */
+.b-07bdde24f726 {
+  position: absolute;
+  left: 20px;
+  top: 63px;
+  width: 32px;
+  height: 20px;
+}
+.b-07bdde24f726 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.b-07bdde24f726 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.b-07bdde24f726 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.b-07bdde24f726 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Status dot */
+.status-dot-115349eb8b69 {
+  position: absolute;
+  left: 46px;
+  top: 82px;
+  width: 10px;
+  height: 10px;
+  background: #2f8a63FF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Build box */
+.build-box-64df65844a09 {
+  position: absolute;
+  left: 62px;
+  top: 52px;
+  width: 170px;
+  height: 21px;
+}
+.build-box-64df65844a09 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-64df65844a09 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-64df65844a09 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-64df65844a09 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 15px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Connected · 4 ms */
+.connected-7855e470ba22 {
+  position: absolute;
+  left: 62px;
+  top: 74px;
+  width: 170px;
+  height: 17px;
+}
+.connected-7855e470ba22 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.connected-7855e470ba22 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.connected-7855e470ba22 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.connected-7855e470ba22 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(47, 138, 99, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(47, 138, 99, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-dc304a8f160d {
+  position: absolute;
+  left: 230px;
+  top: 61px;
+  width: 34px;
+  height: 20px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 6px;
+  border-start-end-radius: 6px;
+  border-end-start-radius: 6px;
+  border-end-end-radius: 6px;
+}
+
+/* 2/2 */
+.c-22-e66cc05f6177 {
+  position: absolute;
+  left: 230px;
+  top: 64px;
+  width: 34px;
+  height: 15px;
+}
+.c-22-e66cc05f6177 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-22-e66cc05f6177 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-22-e66cc05f6177 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.c-22-e66cc05f6177 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(47, 138, 99, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(47, 138, 99, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌄ */
+.b554add21fd0 {
+  position: absolute;
+  left: 268px;
+  top: 60px;
+  width: 14px;
+  height: 20px;
+}
+.b554add21fd0 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.b554add21fd0 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.b554add21fd0 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.b554add21fd0 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-015255fdc0a6 {
+  position: absolute;
+  left: 16px;
+  top: 108px;
+  width: 268px;
+  height: 34px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 9px;
+  border-start-end-radius: 9px;
+  border-end-start-radius: 9px;
+  border-end-end-radius: 9px;
+}
+
+/* +  New session */
+.new-ses-bb242e833be8 {
+  position: absolute;
+  left: 30px;
+  top: 116px;
+  width: 160px;
+  height: 18px;
+}
+.new-ses-bb242e833be8 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.new-ses-bb242e833be8 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.new-ses-bb242e833be8 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.new-ses-bb242e833be8 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Rect */
+.rect-a24094e37e54 {
+  position: absolute;
+  left: 228px;
+  top: 115px;
+  width: 54px;
+  height: 20px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Ctrl N */
+.ctrl-n-f56b5be0566d {
+  position: absolute;
+  left: 228px;
+  top: 118px;
+  width: 54px;
+  height: 15px;
+}
+.ctrl-n-f56b5be0566d .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ctrl-n-f56b5be0566d .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ctrl-n-f56b5be0566d .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.ctrl-n-f56b5be0566d .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-5434f2138431 {
+  position: absolute;
+  left: 16px;
+  top: 148px;
+  width: 268px;
+  height: 32px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 9px;
+  border-start-end-radius: 9px;
+  border-end-start-radius: 9px;
+  border-end-end-radius: 9px;
+}
+
+/* ⌕  Search or run a command */
+.search-34e73f34320d {
+  position: absolute;
+  left: 30px;
+  top: 155px;
+  width: 190px;
+  height: 17px;
+}
+.search-34e73f34320d .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.search-34e73f34320d .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.search-34e73f34320d .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.search-34e73f34320d .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-551fb0469c04 {
+  position: absolute;
+  left: 16px;
+  top: 190px;
+  width: 37px;
+  height: 22px;
+  background: #e6e6e8FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* All */
+.all-c04510acd6c4 {
+  position: absolute;
+  left: 16px;
+  top: 194px;
+  width: 37px;
+  height: 15px;
+}
+.all-c04510acd6c4 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.all-c04510acd6c4 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.all-c04510acd6c4 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.all-c04510acd6c4 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-2244b549b9fd {
+  position: absolute;
+  left: 59px;
+  top: 190px;
+  width: 89px;
+  height: 22px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* Status dot */
+.status-dot-768a28a8c658 {
+  position: absolute;
+  left: 68px;
+  top: 198px;
+  width: 6px;
+  height: 6px;
+  background: #2f8a63FF;
+  border-start-start-radius: 3px;
+  border-start-end-radius: 3px;
+  border-end-start-radius: 3px;
+  border-end-end-radius: 3px;
+}
+
+/* Build box */
+.build-box-64b179b0e041 {
+  position: absolute;
+  left: 77px;
+  top: 194px;
+  width: 71px;
+  height: 15px;
+}
+.build-box-64b179b0e041 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-64b179b0e041 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-64b179b0e041 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-64b179b0e041 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-43b24da9bf37 {
+  position: absolute;
+  left: 154px;
+  top: 190px;
+  width: 89px;
+  height: 22px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 11px;
+  border-start-end-radius: 11px;
+  border-end-start-radius: 11px;
+  border-end-end-radius: 11px;
+}
+
+/* Status dot */
+.status-dot-81ca0c1e606d {
+  position: absolute;
+  left: 163px;
+  top: 198px;
+  width: 6px;
+  height: 6px;
+  background: #2f8a63FF;
+  border-start-start-radius: 3px;
+  border-start-end-radius: 3px;
+  border-end-start-radius: 3px;
+  border-end-end-radius: 3px;
+}
+
+/* Studio PC */
+.studio-p-c-660f36e0cb09 {
+  position: absolute;
+  left: 172px;
+  top: 194px;
+  width: 71px;
+  height: 15px;
+}
+.studio-p-c-660f36e0cb09 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-660f36e0cb09 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-660f36e0cb09 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-660f36e0cb09 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌄ */
+.cf96b64e530f {
+  position: absolute;
+  left: 18px;
+  top: 226px;
+  width: 12px;
+  height: 17px;
+}
+.cf96b64e530f .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.cf96b64e530f .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.cf96b64e530f .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.cf96b64e530f .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-29c4a8e05906 {
+  position: absolute;
+  left: 34px;
+  top: 230px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Build box */
+.build-box-fac15c6e3a10 {
+  position: absolute;
+  left: 48px;
+  top: 225px;
+  width: 160px;
+  height: 18px;
+}
+.build-box-fac15c6e3a10 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-fac15c6e3a10 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-fac15c6e3a10 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-fac15c6e3a10 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 1 */
+.c-1-4568400d3ae5 {
+  position: absolute;
+  left: 200px;
+  top: 226px;
+  width: 80px;
+  height: 15px;
+}
+.c-1-4568400d3ae5 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-1-4568400d3ae5 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-1-4568400d3ae5 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: right;
+}
+.c-1-4568400d3ae5 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Projects */
+.projects-2c8bcf950bac {
+  position: absolute;
+  left: 24px;
+  top: 250px;
+  width: 100px;
+  height: 15px;
+}
+.projects-2c8bcf950bac .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.projects-2c8bcf950bac .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.projects-2c8bcf950bac .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.projects-2c8bcf950bac .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ▢  project2 */
+.project-2e0396c209de {
+  position: absolute;
+  left: 24px;
+  top: 268px;
+  width: 200px;
+  height: 18px;
+}
+.project-2e0396c209de .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.project-2e0396c209de .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.project-2e0396c209de .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.project-2e0396c209de .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Sessions */
+.sessions-58d45296d56a {
+  position: absolute;
+  left: 24px;
+  top: 294px;
+  width: 100px;
+  height: 15px;
+}
+.sessions-58d45296d56a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.sessions-58d45296d56a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.sessions-58d45296d56a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.sessions-58d45296d56a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Status dot */
+.status-dot-3257ab24427a {
+  position: absolute;
+  left: 22px;
+  top: 319px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Calc project todos */
+.calc-proje-fffff0a1233b {
+  position: absolute;
+  left: 38px;
+  top: 313px;
+  width: 230px;
+  height: 18px;
+}
+.calc-proje-fffff0a1233b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-proje-fffff0a1233b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-proje-fffff0a1233b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-proje-fffff0a1233b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Ready */
+.ready-803722c277cd {
+  position: absolute;
+  left: 38px;
+  top: 331px;
+  width: 200px;
+  height: 15px;
+}
+.ready-803722c277cd .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ready-803722c277cd .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ready-803722c277cd .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ready-803722c277cd .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-39048d43cbcf {
+  position: absolute;
+  left: 10px;
+  top: 356px;
+  width: 280px;
+  height: 1px;
+  background: #e0e0e3FF;
+}
+
+/* ⌄ */
+.ed912016bccf {
+  position: absolute;
+  left: 18px;
+  top: 368px;
+  width: 12px;
+  height: 17px;
+}
+.ed912016bccf .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ed912016bccf .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ed912016bccf .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ed912016bccf .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-52d175b4d980 {
+  position: absolute;
+  left: 34px;
+  top: 372px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Studio PC */
+.studio-p-c-a66cd7e78143 {
+  position: absolute;
+  left: 48px;
+  top: 367px;
+  width: 160px;
+  height: 18px;
+}
+.studio-p-c-a66cd7e78143 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-a66cd7e78143 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-a66cd7e78143 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-a66cd7e78143 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 3 */
+.c-3-9cb1dddef6b1 {
+  position: absolute;
+  left: 200px;
+  top: 368px;
+  width: 80px;
+  height: 15px;
+}
+.c-3-9cb1dddef6b1 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-3-9cb1dddef6b1 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-3-9cb1dddef6b1 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: right;
+}
+.c-3-9cb1dddef6b1 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Projects */
+.projects-c84ada17dba1 {
+  position: absolute;
+  left: 24px;
+  top: 392px;
+  width: 100px;
+  height: 15px;
+}
+.projects-c84ada17dba1 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.projects-c84ada17dba1 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.projects-c84ada17dba1 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.projects-c84ada17dba1 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ▢  project */
+.project-5c17e3e14a27 {
+  position: absolute;
+  left: 24px;
+  top: 410px;
+  width: 200px;
+  height: 18px;
+}
+.project-5c17e3e14a27 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.project-5c17e3e14a27 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.project-5c17e3e14a27 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.project-5c17e3e14a27 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Sessions */
+.sessions-6740298c6063 {
+  position: absolute;
+  left: 24px;
+  top: 436px;
+  width: 100px;
+  height: 15px;
+}
+.sessions-6740298c6063 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.sessions-6740298c6063 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.sessions-6740298c6063 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.sessions-6740298c6063 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Status dot */
+.status-dot-f0f2ad7efd42 {
+  position: absolute;
+  left: 22px;
+  top: 461px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Calc functions README */
+.calc-funct-224dc966256a {
+  position: absolute;
+  left: 38px;
+  top: 455px;
+  width: 230px;
+  height: 18px;
+}
+.calc-funct-224dc966256a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-funct-224dc966256a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-funct-224dc966256a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-funct-224dc966256a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Ready */
+.ready-4aab9d8207c3 {
+  position: absolute;
+  left: 38px;
+  top: 473px;
+  width: 200px;
+  height: 15px;
+}
+.ready-4aab9d8207c3 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ready-4aab9d8207c3 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ready-4aab9d8207c3 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ready-4aab9d8207c3 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-cae91730b1e3 {
+  position: absolute;
+  left: 22px;
+  top: 503px;
+  width: 8px;
+  height: 8px;
+  background: #c62828FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* calc.py docstrings */
+.calcpy-do-4f5c73c9312a {
+  position: absolute;
+  left: 38px;
+  top: 497px;
+  width: 230px;
+  height: 18px;
+}
+.calcpy-do-4f5c73c9312a .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calcpy-do-4f5c73c9312a .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calcpy-do-4f5c73c9312a .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calcpy-do-4f5c73c9312a .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Interrupted */
+.interrupte-504227164193 {
+  position: absolute;
+  left: 38px;
+  top: 515px;
+  width: 200px;
+  height: 15px;
+}
+.interrupte-504227164193 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.interrupte-504227164193 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.interrupte-504227164193 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.interrupte-504227164193 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-6868d3a9f784 {
+  position: absolute;
+  left: 22px;
+  top: 545px;
+  width: 8px;
+  height: 8px;
+  background: #c62828FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Goose in calc */
+.goose-in-c-64e3b12e263c {
+  position: absolute;
+  left: 38px;
+  top: 539px;
+  width: 230px;
+  height: 18px;
+}
+.goose-in-c-64e3b12e263c .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.goose-in-c-64e3b12e263c .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.goose-in-c-64e3b12e263c .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.goose-in-c-64e3b12e263c .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Interrupted */
+.interrupte-8881e826c359 {
+  position: absolute;
+  left: 38px;
+  top: 557px;
+  width: 200px;
+  height: 15px;
+}
+.interrupte-8881e826c359 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.interrupte-8881e826c359 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.interrupte-8881e826c359 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.interrupte-8881e826c359 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-a8fbd983cec5 {
+  position: absolute;
+  left: 10px;
+  top: 582px;
+  width: 280px;
+  height: 1px;
+  background: #e0e0e3FF;
+}
+
+/* Rect */
+.rect-c6dd41d312ab {
+  position: absolute;
+  left: 0px;
+  top: 852px;
+  width: 300px;
+  height: 1px;
+  background: #e0e0e3FF;
+}
+
+/* ⑂ Git      ⚙ Settings */
+.git-23ab8241a356 {
+  position: absolute;
+  left: 24px;
+  top: 866px;
+  width: 240px;
+  height: 18px;
+}
+.git-23ab8241a356 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.git-23ab8241a356 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.git-23ab8241a356 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.git-23ab8241a356 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Calc functions README */
+.calc-funct-382281bf56e9 {
+  position: absolute;
+  left: 324px;
+  top: 52px;
+  width: 300px;
+  height: 22px;
+}
+.calc-funct-382281bf56e9 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.calc-funct-382281bf56e9 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.calc-funct-382281bf56e9 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.calc-funct-382281bf56e9 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 16px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Goose · Ready · ~/project/calc */
+.goose-re-c792e35101b3 {
+  position: absolute;
+  left: 324px;
+  top: 74px;
+  width: 400px;
+  height: 17px;
+}
+.goose-re-c792e35101b3 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.goose-re-c792e35101b3 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.goose-re-c792e35101b3 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.goose-re-c792e35101b3 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-0df2ff2475de {
+  position: absolute;
+  left: 300px;
+  top: 100px;
+  width: 1140px;
+  height: 1px;
+  background: #e0e0e3FF;
+}
+
+/* Rect */
+.rect-2c77c21893a9 {
+  position: absolute;
+  left: 340px;
+  top: 130px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-fb18908279e0 {
+  position: absolute;
+  left: 340px;
+  top: 200px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-628905c14aa7 {
+  position: absolute;
+  left: 340px;
+  top: 270px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-57c07012daa7 {
+  position: absolute;
+  left: 340px;
+  top: 340px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-b28fe7cbae34 {
+  position: absolute;
+  left: 340px;
+  top: 410px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-84b9e5524986 {
+  position: absolute;
+  left: 340px;
+  top: 480px;
+  width: 700px;
+  height: 50px;
+  background: #f0f0f2FF;
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+
+/* Rect */
+.rect-f73c3fdc67fc {
+  position: absolute;
+  left: 324px;
+  top: 780px;
+  width: 772px;
+  height: 96px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 14px;
+  border-start-end-radius: 14px;
+  border-end-start-radius: 14px;
+  border-end-end-radius: 14px;
+}
+
+/* Message Goose… */
+.message-go-69bc12eee519 {
+  position: absolute;
+  left: 340px;
+  top: 796px;
+  width: 400px;
+  height: 20px;
+}
+.message-go-69bc12eee519 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.message-go-69bc12eee519 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.message-go-69bc12eee519 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.message-go-69bc12eee519 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* ⌀   ⟲ */
+.ceb080dc94d6 {
+  position: absolute;
+  left: 340px;
+  top: 846px;
+  width: 60px;
+  height: 20px;
+}
+.ceb080dc94d6 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.ceb080dc94d6 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.ceb080dc94d6 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.ceb080dc94d6 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-37878ce88a3e {
+  position: absolute;
+  left: 846px;
+  top: 846px;
+  width: 47px;
+  height: 20px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Enter */
+.enter-ba314d2c0fd3 {
+  position: absolute;
+  left: 846px;
+  top: 849px;
+  width: 47px;
+  height: 15px;
+}
+.enter-ba314d2c0fd3 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.enter-ba314d2c0fd3 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.enter-ba314d2c0fd3 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.enter-ba314d2c0fd3 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* send · */
+.send-d5403566311b {
+  position: absolute;
+  left: 899px;
+  top: 848px;
+  width: 40px;
+  height: 15px;
+}
+.send-d5403566311b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.send-d5403566311b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.send-d5403566311b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.send-d5403566311b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(157, 157, 166, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(157, 157, 166, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-e57c2c355b3c {
+  position: absolute;
+  left: 936px;
+  top: 846px;
+  width: 89px;
+  height: 20px;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 5px;
+  border-start-end-radius: 5px;
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
+}
+
+/* Shift Enter */
+.shift-ente-5ac20c702edd {
+  position: absolute;
+  left: 936px;
+  top: 849px;
+  width: 89px;
+  height: 15px;
+}
+.shift-ente-5ac20c702edd .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.shift-ente-5ac20c702edd .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.shift-ente-5ac20c702edd .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.shift-ente-5ac20c702edd .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-5baa5ea2cf53 {
+  position: absolute;
+  left: 1052px;
+  top: 840px;
+  width: 30px;
+  height: 30px;
+  background: #e6e6e8FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* ↑ */
+.b216f94ae3d4 {
+  position: absolute;
+  left: 1052px;
+  top: 846px;
+  width: 30px;
+  height: 20px;
+}
+.b216f94ae3d4 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.b216f94ae3d4 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.b216f94ae3d4 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.b216f94ae3d4 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Host popover */
+.host-popov-13a5c9617c86 {
+  position: absolute;
+  left: 10px;
+  top: 104px;
+  width: 360px;
+  height: 290px;
+  background: #f0f0f2FF;
+  border: 1px solid #d4d4d8FF;
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
+}
+
+/* Hosts */
+.hosts-6963e249aa56 {
+  position: absolute;
+  left: 24px;
+  top: 116px;
+  width: 100px;
+  height: 17px;
+}
+.hosts-6963e249aa56 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.hosts-6963e249aa56 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.hosts-6963e249aa56 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.hosts-6963e249aa56 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 12px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Status dot */
+.status-dot-97d415e48c9b {
+  position: absolute;
+  left: 200px;
+  top: 120px;
+  width: 7px;
+  height: 7px;
+  background: #2f8a63FF;
+  border-start-start-radius: 3.5px;
+  border-start-end-radius: 3.5px;
+  border-end-start-radius: 3.5px;
+  border-end-end-radius: 3.5px;
+}
+
+/* All 2 hosts connected */
+.all-2-host-91b8e357d537 {
+  position: absolute;
+  left: 212px;
+  top: 116px;
+  width: 150px;
+  height: 15px;
+}
+.all-2-host-91b8e357d537 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.all-2-host-91b8e357d537 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.all-2-host-91b8e357d537 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.all-2-host-91b8e357d537 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(47, 138, 99, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(47, 138, 99, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-8da96ac185fb {
+  position: absolute;
+  left: 16px;
+  top: 142px;
+  width: 348px;
+  height: 90px;
+  background: #e6e6e8FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* Status dot */
+.status-dot-416e2afcb498 {
+  position: absolute;
+  left: 30px;
+  top: 154px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Build box */
+.build-box-56511189f382 {
+  position: absolute;
+  left: 46px;
+  top: 148px;
+  width: 200px;
+  height: 18px;
+}
+.build-box-56511189f382 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.build-box-56511189f382 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.build-box-56511189f382 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.build-box-56511189f382 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Chip */
+.chip-c13270a83cea {
+  position: absolute;
+  left: 121.5px;
+  top: 148px;
+  width: 72px;
+  height: 16px;
+  background: #e6e6e8FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* current */
+.current-67afaf936e73 {
+  position: absolute;
+  left: 121.5px;
+  top: 149px;
+  width: 72px;
+  height: 14px;
+}
+.current-67afaf936e73 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.current-67afaf936e73 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.current-67afaf936e73 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.current-67afaf936e73 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* 127.0.0.1:8799 */
+.c-127001-27675a8d445b {
+  position: absolute;
+  left: 46px;
+  top: 168px;
+  width: 200px;
+  height: 15px;
+}
+.c-127001-27675a8d445b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-127001-27675a8d445b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-127001-27675a8d445b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.c-127001-27675a8d445b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Connected · 4 ms · acpd 0.1.0  */
+.connected-74acebd9cf1e {
+  position: absolute;
+  left: 46px;
+  top: 186px;
+  width: 300px;
+  height: 15px;
+}
+.connected-74acebd9cf1e .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.connected-74acebd9cf1e .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.connected-74acebd9cf1e .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.connected-74acebd9cf1e .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(47, 138, 99, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(47, 138, 99, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Chip */
+.chip-640b53d2a704 {
+  position: absolute;
+  left: 46px;
+  top: 204px;
+  width: 46px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* git */
+.git-12a4c7a787a8 {
+  position: absolute;
+  left: 46px;
+  top: 206px;
+  width: 46px;
+  height: 14px;
+}
+.git-12a4c7a787a8 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.git-12a4c7a787a8 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.git-12a4c7a787a8 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.git-12a4c7a787a8 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-cb12e6d6fd80 {
+  position: absolute;
+  left: 96px;
+  top: 204px;
+  width: 90px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* worktrees */
+.worktrees-a92f2cce6bc3 {
+  position: absolute;
+  left: 96px;
+  top: 206px;
+  width: 90px;
+  height: 14px;
+}
+.worktrees-a92f2cce6bc3 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.worktrees-a92f2cce6bc3 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.worktrees-a92f2cce6bc3 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.worktrees-a92f2cce6bc3 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-f0b64c868d9e {
+  position: absolute;
+  left: 190px;
+  top: 204px;
+  width: 61px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* tasks */
+.tasks-8befcf43c9e7 {
+  position: absolute;
+  left: 190px;
+  top: 206px;
+  width: 61px;
+  height: 14px;
+}
+.tasks-8befcf43c9e7 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.tasks-8befcf43c9e7 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.tasks-8befcf43c9e7 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.tasks-8befcf43c9e7 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-77f369c5a4f8 {
+  position: absolute;
+  left: 255px;
+  top: 204px;
+  width: 61px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* forms */
+.forms-eb149e7a3b41 {
+  position: absolute;
+  left: 255px;
+  top: 206px;
+  width: 61px;
+  height: 14px;
+}
+.forms-eb149e7a3b41 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.forms-eb149e7a3b41 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.forms-eb149e7a3b41 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.forms-eb149e7a3b41 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ↻ */
+.b0da4ba61fcb {
+  position: absolute;
+  left: 340px;
+  top: 150px;
+  width: 16px;
+  height: 20px;
+}
+.b0da4ba61fcb .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.b0da4ba61fcb .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.b0da4ba61fcb .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.b0da4ba61fcb .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Status dot */
+.status-dot-ebc382aa8de7 {
+  position: absolute;
+  left: 30px;
+  top: 250px;
+  width: 8px;
+  height: 8px;
+  background: #2f8a63FF;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  border-end-start-radius: 4px;
+  border-end-end-radius: 4px;
+}
+
+/* Studio PC */
+.studio-p-c-8d8b486784bf {
+  position: absolute;
+  left: 46px;
+  top: 244px;
+  width: 200px;
+  height: 18px;
+}
+.studio-p-c-8d8b486784bf .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.studio-p-c-8d8b486784bf .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.studio-p-c-8d8b486784bf .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.studio-p-c-8d8b486784bf .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 13px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 127.0.0.1:8798 */
+.c-127001-61263fbc77d1 {
+  position: absolute;
+  left: 46px;
+  top: 264px;
+  width: 200px;
+  height: 15px;
+}
+.c-127001-61263fbc77d1 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.c-127001-61263fbc77d1 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.c-127001-61263fbc77d1 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.c-127001-61263fbc77d1 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Connected · 5 ms · acpd 0.1.0  */
+.connected-6344e3fedf73 {
+  position: absolute;
+  left: 46px;
+  top: 282px;
+  width: 300px;
+  height: 15px;
+}
+.connected-6344e3fedf73 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.connected-6344e3fedf73 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.connected-6344e3fedf73 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.connected-6344e3fedf73 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(47, 138, 99, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(47, 138, 99, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Chip */
+.chip-3c9b1653435a {
+  position: absolute;
+  left: 46px;
+  top: 300px;
+  width: 46px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* git */
+.git-1778baaf2676 {
+  position: absolute;
+  left: 46px;
+  top: 302px;
+  width: 46px;
+  height: 14px;
+}
+.git-1778baaf2676 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.git-1778baaf2676 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.git-1778baaf2676 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.git-1778baaf2676 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-9edb8eabe99b {
+  position: absolute;
+  left: 96px;
+  top: 300px;
+  width: 90px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* worktrees */
+.worktrees-fec69e7c254b {
+  position: absolute;
+  left: 96px;
+  top: 302px;
+  width: 90px;
+  height: 14px;
+}
+.worktrees-fec69e7c254b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.worktrees-fec69e7c254b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.worktrees-fec69e7c254b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.worktrees-fec69e7c254b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-a4c171a1ff58 {
+  position: absolute;
+  left: 190px;
+  top: 300px;
+  width: 61px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* tasks */
+.tasks-5b0650f1f05d {
+  position: absolute;
+  left: 190px;
+  top: 302px;
+  width: 61px;
+  height: 14px;
+}
+.tasks-5b0650f1f05d .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.tasks-5b0650f1f05d .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.tasks-5b0650f1f05d .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.tasks-5b0650f1f05d .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Chip */
+.chip-394f116674c1 {
+  position: absolute;
+  left: 255px;
+  top: 300px;
+  width: 61px;
+  height: 18px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-start-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+/* forms */
+.forms-b0005930fe38 {
+  position: absolute;
+  left: 255px;
+  top: 302px;
+  width: 61px;
+  height: 14px;
+}
+.forms-b0005930fe38 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.forms-b0005930fe38 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.forms-b0005930fe38 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.forms-b0005930fe38 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 10px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ↻ */
+.7c0924e5e043 {
+  position: absolute;
+  left: 340px;
+  top: 246px;
+  width: 16px;
+  height: 20px;
+}
+.7c0924e5e043 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.7c0924e5e043 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.7c0924e5e043 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.7c0924e5e043 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 14px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Rect */
+.rect-153ca75a9590 {
+  position: absolute;
+  left: 10px;
+  top: 334px;
+  width: 360px;
+  height: 1px;
+  background: #e0e0e3FF;
+}
+
+/* Rect */
+.rect-822a3ccf035d {
+  position: absolute;
+  left: 22px;
+  top: 342px;
+  width: 86px;
+  height: 26px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 7px;
+  border-start-end-radius: 7px;
+  border-end-start-radius: 7px;
+  border-end-end-radius: 7px;
+}
+
+/* + Add host */
+.add-host-ab347ea0389d {
+  position: absolute;
+  left: 22px;
+  top: 348px;
+  width: 86px;
+  height: 15px;
+}
+.add-host-ab347ea0389d .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.add-host-ab347ea0389d .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.add-host-ab347ea0389d .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.add-host-ab347ea0389d .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Rect */
+.rect-7321afb96fc5 {
+  position: absolute;
+  left: 114px;
+  top: 342px;
+  width: 121px;
+  height: 26px;
+  background: #f0f0f2FF;
+  border: 1px solid #e0e0e3FF;
+  border-start-start-radius: 7px;
+  border-start-end-radius: 7px;
+  border-end-start-radius: 7px;
+  border-end-end-radius: 7px;
+}
+
+/* ↻ Reconnect all */
+.reconnec-585448a876f3 {
+  position: absolute;
+  left: 114px;
+  top: 348px;
+  width: 121px;
+  height: 15px;
+}
+.reconnec-585448a876f3 .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.reconnec-585448a876f3 .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.reconnec-585448a876f3 .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+.reconnec-585448a876f3 .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(23, 23, 25, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(23, 23, 25, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ⚙ Manage hosts */
+.manage-h-6651e3d94c1b {
+  position: absolute;
+  left: 260px;
+  top: 348px;
+  width: 100px;
+  height: 15px;
+}
+.manage-h-6651e3d94c1b .root-0 {
+  
+  
+  display: flex;
+  white-space: break-spaces;
+  align-items: flex-start;
+}
+.manage-h-6651e3d94c1b .root-0-paragraph-set-0 {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: inherit;
+  min-width: 100%;
+  margin-right: 1px;
+  vertical-align: top;
+}
+.manage-h-6651e3d94c1b .root-0-paragraph-set-0-paragraph-0 {
+  font-size: 0;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
+}
+.manage-h-6651e3d94c1b .root-0-paragraph-set-0-paragraph-0-text-0 {
+  color: rgba(105, 105, 114, 1);
+  text-transform: none;
+  
+  line-break: auto;
+  overflow-wrap: initial;
+  white-space: break-spaces;
+  font-size: 11px;
+  text-rendering: geometricPrecision;
+  caret-color: rgba(105, 105, 114, 1);
+  text-decoration: none;
+  letter-spacing: 0px;
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400;
+}
+</style>
+</head>
+<body>
+<!-- frame: 84 - Desktop v4 – Host switcher popover, all connected / light -->
+<div class="frame c-84-deskt-817bed7b866a">
+  <!-- rect: Rect -->
+  <div class="shape rect rect-e5714cf8dc06">
+  </div>
+  <!-- rect: Sidebar -->
+  <div class="shape rect sidebar-0bbb21572e83">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-978c7bd5e69a">
+  </div>
+  <!-- rect: Host switcher -->
+  <div class="shape rect host-switc-2298f59ca739">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-a3dcb4033d5d">
+  </div>
+  <!-- text: B -->
+  <div class="shape text b-07bdde24f726">
+    <div class="text-node-html" id="html-text-node-eb0d20a3-d1ca-42a0-985b-07bdde24f726" data-x="60140" data-y="63">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">B</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-115349eb8b69">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-64df65844a09">
+    <div class="text-node-html" id="html-text-node-1ea23d60-4314-4a75-8b26-64df65844a09" data-x="60182" data-y="52">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Connected · 4 ms -->
+  <div class="shape text connected-7855e470ba22">
+    <div class="text-node-html" id="html-text-node-def30c91-d8c4-4acb-bb7e-7855e470ba22" data-x="60182" data-y="74">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Connected · 4 ms</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-dc304a8f160d">
+  </div>
+  <!-- text: 2/2 -->
+  <div class="shape text c-22-e66cc05f6177">
+    <div class="text-node-html" id="html-text-node-4dce36e4-1fdc-4c96-b3e3-e66cc05f6177" data-x="60350" data-y="64">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">2/2</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text b554add21fd0">
+    <div class="text-node-html" id="html-text-node-c0f31985-43c5-4cd3-8839-b554add21fd0" data-x="60388" data-y="60">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-015255fdc0a6">
+  </div>
+  <!-- text: +  New session -->
+  <div class="shape text new-ses-bb242e833be8">
+    <div class="text-node-html" id="html-text-node-9639fd44-1ea3-4bac-a988-bb242e833be8" data-x="60150" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">+ New session</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-a24094e37e54">
+  </div>
+  <!-- text: Ctrl N -->
+  <div class="shape text ctrl-n-f56b5be0566d">
+    <div class="text-node-html" id="html-text-node-14c3da8c-0f72-4332-b380-f56b5be0566d" data-x="60348" data-y="118">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ctrl N</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-5434f2138431">
+  </div>
+  <!-- text: ⌕  Search or run a command -->
+  <div class="shape text search-34e73f34320d">
+    <div class="text-node-html" id="html-text-node-ab73b435-c1f2-49b4-8245-34e73f34320d" data-x="60150" data-y="155">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌕ Search or run a command</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-551fb0469c04">
+  </div>
+  <!-- text: All -->
+  <div class="shape text all-c04510acd6c4">
+    <div class="text-node-html" id="html-text-node-cdaad9a2-6602-4cf2-959e-c04510acd6c4" data-x="60136" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">All</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-2244b549b9fd">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-768a28a8c658">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-64b179b0e041">
+    <div class="text-node-html" id="html-text-node-a0fa7035-97a3-42ad-90b0-64b179b0e041" data-x="60197" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-43b24da9bf37">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-81ca0c1e606d">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-660f36e0cb09">
+    <div class="text-node-html" id="html-text-node-ee9df643-33a3-4d5e-a004-660f36e0cb09" data-x="60292" data-y="194">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text cf96b64e530f">
+    <div class="text-node-html" id="html-text-node-eb2b27d6-adf9-4862-b16f-cf96b64e530f" data-x="60138" data-y="226">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-29c4a8e05906">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-fac15c6e3a10">
+    <div class="text-node-html" id="html-text-node-d401eb65-2e1b-4acd-9b73-fac15c6e3a10" data-x="60168" data-y="225">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 1 -->
+  <div class="shape text c-1-4568400d3ae5">
+    <div class="text-node-html" id="html-text-node-8886046c-a420-4974-9acc-4568400d3ae5" data-x="60320" data-y="226">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">1</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Projects -->
+  <div class="shape text projects-2c8bcf950bac">
+    <div class="text-node-html" id="html-text-node-d7be471a-fdd0-4f04-92b0-2c8bcf950bac" data-x="60144" data-y="250">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Projects</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ▢  project2 -->
+  <div class="shape text project-2e0396c209de">
+    <div class="text-node-html" id="html-text-node-e99a6d39-459c-4121-a991-2e0396c209de" data-x="60144" data-y="268">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">▢ project2</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Sessions -->
+  <div class="shape text sessions-58d45296d56a">
+    <div class="text-node-html" id="html-text-node-499e2dae-55dc-4029-b65f-58d45296d56a" data-x="60144" data-y="294">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Sessions</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-3257ab24427a">
+  </div>
+  <!-- text: Calc project todos -->
+  <div class="shape text calc-proje-fffff0a1233b">
+    <div class="text-node-html" id="html-text-node-e765fbd7-e6b1-495b-9d34-fffff0a1233b" data-x="60158" data-y="313">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc project todos</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Ready -->
+  <div class="shape text ready-803722c277cd">
+    <div class="text-node-html" id="html-text-node-a5e3afe2-1847-48d0-bae3-803722c277cd" data-x="60158" data-y="331">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ready</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-39048d43cbcf">
+  </div>
+  <!-- text: ⌄ -->
+  <div class="shape text ed912016bccf">
+    <div class="text-node-html" id="html-text-node-317685f6-6fe0-4b4e-b45f-ed912016bccf" data-x="60138" data-y="368">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌄</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-52d175b4d980">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-a66cd7e78143">
+    <div class="text-node-html" id="html-text-node-73881552-8475-476d-b602-a66cd7e78143" data-x="60168" data-y="367">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 3 -->
+  <div class="shape text c-3-9cb1dddef6b1">
+    <div class="text-node-html" id="html-text-node-b3cc38e0-1dcb-4a9e-adc8-9cb1dddef6b1" data-x="60320" data-y="368">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">3</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Projects -->
+  <div class="shape text projects-c84ada17dba1">
+    <div class="text-node-html" id="html-text-node-8716f1a8-934e-4753-91fc-c84ada17dba1" data-x="60144" data-y="392">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Projects</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ▢  project -->
+  <div class="shape text project-5c17e3e14a27">
+    <div class="text-node-html" id="html-text-node-1a34df50-7528-4235-8213-5c17e3e14a27" data-x="60144" data-y="410">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">▢ project</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Sessions -->
+  <div class="shape text sessions-6740298c6063">
+    <div class="text-node-html" id="html-text-node-4b4cef7a-7c67-481e-b44c-6740298c6063" data-x="60144" data-y="436">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Sessions</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-f0f2ad7efd42">
+  </div>
+  <!-- text: Calc functions README -->
+  <div class="shape text calc-funct-224dc966256a">
+    <div class="text-node-html" id="html-text-node-df37c75f-c1e0-4ca3-846c-224dc966256a" data-x="60158" data-y="455">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc functions README</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Ready -->
+  <div class="shape text ready-4aab9d8207c3">
+    <div class="text-node-html" id="html-text-node-32aab208-55c2-4ee8-a4e0-4aab9d8207c3" data-x="60158" data-y="473">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Ready</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-cae91730b1e3">
+  </div>
+  <!-- text: calc.py docstrings -->
+  <div class="shape text calcpy-do-4f5c73c9312a">
+    <div class="text-node-html" id="html-text-node-57413f42-74fa-424e-89fb-4f5c73c9312a" data-x="60158" data-y="497">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">calc.py docstrings</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Interrupted -->
+  <div class="shape text interrupte-504227164193">
+    <div class="text-node-html" id="html-text-node-68c039b7-8783-4ab6-a5cf-504227164193" data-x="60158" data-y="515">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Interrupted</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-6868d3a9f784">
+  </div>
+  <!-- text: Goose in calc -->
+  <div class="shape text goose-in-c-64e3b12e263c">
+    <div class="text-node-html" id="html-text-node-088d90c2-bbaf-4c55-8c0a-64e3b12e263c" data-x="60158" data-y="539">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose in calc</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Interrupted -->
+  <div class="shape text interrupte-8881e826c359">
+    <div class="text-node-html" id="html-text-node-cc3e81b7-366f-40e0-ab93-8881e826c359" data-x="60158" data-y="557">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Interrupted</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-a8fbd983cec5">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-c6dd41d312ab">
+  </div>
+  <!-- text: ⑂ Git      ⚙ Settings -->
+  <div class="shape text git-23ab8241a356">
+    <div class="text-node-html" id="html-text-node-9313101e-1697-4e4a-b5ea-23ab8241a356" data-x="60144" data-y="866">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⑂ Git ⚙ Settings</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Calc functions README -->
+  <div class="shape text calc-funct-382281bf56e9">
+    <div class="text-node-html" id="html-text-node-8c866cb9-cc69-46fe-848f-382281bf56e9" data-x="60444" data-y="52">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Calc functions README</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Goose · Ready · ~/project/calc -->
+  <div class="shape text goose-re-c792e35101b3">
+    <div class="text-node-html" id="html-text-node-ea951c34-7f16-438d-a4af-c792e35101b3" data-x="60444" data-y="74">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Goose · Ready · ~/project/calc-acportal-add-subtract-docs</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-0df2ff2475de">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-2c77c21893a9">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-fb18908279e0">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-628905c14aa7">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-57c07012daa7">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-b28fe7cbae34">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-84b9e5524986">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-f73c3fdc67fc">
+  </div>
+  <!-- text: Message Goose… -->
+  <div class="shape text message-go-69bc12eee519">
+    <div class="text-node-html" id="html-text-node-f4905cd0-5cea-44cf-882a-69bc12eee519" data-x="60460" data-y="796">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Message Goose…</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⌀   ⟲ -->
+  <div class="shape text ceb080dc94d6">
+    <div class="text-node-html" id="html-text-node-3eeb7fb9-d41e-4a8c-95e5-ceb080dc94d6" data-x="60460" data-y="846">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⌀ ⟲</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-37878ce88a3e">
+  </div>
+  <!-- text: Enter -->
+  <div class="shape text enter-ba314d2c0fd3">
+    <div class="text-node-html" id="html-text-node-b7b88a26-e4f1-4869-af23-ba314d2c0fd3" data-x="60966" data-y="849">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Enter</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: send · -->
+  <div class="shape text send-d5403566311b">
+    <div class="text-node-html" id="html-text-node-7fb5c0da-d1db-4754-85de-d5403566311b" data-x="61019" data-y="848">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">send ·</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-e57c2c355b3c">
+  </div>
+  <!-- text: Shift Enter -->
+  <div class="shape text shift-ente-5ac20c702edd">
+    <div class="text-node-html" id="html-text-node-b929622b-9ebd-4ef6-ac35-5ac20c702edd" data-x="61056" data-y="849">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Shift Enter</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-5baa5ea2cf53">
+  </div>
+  <!-- text: ↑ -->
+  <div class="shape text b216f94ae3d4">
+    <div class="text-node-html" id="html-text-node-a73f1f52-992d-4870-9ed5-b216f94ae3d4" data-x="61172" data-y="846">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↑</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Host popover -->
+  <div class="shape rect host-popov-13a5c9617c86">
+  </div>
+  <!-- text: Hosts -->
+  <div class="shape text hosts-6963e249aa56">
+    <div class="text-node-html" id="html-text-node-6e041a13-8652-4c4a-896f-6963e249aa56" data-x="60144" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Hosts</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-97d415e48c9b">
+  </div>
+  <!-- text: All 2 hosts connected -->
+  <div class="shape text all-2-host-91b8e357d537">
+    <div class="text-node-html" id="html-text-node-cfdf9d5a-abbe-4d64-a627-91b8e357d537" data-x="60332" data-y="116">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">All 2 hosts connected</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-8da96ac185fb">
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-416e2afcb498">
+  </div>
+  <!-- text: Build box -->
+  <div class="shape text build-box-56511189f382">
+    <div class="text-node-html" id="html-text-node-b39d4ece-14cf-47e0-8ed8-56511189f382" data-x="60166" data-y="148">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Build box</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-c13270a83cea">
+  </div>
+  <!-- text: current -->
+  <div class="shape text current-67afaf936e73">
+    <div class="text-node-html" id="html-text-node-5764f8fd-3aa4-4028-a581-67afaf936e73" data-x="60241.5" data-y="149">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">current</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 127.0.0.1:8799 -->
+  <div class="shape text c-127001-27675a8d445b">
+    <div class="text-node-html" id="html-text-node-9f5c805e-716c-4d2a-a5ef-27675a8d445b" data-x="60166" data-y="168">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">127.0.0.1:8799</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Connected · 4 ms · acpd 0.1.0  -->
+  <div class="shape text connected-74acebd9cf1e">
+    <div class="text-node-html" id="html-text-node-6a80fc0d-aca8-4a78-bc91-74acebd9cf1e" data-x="60166" data-y="186">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Connected · 4 ms · acpd 0.1.0 · 3 agents</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-640b53d2a704">
+  </div>
+  <!-- text: git -->
+  <div class="shape text git-12a4c7a787a8">
+    <div class="text-node-html" id="html-text-node-8c603997-f311-4623-a837-12a4c7a787a8" data-x="60166" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">git</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-cb12e6d6fd80">
+  </div>
+  <!-- text: worktrees -->
+  <div class="shape text worktrees-a92f2cce6bc3">
+    <div class="text-node-html" id="html-text-node-37c71ee0-6d36-4df3-b8a4-a92f2cce6bc3" data-x="60216" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">worktrees</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-f0b64c868d9e">
+  </div>
+  <!-- text: tasks -->
+  <div class="shape text tasks-8befcf43c9e7">
+    <div class="text-node-html" id="html-text-node-48fabac3-ec7a-433e-bd00-8befcf43c9e7" data-x="60310" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">tasks</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-77f369c5a4f8">
+  </div>
+  <!-- text: forms -->
+  <div class="shape text forms-eb149e7a3b41">
+    <div class="text-node-html" id="html-text-node-d4d1eca2-4929-457c-9b41-eb149e7a3b41" data-x="60375" data-y="206">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">forms</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ↻ -->
+  <div class="shape text b0da4ba61fcb">
+    <div class="text-node-html" id="html-text-node-cf62d986-d5fd-4f5f-8cf4-b0da4ba61fcb" data-x="60460" data-y="150">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Status dot -->
+  <div class="shape rect status-dot-ebc382aa8de7">
+  </div>
+  <!-- text: Studio PC -->
+  <div class="shape text studio-p-c-8d8b486784bf">
+    <div class="text-node-html" id="html-text-node-d2eb1b74-4b6c-4344-834a-8d8b486784bf" data-x="60166" data-y="244">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Studio PC</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: 127.0.0.1:8798 -->
+  <div class="shape text c-127001-61263fbc77d1">
+    <div class="text-node-html" id="html-text-node-aa25ef25-bcca-4eca-ab9e-61263fbc77d1" data-x="60166" data-y="264">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">127.0.0.1:8798</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: Connected · 5 ms · acpd 0.1.0  -->
+  <div class="shape text connected-6344e3fedf73">
+    <div class="text-node-html" id="html-text-node-8c2dcce8-57f4-464e-8ddb-6344e3fedf73" data-x="60166" data-y="282">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">Connected · 5 ms · acpd 0.1.0 · 3 agents</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-3c9b1653435a">
+  </div>
+  <!-- text: git -->
+  <div class="shape text git-1778baaf2676">
+    <div class="text-node-html" id="html-text-node-5171f60e-8bd4-4624-beab-1778baaf2676" data-x="60166" data-y="302">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">git</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-9edb8eabe99b">
+  </div>
+  <!-- text: worktrees -->
+  <div class="shape text worktrees-fec69e7c254b">
+    <div class="text-node-html" id="html-text-node-207e7acb-0541-4555-8ad9-fec69e7c254b" data-x="60216" data-y="302">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">worktrees</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-a4c171a1ff58">
+  </div>
+  <!-- text: tasks -->
+  <div class="shape text tasks-5b0650f1f05d">
+    <div class="text-node-html" id="html-text-node-373d6d25-db56-494e-a1ea-5b0650f1f05d" data-x="60310" data-y="302">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">tasks</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Chip -->
+  <div class="shape rect chip-394f116674c1">
+  </div>
+  <!-- text: forms -->
+  <div class="shape text forms-b0005930fe38">
+    <div class="text-node-html" id="html-text-node-affc5a91-d283-4fc7-b4df-b0005930fe38" data-x="60375" data-y="302">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">forms</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ↻ -->
+  <div class="shape text 7c0924e5e043">
+    <div class="text-node-html" id="html-text-node-6a6ee262-082c-402a-915d-7c0924e5e043" data-x="60460" data-y="246">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-153ca75a9590">
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-822a3ccf035d">
+  </div>
+  <!-- text: + Add host -->
+  <div class="shape text add-host-ab347ea0389d">
+    <div class="text-node-html" id="html-text-node-86a50b13-afca-428f-bc4e-ab347ea0389d" data-x="60142" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">+ Add host</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- rect: Rect -->
+  <div class="shape rect rect-7321afb96fc5">
+  </div>
+  <!-- text: ↻ Reconnect all -->
+  <div class="shape text reconnec-585448a876f3">
+    <div class="text-node-html" id="html-text-node-7635a6df-08ef-4d45-be60-585448a876f3" data-x="60234" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">↻ Reconnect all</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- text: ⚙ Manage hosts -->
+  <div class="shape text manage-h-6651e3d94c1b">
+    <div class="text-node-html" id="html-text-node-2cb7357b-2418-4d27-b25e-6651e3d94c1b" data-x="60380" data-y="348">
+      <div class="root rich-text root-0" xmlns="http://www.w3.org/1999/xhtml">
+        <div class="paragraph-set root-0-paragraph-set-0">
+          <p class="paragraph root-0-paragraph-set-0-paragraph-0" dir="ltr"><span class="text-node root-0-paragraph-set-0-paragraph-0-text-0">⚙ Manage hosts</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
