@@ -11,6 +11,7 @@ import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
 import { Attachment, Composer, Conversation, Permission, type Incoming } from './Session'
 import { BrowserPanel } from './Browser'
+import { TerminalDock } from './Terminal'
 import { GitView } from './Git'
 import { gitRepos } from './gitRepos'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
@@ -61,6 +62,10 @@ export default function App() {
   const [browserWhere, setBrowserWhere] = useState<'side' | 'dock'>(() => (localStorage.getItem('acportal.browserWhere') === 'dock' ? 'dock' : 'side'))
   const [browserSize, setBrowserSize] = useState<{ side: number; dock: number }>(() => { try { return { side: 620, dock: 380, ...JSON.parse(localStorage.getItem('acportal.browserSize') ?? '{}') } } catch { return { side: 620, dock: 380 } } })
   const [incoming, setIncoming] = useState<Incoming>()
+  // The terminal dock: shells on the host, under the conversation.
+  const [termOpen, setTermOpen] = useState(false)
+  const [termHeight, setTermHeight] = useState<number>(() => Number(localStorage.getItem('acportal.termHeight')) || 300)
+  const toggleTerminal = useCallback(() => setTermOpen((o) => !o), [])
   const openBrowser = useCallback((url?: string) => setBrowser({ open: true, request: url ? { url, n: Date.now() } : undefined }), [])
   const closeBrowser = useCallback(() => { setBrowser({ open: false }); void window.api.browser.close() }, [])
   const toggleBrowser = useCallback(() => setBrowser((b) => { if (b.open) { void window.api.browser.close(); return { open: false } } return { open: true } }), [])
@@ -497,6 +502,7 @@ export default function App() {
       { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => openComposer() },
       { id: 'multi', group: 'Actions', label: 'Run on several agents…', run: () => setMultiOpen(true) },
       { id: 'git', group: 'Actions', label: 'Open Git (changes, history, worktrees, stash)', hint: 'Ctrl G', run: () => setView({ kind: 'git' }) },
+      { id: 'terminal', group: 'Actions', label: 'Show or hide the terminal', hint: 'Ctrl `', run: () => toggleTerminal() },
       { id: 'browser', group: 'Actions', label: 'Open the browser (preview a page)', hint: 'Ctrl Shift B', run: () => openBrowser() },
       { id: 'review', group: 'Actions', label: 'Review changes in this session', hint: 'Ctrl D', run: () => setView({ kind: 'review' }) },
       { id: 'stop', group: 'Actions', label: 'Stop the current turn', hint: 'Esc', run: () => void cancelTurn() },
@@ -535,6 +541,7 @@ export default function App() {
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); setView({ kind: 'review' }) }
       else if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); setView({ kind: 'git' }) }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleBrowser() }
+      else if (mod && e.key === '`') { e.preventDefault(); toggleTerminal() }
       else if (e.key === 'Escape' && !palette && view.kind !== 'workspace') setView({ kind: 'workspace' })
       else if (e.key === 'Escape' && tl?.busy) void cancelTurn()
     }
@@ -808,6 +815,7 @@ export default function App() {
           <OptionsButton selectors={selectors.filter((s) => s.choices.length)} valueOf={(s) => liveValue(s, tl)} disabled={interrupted}
             onPick={(sel, v) => { setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, v) })); const req = setRequest(sel, v); configure(req.method, req.params) }} />
           <span className="vsep" />
+          <button className={'icon-btn' + (termOpen ? ' on' : '')} title="Terminal (Ctrl `)" aria-label="Terminal" aria-pressed={termOpen} onClick={toggleTerminal}>{I.term}</button>
           <button className={'icon-btn' + (browser.open ? ' on' : '')} title="Browser (Ctrl Shift B)" aria-label="Browser" aria-pressed={browser.open} onClick={toggleBrowser}>{I.globe}</button>
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
           <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
@@ -854,6 +862,11 @@ export default function App() {
       <div className="main-stack" style={browser.open && browserWhere === 'dock' ? ({ '--browser-h': browserSize.dock + 'px' } as CSSProperties) : undefined}>
         {center}
         {browser.open && browserWhere === 'dock' && browserPanel}
+        {termOpen && hostId && host && (
+          <TerminalDock hostId={hostId} hostName={host.name} folder={session?.workspace} enabled={Boolean(status?.features?.includes('terminal'))}
+            height={termHeight} onHeight={(n) => { setTermHeight(n); localStorage.setItem('acportal.termHeight', String(n)) }} onClose={() => setTermOpen(false)}
+            onOpenUrl={(u) => openBrowser(u)} api={api} />
+        )}
       </div>
       {sideBrowser && browserPanel}
       {!sideBrowser && showRight && (
