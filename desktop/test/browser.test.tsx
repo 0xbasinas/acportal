@@ -4,13 +4,18 @@ import { BrowserPanel } from '../src/Browser'
 import { Composer, type Attachment } from '../src/Session'
 import type { BrowserState } from '../electron/browserTypes'
 
-const page: BrowserState = { open: true, url: 'http://localhost:5199/', title: 'Calc demo', loading: false, canBack: true, canForward: false, zoom: 100, local: true, remembers: false, loadedMs: 300 }
+const page: BrowserState = { tabs: [], open: true, url: 'http://localhost:5199/', title: 'Calc demo', loading: false, canBack: true, canForward: false, zoom: 100, local: true, remembers: false, loadedMs: 300 }
 
 function fakeBrowser(initial: BrowserState = page, selection = 'Sum: 42') {
   let push: (s: BrowserState) => void = () => {}
   const api = {
     open: vi.fn(async () => ({ ok: true as const, value: initial })),
     go: vi.fn(async () => ({ ok: true as const, value: initial })),
+    newTab: vi.fn(async () => ({ ok: true as const, value: initial })),
+    selectTab: vi.fn(async () => ({ ok: true as const, value: initial })),
+    closeTab: vi.fn(async () => ({ ok: true as const, value: initial })),
+    find: vi.fn(async () => ({ ok: true as const, value: undefined })),
+    findStop: vi.fn(async () => ({ ok: true as const, value: undefined })),
     close: vi.fn(async () => ({ ok: true as const, value: undefined })),
     state: vi.fn(async () => ({ ok: true as const, value: initial })),
     bounds: vi.fn(async () => ({ ok: true as const, value: undefined })),
@@ -130,6 +135,44 @@ describe('the browser panel', () => {
     panel({ canShare: false })
     await screen.findByLabelText('Address')
     expect((screen.getByRole('button', { name: /Send to agent/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('tabs and find in page', () => {
+  const tabs = [{ id: 1, title: 'Calc demo', url: 'http://localhost:5199/', active: true, loading: false }, { id: 2, title: 'Docs', url: 'http://localhost:3000/', active: false, loading: false }]
+  it('lists the tabs, switches, opens and closes them', async () => {
+    const b = fakeBrowser({ ...page, tabs })
+    panel()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Docs' }))
+    expect(b.api.selectTab).toHaveBeenCalledWith(2)
+    fireEvent.click(screen.getByRole('button', { name: 'New tab' }))
+    expect(b.api.newTab).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close Docs' }))
+    expect(b.api.closeTab).toHaveBeenCalledWith(2)
+  })
+  it('finds text, moves between matches and stops on Escape', async () => {
+    const b = fakeBrowser({ ...page, tabs })
+    panel()
+    fireEvent.click(await screen.findByRole('button', { name: 'Find in page' }))
+    const box = await screen.findByLabelText('Find in page', { selector: 'input' })
+    fireEvent.change(box, { target: { value: 'Sum' } })
+    expect(b.api.find).toHaveBeenLastCalledWith('Sum', true, false)
+    b.push({ ...page, tabs, find: { matches: 3, active: 1 } })
+    expect(screen.getByText('1 of 3')).toBeTruthy()
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.api.find).toHaveBeenLastCalledWith('Sum', true, true)
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })
+    expect(b.api.find).toHaveBeenLastCalledWith('Sum', false, true)
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(b.api.findStop).toHaveBeenCalled()
+  })
+  it('says when nothing matches', async () => {
+    const b = fakeBrowser({ ...page, tabs })
+    panel()
+    fireEvent.click(await screen.findByRole('button', { name: 'Find in page' }))
+    fireEvent.change(await screen.findByLabelText('Find in page', { selector: 'input' }), { target: { value: 'zzz' } })
+    b.push({ ...page, tabs, find: { matches: 0, active: 0 } })
+    expect(screen.getByText('No matches')).toBeTruthy()
   })
 })
 
