@@ -132,6 +132,19 @@ Without that table, or for an agent on another host, `POST /v1/sessions` with `y
 
 **Tests.** `acpd/tests/yolo.rs` (answers execute/delete/fetch; still leaves `.env` and `../outside.txt`; an ordinary session on the same host is still asked; refused when not allowed or combined with manual approval); `acpd/tests/lifecycle.rs` (Linux: an asked line runs, `rm -rf /` is refused, a path outside the folder asks); unit tests in `shell_review.rs`, `presets.rs` and `config.rs`. Removing the outside-path guard made the `../outside.txt` case fail.
 
+## The desktop app's in-app browser
+
+The desktop app can show a page next to a conversation. This is a boundary of its own: the page is untrusted and must not reach the app, the host token or the person's other sites.
+
+- **Isolation.** The page runs in a separate Chromium view and session with no preload, no Node, no access to the app's IPC and `sandbox`, `contextIsolation` and `webSecurity` on. The app's own window keeps its existing rules (no navigation, `https:` links only to the system browser).
+- **Where it may go.** Loopback addresses (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) and the sites the person added. Typed addresses, links, `window.open` and redirects all go through one check (`electron/browserRules.ts`); anything else opens in the person's own browser or is refused, and only `http:`/`https:` ever leave through the system browser. Addresses with a user name or password, `file:`, `javascript:`, `data:` and browser-internal schemes are refused.
+- **Permissions.** Every permission request and check is refused; downloads are cancelled unless the person turned them on; certificate errors are not overridden.
+- **State.** The session is in memory and starts clean every launch unless the person turns on *Remember sign-ins*, which uses a separate persistent profile.
+- **Sending a page to an agent.** A screenshot, the selected text or the address is attached to the person's next message only when they choose it from the menu, and is sent only when they send the message. An agent cannot read or drive the browser. The page's selected text is untrusted content like any other message attachment.
+- **What it does not cover.** A page on localhost is as trusted as the dev server behind it: it can call other sites like any web page, and it can read files only through that dev server.
+
+Tests: `desktop/test/browserRules.test.tsx` (the rules, including look-alike hosts and unsafe schemes) and `desktop/test/browser.test.tsx` (the panel and the message box). The isolation itself was checked in the running app: the page has no `window.api`, `require` or `process`, and camera, location and notification requests are denied.
+
 ## Implemented network security
 
 Bind to loopback by default. Remote listeners require TLS through a verified reverse proxy or a built-in TLS listener. Android rejects cleartext remote WebSocket URLs and certificate validation failures. Never install a permissive trust manager.

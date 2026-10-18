@@ -1,6 +1,6 @@
 import { CompareView, MergeGate, MultiRunDialog, type WatchSnap } from './Multi'
 import type { Run } from './runs'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { AgentInfo, EarlierSessions, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { forget, keep, recall } from './transcripts'
@@ -9,7 +9,8 @@ import { briefDuration, duration, noteTurn, turnTimes, workedMs, type TurnEnvelo
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
-import { Attachment, Composer, Conversation, Permission } from './Session'
+import { Attachment, Composer, Conversation, Permission, type Incoming } from './Session'
+import { BrowserPanel } from './Browser'
 import { GitView } from './Git'
 import { gitRepos } from './gitRepos'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
@@ -55,6 +56,19 @@ export default function App() {
   const [conn, setConn] = useState<Record<string, ConnState>>({})
   const [view, setView] = useState<View>({ kind: 'workspace' })
   const [palette, setPalette] = useState(false)
+  // The in-app browser: open or not, where it sits, how big, and what the person sent from it.
+  const [browser, setBrowser] = useState<{ open: boolean; request?: { url: string; n: number } }>({ open: false })
+  const [browserWhere, setBrowserWhere] = useState<'side' | 'dock'>(() => (localStorage.getItem('acportal.browserWhere') === 'dock' ? 'dock' : 'side'))
+  const [browserSize, setBrowserSize] = useState<{ side: number; dock: number }>(() => { try { return { side: 620, dock: 380, ...JSON.parse(localStorage.getItem('acportal.browserSize') ?? '{}') } } catch { return { side: 620, dock: 380 } } })
+  const [incoming, setIncoming] = useState<Incoming>()
+  const openBrowser = useCallback((url?: string) => setBrowser({ open: true, request: url ? { url, n: Date.now() } : undefined }), [])
+  const closeBrowser = useCallback(() => { setBrowser({ open: false }); void window.api.browser.close() }, [])
+  const toggleBrowser = useCallback(() => setBrowser((b) => { if (b.open) { void window.api.browser.close(); return { open: false } } return { open: true } }), [])
+  useEffect(() => {
+    const open = (e: Event): void => openBrowser((e as CustomEvent<string>).detail)
+    window.addEventListener('acportal:open-url', open)
+    return () => window.removeEventListener('acportal:open-url', open)
+  }, [openBrowser])
   const [theme, setThemeState] = useState<Theme>('dark')
   const [toast, setToast] = useState<string>()
   const [merging, setMerging] = useState(false)
@@ -263,7 +277,7 @@ export default function App() {
       if (shared && text.length <= 16 * 1024) void api('POST', '/v1/shared/history', { workspace: session.workspace, text })
     }
     const blocks: unknown[] = [{ type: 'text', text }]
-    for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
+    for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: a.uri ?? 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
     if (!titles()[session.id] && !shared?.titles[session.id] && !silent) {
       const first = text.split('\n')[0].slice(0, 60)
       localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: first }))
@@ -483,6 +497,7 @@ export default function App() {
       { id: 'new', group: 'Actions', label: 'New session…', hint: 'Ctrl N', run: () => openComposer() },
       { id: 'multi', group: 'Actions', label: 'Run on several agents…', run: () => setMultiOpen(true) },
       { id: 'git', group: 'Actions', label: 'Open Git (changes, history, worktrees, stash)', hint: 'Ctrl G', run: () => setView({ kind: 'git' }) },
+      { id: 'browser', group: 'Actions', label: 'Open the browser (preview a page)', hint: 'Ctrl Shift B', run: () => openBrowser() },
       { id: 'review', group: 'Actions', label: 'Review changes in this session', hint: 'Ctrl D', run: () => setView({ kind: 'review' }) },
       { id: 'stop', group: 'Actions', label: 'Stop the current turn', hint: 'Esc', run: () => void cancelTurn() },
       { id: 'settings', group: 'Actions', label: 'Open settings', hint: 'Ctrl ,', run: () => setView({ kind: 'settings', section: 'General' }) },
@@ -519,6 +534,7 @@ export default function App() {
       else if (mod && e.key === ',') { e.preventDefault(); setView({ kind: 'settings', section: 'General' }) }
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); setView({ kind: 'review' }) }
       else if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); setView({ kind: 'git' }) }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleBrowser() }
       else if (e.key === 'Escape' && !palette && view.kind !== 'workspace') setView({ kind: 'workspace' })
       else if (e.key === 'Escape' && tl?.busy) void cancelTurn()
     }
@@ -792,6 +808,7 @@ export default function App() {
           <OptionsButton selectors={selectors.filter((s) => s.choices.length)} valueOf={(s) => liveValue(s, tl)} disabled={interrupted}
             onPick={(sel, v) => { setTimelines((a) => ({ ...a, [session.id]: pickedInto(a[session.id], sel, v) })); const req = setRequest(sel, v); configure(req.method, req.params) }} />
           <span className="vsep" />
+          <button className={'icon-btn' + (browser.open ? ' on' : '')} title="Browser (Ctrl Shift B)" aria-label="Browser" aria-pressed={browser.open} onClick={toggleBrowser}>{I.globe}</button>
           <button className="icon-btn" title="Review changes (Ctrl D)" onClick={() => setView({ kind: 'review' })}>{I.compare}</button>
           <button className="icon-btn danger" title="End session on the host" onClick={() => { if (confirm('End this session? The agent process stops and the host record is removed.')) void endSession(session.id) }}>{I.close}</button>
         </div>
@@ -816,7 +833,7 @@ export default function App() {
         )}
         <Conversation root={session.workspace} turnKey={`${hostId}/${session.id}`} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
         <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'This session ended. Press Resume to continue it.' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
-          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} key={session.id}
+          history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} incoming={incoming} key={session.id}
           remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
           onText={shared ? (t) => { if (new TextEncoder().encode(t).length <= 64 * 1024) void api('PUT', `/v1/shared/drafts/${session.id}`, { text: t }) } : undefined} />
       </div>
@@ -824,11 +841,22 @@ export default function App() {
   }
 
   const showRight = view.kind === 'workspace' && Boolean(session)
+  const sideBrowser = browser.open && browserWhere === 'side'
+  const resizeBrowser = (size: number): void => setBrowserSize((s) => { const n = { ...s, [browserWhere]: size }; localStorage.setItem('acportal.browserSize', JSON.stringify(n)); return n })
+  const browserPanel = browser.open && (
+    <BrowserPanel where={browserWhere} request={browser.request} size={browserSize[browserWhere]} onSize={resizeBrowser} covered={palette || multiOpen || Boolean(confirmMerge)}
+      onClose={closeBrowser} onWhere={(w) => { setBrowserWhere(w); localStorage.setItem('acportal.browserWhere', w) }}
+      canShare={Boolean(session) && view.kind === 'workspace'} onShare={(s) => { setIncoming({ n: Date.now(), ...s }); flash(s.attachments?.length ? 'Added to your message' : 'Address added to your message') }} />
+  )
   return (
-    <div className={'app' + (showRight ? '' : ' no-right')}>
+    <div className={'app' + (sideBrowser ? ' browser-side' : showRight ? '' : ' no-right')} style={sideBrowser ? ({ '--browser-w': browserSize.side + 'px' } as CSSProperties) : undefined}>
       {sidebar}
-      {center}
-      {showRight && (
+      <div className="main-stack" style={browser.open && browserWhere === 'dock' ? ({ '--browser-h': browserSize.dock + 'px' } as CSSProperties) : undefined}>
+        {center}
+        {browser.open && browserWhere === 'dock' && browserPanel}
+      </div>
+      {sideBrowser && browserPanel}
+      {!sideBrowser && showRight && (
         <RightPanel workspace={session?.workspace} tasks={tasks} rootTask={rootTask} timeline={tl} orchestrator={Boolean(status?.features?.includes('orchestrator'))}
           onOpenTask={(t) => setView({ kind: 'task', taskId: t.id })} onReview={(p) => setView({ kind: 'review', focus: p })} onMerge={setConfirmMerge} />
       )}

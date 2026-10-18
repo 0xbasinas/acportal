@@ -6,9 +6,12 @@ import { type ReactNode, isValidElement, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { isLoopbackHost } from '../electron/browserRules'
 
 function openLink(href: string | undefined): void {
   if (!href || !/^https?:/i.test(href)) return
+  // A page on this computer opens in the app's own browser; anything else asks before it leaves.
+  try { if (isLoopbackHost(new URL(href).hostname)) { window.dispatchEvent(new CustomEvent('acportal:open-url', { detail: href })); return } } catch { /* not a URL */ }
   if (confirm(`Open ${href} in your browser?`)) window.open(href)
 }
 
