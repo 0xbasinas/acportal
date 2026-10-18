@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, EarlierSessions, Host, HostStatus, SessionInfo, SharedData, Task, Workspace } from './types'
 import { changedFiles, emptyTimeline, reduce, Timeline } from './acp'
 import { forget, keep, recall } from './transcripts'
-import { briefDuration, duration, turnEnded, turnStarted, turnTimes, workedMs } from './turns'
+import { briefDuration, duration, noteTurn, turnTimes, workedMs, type TurnEnvelope } from './turns'
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 import { Pairing } from './Pairing'
@@ -202,12 +202,7 @@ export default function App() {
       setTimelines((all) => {
         const before = all[sid]
         const next = reduce(before ?? emptyTimeline(), env as Record<string, unknown>)
-        // Time each turn that runs while this app watches (not one replayed from history).
-        if (!before?.replaying) {
-          const e = env as { type?: string; direction?: string; sequence?: number; message?: { method?: string } }
-          if (e.type === 'event' && e.direction === 'client' && e.message?.method === 'session/prompt' && typeof e.sequence === 'number') turnStarted(key, 'u' + e.sequence)
-          if (before?.busy && !next.busy) { const last = [...next.items].reverse().find((i) => i.kind === 'user'); if (last) turnEnded(key, last.id) }
-        }
+        noteTurn(key, env as TurnEnvelope, before, next)
         if (next.title && next.title !== before?.title) localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [sid]: next.title }))
         // Save a copy after a short quiet period, so an ended session can still be read.
         const copy = key

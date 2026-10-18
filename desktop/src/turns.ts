@@ -31,6 +31,24 @@ export function turnEnded(key: string, turnId: string, now = Date.now()): void {
 export const turnTimes = (key: string): Record<string, TurnTime> => load(key)
 export const workedMs = (key: string): number => Object.values(load(key)).reduce((n, t) => n + (t.took ?? 0), 0)
 
+export type TurnEnvelope = { type?: string; direction?: string; sequence?: number; at?: number; message?: { method?: string } }
+
+/**
+ * Times the turn an envelope starts or ends. A host that stamps its events (`at`) lets a turn be
+ * timed from history replayed after the app was closed; an older host stamps nothing, so only
+ * turns watched live are timed, by this computer's clock.
+ */
+export function noteTurn(key: string, env: TurnEnvelope, before: { replaying?: boolean; busy: boolean } | undefined, next: { busy: boolean; items: { kind: string; id: string | number }[] }): void {
+  const stamped = typeof env.at === 'number' && env.at > 0
+  if (before?.replaying && !stamped) return
+  const now = stamped ? (env.at as number) : Date.now()
+  if (env.type === 'event' && env.direction === 'client' && env.message?.method === 'session/prompt' && typeof env.sequence === 'number') turnStarted(key, 'u' + env.sequence, now)
+  if (before?.busy && !next.busy) {
+    const last = [...next.items].reverse().find((i) => i.kind === 'user')
+    if (last) turnEnded(key, String(last.id), now)
+  }
+}
+
 /** 45s, 3m 05s, 1h 12m. */
 export function duration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { Conversation, fold } from '../src/Session'
 import { emptyTimeline, Item } from '../src/acp'
-import { briefDuration, duration, turnEnded, turnStarted, workedMs } from '../src/turns'
+import { briefDuration, duration, noteTurn, turnEnded, turnStarted, workedMs } from '../src/turns'
 
 const tool = (id: string): Item => ({ kind: 'tool', id, title: 'read ' + id, status: 'completed', diffs: [], host: false })
 const turn = (n: number): Item[] => [
@@ -64,5 +64,19 @@ describe('opening a conversation', () => {
     unmount()
     render(<Conversation t={emptyTimeline()} agent="Goose" onAnswer={noop} onReview={noop} onElicit={noop} />)
     expect(screen.getByText('Start the conversation')).toBeTruthy()
+  })
+})
+
+describe('timing a turn from the host\'s own timestamps', () => {
+  const prompt = { type: 'event', direction: 'client', sequence: 7, at: 1_000, message: { method: 'session/prompt' } }
+  it('times a turn replayed from history, because every event says when it happened', () => {
+    noteTurn('h/replay', prompt, { replaying: true, busy: false }, { busy: true, items: [{ kind: 'user', id: 'u7' }] })
+    noteTurn('h/replay', { type: 'event', direction: 'agent', sequence: 9, at: 31_000 }, { replaying: true, busy: true }, { busy: false, items: [{ kind: 'user', id: 'u7' }] })
+    expect(workedMs('h/replay')).toBe(30_000)
+  })
+  it('does not time replayed history from an older host that stamps nothing', () => {
+    const { at: _unused, ...unstamped } = prompt
+    noteTurn('h/old', unstamped, { replaying: true, busy: false }, { busy: true, items: [{ kind: 'user', id: 'u7' }] })
+    expect(workedMs('h/old')).toBe(0)
   })
 })
