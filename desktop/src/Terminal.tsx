@@ -25,7 +25,15 @@ const isLocal = (url: string): boolean => /^https?:\/\/(localhost|127\.0\.0\.1|\
 function palette(): Record<string, string> {
   const css = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string): string => css.getPropertyValue(name).trim() || fallback
-  return { background: v('--bg', '#0a0a0a'), foreground: v('--text', '#ededed'), cursor: v('--text', '#ededed'), selectionBackground: 'rgba(120,160,255,.35)' }
+  const light = document.documentElement.dataset.theme === 'light'
+  // Programs print in ANSI colours; they are pulled towards grey so a prompt or a build log sits in
+  // the black-and-white theme instead of shouting in neon. Still distinguishable, just quiet.
+  const ansi = light
+    ? { black: '#1a1a1a', red: '#a24c4c', green: '#4d7a5a', yellow: '#8a7440', blue: '#4f6a94', magenta: '#7a5a8c', cyan: '#4a7a80', white: '#8a8a8a',
+        brightBlack: '#6a6a6a', brightRed: '#b86464', brightGreen: '#5f8f6d', brightYellow: '#9c8650', brightBlue: '#6480ab', brightMagenta: '#8d6fa0', brightCyan: '#5d8e95', brightWhite: '#1a1a1a' }
+    : { black: '#2a2a2c', red: '#c47f7f', green: '#8fb59a', yellow: '#c4ad7a', blue: '#8da2c4', magenta: '#a994ba', cyan: '#88b0b4', white: '#b8b8bc',
+        brightBlack: '#6c6c72', brightRed: '#d49494', brightGreen: '#a3c7ae', brightYellow: '#d4be8c', brightBlue: '#a0b4d4', brightMagenta: '#bba8cb', brightCyan: '#9cc2c6', brightWhite: '#ededed' }
+  return { background: v('--bg', '#0a0a0a'), foreground: v('--text', '#ededed'), cursor: v('--text', '#ededed'), selectionBackground: light ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.22)', ...ansi }
 }
 
 /** One shell. Stays mounted (hidden) while another tab is shown so its history is kept. */

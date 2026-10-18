@@ -215,3 +215,34 @@ async fn a_terminal_starts_in_the_shell_that_was_picked() {
     }
     assert!(terminals.list().is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_many_at_once_never_goes_past_the_limit() {
+    let terminals = Terminals::new();
+    let folder = tempfile::tempdir().unwrap();
+    let config = TerminalConfig {
+        max_terminals: 2,
+        ..on()
+    };
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let (terminals, config, path) = (
+            terminals.clone(),
+            config.clone(),
+            folder.path().to_path_buf(),
+        );
+        tasks.push(tokio::task::spawn_blocking(move || {
+            terminals.open(&config, &path, Uuid::new_v4(), 24, 80, None)
+        }));
+    }
+    let mut opened = 0;
+    for task in tasks {
+        match task.await.unwrap() {
+            Ok(_) => opened += 1,
+            Err(error) => assert_eq!(error, TerminalError::TooMany),
+        }
+    }
+    assert_eq!(opened, 2, "exactly the limit, however the opens interleave");
+    assert_eq!(terminals.list().len(), 2);
+    terminals.close_all();
+}
