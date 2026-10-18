@@ -869,8 +869,7 @@ export default function App() {
             onOpenUrl={(u) => openBrowser(u)} api={api} />
         )}
         {hostId && (
-          <StatusBar entry={fleet[hostId]} branch={session ? (rootTask?.worktree?.branch ?? branchOf[session.workspace]) : undefined} agent={session ? agentName(session.agentId) : undefined}
-            terminal={{ available: Boolean(status?.features?.includes('terminal')), open: termOpen, onToggle: toggleTerminal }} browser={{ open: browser.open, onToggle: toggleBrowser }} />
+          <StatusBar terminal={{ available: Boolean(status?.features?.includes('terminal')), open: termOpen, onToggle: toggleTerminal }} browser={{ open: browser.open, onToggle: toggleBrowser }} />
         )}
       </div>
       {sideBrowser && browserPanel}

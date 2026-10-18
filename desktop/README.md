@@ -57,7 +57,7 @@ A browser panel shows a page next to the conversation (at the side) or under it 
 
 What it will show: `localhost`, `127.0.0.1` and any site you add under *Settings → Browser*. A link to any other site opens in your own browser (or is refused if you turn that off); `file:`, `javascript:` and other non-web addresses are never opened. The page runs in its own Chromium session with no connection to the app: it has no preload and cannot reach the app's IPC or Node, every permission request (camera, microphone, location, notifications) is refused, downloads are blocked unless you allow them, and nothing is remembered between launches unless you turn on *Remember sign-ins*. The code is in `electron/browser.ts` (the view) and `electron/browserRules.ts` (what may load); `src/Browser.tsx` is the panel.
 
-Tabs (up to eight, **Ctrl/⌘ T** new, **Ctrl/⌘ W** close) share the one isolated session. **Ctrl/⌘ F** finds text in the page (Enter next, Shift Enter previous, Esc closes); the match is selected in the page, so *Send to agent → Selected text* would send it. The status bar under the conversation shows the host's state, the session's branch and agent, and toggles for the terminal and the browser.
+Tabs (up to eight, **Ctrl/⌘ T** new, **Ctrl/⌘ W** close) share the one isolated session. **Ctrl/⌘ F** finds text in the page (Enter next, Shift Enter previous, Esc closes); the match is selected in the page, so *Send to agent → Selected text* would send it. A thin bar under the conversation has the toggles for the terminal and the browser (the host's connection state is in the sidebar).
 
 ## The terminal
 
