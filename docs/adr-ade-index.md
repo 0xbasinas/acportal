@@ -7,6 +7,8 @@ Six rounds of research on 18 October 2026: the first gave twelve ADRs, the secon
 
 ## The ADRs
 
+A screenshot review of the other apps and a Penpot work plan are in [ui-competitor-review.md](ui-competitor-review.md).
+
 | ADR | Idea | Closest prior art | Builds on |
 |---|---|---|---|
 | [attention board](adr-attention-board.md) | One "what needs me" view across sessions, tasks and hosts, plus notifications | Superset Workspaces columns, Copilot "My Work" | `/v1/shared`, task views, multi-host desktop |

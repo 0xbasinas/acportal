@@ -4,7 +4,7 @@
 
 ## Proposed ADRs for a fuller agent development environment (18 October 2026)
 
-Sixty-four proposals from six research rounds (the last three also amend about twenty-five earlier ADRs; start with the [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md)), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code:
+Sixty-four proposals from six research rounds (the last three also amend about twenty-five earlier ADRs; start with the [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md)), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code. UI work for them is planned in [ui-competitor-review](docs/ui-competitor-review.md) and is blocked until the Penpot plugin is connected:
 
 - [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
 - [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
