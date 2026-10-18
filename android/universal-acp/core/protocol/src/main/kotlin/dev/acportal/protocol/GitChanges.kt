@@ -18,6 +18,8 @@ data class GitFile(val path: String, val index: Char, val worktree: Char) {
 data class GitStatus(val branch: String?, val upstream: String?, val files: List<GitFile>) {
     val unstaged: List<GitFile> get() = files.filter { it.unstaged }
     val staged: List<GitFile> get() = files.filter { it.staged }
+    /** Files both sides changed during a merge; they need a choice before the merge can be committed. */
+    val conflicts: List<GitFile> get() = files.filter { it.conflicted }
 }
 
 /** \`## main...origin/main [ahead 1]\` then \`XY path\` lines. A detached head has no branch. */

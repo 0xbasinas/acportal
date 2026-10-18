@@ -89,6 +89,9 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
         return if(code==0 || (op=="diff-new" && code==1 && out.isNotEmpty())) Result.success(out)
         else Result.failure(IllegalStateException(reply["err"].text().ifBlank {out}.trim().lines().takeLast(3).joinToString(" ").ifBlank {"git exited $code"}))
     }
+    /** An agent on the host writes a commit message (`kind` null) or pull request text (`kind` "pullRequest"); read-only. */
+    suspend fun commitMessage(host:HostProfile,path:String,agentId:String,kind:String?=null,base:String?=null): JsonObject =
+        execute(host.address,"/v1/commit-message",vault.read(host.credentialAlias),buildJsonObject {put("path",path);put("agentId",agentId);if(kind!=null)put("kind",kind);if(base!=null)put("base",base)},"POST").objectValue()
     /** The checked-out branch of a folder, or null when it is detached or not a repository. */
     suspend fun currentBranch(host:HostProfile,path:String): String? {
         val reply=execute(host.address,"/v1/git/rev-parse",vault.read(host.credentialAlias),buildJsonObject {put("path",path)},"POST").objectValue()
@@ -167,6 +170,15 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String,f
     path.endsWith("/pull-requests") && code=="body_too_large" -> "The description is too long."
     path.endsWith("/pull-requests") && code=="path_not_allowed" -> "This folder is not allowed on the host."
     path.endsWith("/pull-requests") -> "gh could not open the pull request."
+    path.endsWith("/commit-message") && code=="nothing_staged" -> "Nothing is staged."
+    path.endsWith("/commit-message") && code=="nothing_to_describe" -> "Nothing to describe since that base."
+    path.endsWith("/commit-message") && code=="base_not_found" -> "That base branch was not found."
+    path.endsWith("/commit-message") && code=="agent_unavailable" -> "That agent could not start in this folder."
+    path.endsWith("/commit-message") && code=="agent_timeout" -> "The agent did not answer in time."
+    path.endsWith("/commit-message") && code=="agent_failed" -> "The agent reported an error."
+    path.endsWith("/commit-message") && code=="empty_reply" -> "The agent replied with nothing."
+    path.endsWith("/commit-message") && code=="path_not_allowed" -> "This folder is not allowed on the host."
+    path.endsWith("/commit-message") && code=="not_a_repository" -> "This folder is not a git repository."
     path.startsWith("/v1/git/") && code=="path_not_allowed" -> "The host does not allow that location. Use a folder inside one the host allows."
     path.startsWith("/v1/git/") && code=="unknown_git_operation" -> "This host is older than the app and cannot do that yet. Update and restart acpd."
     path.startsWith("/v1/git/") && code=="git_unavailable" -> "git was not found on the host."

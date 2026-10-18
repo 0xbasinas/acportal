@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import dev.acportal.protocol.*
 import kotlinx.coroutines.launch
 
-internal val GIT_TABS = listOf("Changes","History","Branches","Worktrees")
+internal val GIT_TABS = listOf("Changes","History","Branches","Worktrees","Stash")
 
 /** The Git screen's pages. The selected page is announced as selected to accessibility services. */
 @Composable internal fun GitTabs(selected:Int,onSelect:(Int)->Unit) {
@@ -100,6 +100,7 @@ private val LANE_COLORS=listOf(Color(0xFF72D5B0),Color(0xFF6CA8F0),Color(0xFFE0A
     var busy by remember {mutableStateOf(false)}
     var message by remember {mutableStateOf<String?>(null)}
     var switchTo by remember {mutableStateOf<String?>(null)}
+    var mergeIn by rememberSaveable {mutableStateOf<String?>(null)}
     var removing by rememberSaveable {mutableStateOf<String?>(null)}
     var creating by rememberSaveable {mutableStateOf(false)}
     var newName by rememberSaveable {mutableStateOf("")}
@@ -124,6 +125,7 @@ private val LANE_COLORS=listOf(Color(0xFF72D5B0),Color(0xFF6CA8F0),Color(0xFFE0A
                             Text(branch.name,style=MaterialTheme.typography.bodyLarge,maxLines=1,overflow=TextOverflow.Ellipsis)
                             Text(listOf(branch.head,branch.track.takeIf {it.isNotBlank()},branch.updated).filterNotNull().joinToString(" · "),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
                         }
+                        if(!branch.current)TextButton({mergeIn=branch.name},enabled=!busy,modifier=Modifier.heightIn(min=48.dp).testTag("merge-${branch.name}")) {Text("Merge")}
                         if(!branch.current)TextButton({removing=branch.name},enabled=!busy,modifier=Modifier.heightIn(min=48.dp)) {Text("Delete",color=MaterialTheme.colorScheme.error)}
                     }
                 }
@@ -136,6 +138,7 @@ private val LANE_COLORS=listOf(Color(0xFF72D5B0),Color(0xFF6CA8F0),Color(0xFFE0A
         }
     }
     switchTo?.let {name->AlertDialog(onDismissRequest={switchTo=null},title={Text("Switch to $name?")},text={Text("The folder's files change to that branch. Git refuses if uncommitted changes would be lost.")},confirmButton={TextButton({switchTo=null;change("checkout",mapOf("branch" to name),"Switched to $name")}) {Text("Switch")}},dismissButton={TextButton({switchTo=null}) {Text("Cancel")}})}
+    mergeIn?.let {name->AlertDialog(onDismissRequest={mergeIn=null},title={Text("Merge $name into ${branches.firstOrNull {it.current}?.name ?: "this branch"}?")},text={Text("Git joins the two with a merge commit. If both changed the same lines, the merge stops and the Changes page helps you settle each file; you can abort it.")},confirmButton={TextButton({mergeIn=null;change("merge",mapOf("branch" to name),"Merged $name")}) {Text("Merge")}},dismissButton={TextButton({mergeIn=null}) {Text("Cancel")}})}
     removing?.let {name->AlertDialog(onDismissRequest={removing=null},title={Text("Delete $name?")},text={Text("Git deletes the branch only if it is merged. Nothing else is touched.")},confirmButton={TextButton({removing=null;change("branch-delete",mapOf("branch" to name),"Deleted $name")}) {Text("Delete",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({removing=null}) {Text("Cancel")}})}
     if(creating)AlertDialog(onDismissRequest={creating=false},title={Text("New branch")},text={
         OutlinedTextField(newName,{newName=it.take(200).filterNot {c->c.isWhitespace()}},Modifier.fillMaxWidth().testTag("new-branch-name"),label={Text("Branch name")},singleLine=true)
@@ -193,4 +196,52 @@ private val LANE_COLORS=listOf(Color(0xFF72D5B0),Color(0xFF6CA8F0),Color(0xFFE0A
             }
         },confirmButton={TextButton({val name=branch;creating=false;branch="";if(name.isNotBlank() && target.isNotBlank())change("worktree-add",mapOf("branch" to name,"path" to target),"Made a worktree on $name")},enabled=target.isNotBlank()) {Text("Create")}},dismissButton={TextButton({creating=false}) {Text("Cancel")}})
     }
+}
+
+/** Unfinished work set aside: put away every change, then bring it back (apply keeps it, pop removes it) or drop it. */
+@Composable internal fun GitStashTab(run:GitRun,hasChanges:Boolean,onChanged:()->Unit,modifier:Modifier=Modifier) {
+    val (text,error,reload)=rememberGitRead(run,"stash-list")
+    val stashes=remember(text) {text?.let(::parseStashes).orEmpty()}
+    val scope=rememberCoroutineScope()
+    var busy by remember {mutableStateOf(false)}
+    var message by remember {mutableStateOf<String?>(null)}
+    var dropping by rememberSaveable {mutableStateOf<String?>(null)}
+    var naming by rememberSaveable {mutableStateOf(false)}
+    var label by rememberSaveable {mutableStateOf("")}
+    fun change(op:String,params:Map<String,String>,done:String) {
+        busy=true;message=null
+        scope.launch {
+            run(op,params).fold({message=done},{message=it.message ?: "Git refused that."})
+            reload();onChanged();busy=false
+        }
+    }
+    Column(modifier.fillMaxWidth()) {
+        when {
+            error!=null -> Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {Text(error,color=MaterialTheme.colorScheme.error);Button(reload) {Text("Try again")}}
+            text==null -> Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {CircularProgressIndicator()}
+            else -> LazyColumn(Modifier.testTag("git-stash"),contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                item(key="intro") {Text("The stash is a shelf for unfinished work: it cleans the folder without committing, and you can bring the changes back later.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                item(key="push") {Button({naming=true},Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("stash-push"),enabled=hasChanges && !busy) {Text("Stash all changes…")}}
+                message?.let {item(key="message") {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+                if(stashes.isEmpty())item(key="empty") {Text("The stash is empty.",Modifier.padding(vertical=8.dp),style=MaterialTheme.typography.bodyMedium)}
+                items(stashes,key={it.ref}) {stash->
+                    Surface(Modifier.fillMaxWidth().testTag("stash-${stash.ref}"),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
+                        Column(Modifier.padding(start=16.dp,top=8.dp,end=8.dp,bottom=4.dp)) {
+                            Text(stash.message.ifBlank {stash.ref},style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            Text("${stash.ref} · ${stash.time}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                                TextButton({change("stash-apply",mapOf("ref" to stash.ref),"Applied ${stash.ref}")},enabled=!busy,modifier=Modifier.heightIn(min=48.dp)) {Text("Apply")}
+                                TextButton({change("stash-pop",mapOf("ref" to stash.ref),"Popped ${stash.ref}")},enabled=!busy,modifier=Modifier.heightIn(min=48.dp).testTag("pop-${stash.ref}")) {Text("Pop")}
+                                TextButton({dropping=stash.ref},enabled=!busy,modifier=Modifier.heightIn(min=48.dp)) {Text("Drop",color=MaterialTheme.colorScheme.error)}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    dropping?.let {ref->AlertDialog(onDismissRequest={dropping=null},title={Text("Delete $ref?")},text={Text("Its changes are gone for good; the app cannot bring them back.")},confirmButton={TextButton({dropping=null;change("stash-drop",mapOf("ref" to ref),"Dropped $ref")}) {Text("Delete",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({dropping=null}) {Text("Cancel")}})}
+    if(naming)AlertDialog(onDismissRequest={naming=false},title={Text("Stash all changes")},text={
+        OutlinedTextField(label,{label=it.take(200)},Modifier.fillMaxWidth().testTag("stash-label"),label={Text("Label (optional)")},singleLine=true)
+    },confirmButton={TextButton({val text=label.trim();naming=false;label="";change("stash-push",if(text.isEmpty())emptyMap() else mapOf("message" to text),"Stashed the changes")}) {Text("Stash")}},dismissButton={TextButton({naming=false}) {Text("Cancel")}})
 }

@@ -84,6 +84,8 @@ const val HOST_FEATURE_BOOLEAN_OPTIONS = "booleanOptions"
 const val HOST_FEATURE_AGENT_SESSION_LIST = "agentSessionList"
 /** Host opens pull requests with its own `gh` (`POST /v1/pull-requests`). */
 const val HOST_FEATURE_PULL_REQUESTS = "pullRequests"
+/** `POST /v1/commit-message`: an agent on the host writes a commit message or pull request text. */
+const val HOST_FEATURE_COMMIT_MESSAGE = "commitMessage"
 /** Host keeps drafts, titles and prompt history for all paired devices (`/v1/shared`). */
 const val HOST_FEATURE_SHARED_DRAFTS = "sharedDrafts"
 @Serializable

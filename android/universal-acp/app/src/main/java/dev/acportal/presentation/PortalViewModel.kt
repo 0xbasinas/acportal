@@ -90,6 +90,14 @@ class PortalViewModel(val repository:PortalRepository):ViewModel() {
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions? = try {repository.earlierSessions(hostId,agentId,workspace)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
     suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = try {repository.git(hostId,path,op,params,input)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
+    /** Agent-written commit and pull request text for a folder, or null when this host cannot offer it. */
+    suspend fun suggestions(hostId:String,path:String): GitSuggestions? {
+        val agents=try {repository.suggestionAgents(hostId)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {emptyList()}
+        if(agents.isEmpty())return null
+        return GitSuggestions(agents,
+            {agent->try {Result.success(repository.commitMessage(hostId,path,agent))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}},
+            {agent,base->try {Result.success(repository.pullRequestText(hostId,path,agent,base))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}})
+    }
     suspend fun currentBranch(hostId:String,path:String): String? = try {repository.currentBranch(hostId,path)} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(_:Exception) {null}
     /** The pull request's address, or the readable reason it was not opened. */
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): Result<String> = try {Result.success(repository.openPullRequest(hostId,request))} catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}

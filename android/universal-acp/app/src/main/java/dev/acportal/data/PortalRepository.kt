@@ -155,6 +155,17 @@ class PortalRepository(
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
     suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>,input:String?=null):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params,input)}
+    /** The agents that can write commit and pull request text on this host; empty when the host cannot (older hosts). */
+    suspend fun suggestionAgents(hostId:String): List<AgentInfo> = withContext(Dispatchers.IO) {
+        val host=dao.host(hostId) ?: return@withContext emptyList()
+        val features=try {api.status(host).features} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {emptyList()}
+        if(HOST_FEATURE_COMMIT_MESSAGE !in features)emptyList() else api.agents(host).filter {it.canStartSession()}
+    }
+    suspend fun commitMessage(hostId:String,path:String,agentId:String): String = withContext(Dispatchers.IO) {api.commitMessage(dao.host(hostId) ?: error("Host is no longer saved"),path,agentId)["message"].text().trim()}
+    suspend fun pullRequestText(hostId:String,path:String,agentId:String,base:String): Pair<String,String> = withContext(Dispatchers.IO) {
+        val reply=api.commitMessage(dao.host(hostId) ?: error("Host is no longer saved"),path,agentId,"pullRequest",base)
+        reply["title"].text().trim() to reply["body"].text().trim()
+    }
     suspend fun currentBranch(hostId:String,path:String): String? = withContext(Dispatchers.IO) {api.currentBranch(dao.host(hostId) ?: error("Host is no longer saved"),path)}
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): String = withContext(Dispatchers.IO) {api.openPullRequest(dao.host(hostId) ?: error("Host is no longer saved"),request)}
     suspend fun presets(hostId:String,agentId:String): List<PermissionPreset> = withContext(Dispatchers.IO) {api.presets(dao.host(hostId) ?: error("Host is no longer saved"),agentId)}
