@@ -59,4 +59,10 @@ class HostRequestErrorTest {
         assertTrue(hostRequestError(404,"unknown_git_operation","POST","/v1/git/diff-new").contains("older than the app"))
         assertEquals("Host request failed (403).",hostRequestError(403,"path_not_allowed","POST","/v1/sessions"))
     }
+    @Test fun agentWrittenTextFailuresAreExplained() {
+        assertEquals("Nothing is staged.",hostRequestError(400,"nothing_staged","POST","/v1/commit-message"))
+        assertEquals("The agent did not answer in time.",hostRequestError(504,"agent_timeout","POST","/v1/commit-message"))
+        assertEquals("That base branch was not found.",hostRequestError(400,"base_not_found","POST","/v1/commit-message"))
+        assertEquals("Host request failed (400).",hostRequestError(400,"nothing_staged","POST","/v1/sessions/x"))
+    }
 }

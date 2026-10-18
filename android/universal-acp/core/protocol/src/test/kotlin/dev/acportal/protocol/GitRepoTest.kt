@@ -52,3 +52,26 @@ class GitRepoTest {
         assertTrue(commits[1].parents.isEmpty())
     }
 }
+
+class GitStashAndConflictTest {
+    private val sep = "\u001f"
+    @Test fun stashesKeepTheirReferenceMessageAndAge() {
+        val out = "stash@{0}${sep}WIP on main: abc1234 first${sep}2 minutes ago\nstash@{1}${sep}On feature: saved${sep}3 days ago\nnot a stash\n"
+        val stashes = parseStashes(out)
+        assertEquals(listOf("stash@{0}", "stash@{1}"), stashes.map { it.ref })
+        assertEquals("On feature: saved", stashes[1].message)
+        assertEquals("3 days ago", stashes[1].time)
+        assertTrue(parseStashes("").isEmpty())
+    }
+    @Test fun conflictedFilesAreListedApartFromStagedAndUnstaged() {
+        val status = parseGitStatus("## main\nUU both.txt\nAA added.txt\nDD gone.txt\n M plain.txt\n")
+        assertEquals(listOf("both.txt", "added.txt", "gone.txt"), status.conflicts.map { it.path })
+        assertEquals(listOf("plain.txt"), status.unstaged.map { it.path })
+        assertTrue(status.staged.isEmpty())
+    }
+    @Test fun aMergeIsInProgressOnlyWhenTheHostSaysYes() {
+        assertTrue(isMerging("yes\n"))
+        assertFalse(isMerging(""))
+        assertFalse(isMerging(null))
+    }
+}

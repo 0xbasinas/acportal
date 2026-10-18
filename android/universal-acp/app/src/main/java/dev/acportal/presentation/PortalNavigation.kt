@@ -148,14 +148,24 @@ import kotlinx.serialization.Serializable
                         entry<GitRoute> {key->
                             val host=hosts.firstOrNull {it.id==key.hostId}
                             val hasPullRequests=HOST_FEATURE_PULL_REQUESTS in (ui.details?.takeIf {it.host.id==key.hostId}?.features ?: emptyList())
-                            GitScreen(key.path,host?.label,GitRun {op,params,input->vm.git(key.hostId,key.path,op,params,input)},if(hasPullRequests) ({stack.add(FolderPullRequestRoute(key.hostId,key.path))}) else null,back)
+                            var suggestions by remember(key) {mutableStateOf<GitSuggestions?>(null)}
+                            LaunchedEffect(key) {suggestions=vm.suggestions(key.hostId,key.path)}
+                            GitScreen(key.path,host?.label,GitRun {op,params,input->vm.git(key.hostId,key.path,op,params,input)},if(hasPullRequests) ({stack.add(FolderPullRequestRoute(key.hostId,key.path))}) else null,back,suggestions)
                         }
-                        entry<FolderPullRequestRoute> {key->PullRequestScreen(hosts.firstOrNull {it.id==key.hostId}?.label,key.path,{vm.currentBranch(key.hostId,key.path)},{request->vm.openPullRequest(key.hostId,request)},back)}
+                        entry<FolderPullRequestRoute> {key->
+                            var suggestions by remember(key) {mutableStateOf<GitSuggestions?>(null)}
+                            LaunchedEffect(key) {suggestions=vm.suggestions(key.hostId,key.path)}
+                            PullRequestScreen(hosts.firstOrNull {it.id==key.hostId}?.label,key.path,{vm.currentBranch(key.hostId,key.path)},{request->vm.openPullRequest(key.hostId,request)},back,suggestions)
+                        }
                         entry<PullRequestRoute> {key->
                             val stored=sessions.find {it.hostId==key.hostId && it.id==key.id}
                             val info=stored?.let(::storedSessionInfo)
                             if(info==null)Column(Modifier.fillMaxSize()) {ScreenHeader("Open pull request",onBack=back);EmptyState("This session is no longer saved","Return to Sessions to choose another conversation.")}
-                            else PullRequestScreen(hosts.firstOrNull {it.id==key.hostId}?.label,info.workspace,{vm.currentBranch(key.hostId,info.workspace)},{request->vm.openPullRequest(key.hostId,request)},back)
+                            else {
+                                var suggestions by remember(key) {mutableStateOf<GitSuggestions?>(null)}
+                                LaunchedEffect(key) {suggestions=vm.suggestions(key.hostId,info.workspace)}
+                                PullRequestScreen(hosts.firstOrNull {it.id==key.hostId}?.label,info.workspace,{vm.currentBranch(key.hostId,info.workspace)},{request->vm.openPullRequest(key.hostId,request)},back,suggestions)
+                            }
                         }
                         entry<SavedSessionRoute> {key->
                             val stored=sessions.firstOrNull {it.hostId==key.hostId && it.id==key.id}

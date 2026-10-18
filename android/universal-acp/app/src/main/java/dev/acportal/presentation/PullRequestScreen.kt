@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
  * `owner:branch`. The address of the new (or already existing) pull request is shown as a button
  * and is never opened by itself.
  */
-@Composable fun PullRequestScreen(hostLabel:String?,workspace:String,loadBranch:suspend ()->String?,onSubmit:suspend (PullRequestRequest)->Result<String>,onBack:()->Unit) {
+@Composable fun PullRequestScreen(hostLabel:String?,workspace:String,loadBranch:suspend ()->String?,onSubmit:suspend (PullRequestRequest)->Result<String>,onBack:()->Unit,suggestions:GitSuggestions?=null) {
     var base by rememberSaveable {mutableStateOf("main")}
     var branch by rememberSaveable {mutableStateOf("")}
     var branchLoaded by rememberSaveable {mutableStateOf(false)}
@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
     var body by rememberSaveable {mutableStateOf("")}
     var draft by rememberSaveable {mutableStateOf(false)}
     var busy by remember {mutableStateOf(false)}
+    var suggesting by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf<String?>(null)}
     var url by rememberSaveable {mutableStateOf<String?>(null)}
     val scope=rememberCoroutineScope()
@@ -58,6 +59,13 @@ import kotlinx.coroutines.launch
             OutlinedTextField(branch,{branch=it.take(255)},Modifier.fillMaxWidth().testTag("pr-branch"),label={Text("Branch to merge")},singleLine=true,enabled=!busy,supportingText={if(branchLoaded && branch.isBlank())Text("The host reported no checked-out branch.")})
             OutlinedTextField(base,{base=it.take(255)},Modifier.fillMaxWidth().testTag("pr-base"),label={Text("Into")},singleLine=true,enabled=!busy)
             OutlinedTextField(owner,{owner=it.take(39)},Modifier.fillMaxWidth().testTag("pr-owner"),label={Text("Fork owner (only for a fork)")},singleLine=true,enabled=!busy)
+            if(suggestions!=null && branch.isNotBlank() && base.isNotBlank())SuggestButton(suggestions.agents,suggesting,"pr-suggest",Modifier.fillMaxWidth()) {agent->
+                suggesting=true;error=null
+                scope.launch {
+                    suggestions.pullRequest(agent.id,base.trim()).onSuccess {(suggestedTitle,suggestedBody)->title=suggestedTitle.take(256);body=suggestedBody.take(60_000)}.onFailure {error=it.message ?: "The agent could not write it."}
+                    suggesting=false
+                }
+            }
             OutlinedTextField(title,{title=it.take(256)},Modifier.fillMaxWidth().testTag("pr-title"),label={Text("Title")},singleLine=true,enabled=!busy)
             OutlinedTextField(body,{body=it.take(60_000)},Modifier.fillMaxWidth().heightIn(min=140.dp).testTag("pr-body"),label={Text("What changed and why")},enabled=!busy)
             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).toggleable(draft,enabled=!busy,role=Role.Switch,onValueChange={draft=it}),verticalAlignment=Alignment.CenterVertically) {

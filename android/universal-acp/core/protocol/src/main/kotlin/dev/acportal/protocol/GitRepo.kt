@@ -76,3 +76,15 @@ fun layoutGraph(commits: List<GraphCommit>): List<GraphRow> {
     }
     return rows
 }
+
+/** One entry of `git stash list` (the host's `stash-list`): the reference, its message and when it was made. */
+data class GitStash(val ref: String, val message: String, val time: String)
+
+fun parseStashes(out: String): List<GitStash> = out.lines().mapNotNull { line ->
+    val parts = line.split(SEP)
+    if (parts.size < 3 || !parts[0].startsWith("stash@{")) return@mapNotNull null
+    GitStash(parts[0], parts[1], parts[2])
+}
+
+/** The host's `merging` reply is "yes" while a merge is waiting to be finished or aborted. */
+fun isMerging(out: String?): Boolean = out?.trim() == "yes"

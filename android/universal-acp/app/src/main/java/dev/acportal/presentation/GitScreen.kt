@@ -46,7 +46,7 @@ private sealed interface NewFile {
  * staged, with several files staged or unstaged in one step, new files readable, and every file
  * foldable or all of them at once. Nothing is committed or staged until a button is pressed.
  */
-@Composable fun GitScreen(folder:String,hostLabel:String?,run:GitRun,onPullRequest:(()->Unit)?,onBack:()->Unit) {
+@Composable fun GitScreen(folder:String,hostLabel:String?,run:GitRun,onPullRequest:(()->Unit)?,onBack:()->Unit,suggestions:GitSuggestions?=null) {
     var status by remember {mutableStateOf<GitStatus?>(null)}
     var unstagedDiffs by remember {mutableStateOf<Map<String,FileDiffText>>(emptyMap())}
     var stagedDiffs by remember {mutableStateOf<Map<String,FileDiffText>>(emptyMap())}
@@ -63,6 +63,12 @@ private sealed interface NewFile {
     // Bumped by Refresh so the History, Branches and Worktrees pages read again too.
     var version by remember {mutableIntStateOf(0)}
     var message by rememberSaveable {mutableStateOf("")}
+    // A merge waits to be finished or aborted; each conflicted file shows what git left in it.
+    var merging by remember {mutableStateOf(false)}
+    var conflictText by remember {mutableStateOf<Map<String,String>>(emptyMap())}
+    var abortMerge by rememberSaveable {mutableStateOf(false)}
+    var suggesting by remember {mutableStateOf(false)}
+    var suggestError by remember {mutableStateOf<String?>(null)}
     val scope=rememberCoroutineScope()
 
     suspend fun load() {
@@ -73,6 +79,8 @@ private sealed interface NewFile {
         status=parsed
         unstagedDiffs=run("diff",emptyMap()).getOrNull()?.let(::parseUnifiedDiff)?.associateBy {it.path}.orEmpty()
         stagedDiffs=run("diff",mapOf("staged" to "1")).getOrNull()?.let(::parseUnifiedDiff)?.associateBy {it.path}.orEmpty()
+        merging=isMerging(run("merging",emptyMap()).getOrNull())
+        conflictText=parsed.conflicts.associate {it.path to run("diff",mapOf("file" to it.path)).getOrNull().orEmpty()}
         // What was ticked or opened for a file that is no longer changed goes away; new files are read again.
         val now=parsed.unstaged.map {"u:${it.path}"}+parsed.staged.map {"s:${it.path}"}
         picked=picked.filter {it in now}
@@ -121,9 +129,24 @@ private sealed interface NewFile {
             load();busy=false
         }
     }
+    // Keep one side of a conflicted file, then mark it resolved. A merge is finished by committing.
+    fun resolve(op:String,path:String) {
+        if(busy)return
+        busy=true;notice=null
+        scope.launch {
+            var failure:String?=null
+            run(op,mapOf("file" to path)).onFailure {failure=it.message ?: "Git refused that."}
+            if(failure==null)run("add",mapOf("file" to path)).onFailure {failure=it.message ?: "Git refused that."}
+            load()
+            if(failure!=null)error=failure else notice="Resolved $path"
+            busy=false
+        }
+    }
     val current=status
     val unstaged=current?.unstaged.orEmpty()
     val staged=current?.staged.orEmpty()
+    val conflicts=current?.conflicts.orEmpty()
+    val canCommit=staged.isNotEmpty() || (merging && conflicts.isEmpty())
     val tickedUnstaged=unstaged.filter {"u:${it.path}" in picked}
     val tickedStaged=staged.filter {"s:${it.path}" in picked}
     val allKeys=unstaged.map {"u:${it.path}"}+staged.map {"s:${it.path}"}
@@ -140,7 +163,9 @@ private sealed interface NewFile {
         } else LazyColumn(Modifier.weight(1f).testTag("git-list"),contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             error?.let {item(key="error") {Text(it,Modifier.testTag("git-error"),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
             notice?.let {item(key="notice") {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-            if(current.files.isEmpty())item(key="clean") {EmptyState("Nothing changed","This folder matches its last commit.")}
+            if(conflicts.isNotEmpty())item(key="conflicts") {ConflictCard(conflicts,conflictText,!busy,{path->resolve("checkout-ours",path)},{path->resolve("checkout-theirs",path)},{abortMerge=true})}
+            else if(merging)item(key="merge-ready") {MergeReadyCard(!busy,{abortMerge=true})}
+            if(current.files.isEmpty() && !merging)item(key="clean") {EmptyState("Nothing changed","This folder matches its last commit.")}
             if(allKeys.isNotEmpty())item(key="fold-bar") {Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 TextButton({open=allKeys},Modifier.heightIn(min=48.dp).testTag("expand-all")) {Text("Expand all")}
                 TextButton({open=emptyList()},Modifier.heightIn(min=48.dp).testTag("collapse-all")) {Text("Collapse all")}
@@ -152,8 +177,8 @@ private sealed interface NewFile {
             if(staged.isNotEmpty()) {
                 item(key="staged-head") {SectionHead("Staged · ${staged.size}",staged.map {"s:${it.path}"},picked,{picked=it},busy,if(tickedStaged.isNotEmpty())"Unstage selected (${tickedStaged.size})" else null,{change("unstaged",tickedStaged.map {"restore-staged" to it.path})},"unstage-selected")}
                 items(staged,key={"s:${it.path}"}) {file->FileCard(file,"s:${file.path}",stagedDiffs[file.path],null,"s:${file.path}" in picked,"s:${file.path}" in open,{on->picked=if(on)picked+"s:${file.path}" else picked-"s:${file.path}"},{on->open=if(on)open+"s:${file.path}" else open-"s:${file.path}"},"Unstage",!busy,{index->hunk(stagedDiffs,file.path,index,false)}) {change("unstaged",listOf("restore-staged" to file.path))}}
-                item(key="commit") {Button({committing=true},Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("git-commit"),enabled=!busy) {Text("Commit ${staged.size} ${if(staged.size==1)"file" else "files"}…")}}
             }
+            if(canCommit)item(key="commit") {Button({if(message.isBlank() && merging)message="Merge into ${current.branch ?: "this branch"}";suggestError=null;committing=true},Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("git-commit"),enabled=!busy) {Text(if(staged.isEmpty())"Finish the merge…" else "Commit ${staged.size} ${if(staged.size==1)"file" else "files"}…")}}
             if(onPullRequest!=null && current.branch!=null)item(key="pull-request") {
                 if(isBaseBranch("main",current.branch) || isBaseBranch("master",current.branch))Text("You are on ${current.branch}, the base branch. Switch to a feature branch on the host to open a pull request.",Modifier.testTag("git-base-branch"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 else OutlinedButton(onPullRequest,Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("git-open-pr")) {Text("Open pull request from ${current.branch}")}
@@ -163,14 +188,26 @@ private sealed interface NewFile {
             key(version,tab) {
                 when(tab) {
                     1->GitHistoryTab(run,Modifier.fillMaxSize())
-                    2->GitBranchesTab(run,{scope.launch {load()}},Modifier.fillMaxSize())
-                    else->GitWorktreesTab(run,folder,Modifier.fillMaxSize())
+                    2->GitBranchesTab(run,{scope.launch {load();if(status?.conflicts?.isNotEmpty()==true)tab=0}},Modifier.fillMaxSize())
+                    3->GitWorktreesTab(run,folder,Modifier.fillMaxSize())
+                    else->GitStashTab(run,current?.files?.isNotEmpty()==true,{scope.launch {load()}},Modifier.fillMaxSize())
                 }
             }
         }
     }
-    if(committing)AlertDialog(onDismissRequest={committing=false},title={Text("Commit staged files")},text={
-        OutlinedTextField(message,{message=it.take(2000)},Modifier.fillMaxWidth().testTag("git-message"),label={Text("Message")},minLines=2)
+    if(abortMerge)AlertDialog(onDismissRequest={abortMerge=false},title={Text("Abort the merge?")},text={Text("The folder goes back to how it was before the merge. Choices made for conflicted files are dropped.")},confirmButton={TextButton({abortMerge=false;busy=true;scope.launch {run("merge-abort",emptyMap()).fold({notice="Merge aborted"},{error=it.message ?: "Git could not abort the merge."});load();busy=false}}) {Text("Abort the merge",color=MaterialTheme.colorScheme.error)}},dismissButton={TextButton({abortMerge=false}) {Text("Keep going")}})
+    if(committing)AlertDialog(onDismissRequest={committing=false},title={Text(if(staged.isEmpty())"Finish the merge" else "Commit staged files")},text={
+        Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(message,{message=it.take(2000)},Modifier.fillMaxWidth().testTag("git-message"),label={Text("Message")},minLines=2)
+            if(suggestions!=null && staged.isNotEmpty())SuggestButton(suggestions.agents,suggesting,"commit-suggest",Modifier.fillMaxWidth()) {agent->
+                suggesting=true;suggestError=null
+                scope.launch {
+                    suggestions.commit(agent.id).onSuccess {message=it.take(2000)}.onFailure {suggestError=it.message ?: "The agent could not write it."}
+                    suggesting=false
+                }
+            }
+            suggestError?.let {Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
+        }
     },confirmButton={TextButton({
         val text=message.trim()
         committing=false
@@ -231,6 +268,42 @@ private sealed interface NewFile {
                     if(shown.lines.size>GIT_LINES_SHOWN)Text("… ${shown.lines.size-GIT_LINES_SHOWN} more lines",Modifier.padding(horizontal=12.dp,vertical=4.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+    }
+}
+
+/** Files both sides of a merge changed: what git left in each, and a way to keep one side. */
+@Composable private fun ConflictCard(files:List<GitFile>,text:Map<String,String>,enabled:Boolean,onKeepMine:(String)->Unit,onTakeTheirs:(String)->Unit,onAbort:()->Unit) {
+    Surface(Modifier.fillMaxWidth().testTag("git-conflicts"),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.errorContainer,contentColor=MaterialTheme.colorScheme.onErrorContainer) {
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("Merge conflicts · ${files.size}",style=MaterialTheme.typography.titleSmall)
+            Text("Both sides changed the same lines. Keep your side or take theirs for each file, then finish the merge by committing.",style=MaterialTheme.typography.bodySmall)
+            files.forEach {file->
+                Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text(file.path,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    val lines=text[file.path].orEmpty().lines().filter {!it.startsWith("diff --cc") && !it.startsWith("index ") && !it.startsWith("--- ") && !it.startsWith("+++ ") && !it.startsWith("@@")}.take(40)
+                    lines.forEach {line->
+                        val marker=Regex("^[ +-]{1,2}(<<<<<<<|=======|>>>>>>>)").containsMatchIn(line)
+                        Text(line,Modifier.fillMaxWidth(),fontFamily=FontFamily.Monospace,fontSize=12.sp,fontWeight=if(marker)androidx.compose.ui.text.font.FontWeight.Bold else null,maxLines=2,overflow=TextOverflow.Ellipsis)
+                    }
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton({onKeepMine(file.path)},Modifier.heightIn(min=48.dp).testTag("keep-mine-${file.path}"),enabled=enabled) {Text("Keep mine")}
+                        OutlinedButton({onTakeTheirs(file.path)},Modifier.heightIn(min=48.dp).testTag("take-theirs-${file.path}"),enabled=enabled) {Text("Take theirs")}
+                    }
+                }
+            }
+            TextButton(onAbort,Modifier.heightIn(min=48.dp).testTag("abort-merge"),enabled=enabled) {Text("Abort the merge")}
+        }
+    }
+}
+
+/** Every conflict is settled: the merge only needs its commit. */
+@Composable private fun MergeReadyCard(enabled:Boolean,onAbort:()->Unit) {
+    Surface(Modifier.fillMaxWidth().testTag("git-merge-ready"),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text("A merge is waiting",style=MaterialTheme.typography.titleSmall)
+            Text("No conflicts are left. Commit to finish it, or abort to go back.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onAbort,Modifier.heightIn(min=48.dp),enabled=enabled) {Text("Abort the merge")}
         }
     }
 }
