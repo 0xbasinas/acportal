@@ -51,6 +51,12 @@ out) and a host with no default agents (its own config in `.local/dev-host`) in 
 installs the packages (including the Electron download that npm's `ignore-scripts` skips), opens a
 terminal with a pairing code and runs the app.
 
+## Windows notes
+
+- The app sets its Windows app id (`dev.acportal.desktop`, the installer's `appId`) so the taskbar button shows the acportal logo instead of Electron's. The window icon alone is not used for that button.
+- Quitting closes the background session connections after the window is gone. Every send to the window goes through `electron/window.ts`, which only returns a window that can still be used; a late connection report is dropped instead of raising "Object has been destroyed".
+- A development host keeps its state, including the *No project* scratch folders, inside the repository (`.local/dev-host/state`). Those sessions still show under *No project*, not under the repository's project.
+
 ## Known gaps
 
 - Checks config and MCP definitions are stored on this computer only; drafts, titles and prompt history are shared through the host (`/v1/shared`). A plan for the rest is in [HANDOFF](../HANDOFF.md#roadmap).

@@ -21,6 +21,7 @@ To pair again after a token expired or was revoked, use **Re-pair** on that host
 ## Organising hosts
 
 - **Sidebar.** Sessions are grouped by host; the filter chips at the top show all hosts or one.
+- **Projects.** Under each host a session sits in the project (allowed folder) it runs in, the deepest one that contains its folder; sessions that run in no project are listed under *No project*. A Windows host lists projects as `C:\x` but reports a session's folder as `\\?\C:\x`; the app treats both as the same folder. Sessions started with *No project* run in a folder the host makes below its `scratchRoot` (reported by `GET /v1/status`); they stay under *No project* even when the host's state is inside a project, as it is for a development host that keeps it in the repository. A host that does not report `scratchRoot` is recognised by the folder name (`scratch/<seconds>-<six hex>`).
 - **Order.** Drag rows in **Settings › Hosts** (or use the up/down buttons) to set the order used in the sidebar, switcher and palette.
 - **Rename** a host with the pencil button; the name is local to this computer.
 - **Command palette** (Ctrl/Cmd K): *Switch host* jumps between hosts; **New session** asks which host to start on when more than one is connected.

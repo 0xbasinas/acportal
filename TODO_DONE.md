@@ -1,5 +1,12 @@
 # Completed work and verification history
 
+## 18 October 2026 desktop fixes found while using it (`main`)
+
+- Taskbar: the Windows taskbar showed Electron's atom because the app had no app id; it now sets `dev.acportal.desktop` (4c9a6a7). Confirmed by the user.
+- Sidebar: sessions never matched their project on Windows because the host reports `\\?\C:\x` for a session and `C:\x` for a project. The prefix is ignored when comparing (`plain`, `inside`, `subfolder` in `desktop/src/projects.ts`). Scratch sessions then matched the repository's project, because a development host keeps its state inside it; `GET /v1/status` now reports `scratchRoot` and the app puts anything below it under *No project* (older hosts: by folder name) (c767e77). 59 desktop tests, a host test for the new field, formatting and Clippy. Not looked at in the user's running app by me.
+- Quit: closing the window sent the sessions' final state to the destroyed window (`Object has been destroyed`). A helper returns the window only while it can be used (589a835). 61 desktop tests. Not reproduced here (no connected sessions in the test profile), so the fix rests on the stack trace.
+- Docs updated for the above: `docs/protocol.md`, `docs/desktop-multi-host.md`, `desktop/README.md`.
+
 ## 17 October 2026 follow-ups: timeout test, inheritance, resume, Android parity (`experiment/t3code-ideas`)
 
 - `gh` timeout: `ACPD_GH_TIMEOUT_MS` (100 ms to 60 s, never longer) shortens the limit so the path is testable. A fake gh that never exits and has left a helper running ends in `504 gh_timeout`, and both processes are gone; leaking the process tree on that path made the test fail, then it was restored.
