@@ -60,16 +60,34 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
     suspend fun removeAgent(host:HostProfile,id:String) { execute(host.address,"/v1/agents/${java.net.URLEncoder.encode(id,"UTF-8")}",vault.read(host.credentialAlias),method="DELETE") }
     suspend fun sessions(host:HostProfile): List<SessionInfo> = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias)))
     suspend fun session(host:HostProfile,id:String): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions/$id",vault.read(host.credentialAlias)))
-    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false,manualApproval:Boolean=false,booleanOptions:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
+    suspend fun create(host:HostProfile,agentId:String,workspace:String,loadId:String?=null,mcpServers:JsonArray=JsonArray(emptyList()),access:WorkspaceAccess=WorkspaceAccess(),formElicitation:Boolean=false,manualApproval:Boolean=false,booleanOptions:Boolean=false,yolo:Boolean=false): SessionInfo = WireJson.decodeFromJsonElement(execute(host.address,"/v1/sessions",vault.read(host.credentialAlias),buildJsonObject {
         put("agentId",agentId);put("workspace",workspace);loadId?.let { put("loadSessionId",it) }
         put("mcpServers",mcpServers)
-        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal);if(formElicitation)put("formElicitation",true);if(manualApproval)put("manualApproval",true);if(booleanOptions)put("booleanOptions",true)})
+        put("workspaceAccess",buildJsonObject {put("readFiles",access.readFiles);put("writeFiles",access.writeFiles);put("terminal",access.terminal);if(formElicitation)put("formElicitation",true);if(manualApproval)put("manualApproval",true);if(booleanOptions)put("booleanOptions",true);if(yolo)put("yolo",true)})
     },"POST"))
     /** What the agent remembers for one approved folder; read-only, nothing is loaded. */
     suspend fun earlierSessions(host:HostProfile,agentId:String,workspace:String): EarlierSessions {
         val url = validateAddress(host.address).newBuilder().encodedPath("/v1/agents/${java.net.URLEncoder.encode(agentId,"UTF-8")}/sessions").addQueryParameter("workspace",workspace).build()
         val request = Request.Builder().url(url).header("Authorization","Bearer ${vault.read(host.credentialAlias)}").build()
         return WireJson.decodeFromJsonElement(client.newCall(request).awaitJson())
+    }
+    /** The permission choices the host offers for one agent. Read-only; nothing is changed or started. */
+    suspend fun presets(host:HostProfile,agentId:String): List<PermissionPreset> {
+        val url = validateAddress(host.address).newBuilder().encodedPath("/v1/presets").addQueryParameter("agent",agentId).build()
+        val request = Request.Builder().url(url).header("Authorization","Bearer ${vault.read(host.credentialAlias)}").build()
+        return WireJson.decodeFromJsonElement<JsonObject>(client.newCall(request).awaitJson())["presets"].arrayValue().map {WireJson.decodeFromJsonElement<PermissionPreset>(it)}
+    }
+    /**
+     * One of the host's fixed git operations in an approved folder. A failing git command is still a reply
+     * with its exit code; `diff-new` exits 1 when the file has content, which is the normal case.
+     */
+    suspend fun git(host:HostProfile,path:String,op:String,params:Map<String,String> = emptyMap()): Result<String> {
+        require(Regex("[a-z-]{1,32}").matches(op)) {"Invalid git operation"}
+        val reply=execute(host.address,"/v1/git/$op",vault.read(host.credentialAlias),buildJsonObject {put("path",path);if(params.isNotEmpty())put("params",buildJsonObject {params.forEach {(key,value)->put(key,value)}})},"POST").objectValue()
+        val code=(reply["code"] as? JsonPrimitive)?.intOrNull ?: 1
+        val out=reply["out"].text()
+        return if(code==0 || (op=="diff-new" && code==1 && out.isNotEmpty())) Result.success(out)
+        else Result.failure(IllegalStateException(reply["err"].text().ifBlank {out}.trim().lines().takeLast(3).joinToString(" ").ifBlank {"git exited $code"}))
     }
     /** The checked-out branch of a folder, or null when it is detached or not a repository. */
     suspend fun currentBranch(host:HostProfile,path:String): String? {

@@ -47,7 +47,14 @@ data class WorkspaceAccess(val readFiles:Boolean=true,val writeFiles:Boolean=tru
     /** The host's auto-approve and shell review stay off for this session; every request waits for the person. */
     val manualApproval:Boolean=false,
     /** The client shows on/off options, so the host advertises `session.configOptions.boolean` to the agent. */
-    val booleanOptions:Boolean=false)
+    val booleanOptions:Boolean=false,
+    /** The host answers this session's requests itself ("Auto-approve everything"); only where the host allows it. */
+    val yolo:Boolean=false)
+/** One permission choice from `GET /v1/presets`: what it sets and what it does, as the host describes it. */
+@Serializable
+data class PermissionPreset(val id:String,val label:String,val effects:List<String> = emptyList(),val workspaceAccess:WorkspaceAccess=WorkspaceAccess())
+const val PRESET_ASK_ALL = "ask-all"
+const val PRESET_YOLO = "yolo"
 @Serializable
 data class SessionInfo(
     val id: String, val agentId: String, val acpSessionId: String,
@@ -67,6 +74,8 @@ data class HostStatus(val hostId: String, val name: String, val version: String,
 const val HOST_FEATURE_FORM_ELICITATION = "formElicitation"
 /** Host accepts `workspaceAccess.manualApproval` (the "Ask for everything" switch). Older hosts reject the field. */
 const val HOST_FEATURE_MANUAL_APPROVAL = "manualApproval"
+/** `GET /v1/presets?agent=` lists the permission choices a new session can start with. */
+const val HOST_FEATURE_PRESETS = "presets"
 /** Host sends on/off config options when asked (`workspaceAccess.booleanOptions`). */
 const val HOST_FEATURE_BOOLEAN_OPTIONS = "booleanOptions"
 /** Host lists what an agent remembers for a folder (`GET /v1/agents/{id}/sessions`). */

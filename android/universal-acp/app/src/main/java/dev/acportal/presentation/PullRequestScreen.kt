@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.acportal.data.PullRequestRequest
+import dev.acportal.protocol.isBaseBranch
 import kotlinx.coroutines.launch
 
 /**
@@ -41,10 +42,17 @@ import kotlinx.coroutines.launch
             branchLoaded=true
         }
     }
+    // On the base branch there is nothing to compare, so no form is offered (the desktop does the same).
+    val onBase=branchLoaded && isBaseBranch(base,branch.takeIf {it.isNotBlank()})
     val ready=!busy && title.isNotBlank() && base.isNotBlank() && branch.isNotBlank()
     val folder=workspace.trimEnd('/','\\').substringAfterLast('/').substringAfterLast('\\')
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Open pull request",subtitle=hostLabel,onBack=onBack)
+        if(onBase)Column(Modifier.fillMaxSize().padding(24.dp).testTag("pr-on-base"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("You are on $branch",style=MaterialTheme.typography.titleMedium)
+            Text("$branch is the base branch, so there is nothing to compare. Switch the folder to a feature branch on the host, then open a pull request from it.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onBack,Modifier.heightIn(min=48.dp)) {Text("Back")}
+        } else {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text("Runs gh on the host for $folder. Push the branch first; the host's own git and GitHub sign-in are used.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(branch,{branch=it.take(255)},Modifier.fillMaxWidth().testTag("pr-branch"),label={Text("Branch to merge")},singleLine=true,enabled=!busy,supportingText={if(branchLoaded && branch.isBlank())Text("The host reported no checked-out branch.")})
@@ -71,5 +79,6 @@ import kotlinx.coroutines.launch
                 busy=false
             }
         },Modifier.fillMaxWidth().padding(24.dp).heightIn(min=52.dp).testTag("pr-submit"),enabled=ready) {Text(if(busy)"Opening…" else "Open pull request")}
+        }
     }
 }

@@ -45,7 +45,7 @@ import dev.acportal.transport.ConnectionState
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
 
-@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onTakeControl:(()->Unit)?=null,onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(live.host.id+"/"+live.info.id),onPullRequest:(()->Unit)?=null) {
+@Composable fun SessionScreen(live:LiveSession,stored:StoredSession,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,onReconnect:()->Unit={},onTakeControl:(()->Unit)?=null,onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(live.host.id+"/"+live.info.id),onPullRequest:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
     val diagnostics by live.diagnostics.collectAsStateWithLifecycle()
     val state by live.state.collectAsStateWithLifecycle()
     val connection by live.connection.collectAsStateWithLifecycle()
@@ -56,7 +56,7 @@ import kotlinx.coroutines.*
     val sharedHistory by live.sharedHistory.collectAsStateWithLifecycle()
     val remoteDraft by live.remoteDraft.collectAsStateWithLifecycle()
     TranscriptExportSurface(info,state) {exporting,onExport->
-        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl,sharedHistory=sharedHistory,remoteDraft=remoteDraft,onPullRequest=onPullRequest)
+        SessionContent(info,state,connection,stored.draft,onBack,onPrompt,onCancel,onPermission,onConfigure,onDraft,authenticating,live.host.label,live.host.address,diagnostics,onReconnect,onDisconnect,onMcp,onAccess,onRemoveLocal,generation,exporting,onExport=onExport,attachments=attachments,onAddAttachment=onAddAttachment,onRemoveAttachment=onRemoveAttachment,onDismissError=onDismissError,onSessions=onSessions,onPairHost=onPairHost,onElicitation=onElicitation,conversationState=conversationState,onTakeControl=onTakeControl,sharedHistory=sharedHistory,remoteDraft=remoteDraft,onPullRequest=onPullRequest,turnTimes=turnTimes)
     }
 }
 
@@ -101,7 +101,7 @@ import kotlinx.coroutines.*
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null,sharedHistory:List<String> = emptyList(),remoteDraft:dev.acportal.data.RemoteDraft?=null,onPullRequest:(()->Unit)?=null) {
+@Composable private fun SessionContent(info:SessionInfo,state:SessionState,connection:ConnectionState,initialDraft:String,onBack:()->Unit,onPrompt:(String,String?)->Unit,onCancel:()->Unit,onPermission:(Permission,String)->Unit,onConfigure:(String,JsonObject)->Unit,onDraft:(String)->Unit,authenticating:Boolean=false,hostLabel:String?=null,hostAddress:String="",diagnostics:List<dev.acportal.transport.ConnectionDiagnostic> = emptyList(),onReconnect:()->Unit={},onDisconnect:()->Unit={},onMcp:(()->Unit)?=null,onAccess:(()->Unit)?=null,onRemoveLocal:(()->Unit)?=null,draftResetVersion:Long=0,exporting:Boolean=false,onExport:(()->Unit)?=null,attachments:List<PromptAttachment> = emptyList(),onAddAttachment:((PromptAttachment,Long)->Unit)?=null,onRemoveAttachment:((Int)->Unit)?=null,onDismissError:()->Unit={},onSessions:()->Unit=onBack,onPairHost:(()->Unit)?=null,offlineCopy:Boolean=false,checkingConnection:Boolean=false,savedActionLabel:String="Connect to host",onElicitation:(Permission,String,JsonObject?)->Unit={_,_,_->},conversationState:ConversationUiState=rememberConversationUiState(info.id),onTakeControl:(()->Unit)?=null,sharedHistory:List<String> = emptyList(),remoteDraft:dev.acportal.data.RemoteDraft?=null,onPullRequest:(()->Unit)?=null,turnTimes:Map<String,TurnTime> = emptyMap()) {
     var draft by rememberSaveable(info.id) { mutableStateOf(initialDraft) }
     // A draft typed on another device replaces the box only while it still shows the earlier synced text.
     LaunchedEffect(remoteDraft?.at) {remoteDraft?.let {if(draft==it.replaces)draft=it.text}}
@@ -131,6 +131,9 @@ import kotlinx.coroutines.*
     var handledReset by rememberSaveable(info.id) {mutableLongStateOf(draftResetVersion)}
     LaunchedEffect(draftResetVersion) {if(draftResetVersion>handledReset) {draft="";sentDraft=null;showHistory=false;historyChoice=null;focus.clearFocus();keyboard?.hide();handledReset=draftResetVersion}}
     val pendingPermission=state.permissions.values.firstOrNull()
+    // Keyed by counters, not the item list: comparing lists walks every streamed message.
+    val blocks=remember(state.sequence,state.processing,state.items.size,state.permissions.size) {foldTurns(state.items,state.processing,state.permissions.isNotEmpty())}
+    val turnStart=if(state.processing)turnTimes[lastUserId(state.items)]?.at else null
     LaunchedEffect(pendingPermission?.id) {showPermission=pendingPermission!=null}
     val connected=connection is ConnectionState.Connected && !state.sessionClosed && info.status!="exited"
     // Keyed by the sequence, not the item list: comparing lists walks every streamed message.
@@ -141,7 +144,7 @@ import kotlinx.coroutines.*
         is DragInteraction.Stop,is DragInteraction.Cancel->{dragging=false;followLatest=!list.canScrollForward}
     } } }
     LaunchedEffect(list) {snapshotFlow {list.layoutInfo.visibleItemsInfo.isNotEmpty() && !list.canScrollForward && !dragging}.collect {atEnd->if(atEnd)followLatest=true}}
-    LaunchedEffect(timelineTailKey(state.items),followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToTimelineEnd(state.items.lastIndex)}
+    LaunchedEffect(timelineTailKey(state.items),blocks.size,followLatest) {if(followLatest && state.items.isNotEmpty())list.scrollToTimelineEnd(blocks.lastIndex+(if(state.processing)1 else 0))}
     androidx.activity.compose.BackHandler(changedFile!=null || showOptions || showAgent || connectionPage>0) {if(changedFile!=null)changedFile=null else if(connectionPage>0)connectionPage-- else {showOptions=false;showAgent=false}}
     changedFile?.let {id->ChangesScreen(sessionFileChanges(state),id,{changedFile=null});return}
     if(connectionPage==2) {ConnectionLogsScreen(diagnostics,{connectionPage=1},hostLabel ?: "Host",connection);return}
@@ -187,13 +190,18 @@ import kotlinx.coroutines.*
         }
         else Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(state=list,modifier=Modifier.fillMaxSize().testTag("session-timeline"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            items(state.items,key={it.id},contentType={it::class}) { item -> when(item) {
+            val renderItem:@Composable (TimelineItem)->Unit={item-> when(item) {
                 is TimelineItem.Text->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {androidx.compose.foundation.text.selection.SelectionContainer {Text(item.text,style=MaterialTheme.typography.bodyMedium)}}} else MessageCard(item,info.agentId)
                 is TimelineItem.Content->if(item.role=="thought") {val key=remember(item.id) {disclosureKey("thought:",item.id)};AgentThoughtCard(item.id,key in expandedActivity,{disclose(key,it)}) {ReceivedContentView(item.content)}} else Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {Text(if(item.role=="user")"You" else info.agentId,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant);ReceivedContentView(item.content)}
                 is TimelineItem.Tool->{val key=remember(item.id) {disclosureKey("tool:",item.id)};ToolCard(item,state.terminals,onChange={changedFile=it},expandedOverride=key in expandedActivity,onExpandedChange={disclose(key,it)})}
                 is TimelineItem.Plan->OutlinedCard { Column(Modifier.padding(16.dp)) { Text("Plan",style=MaterialTheme.typography.titleSmall);item.entries.forEach { entry->val value=entry.objectValue();Text("${if(value["status"].text()=="completed") "✓" else "•"} ${value["content"].text()}",Modifier.padding(top=8.dp)) } } }
                 is TimelineItem.Notice->Text(item.text,color=if(item.error)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             } }
+            items(blocks,key={it.key},contentType={it::class}) {block->when(block) {
+                is TurnBlock.Row->renderItem(block.item)
+                is TurnBlock.Steps->{val openKey=remember(block.id) {disclosureKey("steps:",block.id)};StepsGroup(turnTimes[block.id]?.took,block,openKey in expandedActivity,{disclose(openKey,it)}) {block.items.forEach {item->key(item.id) {renderItem(item)}}}}
+            } }
+            if(state.processing)item(key="working") {WorkingRow(info.agentId,turnStart)}
         }
         // Reading earlier text stops follow-latest; this brings the reader back to the newest text.
         if(!followLatest && list.canScrollForward)SmallFloatingActionButton({followLatest=true},Modifier.align(Alignment.BottomEnd).padding(16.dp).testTag("jump-to-latest"),containerColor=MaterialTheme.colorScheme.surfaceContainerHigh,contentColor=MaterialTheme.colorScheme.onSurface) {Icon(Icons.Outlined.ArrowDownward,"Jump to latest message")}

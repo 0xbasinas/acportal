@@ -58,6 +58,10 @@ class PortalRepository(
     suspend fun saveMainPage(page:String)=dao.saveMainPage(page)
     suspend fun saveSessionFilters(archived:Boolean,active:Boolean,query:String)=dao.saveSessionFilters(archived,active,query)
     private val active = mutableMapOf<String,LiveSession>()
+    /** How long each turn took, measured here while a turn ran; persisted so rows can show time worked. */
+    val turnTimes = MutableStateFlow<TurnTimes>(emptyMap())
+    init {scope.launch {try {turnTimes.update {current->settings.turnTimes.first().let {saved->saved+current}}} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}}
+    private fun recordTurn(change:(TurnTimes)->TurnTimes) {val next=turnTimes.updateAndGet(change);scope.launch {try {settings.saveTurnTimes(next)} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {}}}
     private val mutableActivities = MutableStateFlow<Map<String,LiveSessionActivity>>(emptyMap())
     val liveActivities:StateFlow<Map<String,LiveSessionActivity>> = mutableActivities.asStateFlow()
     private val lifecycle = Mutex()
@@ -145,16 +149,18 @@ class PortalRepository(
         override suspend fun remove(path:String)=api.removeWorkspace(host,path)
     }
     suspend fun earlierSessions(hostId:String,agentId:String,workspace:String): EarlierSessions = withContext(Dispatchers.IO) {api.earlierSessions(dao.host(hostId) ?: error("Host is no longer saved"),agentId,workspace)}
+    suspend fun git(hostId:String,path:String,op:String,params:Map<String,String>):Result<String> = withContext(Dispatchers.IO) {api.git(dao.host(hostId) ?: error("Host is no longer saved"),path,op,params)}
     suspend fun currentBranch(hostId:String,path:String): String? = withContext(Dispatchers.IO) {api.currentBranch(dao.host(hostId) ?: error("Host is no longer saved"),path)}
     suspend fun openPullRequest(hostId:String,request:PullRequestRequest): String = withContext(Dispatchers.IO) {api.openPullRequest(dao.host(hostId) ?: error("Host is no longer saved"),request)}
-    suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null,askEverything:Boolean=false): StoredSession = withContext(Dispatchers.IO) {
+    suspend fun presets(hostId:String,agentId:String): List<PermissionPreset> = withContext(Dispatchers.IO) {api.presets(dao.host(hostId) ?: error("Host is no longer saved"),agentId)}
+    suspend fun create(hostId:String,agentId:String,workspace:String,loadId:String?=null,askEverything:Boolean=false,yolo:Boolean=false): StoredSession = withContext(Dispatchers.IO) {
         val host=dao.host(hostId) ?: error("Host is no longer saved")
         // Opt into form elicitation and manual approval only on hosts that list the feature; older hosts reject unknown fields.
         val features=try {api.status(host).features} catch(cancelled:CancellationException) {throw cancelled} catch(_:Exception) {emptyList()}
         val elicitation=HOST_FEATURE_FORM_ELICITATION in features
         val manual=askEverything && HOST_FEATURE_MANUAL_APPROVAL in features
         val booleans=HOST_FEATURE_BOOLEAN_OPTIONS in features
-        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual,booleanOptions=booleans)
+        val created=api.create(host,agentId,workspace,loadId,mcpWire(mcpServers(hostId)),workspaceAccess(hostId,workspace),formElicitation=elicitation,manualApproval=manual,booleanOptions=booleans,yolo=yolo && HOST_FEATURE_PRESETS in features)
         dao.saveRecent(RecentWorkspace(hostId,workspace,agentId))
         saveMetadata(hostId,created)
     }
@@ -203,6 +209,26 @@ class PortalRepository(
         live.jobs += scope.launch {
             combine(live.state,live.connection,::liveSessionActivity).distinctUntilChanged().collect {activity->
                 mutableActivities.update {it+(key to activity)}
+            }
+        }
+        // Time each turn that runs while this phone watches (not one replayed from history).
+        live.jobs += scope.launch {
+            var startedAt:Long?=null
+            var turnId:String?=null
+            live.state.map {(it.processing && !it.replaying) to it.items.lastOrNull {item->item is TimelineItem.Text && item.role=="user"}?.id}.distinctUntilChanged().collect {(running,userId)->
+                val now=System.currentTimeMillis()
+                if(running) {
+                    if(startedAt==null)startedAt=now
+                    if(turnId==null && userId!=null) {
+                        val known=turnTimes.value[key]?.get(userId)
+                        // A new prompt, or a turn this phone already timed that is still running.
+                        if(known==null) {turnId=userId;recordTurn {TurnClock.start(it,key,userId,startedAt!!)}}
+                        else if(known.took==null)turnId=userId
+                    }
+                } else {
+                    turnId?.let {id->recordTurn {TurnClock.end(it,key,id,now)}}
+                    startedAt=null;turnId=null
+                }
             }
         }
         live.jobs += scope.launch {
