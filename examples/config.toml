@@ -54,3 +54,13 @@ history_bytes = 8388608
 # base_url = "https://api.deepseek.com"
 # model = "deepseek-flash"
 # api_key_env = "DEEPSEEK_API_KEY"
+
+# Interactive shells for the desktop app and phones (a real shell as your user, NOT sandboxed).
+# Off unless you turn it on here; no app can turn it on for you. See docs/security.md.
+# [terminal]
+# enabled = false
+# max_terminals = 4                  # open at once
+# idle_minutes = 30                  # closed after this long with nobody attached
+# scrollback_kib = 1024              # output kept for reconnecting clients
+# # shell = "/bin/zsh"               # default: $SHELL or /bin/sh; on Windows the [windows] shell choice
+# inherit_env = false                # true hands the shell the host's whole environment, secrets included
