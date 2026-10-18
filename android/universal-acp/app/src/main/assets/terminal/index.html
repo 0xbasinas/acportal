@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="xterm.css">
 <style>
   html, body { margin: 0; height: 100%; background: #0a0a0a; overflow: hidden; }
-  #term { position: absolute; inset: 0; padding: 4px 0 0 6px; box-sizing: border-box; }
+  #term { position: absolute; top: 0; left: 0; padding: 4px 0 0 6px; box-sizing: border-box; }
   .xterm-viewport { overflow-y: auto !important; }
 </style>
 </head>
@@ -23,7 +23,10 @@
   term.loadAddon(fit);
   term.open(document.getElementById('term'));
   var ctrl = false;
-  function refit() { try { fit.fit(); } catch (e) {} }
+  // Size from the window, not from CSS percentages: inside a WebView hosted by Compose the layout
+  // viewport can report height 0 while the window itself has its real size.
+  var box = document.getElementById('term');
+  function refit() { box.style.width = window.innerWidth + 'px'; box.style.height = window.innerHeight + 'px'; try { fit.fit(); } catch (e) {} }
   window.addEventListener('resize', refit);
   term.onResize(function (s) { AcpTerm.resize(s.rows, s.cols); });
   term.onData(function (d) {

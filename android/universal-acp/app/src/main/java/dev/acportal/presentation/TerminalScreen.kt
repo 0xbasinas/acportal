@@ -30,6 +30,19 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
+/**
+ * A WebView whose keyboard sends plain keys: no suggestions, no composing text, no auto-correct. A predictive
+ * keyboard replays composition into a terminal and doubles letters, as terminal apps found long ago.
+ */
+private class TerminalWebView(context:android.content.Context):WebView(context) {
+    override fun onCreateInputConnection(outAttrs:android.view.inputmethod.EditorInfo):android.view.inputmethod.InputConnection? {
+        val connection = super.onCreateInputConnection(outAttrs)
+        outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.imeOptions = outAttrs.imeOptions or android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN
+        return connection
+    }
+}
+
 private const val PAGE = "file:///android_asset/terminal/index.html"
 
 /** The keys a phone keyboard lacks, as the bytes a terminal expects. */
@@ -60,7 +73,7 @@ internal val TERMINAL_KEYS: List<Pair<String,String>> = listOf(
     var ctrl by remember {mutableStateOf(false)}
     var terminalId by remember {mutableStateOf(existingId)}
     var attached by remember {mutableStateOf<TerminalLink?>(null)}
-    val web = remember {WebView(context)}
+    val web = remember {TerminalWebView(context)}
     val ready = remember {CompletableDeferred<Pair<Int,Int>>()}
     val background = MaterialTheme.colorScheme.background.toArgb()
     val foreground = MaterialTheme.colorScheme.onBackground.toArgb()
@@ -70,6 +83,8 @@ internal val TERMINAL_KEYS: List<Pair<String,String>> = listOf(
     val currentLink = rememberUpdatedState(attached)
 
     DisposableEffect(Unit) {
+        // Debug builds only: lets a developer inspect the bundled page from chrome://inspect.
+        WebView.setWebContentsDebuggingEnabled(dev.acportal.BuildConfig.DEBUG)
         web.settings.apply {
             javaScriptEnabled = true;domStorageEnabled = false;allowFileAccess = false;allowContentAccess = false
             blockNetworkLoads = true;setSupportZoom(false);builtInZoomControls = false;javaScriptCanOpenWindowsAutomatically = false
