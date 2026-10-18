@@ -237,6 +237,9 @@ fn elicitation_answer(request: &Value, result: &Value) -> Option<Value> {
 #[serde(rename_all = "camelCase")]
 pub struct Event {
     pub sequence: u64,
+    /// When the host journaled it, in milliseconds since the Unix epoch. Lets a client time a turn
+    /// from the history it replays, not only from what it watched live.
+    pub at: u64,
     pub message: Value,
     pub direction: &'static str,
 }
@@ -296,6 +299,9 @@ impl Journal {
         let size = message.to_string().len();
         let event = Arc::new(Event {
             sequence: self.sequence,
+            at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as u64),
             message,
             direction,
         });
@@ -1810,6 +1816,27 @@ mod tests {
         assert!(Arc::ptr_eq(&replay.events[0], &journal.events[0].0));
         assert_eq!(admission_budget(1024 * 1024), 8 * 1024 * 1024);
         assert_eq!(admission_budget(16 * 1024 * 1024), 32 * 1024 * 1024);
+    }
+    #[test]
+    fn every_journaled_event_carries_the_time_the_host_recorded_it() {
+        let mut journal = Journal {
+            sequence: 0,
+            bytes: 0,
+            events: VecDeque::new(),
+            permissions: HashMap::new(),
+            host_consents: Default::default(),
+            max_events: 8,
+            max_bytes: 4096,
+        };
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        journal.append(json!({"first":true}));
+        journal.append(json!({"second":true}));
+        let replay = journal.replay(0);
+        assert!(replay.events.iter().all(|event| event.at >= before));
+        assert!(replay.events[0].at <= replay.events[1].at);
     }
     #[test]
     fn bounded_history_reports_eviction_and_retains_pending_requests() {

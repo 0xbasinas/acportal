@@ -1477,7 +1477,7 @@ async fn socket_session(
     // Send events individually so the bounded history cannot become one giant WS frame.
     if !send_json(&mut outgoing, json!({"type":"replay_start","gap":replay.gap,"latestSequence":cursor,"processing":session.connection.is_busy()})).await { return }
     for event in replay.events {
-        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"direction":event.direction,"message":event.message})).await { return }
+        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"at":event.at,"direction":event.direction,"message":event.message})).await { return }
     }
     for permission in replay.pending_permissions {
         if !send_json(
@@ -1505,7 +1505,7 @@ async fn socket_session(
                 match event {
                     Ok(event) if event.sequence > cursor => {
                         cursor = event.sequence;
-                        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"direction":event.direction,"message":event.message})).await { break }
+                        if !send_json(&mut outgoing, json!({"type":"event","sequence":event.sequence,"at":event.at,"direction":event.direction,"message":event.message})).await { break }
                     }
                     Ok(_) => {},
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

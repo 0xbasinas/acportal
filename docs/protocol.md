@@ -133,6 +133,7 @@ Host events have an outer delivery envelope:
 {
   "type": "event",
   "sequence": 42,
+  "at": 1760700000000,
   "direction": "agent",
   "message": {
     "jsonrpc": "2.0",
@@ -148,7 +149,7 @@ Host events have an outer delivery envelope:
 }
 ```
 
-The outer sequence is host delivery metadata. The inner message retains ACP semantics. No host-specific `runCommand`, `editFile`, or `askAgent` coding methods will be introduced.
+The outer sequence is host delivery metadata, and `at` is when the host journaled the event (milliseconds since the Unix epoch; absent on older hosts). A client times a turn from the `at` of its prompt and of its stop reason, replayed history included. The inner message retains ACP semantics. No host-specific `runCommand`, `editFile`, or `askAgent` coding methods will be introduced.
 
 `POST /v1/sessions` accepts optional `mcpServers` in the stable ACP wire format. The host validates a maximum of 16 definitions and 12,000 serialized bytes, unique names, absolute stdio executable paths, literal arguments, environment/header values and HTTP/SSE URLs. HTTP and SSE are checked against `agentCapabilities.mcpCapabilities` after initialization. Unsupported transports produce the safe API code `unsupported_mcp_transport` and leave no live session. Accepted definitions reach `session/new` or `session/load`, including setup retried after advertised authentication. Definitions remain in process memory; the host does not add them to restart metadata.
 
