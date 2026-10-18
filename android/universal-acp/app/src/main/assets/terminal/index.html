@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0a0a; overflow: hidden; }
+  #term { position: absolute; top: 0; left: 0; padding: 4px 0 0 6px; box-sizing: border-box; }
+  .xterm-viewport { overflow-y: auto !important; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+  // The page only draws and types. Everything else (the host connection, the token, the keys row) is
+  // the app's: output arrives through acp.write, keystrokes and size leave through AcpTerm.
+  var term = new Terminal({ fontFamily: 'monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, allowProposedApi: false,
+    theme: { background: '#0a0a0a', foreground: '#ededed', cursor: '#ededed', selectionBackground: 'rgba(120,160,255,.35)' } });
+  var fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById('term'));
+  var ctrl = false;
+  // Size from the window, not from CSS percentages: inside a WebView hosted by Compose the layout
+  // viewport can report height 0 while the window itself has its real size.
+  var box = document.getElementById('term');
+  function refit() { box.style.width = window.innerWidth + 'px'; box.style.height = window.innerHeight + 'px'; try { fit.fit(); } catch (e) {} }
+  window.addEventListener('resize', refit);
+  term.onResize(function (s) { AcpTerm.resize(s.rows, s.cols); });
+  term.onData(function (d) {
+    if (ctrl && d.length === 1) {
+      var c = d.toUpperCase().charCodeAt(0);
+      if (c >= 64 && c <= 95) d = String.fromCharCode(c - 64);
+      ctrl = false; AcpTerm.ctrlUsed();
+    }
+    AcpTerm.input(d);
+  });
+  window.acp = {
+    write: function (b64) {
+      var bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      term.write(bytes);
+    },
+    setCtrl: function (on) { ctrl = !!on; },
+    theme: function (bg, fg) { term.options.theme = { background: bg, foreground: fg, cursor: fg, selectionBackground: 'rgba(120,160,255,.35)' }; document.body.style.background = bg; },
+    focus: function () { term.focus(); },
+    clear: function () { term.clear(); },
+    refit: refit
+  };
+  refit();
+  AcpTerm.ready(term.rows, term.cols);
+</script>
+</body>
+</html>

@@ -89,6 +89,10 @@ class HostApi(val client: OkHttpClient, private val vault: CredentialVault) {
         return if(code==0 || (op=="diff-new" && code==1 && out.isNotEmpty())) Result.success(out)
         else Result.failure(IllegalStateException(reply["err"].text().ifBlank {out}.trim().lines().takeLast(3).joinToString(" ").ifBlank {"git exited $code"}))
     }
+    /** Opens a shell on the host in an approved folder (feature `terminal`); returns the new terminal's id. */
+    suspend fun openTerminal(host:HostProfile,path:String,rows:Int,cols:Int): String =
+        execute(host.address,"/v1/terminals",vault.read(host.credentialAlias),buildJsonObject {put("folder",path);put("rows",rows);put("cols",cols)},"POST").objectValue()["id"].text()
+    suspend fun closeTerminal(host:HostProfile,id:String) { execute(host.address,"/v1/terminals/$id",vault.read(host.credentialAlias),method="DELETE") }
     /** An agent on the host writes a commit message (`kind` null) or pull request text (`kind` "pullRequest"); read-only. */
     suspend fun commitMessage(host:HostProfile,path:String,agentId:String,kind:String?=null,base:String?=null): JsonObject =
         execute(host.address,"/v1/commit-message",vault.read(host.credentialAlias),buildJsonObject {put("path",path);put("agentId",agentId);if(kind!=null)put("kind",kind);if(base!=null)put("base",base)},"POST").objectValue()
@@ -179,6 +183,9 @@ internal fun hostRequestError(status:Int,code:String,method:String,path:String,f
     path.endsWith("/commit-message") && code=="empty_reply" -> "The agent replied with nothing."
     path.endsWith("/commit-message") && code=="path_not_allowed" -> "This folder is not allowed on the host."
     path.endsWith("/commit-message") && code=="not_a_repository" -> "This folder is not a git repository."
+    path=="/v1/terminals" && code=="terminal_disabled" -> "Terminals are off on this host. Turn them on in its config.toml ([terminal] enabled = true) and restart acpd."
+    path=="/v1/terminals" && code=="too_many_terminals" -> "The host allows only a few terminals at once. End one first."
+    path=="/v1/terminals" && code=="path_not_allowed" -> "The host does not allow a terminal in this folder."
     path.startsWith("/v1/git/") && code=="path_not_allowed" -> "The host does not allow that location. Use a folder inside one the host allows."
     path.startsWith("/v1/git/") && code=="unknown_git_operation" -> "This host is older than the app and cannot do that yet. Update and restart acpd."
     path.startsWith("/v1/git/") && code=="git_unavailable" -> "git was not found on the host."
