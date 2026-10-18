@@ -74,6 +74,7 @@ Folders and agents you add from the phone are kept in `user-settings.json` in th
 - **Survives your phone sleeping.** Sessions keep running on the computer; the phone reconnects and replays what it missed, never repeating a prompt or a decision. Saved conversations open offline.
 - **Phone and desktop together.** One device controls a session at a time; the other watches live and can take control. Drafts, titles and prompt history are shared through the host.
 - **Sandboxed commands (opt-in).** Approved commands can run in bubblewrap (Linux) or an AppContainer (Windows); on Windows you can pick cmd, PowerShell or Git Bash. See [agents](docs/agents.md) and [security](docs/security.md).
+- **A terminal and a browser, opt-in.** With `[terminal] enabled = true` on the host, the desktop app and the phone can open a real shell in the session's folder (xterm.js; it runs as you, not sandboxed, and agents cannot see it). The desktop app also has an isolated in-app browser (tabs, find, Send to agent). With `[preview] enabled = true`, the phone can show a dev server running on your computer through the host. Both are off by default; see [security](docs/security.md#host-terminals).
 - **A real conversation view.** Streaming Markdown, tool cards, thoughts, plans, attachments, a searchable model picker, light and dark themes, and TalkBack support.
 
 ## Build from source
@@ -110,7 +111,7 @@ examples/              Example configuration and disabled agent templates
 - [Architecture](docs/architecture.md), [ACP forwarding and host API](docs/protocol.md), [security boundaries](docs/security.md)
 - [Registering agents](docs/agents.md), [the tray app](docs/tray.md), [host releases](docs/releases.md), [app updates](docs/app-updates.md)
 - [Installation and TLS](docs/installation.md), [native setup and background mode](docs/native-cli-and-motion.md), [reload rules](docs/daemon-and-reload.md), [pairing](docs/pairing-and-markdown.md)
-- [Android app](docs/android.md), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
+- [Android app](docs/android.md) (including Terminal and Preview), [UI reference](docs/ui-reference.md), [accessibility](docs/ui-accessibility.md)
 - [Development and testing](docs/development.md), [real-agent testing](docs/real-agent-testing.md), [acceptance report](docs/acceptance-report.md)
 - [Orchestrator experiment (delegation, supervisor, peer bridge, worktree isolation and phone merge; off by default, PR #45)](docs/orchestrator-design.md), [status](docs/orchestrator-design.md#16-implementation-status-branch-experimentorchestrator)
 - Desktop app (experimental): [desktop/README](desktop/README.md), [new-session composer](docs/desktop-composer.md), [several hosts](docs/desktop-multi-host.md), [runs and pre-merge checks](docs/desktop-runs-and-checks.md), [agent handoff](HANDOFF.md)

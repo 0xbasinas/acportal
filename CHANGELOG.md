@@ -6,6 +6,13 @@ Verification evidence and open work live in [TODO.md](TODO.md), [TODO_DONE.md](T
 
 ## [Unreleased]
 
+18 October 2026, on `main` (PRs #57–#61):
+
+- Host terminals: interactive shells over `/v1/terminals` (Unix `openpty`, Windows ConPTY in a kill-on-close job), a resumable output ring, one keyboard owner, idle close. Off by default (`[terminal]`), phone role only, allowed folders only, clean environment.
+- Host preview: `GET /v1/preview/{port}/…` shows a local dev server on a paired phone (`[preview]`, off by default, listed ports only, GET/HEAD only, no token or cookies passed on).
+- Desktop: a terminal dock, an in-app browser (isolated, Send to agent, tabs, find in page), and a status bar with Terminal and Browser toggles.
+- Android: Terminal and Preview screens and the session menu with Terminal, Preview and Git.
+
 On `experiment/orchestrator` (PR #45), not released yet:
 
 - Agent orchestrator: delegated tasks, supervisor, peer bridge, worktree isolation and phone merge. Off by default.
