@@ -791,3 +791,27 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .chip button:hover { background: var(--hover); color: var(--text); }
 .set-add { display: flex; gap: 8px; margin-bottom: 8px; }
 .set-add .input { flex: 1; max-width: 320px; }
+
+/* The terminal dock: shells on the host, under the conversation. */
+.term-dock { position: relative; display: flex; flex-direction: column; flex: none; min-height: 0; background: var(--bg); border-top: 1px solid var(--line); }
+.term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 9; }
+.term-resize:hover, .term-resize:focus-visible { background: color-mix(in srgb, var(--green) 35%, transparent); outline: none; }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+.term-title { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.term-title .sub { color: var(--text-3); font-weight: 400; }
+.term-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; margin-left: 8px; }
+.term-tab { display: inline-flex; align-items: center; border-radius: 7px; color: var(--text-2); }
+.term-tab.on { background: var(--surface); color: var(--text); }
+.term-tab button { font-size: 12px; padding: 4px 8px; color: inherit; white-space: nowrap; }
+.term-tab .term-x { padding: 4px 6px 4px 0; opacity: .6; display: grid; place-items: center; }
+.term-tab .term-x:hover { opacity: 1; }
+.term-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.term-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.term-view[hidden] { display: none; }
+.term-box { flex: 1; min-height: 0; padding: 6px 0 4px 12px; overflow: hidden; }
+.term-chip { display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; color: var(--text-2); border-bottom: 1px solid var(--line); background: var(--surface); flex: none; }
+.term-chip .ell { flex: 1; min-width: 0; color: var(--text); }
+.term-chip.warn { color: var(--text); }
+.term-chip .btn { height: 24px; padding: 0 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.term-off { padding: 18px 24px; color: var(--text-2); font-size: 12.5px; overflow: auto; }
+.term-off pre { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: fit-content; color: var(--text); }

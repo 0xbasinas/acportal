@@ -215,3 +215,99 @@ export class SessionSocket {
     this.onState({ kind: 'disconnected' })
   }
 }
+
+export type TermState = 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'failed'
+
+/** One attachment to a host terminal (`/v1/terminals/{id}/ws`). Output arrives as binary frames
+ *  (8-byte byte offset + bytes); the socket resumes from the last offset after a drop. */
+export class TerminalSocket {
+  private ws?: WebSocket
+  private stopped = false
+  private attempt = 0
+  private timer?: NodeJS.Timeout
+  /** Bytes of output delivered so far. */
+  cursor = 0
+
+  constructor(
+    private address: string,
+    private token: string,
+    private terminalId: string,
+    private onData: (bytes: Buffer) => void,
+    private onEvent: (event: Record<string, unknown>) => void,
+    private onState: (state: TermState, reason?: string) => void
+  ) {}
+
+  connect(): void {
+    this.stopped = false
+    this.open()
+  }
+
+  private open(): void {
+    const url = new URL(`/v1/terminals/${encodeURIComponent(this.terminalId)}/ws`, validateAddress(this.address))
+    url.searchParams.set('after', String(this.cursor))
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    this.onState(this.attempt === 0 ? 'connecting' : 'reconnecting')
+    const ws = new WebSocket(url, 'acpd.terminal.v1', {
+      headers: { Authorization: `Bearer ${this.token}` },
+      maxPayload: 128 * 1024,
+      handshakeTimeout: 20_000,
+      ca: url.protocol === 'wss:' ? trustedRoots() : undefined,
+      followRedirects: false
+    })
+    this.ws = ws
+    let fatal: string | undefined
+    ws.on('open', () => {
+      this.attempt = 0
+      this.onState('connected')
+    })
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.concat(data as Buffer[])
+        if (buf.length < 8) return
+        const offset = Number(buf.readBigUInt64BE(0))
+        const body = buf.subarray(8)
+        if (offset + body.length <= this.cursor) return
+        const skip = Math.max(0, this.cursor - offset)
+        this.cursor = offset + body.length
+        this.onData(body.subarray(skip))
+        return
+      }
+      try {
+        this.onEvent(JSON.parse(data.toString()) as Record<string, unknown>)
+      } catch {
+        /* ignore malformed frame */
+      }
+    })
+    ws.on('unexpected-response', (_req, res) => {
+      const code = res.statusCode ?? 0
+      if (code === 401) fatal = 'This device is no longer paired with the host'
+      else if (code === 403) fatal = 'The host does not allow terminals for this device'
+      else if (code === 404) fatal = 'This terminal has ended on the host'
+      ws.terminate()
+    })
+    ws.on('error', () => {})
+    ws.on('close', () => {
+      if (this.ws !== ws) return
+      this.ws = undefined
+      if (this.stopped) return this.onState('closed')
+      if (fatal) return this.onState('failed', fatal)
+      this.attempt++
+      if (this.attempt > 8) return this.onState('failed', 'The connection to the host was lost')
+      this.onState('reconnecting')
+      this.timer = setTimeout(() => this.open(), Math.min(10_000, 500 * 2 ** this.attempt))
+    })
+  }
+
+  input(data: string): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(Buffer.from(data, 'utf8'), { binary: true })
+  }
+  control(message: Record<string, unknown>): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(message))
+  }
+  close(): void {
+    this.stopped = true
+    if (this.timer) clearTimeout(this.timer)
+    this.ws?.close(1000, 'Client detached')
+    this.onState('closed')
+  }
+}

@@ -73,6 +73,28 @@ const api = {
       return () => ipcRenderer.removeListener('git:log', l)
     }
   },
+  term: {
+    attach: (hostId: string, terminalId: string, after: number): Promise<Result<string>> => ipcRenderer.invoke('term:attach', hostId, terminalId, after),
+    input: (key: string, data: string): Promise<Result<void>> => ipcRenderer.invoke('term:input', key, data),
+    resize: (key: string, rows: number, cols: number): Promise<Result<void>> => ipcRenderer.invoke('term:resize', key, rows, cols),
+    take: (key: string): Promise<Result<void>> => ipcRenderer.invoke('term:take', key),
+    detach: (key: string): Promise<Result<void>> => ipcRenderer.invoke('term:detach', key),
+    onData: (cb: (key: string, bytes: Uint8Array) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, k: string, b: Uint8Array): void => cb(k, b)
+      ipcRenderer.on('term:data', l)
+      return () => ipcRenderer.removeListener('term:data', l)
+    },
+    onEvent: (cb: (key: string, event: Record<string, unknown>) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, k: string, ev: Record<string, unknown>): void => cb(k, ev)
+      ipcRenderer.on('term:event', l)
+      return () => ipcRenderer.removeListener('term:event', l)
+    },
+    onState: (cb: (key: string, state: string, reason?: string) => void): (() => void) => {
+      const l = (_e: IpcRendererEvent, k: string, s: string, r?: string): void => cb(k, s, r)
+      ipcRenderer.on('term:state', l)
+      return () => ipcRenderer.removeListener('term:state', l)
+    }
+  },
   browser: {
     open: (url?: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:open', url),
     go: (input: string): Promise<Result<BrowserState>> => ipcRenderer.invoke('browser:go', input),

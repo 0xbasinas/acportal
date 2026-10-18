@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { request, validateAddress, SessionSocket, HostError } from './host'
+import { request, validateAddress, SessionSocket, TerminalSocket, HostError } from './host'
 import { sealWithFileKey, openWithFileKey } from './secrets'
 import { registerGit } from './git'
 import { registerBrowser } from './browser'
@@ -117,6 +117,8 @@ function liveWindow(): BrowserWindow | null {
 const sendToWindow = (channel: string, ...args: unknown[]): void => { liveWindow()?.webContents.send(channel, ...args) }
 
 const sockets = new Map<string, SessionSocket>()
+const termSockets = new Map<string, TerminalSocket>()
+let termCounter = 0
 const watcher = new Watcher(() => liveWindow(), (ref) => { const h = host(ref); return { address: h.address, token: unseal(h) } })
 
 function registerIpc(): void {
@@ -207,6 +209,24 @@ function registerIpc(): void {
       return key
     })
   )
+  // Host terminals: the socket lives here (the token never reaches the page); output goes to the page as bytes.
+  ipcMain.handle('term:attach', wrap((hostRef: string, terminalId: string, after: number) => {
+    // One key per attachment, so a late detach of an earlier attachment cannot close a newer one.
+    const key = `${hostRef}/${terminalId}#${++termCounter}`
+    const h = host(hostRef)
+    const sock = new TerminalSocket(h.address, unseal(h), terminalId,
+      (bytes) => sendToWindow('term:data', key, new Uint8Array(bytes)),
+      (event) => sendToWindow('term:event', key, event),
+      (state, reason) => sendToWindow('term:state', key, state, reason))
+    sock.cursor = Math.max(0, Math.floor(after) || 0)
+    termSockets.set(key, sock)
+    sock.connect()
+    return key
+  }))
+  ipcMain.handle('term:input', wrap((key: string, data: string) => { if (typeof data === 'string' && data.length <= 64 * 1024) termSockets.get(key)?.input(data) }))
+  ipcMain.handle('term:resize', wrap((key: string, rows: number, cols: number) => { termSockets.get(key)?.control({ type: 'resize', rows, cols }) }))
+  ipcMain.handle('term:take', wrap((key: string) => { termSockets.get(key)?.control({ type: 'take' }) }))
+  ipcMain.handle('term:detach', wrap((key: string) => { termSockets.get(key)?.close(); termSockets.delete(key) }))
   ipcMain.handle('watch:sync', wrap((targets: WatchTarget[]) => watcher.sync(targets)))
   ipcMain.handle('watch:send', wrap((hostRef: string, sessionId: string, message: unknown) => watcher.sendOnce(hostRef, sessionId, message)))
   ipcMain.handle('watch:snapshot', wrap(() => watcher.snapshot()))

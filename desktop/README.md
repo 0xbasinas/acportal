@@ -59,6 +59,12 @@ What it will show: `localhost`, `127.0.0.1` and any site you add under *Settings
 
 Not yet: tabs, find in page, a terminal next to it (planned), and the status bar with toggles shown in the design.
 
+## The terminal
+
+A terminal dock under the conversation runs real shells **on the host**, in the open session's folder (the terminal button next to the browser one in the session header, **Ctrl/⌘ `**, or *Show or hide the terminal* in the command palette). Tabs, a "+" for another shell, and a resizable edge. It works only when the host turns it on: terminals are off by default, and the dock says how (`[terminal] enabled = true` in the host's `config.toml`). A terminal is a shell with your rights, not sandboxed, and agents cannot see it; see [security](../docs/security.md#host-terminals).
+
+xterm.js draws it. The WebSocket to the host lives in the main process (`TerminalSocket` in `electron/host.ts`, the `term:*` handlers in `main.ts`), so the token never reaches the page; output arrives as bytes and the connection resumes from the last byte after a drop. When a shell prints a local address such as `http://localhost:5173/`, a bar offers *Open in the browser*. If your phone has the keyboard, *Take control* takes it back. Code: `src/Terminal.tsx`.
+
 ## Where Git is
 
 - **Each project:** hover a project row in the sidebar and press its branch icon to open the Git view on that project's folder (next to the + for a new session).
