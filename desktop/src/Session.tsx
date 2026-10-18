@@ -175,7 +175,7 @@ export function fold(items: Item[], busy: boolean): Block[] {
     out.push({ kind: 'row', item: user })
     if (running || finalAt < 0 || waiting || before.length === 0) { for (const x of turn) out.push({ kind: 'row', item: x }) }
     else {
-      out.push({ kind: 'steps', id: user.id, items: before, tools: before.filter((x) => x.kind === 'tool' || x.kind === 'permission').length })
+      out.push({ kind: 'steps', id: String(user.id), items: before, tools: before.filter((x) => x.kind === 'tool' || x.kind === 'permission').length })
       for (const x of turn.slice(finalAt)) out.push({ kind: 'row', item: x })
     }
     i = end

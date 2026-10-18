@@ -634,7 +634,7 @@ export default function App() {
                     const startingHere = starting && starting.hostId === h.id && (g.path ? !startingScratch && inside(starting.workspace, g.path) : startingScratch || !ws.some((w) => inside(starting.workspace, w.path)))
                     const closed = shutProjects[key] ?? (!g.sessions.length && !startingHere)
                     const toggle = (): void => setShutProjects((c) => { const n = { ...c, [key]: !closed }; try { localStorage.setItem('acportal.shutProjects', JSON.stringify(n)) } catch { /* ignore */ } return n })
-                    const isEnded = (s: { status: string }): boolean => s.status === 'interrupted'
+                    const isEnded = (s: { status?: string }): boolean => s.status === 'interrupted'
                     const endedCount = g.sessions.filter(isEnded).length
                     const endedKey = key + '|ended'
                     const endedShut = shutProjects[endedKey] ?? true
