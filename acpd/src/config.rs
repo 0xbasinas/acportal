@@ -33,6 +33,25 @@ pub struct Config {
     pub windows: crate::shell::WindowsConfig,
     /// Interactive shells opened from the desktop app or a phone. Off by default.
     pub terminal: crate::terminals::TerminalConfig,
+    /// Dev servers on this computer shown on a phone through the host. Off by default.
+    pub preview: PreviewConfig,
+}
+
+/// `[preview]` in `config.toml`: which local dev-server ports a paired phone may view through the host.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PreviewConfig {
+    pub enabled: bool,
+    /// Ports on 127.0.0.1 that may be shown. Nothing else is reachable through the host.
+    pub ports: Vec<u16>,
+}
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ports: vec![3000, 4173, 5173, 5174, 8000, 8080],
+        }
+    }
 }
 
 /// Experimental delegation between agents (see `docs/orchestrator-design.md`). Changes apply to
@@ -290,6 +309,7 @@ impl Default for Config {
             orchestrator: OrchestratorConfig::default(),
             windows: Default::default(),
             terminal: Default::default(),
+            preview: Default::default(),
         }
     }
 }
@@ -389,6 +409,9 @@ impl Config {
     }
     pub fn validate(&self) -> Result<()> {
         self.terminal.validate()?;
+        if self.preview.ports.len() > 32 || self.preview.ports.contains(&0) {
+            bail!("preview ports must be 1..65535, at most 32")
+        }
         if self.server.tls_certificate.is_some() != self.server.tls_private_key.is_some() {
             bail!("TLS certificate and private key must be configured together")
         }

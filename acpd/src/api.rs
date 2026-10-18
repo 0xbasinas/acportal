@@ -34,6 +34,7 @@ mod bridge;
 mod checks;
 mod git;
 mod pr;
+mod preview;
 mod shared;
 mod terminals;
 
@@ -54,6 +55,8 @@ pub struct Host {
     agent_setups: Arc<Mutex<HashMap<String, Value>>>,
     /// Interactive shells (off unless `[terminal] enabled`).
     terminals: Arc<crate::terminals::Terminals>,
+    /// Talks to local dev servers for `/v1/preview`: loopback only, no redirects, no proxy.
+    preview_client: reqwest::Client,
 }
 struct Gateway {
     /// Current controller: lease generation and whether another client may take it over.
@@ -190,6 +193,11 @@ impl Host {
             config: Arc::new(config),
             agent_setups: Arc::new(Mutex::new(HashMap::new())),
             terminals: crate::terminals::Terminals::new(),
+            preview_client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .no_proxy()
+                .build()
+                .context("build preview client")?,
         })
     }
     /// The delegation orchestrator, for embedders and tests that drive it directly.
@@ -259,6 +267,9 @@ impl Host {
                 "/v1/git/{op}",
                 post(git::run).layer(DefaultBodyLimit::max(git::MAX_INPUT + 64 * 1024)),
             )
+            .route("/v1/preview/{port}", get(preview::proxy_root))
+            .route("/v1/preview/{port}/", get(preview::proxy_root))
+            .route("/v1/preview/{port}/{*path}", get(preview::proxy))
             .route("/v1/terminals", get(terminals::list).post(terminals::open))
             .route("/v1/terminals/{id}", delete(terminals::close))
             .route("/v1/terminals/{id}/ws", get(terminals::connect))
@@ -457,6 +468,9 @@ async fn status(State(host): State<Host>) -> ApiResult<Json<Value>> {
     }
     if host.sessions.launch_settings().config.terminal.enabled {
         features.push("terminal");
+    }
+    if host.sessions.launch_settings().config.preview.enabled {
+        features.push("preview");
     }
     Ok(Json(
         json!({"hostId":host.security.host_id().map_err(internal)?,"name":std::env::var("COMPUTERNAME").or_else(|_|std::env::var("HOSTNAME")).unwrap_or_else(|_|"Development host".into()),
