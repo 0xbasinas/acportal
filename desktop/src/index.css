@@ -757,7 +757,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .browser-resize { position: absolute; z-index: 9; }
 .browser.side .browser-resize { left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; }
 .browser.dock .browser-resize { top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
-.browser-resize:hover, .browser-resize:focus-visible { background: color-mix(in srgb, var(--green) 35%, transparent); outline: none; }
+.browser-resize:hover, .browser-resize:focus-visible { background: color-mix(in srgb, var(--text) 22%, transparent); outline: none; }
 .browser-bar { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
 .browser-address { flex: 1; min-width: 80px; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
 .browser-address.editing { border-color: var(--text-3); }
@@ -795,7 +795,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 /* The terminal dock: shells on the host, under the conversation. */
 .term-dock { position: relative; display: flex; flex-direction: column; flex: none; min-height: 0; background: var(--bg); border-top: 1px solid var(--line); }
 .term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 9; }
-.term-resize:hover, .term-resize:focus-visible { background: color-mix(in srgb, var(--green) 35%, transparent); outline: none; }
+.term-resize:hover, .term-resize:focus-visible { background: color-mix(in srgb, var(--text) 22%, transparent); outline: none; }
 .term-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
 .term-title { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .term-title .sub { color: var(--text-3); font-weight: 400; }
@@ -844,7 +844,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .linkish { color: var(--text); text-decoration: underline; font-size: inherit; }
 .linkish:disabled { opacity: .5; }
 
-.browser-picking { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12px; background: color-mix(in srgb, #4c9aff 16%, var(--surface)); border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
+.browser-picking { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12px; background: var(--surface); border-bottom: 1px solid var(--line); flex: none; position: relative; z-index: 8; }
 .browser-picking > span { flex: 1; }
 .browser-picking .btn { height: 24px; padding: 0 10px; font-size: 12px; }
 .term-new { position: relative; display: inline-flex; align-items: center; }

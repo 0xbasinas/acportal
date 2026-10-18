@@ -347,8 +347,22 @@ impl Terminals {
             })
             .map_err(|e| TerminalError::Failed(e.to_string()))?;
         let info = info_of(&term);
-        tracing::info!(terminal = %term.id, device = %device, shell = %term.shell, "terminal opened");
-        self.terms.lock().unwrap().insert(term.id, term);
+        {
+            let mut terms = self.terms.lock().unwrap();
+            // The count was checked before the shell started; check again where it is added, so
+            // several opens at once cannot all squeeze in past the limit.
+            let running = terms
+                .values()
+                .filter(|t| t.live.lock().unwrap().exit_code.is_none())
+                .count();
+            if running >= config.max_terminals {
+                drop(terms);
+                kill(&term);
+                return Err(TerminalError::TooMany);
+            }
+            tracing::info!(terminal = %term.id, device = %device, shell = %term.shell, "terminal opened");
+            terms.insert(term.id, term);
+        }
         let weak = Arc::downgrade(self);
         let idle = Duration::from_secs(config.idle_minutes * 60);
         if tokio::runtime::Handle::try_current().is_ok()

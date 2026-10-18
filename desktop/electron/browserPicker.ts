@@ -17,7 +17,7 @@ export const PICK_ELEMENT = `function () {
     var doc = document;
     var box = doc.createElement('div'), tip = doc.createElement('div');
     box.setAttribute('data-acp-picker', '');
-    box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #4c9aff;background:rgba(76,154,255,.18);border-radius:2px;left:0;top:0;width:0;height:0;box-sizing:border-box';
+    box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #fff;box-shadow:0 0 0 1px #000,inset 0 0 0 1px #000;background:rgba(255,255,255,.2);border-radius:2px;left:0;top:0;width:0;height:0;box-sizing:border-box';
     tip.setAttribute('data-acp-picker', '');
     tip.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;font:11px/1.3 monospace;background:#111;color:#fff;padding:2px 6px;border-radius:4px;max-width:60vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     doc.documentElement.appendChild(box); doc.documentElement.appendChild(tip);
