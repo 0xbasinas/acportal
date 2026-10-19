@@ -1,0 +1,371 @@
+import { app, BrowserWindow, ipcMain, shell, safeStorage, nativeTheme, Menu } from 'electron'
+import { join } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync } from 'node:fs'
+import { hostname } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { request, validateAddress, SessionSocket, TerminalSocket, HostError } from './host'
+import { sealWithFileKey, openWithFileKey } from './secrets'
+import { registerGit } from './git'
+import { registerBrowser } from './browser'
+import { Watcher, type WatchTarget } from './watch'
+import { usable } from './window'
+import { Notification } from 'electron'
+import { dialog } from 'electron'
+import { readFile, stat } from 'node:fs/promises'
+import { basename, extname } from 'node:path'
+
+/** Height of the app's title bar (index.css --titlebar) and the window buttons' colours per theme. */
+const TITLE_BAR_HEIGHT = 36
+function titleBarColours(): Electron.TitleBarOverlayOptions {
+  const dark = nativeTheme.shouldUseDarkColors
+  return { color: dark ? '#0A0A0A' : '#FAFAFA', symbolColor: dark ? '#EDEDED' : '#171719', height: TITLE_BAR_HEIGHT }
+}
+
+type StoredHost = { id: string; hostId: string; name: string; address: string; deviceId: string; secret: string; expiresAt: number; addedAt: number }
+type PublicHost = Omit<StoredHost, 'secret'>
+
+let win: BrowserWindow | null = null
+let browser: { dispose: () => void } | null = null
+const storeFile = (): string => join(app.getPath('userData'), 'hosts.json')
+const prefsFile = (): string => join(app.getPath('userData'), 'prefs.json')
+
+/** OS keychain via safeStorage when a real backend exists; otherwise AES-256-GCM with a
+ *  random key in an owner-only file (weaker: anyone who can read this user's files can decrypt). */
+function keychainUsable(): boolean {
+  if (!safeStorage.isEncryptionAvailable()) return false
+  if (process.platform !== 'linux') return true
+  const backend = safeStorage.getSelectedStorageBackend?.()
+  return backend !== 'basic_text' && backend !== 'unknown'
+}
+function seal(token: string): string {
+  if (keychainUsable()) return 'enc:' + safeStorage.encryptString(token).toString('base64')
+  return 'file:' + sealWithFileKey(token, app.getPath('userData'))
+}
+const memoryTokens = new Map<string, string>()
+/** MCP env and header values are sealed at rest like tokens ("sealed:" + enc:/file: form). */
+function mcpSecrets(p: Record<string, unknown>, sealing: boolean): Record<string, unknown> {
+  if (!Array.isArray(p.mcp)) return p
+  const map = (o?: Record<string, string>): Record<string, string> | undefined =>
+    o && Object.fromEntries(Object.entries(o).map(([k, v]) => {
+      if (sealing) return [k, v.startsWith('sealed:') ? v : 'sealed:' + seal(v)]
+      if (!v.startsWith('sealed:')) return [k, v]
+      try { return [k, unseal({ id: '', secret: v.slice(7) } as StoredHost)] } catch { return [k, ''] }
+    }))
+  return { ...p, mcp: (p.mcp as { env?: Record<string, string>; headers?: Record<string, string> }[]).map((m) => ({ ...m, env: map(m.env), headers: map(m.headers) })) }
+}
+function unseal(h: StoredHost): string {
+  if (h.secret.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(h.secret.slice(4), 'base64'))
+  if (h.secret.startsWith('file:')) return openWithFileKey(h.secret.slice(5), app.getPath('userData'))
+  const t = memoryTokens.get(h.id)
+  if (!t) throw new HostError(401, 'locked', 'Pair this host again (no secure storage on this system)')
+  return t
+}
+export function storageKind(): 'keychain' | 'file' {
+  return keychainUsable() ? 'keychain' : 'file'
+}
+function loadHosts(): StoredHost[] {
+  try {
+    return JSON.parse(readFileSync(storeFile(), 'utf8')) as StoredHost[]
+  } catch {
+    return []
+  }
+}
+function saveHosts(hosts: StoredHost[]): void {
+  mkdirSync(app.getPath('userData'), { recursive: true })
+  const tmp = storeFile() + '.tmp'
+  writeFileSync(tmp, JSON.stringify(hosts, null, 1), { mode: 0o600 })
+  renameSync(tmp, storeFile())
+}
+const publicHost = ({ secret: _s, ...rest }: StoredHost): PublicHost => rest
+function host(id: string): StoredHost {
+  const h = loadHosts().find((x) => x.id === id)
+  if (!h) throw new Error('Unknown host')
+  return h
+}
+
+/** Parses "acpd://pair?address=…&code=…" (QR/link form) or plain address + code. */
+function parsePairing(input: string): { address?: string; code?: string } {
+  const s = input.trim()
+  if (s.startsWith('acpd://') || s.startsWith('acportal://')) {
+    try {
+      const u = new URL(s)
+      return { address: u.searchParams.get('address') ?? u.searchParams.get('host') ?? undefined, code: u.searchParams.get('code') ?? undefined }
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+function wrap<A extends unknown[], R>(fn: (...a: A) => Promise<R> | R) {
+  return async (_e: unknown, ...a: A): Promise<{ ok: true; value: R } | { ok: false; error: string; code?: string; status?: number }> => {
+    try {
+      return { ok: true, value: await fn(...a) }
+    } catch (e) {
+      const err = e as HostError
+      return { ok: false, error: err.message, code: err.code, status: err.status }
+    }
+  }
+}
+
+/** The window, only while it can still be used. Closing the window closes the session sockets, and
+ * each of them reports its new state; sending that to a destroyed window throws "Object has been
+ * destroyed" in the main process (the error box shown when quitting). */
+function liveWindow(): BrowserWindow | null {
+  return usable(win)
+}
+const sendToWindow = (channel: string, ...args: unknown[]): void => { liveWindow()?.webContents.send(channel, ...args) }
+
+const sockets = new Map<string, SessionSocket>()
+const termSockets = new Map<string, TerminalSocket>()
+let termCounter = 0
+const watcher = new Watcher(() => liveWindow(), (ref) => { const h = host(ref); return { address: h.address, token: unseal(h) } })
+
+function registerIpc(): void {
+  ipcMain.handle('app:get-version', () => app.getVersion())
+  ipcMain.handle('hosts:list', wrap(() => loadHosts().map(publicHost)))
+  ipcMain.handle('hosts:parse-link', wrap((s: string) => parsePairing(s)))
+  ipcMain.handle(
+    'hosts:pair',
+    wrap(async (address: string, code: string, deviceName?: string, replaceId?: string) => {
+      const base = validateAddress(address)
+      const addr = base.origin
+      const result = (await request(addr, '/v1/pair', { method: 'POST', body: { code: code.trim(), deviceName: deviceName?.trim() || `acportal desktop (${hostname()})` } })) as {
+        hostId: string
+        deviceId: string
+        token: string
+        expiresAt: number
+      }
+      const status = (await request(addr, '/v1/status', { token: result.token })) as { name?: string }
+      const stored: StoredHost = { id: randomUUID(), hostId: result.hostId, name: status.name || base.hostname, address: addr, deviceId: result.deviceId, secret: seal(result.token), expiresAt: result.expiresAt, addedAt: Date.now() }
+      if (!stored.secret.startsWith('enc:')) memoryTokens.set(stored.id, result.token)
+      // Pairing a known host again keeps its id, name and place in the list.
+      const hosts = loadHosts()
+      // Re-pair names the entry it replaces: a host whose state was reset has a new host id.
+      const at = hosts.findIndex((h) => (replaceId ? h.id === replaceId : h.hostId === stored.hostId && h.address === stored.address))
+      if (at >= 0) {
+        memoryTokens.delete(hosts[at].id)
+        Object.assign(stored, { id: hosts[at].id, name: hosts[at].name, addedAt: hosts[at].addedAt })
+        if (!stored.secret.startsWith('enc:')) memoryTokens.set(stored.id, result.token)
+        hosts[at] = stored
+        saveHosts(hosts)
+      } else saveHosts([...hosts, stored])
+      return publicHost(stored)
+    })
+  )
+  ipcMain.handle(
+    'hosts:forget',
+    wrap(async (id: string, revoke: boolean) => {
+      const h = host(id)
+      if (revoke) await request(h.address, '/v1/device', { method: 'DELETE', token: unseal(h) }).catch(() => undefined)
+      saveHosts(loadHosts().filter((x) => x.id !== id))
+      memoryTokens.delete(id)
+    })
+  )
+  ipcMain.handle(
+    'hosts:rename',
+    wrap((id: string, name: string) => {
+      const n = name.trim().slice(0, 64)
+      if (!n) throw new Error('A host needs a name')
+      saveHosts(loadHosts().map((h) => (h.id === id ? { ...h, name: n } : h)))
+    })
+  )
+  ipcMain.handle(
+    'hosts:reorder',
+    wrap((ids: string[]) => {
+      const all = loadHosts()
+      const rank = (h: StoredHost): number => { const i = ids.indexOf(h.id); return i < 0 ? ids.length : i }
+      saveHosts([...all].sort((a, b) => rank(a) - rank(b)))
+    })
+  )
+  ipcMain.handle(
+    'hosts:api',
+    wrap(async (id: string, method: string, path: string, body?: unknown, query?: Record<string, string>) => {
+      if (!path.startsWith('/v1/') || path.includes('..')) throw new Error('Invalid host route')
+      const h = host(id)
+      // Pre-merge checks run test suites; the host enforces its own deadline (at most 30 min).
+      const slow = path === '/v1/checks' ? 1_900_000 : path === '/v1/pull-requests' ? 70_000 : path === '/v1/commit-message' ? 130_000 : undefined
+      return request(h.address, path, { method, body, query, token: unseal(h), ...(slow ? { timeoutMs: slow } : {}) })
+    })
+  )
+  ipcMain.handle(
+    'session:attach',
+    wrap((hostRef: string, sessionId: string, after: number, readOnly: boolean, takeover = false) => {
+      const key = `${hostRef}/${sessionId}`
+      sockets.get(key)?.close()
+      const h = host(hostRef)
+      const sock = new SessionSocket(
+        h.address,
+        unseal(h),
+        sessionId,
+        (env) => sendToWindow('session:envelope', key, env),
+        (state) => sendToWindow('session:state', key, state),
+        readOnly,
+        takeover
+      )
+      sock.cursor = after
+      sockets.set(key, sock)
+      sock.connect()
+      return key
+    })
+  )
+  // Host terminals: the socket lives here (the token never reaches the page); output goes to the page as bytes.
+  ipcMain.handle('term:attach', wrap((hostRef: string, terminalId: string, after: number) => {
+    // One key per attachment, so a late detach of an earlier attachment cannot close a newer one.
+    const key = `${hostRef}/${terminalId}#${++termCounter}`
+    const h = host(hostRef)
+    const sock = new TerminalSocket(h.address, unseal(h), terminalId,
+      (bytes) => sendToWindow('term:data', key, new Uint8Array(bytes)),
+      (event) => sendToWindow('term:event', key, event),
+      (state, reason) => sendToWindow('term:state', key, state, reason))
+    sock.cursor = Math.max(0, Math.floor(after) || 0)
+    termSockets.set(key, sock)
+    sock.connect()
+    return key
+  }))
+  ipcMain.handle('term:input', wrap((key: string, data: string) => { if (typeof data === 'string' && data.length <= 64 * 1024) termSockets.get(key)?.input(data) }))
+  ipcMain.handle('term:resize', wrap((key: string, rows: number, cols: number) => { termSockets.get(key)?.control({ type: 'resize', rows, cols }) }))
+  ipcMain.handle('term:take', wrap((key: string) => { termSockets.get(key)?.control({ type: 'take' }) }))
+  ipcMain.handle('term:detach', wrap((key: string) => { termSockets.get(key)?.close(); termSockets.delete(key) }))
+  ipcMain.handle('watch:sync', wrap((targets: WatchTarget[]) => watcher.sync(targets)))
+  ipcMain.handle('watch:send', wrap((hostRef: string, sessionId: string, message: unknown) => watcher.sendOnce(hostRef, sessionId, message)))
+  ipcMain.handle('watch:snapshot', wrap(() => watcher.snapshot()))
+  ipcMain.handle('watch:focus', wrap((key?: string) => watcher.focus(key)))
+  ipcMain.handle('watch:notify', wrap((on: boolean) => watcher.setNotify(on)))
+  ipcMain.handle('watch:approve', wrap((key: string, id: string | number, optionId: string) => watcher.approve(key, id, optionId)))
+  ipcMain.handle('notify:show', wrap((title: string, body: string, hostRef: string, sessionId?: string) => {
+    if (!Notification.isSupported() || liveWindow()?.isFocused()) return
+    const n = new Notification({ title, body })
+    n.on('click', () => { const w = liveWindow(); if (!w) return; w.show(); w.focus(); w.webContents.send('watch:open', hostRef, sessionId) })
+    n.show()
+  }))
+  ipcMain.handle('session:send', wrap((key: string, msg: unknown) => {
+    const s = sockets.get(key)
+    if (!s) throw new Error('Not attached')
+    s.send(msg)
+  }))
+  ipcMain.handle('session:detach', wrap((key: string) => {
+    sockets.get(key)?.close()
+    sockets.delete(key)
+  }))
+  ipcMain.handle('prefs:get', wrap(() => {
+    try {
+      return mcpSecrets(JSON.parse(readFileSync(prefsFile(), 'utf8')) as Record<string, unknown>, false)
+    } catch {
+      return {}
+    }
+  }))
+  ipcMain.handle('prefs:set', wrap((p: Record<string, unknown>) => {
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(prefsFile(), JSON.stringify(mcpSecrets(p, true)), { mode: 0o600 })
+    chmodSync(prefsFile(), 0o600) // the mode above only applies when the file is created
+    if (typeof p.theme === 'string') nativeTheme.themeSource = p.theme as 'dark' | 'light' | 'system'
+  }))
+  ipcMain.handle('app:secure-storage', () => (storageKind() === 'keychain' ? `keychain:${process.platform === 'linux' ? safeStorage.getSelectedStorageBackend?.() : process.platform}` : 'file'))
+  ipcMain.handle('hosts:storage-of', wrap((id: string) => host(id).secret.split(':')[0]))
+  ipcMain.handle('files:pick', wrap(async () => {
+    if (!win) return []
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
+    const out: { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[] = []
+    for (const p of r.filePaths) {
+      const st = await stat(p)
+      if (st.size > 512 * 1024) throw new Error(`${basename(p)} is larger than 512 KB (the host frame limit is 1 MiB)`)
+      const buf = await readFile(p)
+      const ext = extname(p).toLowerCase()
+      const img = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' } as Record<string, string>)[ext]
+      if (img) out.push({ name: basename(p), mimeType: img, size: st.size, data: buf.toString('base64'), path: p })
+      else if (!buf.subarray(0, 4096).includes(0)) out.push({ name: basename(p), mimeType: 'text/plain', size: st.size, text: buf.toString('utf8'), path: p })
+      else throw new Error(`${basename(p)} is binary; only images and text files can be attached`)
+    }
+    return out
+  }))
+  browser = registerBrowser({ ipc: ipcMain, wrap: wrap as never, win: () => win, readPrefs: () => { try { return JSON.parse(readFileSync(prefsFile(), 'utf8')) as Record<string, unknown> } catch { return {} } } })
+  registerGit(ipcMain, wrap as never, () => win, (h: string) => host(h).address, async (h: string) => {
+    const x = host(h)
+    const token = unseal(x)
+    const ws = ((await request(x.address, '/v1/workspaces', { token })) as { path: string }[]).map((w) => w.path)
+    const tasks = ((await request(x.address, '/v1/tasks', { token }).catch(() => [])) as { worktree?: { path?: string } }[]).map((t) => t.worktree?.path).filter((p): p is string => Boolean(p))
+    return [...ws, ...tasks]
+  }, async (h: string) => {
+    // Hosts that list the "git" feature run git themselves (/v1/git/{op}); older ones do not.
+    const x = host(h)
+    const token = unseal(x)
+    const st = (await request(x.address, '/v1/status', { token }).catch(() => ({}))) as { features?: string[] }
+    if (!st.features?.includes('git')) return null
+    return async (op: string, cwd: string, params: Record<string, string>, input?: string) =>
+      (await request(x.address, `/v1/git/${op}`, { token, method: 'POST', body: { path: cwd, params, ...(input !== undefined ? { input } : {}) } })) as { code: number; out: string; err: string; args: string[] }
+  })
+  // Screenshot hook for local verification only; inert unless ACPORTAL_SHOT_DIR is set.
+  ipcMain.handle('debug:capture', wrap(async (name: string) => {
+    const dir = process.env.ACPORTAL_SHOT_DIR
+    if (!dir || !win || !/^[\w.-]+$/.test(name)) throw new Error('capture disabled')
+    const img = await win.webContents.capturePage()
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, name + '.png'), img.toPNG())
+    return join(dir, name + '.png')
+  }))
+}
+
+function createWindow(): void {
+  win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 600,
+    show: false,
+    backgroundColor: '#0A0A0A',
+    title: 'acportal',
+    // The app draws its own title bar (logo, title); the system keeps its window buttons, drawn
+    // over the bar in the theme's colours (Windows, Linux) or as traffic lights (macOS).
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 11 } } : { titleBarOverlay: titleBarColours() }),
+    ...(process.platform === 'win32' ? { icon: join(__dirname, '../../resources/icon.ico') } : {}),
+    webPreferences: { preload: join(__dirname, '../preload/preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
+  })
+  win.once('ready-to-show', () => win?.show())
+  // A page reload (or a crash that restarts the page) forgets the panel that framed the browser view; drop the view with it.
+  win.webContents.on('did-start-loading', () => browser?.dispose())
+  // Follow the theme (the app sets nativeTheme.themeSource from its preference).
+  const recolour = (): void => { if (process.platform !== 'darwin') win?.setTitleBarOverlay(titleBarColours()) }
+  nativeTheme.on('updated', recolour)
+  win.on('closed', () => nativeTheme.removeListener('updated', recolour))
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:')) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (e) => e.preventDefault())
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (!app.isPackaged && devUrl) void win.loadURL(devUrl)
+  else void win.loadFile(join(__dirname, '../renderer/index.html'))
+  win.on('closed', () => {
+    // First, so nothing below can reach the destroyed window: closing a socket reports its state.
+    win = null
+    browser?.dispose()
+    watcher.closeAll()
+    for (const s of sockets.values()) s.close()
+    sockets.clear()
+  })
+}
+
+// Windows builds the taskbar button from this id. Without one the app shares Electron's own id and
+// the taskbar shows Electron's atom instead of the acportal logo (the window icon is set, but is
+// not used for that button). It is the installer's appId, so a pinned shortcut groups with it.
+if (process.platform === 'win32') app.setAppUserModelId('dev.acportal.desktop')
+
+app.whenReady().then(() => {
+  try {
+    const p = JSON.parse(readFileSync(prefsFile(), 'utf8')) as { theme?: 'dark' | 'light' | 'system' }
+    if (p.theme) nativeTheme.themeSource = p.theme
+  } catch {
+    nativeTheme.themeSource = 'dark'
+  }
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
+  registerIpc()
+  createWindow()
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
