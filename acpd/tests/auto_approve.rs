@@ -394,19 +394,29 @@ async fn a_model_that_cannot_be_reached_leaves_it_to_the_person() {
     )
     .await;
     let turn = start_turn(&rig.session);
-    stays_with_the_person(&rig.session, turn).await;
+    let request = wait_for_request(&rig.session).await;
     // A transient failure is retried before the person is told, so the note comes a few seconds
-    // after the request.
+    // after the request, and the request is still waiting for the person.
     let mut seen = reviews(&rig.session);
-    for _ in 0..40 {
+    for _ in 0..60 {
         if !seen.is_empty() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         seen = reviews(&rig.session);
     }
+    assert_eq!(rig.session.connection.pending_permissions().len(), 1);
     assert_eq!(seen[0]["decision"], "ask");
     assert!(seen[0]["reason"].as_str().unwrap().contains("unavailable"));
+    rig.session
+        .connection
+        .permission(
+            request["id"].clone(),
+            json!({"outcome":"selected","optionId":"deny"}),
+        )
+        .await
+        .unwrap();
+    turn.await.unwrap().unwrap();
     rig.manager.shutdown().await;
 }
 

@@ -466,14 +466,7 @@ impl Approver {
                 break;
             }
             tokio::time::sleep(delay).await;
-            let id = &request["id"];
-            if session.connection.closed_reason().is_some()
-                || !session
-                    .connection
-                    .pending_permissions()
-                    .iter()
-                    .any(|p| &p.message["id"] == id)
-            {
+            if session.connection.closed_reason().is_some() || !still_pending(session, request) {
                 // Answered elsewhere (the phone) or gone: nothing left to decide.
                 return review;
             }
@@ -509,7 +502,11 @@ impl Approver {
                 ),
                 Review::Ask(reason) | Review::Unavailable(reason) => {
                     // Not answered: the person decides, and is told why it was not approved.
-                    annotate(session, tool_call, "ask", "model", &reason);
+                    // Skipped when someone answered meanwhile: the note would describe a request
+                    // that is no longer waiting.
+                    if still_pending(session, request) {
+                        annotate(session, tool_call, "ask", "model", &reason);
+                    }
                     tracing::info!(
                         decision = "ask",
                         layer = "model",
@@ -538,6 +535,15 @@ impl Approver {
             );
         }
     }
+}
+
+/// Whether `request` is still waiting for an answer.
+fn still_pending(session: &AcpSession, request: &Value) -> bool {
+    session
+        .connection
+        .pending_permissions()
+        .iter()
+        .any(|pending| pending.message["id"] == request["id"])
 }
 
 /// Tell the phone what happened, in the shape it already renders for automatic reviews.
