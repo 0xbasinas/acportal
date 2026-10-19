@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acportal desktop screens</title>
+<style>
+:root{--bg:#0a0a0a;--fg:#eee;--mut:#8d8d94;--line:rgba(255,255,255,.1);--card:#141415}
+@media (prefers-color-scheme: light){:root{--bg:#fafafa;--fg:#111;--mut:#6b6b72;--line:rgba(0,0,0,.1);--card:#fff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,sans-serif}
+header{padding:28px 32px 8px}h1{margin:0 0 4px;font-size:22px}p{margin:0;color:var(--mut);max-width:70ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:20px;padding:20px 32px 48px}
+a.card{display:block;color:inherit;text-decoration:none;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+a.card:hover{border-color:var(--mut)}
+.shot{position:relative;width:100%;aspect-ratio:1282/802;overflow:hidden;border-bottom:1px solid var(--line)}
+.shot iframe{position:absolute;left:0;top:0;width:1282px;height:802px;border:0;transform-origin:0 0;pointer-events:none}
+.cap{padding:10px 14px;display:flex;justify-content:space-between;gap:10px}.cap span:last-child{color:var(--mut)}
+</style></head><body>
+<header><h1>acportal desktop: real app screens as HTML</h1>
+<p>Each page replicates one screenshot in <code>design/real-app/</code> with the desktop app's own stylesheet and class names. Click a card to open it full size.</p></header>
+<div class="grid"><a class="card" href="01-home-new-session.html"><div class="shot"><iframe src="01-home-new-session.html" loading="lazy" tabindex="-1" title="New session composer"></iframe></div><div class="cap"><span>New session composer</span><span>01 · dark</span></div></a>
+<a class="card" href="02-command-palette.html"><div class="shot"><iframe src="02-command-palette.html" loading="lazy" tabindex="-1" title="Command palette"></iframe></div><div class="cap"><span>Command palette</span><span>02 · dark</span></div></a>
+<a class="card" href="03-sidebar-ended-sessions.html"><div class="shot"><iframe src="03-sidebar-ended-sessions.html" loading="lazy" tabindex="-1" title="Sidebar with ended sessions"></iframe></div><div class="cap"><span>Sidebar with ended sessions</span><span>03 · dark</span></div></a>
+<a class="card" href="04-new-session-project-picker.html"><div class="shot"><iframe src="04-new-session-project-picker.html" loading="lazy" tabindex="-1" title="Project picker"></iframe></div><div class="cap"><span>Project picker</span><span>04 · dark</span></div></a>
+<a class="card" href="05-folder-browser.html"><div class="shot"><iframe src="05-folder-browser.html" loading="lazy" tabindex="-1" title="Folder and sub-folder"></iframe></div><div class="cap"><span>Folder and sub-folder</span><span>05 · dark</span></div></a>
+<a class="card" href="06-new-session-subfolder.html"><div class="shot"><iframe src="06-new-session-subfolder.html" loading="lazy" tabindex="-1" title="Sub-folder typed"></iframe></div><div class="cap"><span>Sub-folder typed</span><span>06 · dark</span></div></a>
+<a class="card" href="07-composer-with-prompt.html"><div class="shot"><iframe src="07-composer-with-prompt.html" loading="lazy" tabindex="-1" title="Prompt typed"></iframe></div><div class="cap"><span>Prompt typed</span><span>07 · dark</span></div></a>
+<a class="card" href="08-approval-card-write.html"><div class="shot"><iframe src="08-approval-card-write.html" loading="lazy" tabindex="-1" title="Write approval"></iframe></div><div class="cap"><span>Write approval</span><span>08 · dark</span></div></a>
+<a class="card" href="09-run-finished.html"><div class="shot"><iframe src="09-run-finished.html" loading="lazy" tabindex="-1" title="Run after the write"></iframe></div><div class="cap"><span>Run after the write</span><span>09 · dark</span></div></a>
+<a class="card" href="10-approval-card-shell.html"><div class="shot"><iframe src="10-approval-card-shell.html" loading="lazy" tabindex="-1" title="Shell approval"></iframe></div><div class="cap"><span>Shell approval</span><span>10 · dark</span></div></a>
+<a class="card" href="11-run-complete-conversation.html"><div class="shot"><iframe src="11-run-complete-conversation.html" loading="lazy" tabindex="-1" title="Finished conversation"></iframe></div><div class="cap"><span>Finished conversation</span><span>11 · dark</span></div></a>
+<a class="card" href="12-conversation-top-tool-steps.html"><div class="shot"><iframe src="12-conversation-top-tool-steps.html" loading="lazy" tabindex="-1" title="Conversation top"></iframe></div><div class="cap"><span>Conversation top</span><span>12 · dark</span></div></a>
+<a class="card" href="13-review-changes.html"><div class="shot"><iframe src="13-review-changes.html" loading="lazy" tabindex="-1" title="Review changes"></iframe></div><div class="cap"><span>Review changes</span><span>13 · dark</span></div></a>
+<a class="card" href="14-git-panel.html"><div class="shot"><iframe src="14-git-panel.html" loading="lazy" tabindex="-1" title="Git changes"></iframe></div><div class="cap"><span>Git changes</span><span>14 · dark</span></div></a>
+<a class="card" href="15-browser-panel.html"><div class="shot"><iframe src="15-browser-panel.html" loading="lazy" tabindex="-1" title="Browser panel"></iframe></div><div class="cap"><span>Browser panel</span><span>15 · dark</span></div></a>
+<a class="card" href="16-git-branches.html"><div class="shot"><iframe src="16-git-branches.html" loading="lazy" tabindex="-1" title="Git branches"></iframe></div><div class="cap"><span>Git branches</span><span>16 · dark</span></div></a>
+<a class="card" href="17-git-history.html"><div class="shot"><iframe src="17-git-history.html" loading="lazy" tabindex="-1" title="Git history"></iframe></div><div class="cap"><span>Git history</span><span>17 · dark</span></div></a>
+<a class="card" href="18-git-worktrees.html"><div class="shot"><iframe src="18-git-worktrees.html" loading="lazy" tabindex="-1" title="Git worktrees"></iframe></div><div class="cap"><span>Git worktrees</span><span>18 · dark</span></div></a>
+<a class="card" href="19-git-stash.html"><div class="shot"><iframe src="19-git-stash.html" loading="lazy" tabindex="-1" title="Git stash"></iframe></div><div class="cap"><span>Git stash</span><span>19 · dark</span></div></a>
+<a class="card" href="20-terminal-dock.html"><div class="shot"><iframe src="20-terminal-dock.html" loading="lazy" tabindex="-1" title="Terminal dock"></iframe></div><div class="cap"><span>Terminal dock</span><span>20 · dark</span></div></a>
+<a class="card" href="21-settings.html"><div class="shot"><iframe src="21-settings.html" loading="lazy" tabindex="-1" title="Settings: General"></iframe></div><div class="cap"><span>Settings: General</span><span>21 · dark</span></div></a>
+<a class="card" href="22-settings-agents.html"><div class="shot"><iframe src="22-settings-agents.html" loading="lazy" tabindex="-1" title="Settings: Agents"></iframe></div><div class="cap"><span>Settings: Agents</span><span>22 · dark</span></div></a>
+<a class="card" href="23-settings-mcp-servers.html"><div class="shot"><iframe src="23-settings-mcp-servers.html" loading="lazy" tabindex="-1" title="Settings: MCP servers"></iframe></div><div class="cap"><span>Settings: MCP servers</span><span>23 · dark</span></div></a>
+<a class="card" href="24-settings-hosts.html"><div class="shot"><iframe src="24-settings-hosts.html" loading="lazy" tabindex="-1" title="Settings: Hosts"></iframe></div><div class="cap"><span>Settings: Hosts</span><span>24 · dark</span></div></a>
+<a class="card" href="25-settings-workspaces.html"><div class="shot"><iframe src="25-settings-workspaces.html" loading="lazy" tabindex="-1" title="Settings: Workspaces"></iframe></div><div class="cap"><span>Settings: Workspaces</span><span>25 · dark</span></div></a>
+<a class="card" href="26-settings-approvals-review.html"><div class="shot"><iframe src="26-settings-approvals-review.html" loading="lazy" tabindex="-1" title="Settings: Approvals and review"></iframe></div><div class="cap"><span>Settings: Approvals and review</span><span>26 · dark</span></div></a>
+<a class="card" href="27-settings-terminal.html"><div class="shot"><iframe src="27-settings-terminal.html" loading="lazy" tabindex="-1" title="Settings: Terminal"></iframe></div><div class="cap"><span>Settings: Terminal</span><span>27 · dark</span></div></a>
+<a class="card" href="28-settings-browser.html"><div class="shot"><iframe src="28-settings-browser.html" loading="lazy" tabindex="-1" title="Settings: Browser"></iframe></div><div class="cap"><span>Settings: Browser</span><span>28 · dark</span></div></a>
+<a class="card" href="29-settings-appearance.html"><div class="shot"><iframe src="29-settings-appearance.html" loading="lazy" tabindex="-1" title="Settings: Appearance"></iframe></div><div class="cap"><span>Settings: Appearance</span><span>29 · dark</span></div></a>
+<a class="card" href="30-settings-keyboard.html"><div class="shot"><iframe src="30-settings-keyboard.html" loading="lazy" tabindex="-1" title="Settings: Keyboard"></iframe></div><div class="cap"><span>Settings: Keyboard</span><span>30 · dark</span></div></a>
+<a class="card" href="31-settings-appearance-light.html"><div class="shot"><iframe src="31-settings-appearance-light.html" loading="lazy" tabindex="-1" title="Settings: Appearance (light)"></iframe></div><div class="cap"><span>Settings: Appearance (light)</span><span>31 · light</span></div></a>
+<a class="card" href="32-settings-general-light.html"><div class="shot"><iframe src="32-settings-general-light.html" loading="lazy" tabindex="-1" title="Settings: General (light)"></iframe></div><div class="cap"><span>Settings: General (light)</span><span>32 · light</span></div></a>
+<a class="card" href="33-settings-agents-light.html"><div class="shot"><iframe src="33-settings-agents-light.html" loading="lazy" tabindex="-1" title="Settings: Agents (light)"></iframe></div><div class="cap"><span>Settings: Agents (light)</span><span>33 · light</span></div></a>
+<a class="card" href="34-conversation-run-complete-light.html"><div class="shot"><iframe src="34-conversation-run-complete-light.html" loading="lazy" tabindex="-1" title="Finished conversation (light)"></iframe></div><div class="cap"><span>Finished conversation (light)</span><span>34 · light</span></div></a>
+<a class="card" href="35-command-palette-light.html"><div class="shot"><iframe src="35-command-palette-light.html" loading="lazy" tabindex="-1" title="Command palette (light)"></iframe></div><div class="cap"><span>Command palette (light)</span><span>35 · light</span></div></a>
+<a class="card" href="36-home-new-session-light.html"><div class="shot"><iframe src="36-home-new-session-light.html" loading="lazy" tabindex="-1" title="New session composer (light)"></iframe></div><div class="cap"><span>New session composer (light)</span><span>36 · light</span></div></a>
+<a class="card" href="37-run-on-several-agents.html"><div class="shot"><iframe src="37-run-on-several-agents.html" loading="lazy" tabindex="-1" title="Run on several agents"></iframe></div><div class="cap"><span>Run on several agents</span><span>37 · dark</span></div></a>
+<a class="card" href="38-host-switcher.html"><div class="shot"><iframe src="38-host-switcher.html" loading="lazy" tabindex="-1" title="Host switcher"></iframe></div><div class="cap"><span>Host switcher</span><span>38 · dark</span></div></a></div>
+<script>
+function fit(){document.querySelectorAll('.shot').forEach(function(s){var f=s.firstElementChild;f.style.transform='scale('+(s.clientWidth/1282)+')'})}
+addEventListener('load',fit);addEventListener('resize',fit);fit();
+</script></body></html>

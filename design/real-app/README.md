@@ -41,3 +41,5 @@ Goose read both files, asked to write `calc.py` (screen `08`, allowed once), ask
 - One host and one real session. States that need a second host, a host that is offline, a re-pair, a merge conflict or a failed run were not produced.
 - The three older sessions in the sidebar were left unopened because they were not part of this run.
 - Settings forms that can show credentials (agent Edit, Add host) were not opened.
+
+The same screens as HTML, built with the app's own stylesheet: [`../real-app-html/`](../real-app-html/README.md).
