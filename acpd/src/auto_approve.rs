@@ -619,23 +619,31 @@ async fn watch(
 ) {
     let mut events = session.connection.subscribe();
     let mut seen: HashSet<String> = HashSet::new();
-    let ctx = Context {
-        scope: &scope,
-        own_tools,
-        max_edit,
-    };
+    // One task per request, so a slow model review (or its retries) never holds up the others.
+    // Dropping the set when the watcher ends aborts whatever is still being reviewed.
+    let mut reviews = tokio::task::JoinSet::new();
+    let scope = Arc::new(scope);
     loop {
         if session.connection.closed_reason().is_some() {
             return;
         }
+        while reviews.try_join_next().is_some() {}
         for permission in session.connection.pending_permissions() {
             // Each request is looked at once; one that was left stays left.
             if !seen.insert(permission.message["id"].to_string()) {
                 continue;
             }
-            approver
-                .handle(&session, &permission.message, permission.host_origin, &ctx)
-                .await;
+            let (session, approver, scope) = (session.clone(), approver.clone(), scope.clone());
+            reviews.spawn(async move {
+                let ctx = Context {
+                    scope: &scope,
+                    own_tools,
+                    max_edit,
+                };
+                approver
+                    .handle(&session, &permission.message, permission.host_origin, &ctx)
+                    .await;
+            });
         }
         if seen.len() > 4096 {
             seen.clear();
