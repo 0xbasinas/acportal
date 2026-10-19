@@ -45,11 +45,12 @@ npm run package:linux   # AppImage (local only; CI does not package)
 For a local host: run `acpd --config <config> start`, then `acpd --config <config> pair` and enter
 `http://127.0.0.1:<port>` and the code.
 
-On Windows, `./scripts/dev-desktop.ps1` does all of this from the repository root: it builds acpd,
-starts OmniRoute (`omniroute-serve`, else `omniroute serve --no-open`; `-SkipOmniRoute` to leave it
-out) and a host with no default agents (its own config in `.local/dev-host`) in their own windows,
-installs the packages (including the Electron download that npm's `ignore-scripts` skips), opens a
-terminal with a pairing code and runs the app.
+On Windows, `./scripts/dev-desktop-redesign.ps1` does all of this from the repository root for this
+app: it builds acpd, starts OmniRoute (`omniroute-serve`, else `omniroute serve --no-open`;
+`-SkipOmniRoute` to leave it out) and a host with no default agents (its own config in
+`.local/dev-host`) in their own windows, installs the packages (including the Electron download that
+npm's `ignore-scripts` skips), opens a terminal with a pairing code and runs `desktop-redesign`.
+`./scripts/dev-desktop.ps1` is the same sequence for the app in `desktop/`.
 
 ## The browser
 

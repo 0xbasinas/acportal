@@ -1,5 +1,6 @@
 import type React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
+import { PANE, PaneResize, readPane, writePane } from './PaneResize'
 import type { AgentInfo, Host, HostStatus, Workspace } from './types'
 import { groupAgents } from './agentSetup'
 import { I, tildify } from './ui'
@@ -25,12 +26,13 @@ export function Settings(props: {
   const [storage, setStorage] = useState('')
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<string>()
+  const [navW, setNavW] = useState(() => readPane('settings'))
   useEffect(() => {
     void window.api.getVersion().then(setVersion)
     void window.api.secureStorage().then(setStorage)
   }, [])
   return (
-    <div className="settings">
+    <div className="settings" style={{ '--settings-w': navW + 'px' } as CSSProperties}>
       <nav className="settings-nav">
         <button className="settings-back" onClick={props.onBack} aria-label="Back">{I.back}<span>Back to app</span></button>
         <div className="settings-nav-title">Settings</div>
@@ -40,6 +42,8 @@ export function Settings(props: {
           </div>
         ))}
       </nav>
+      <PaneResize className="at-settings" axis="x" grow="start" label="Resize settings" value={navW} min={PANE.settings.min} max={PANE.settings.max}
+        onChange={setNavW} onCommit={(n) => writePane('settings', n)} onReset={() => { setNavW(PANE.settings.def); writePane('settings', PANE.settings.def) }} />
       <div className="settings-body">
         {section === 'General' && (
           <>
@@ -105,13 +109,13 @@ export function Settings(props: {
         {section === 'Appearance' && (
           <>
             <h2>Appearance</h2>
-            <div className="sub">Matches the Android app: near-black, near-white, no accent colour.</div>
+            <div className="sub">Warm ink in the dark theme, warm paper in the light. Actions stay neutral. Green is only for status.</div>
             <div className="theme-cards">
               {(['dark', 'light', 'system'] as Theme[]).map((t) => (
                 <div key={t} className={'theme-card' + (props.theme === t ? ' on' : '')} onClick={() => props.setTheme(t)}>
-                  <div className="pv" style={{ background: t === 'dark' ? '#0a0a0a' : t === 'light' ? '#fafafa' : 'linear-gradient(135deg,#0a0a0a 50%,#fafafa 50%)', border: '1px solid var(--line)' }}>
-                    <div style={{ margin: 12, width: 60, height: 10, borderRadius: 5, background: t === 'light' ? '#111' : '#eee' }} />
-                    <div style={{ margin: '0 12px', width: 90, height: 8, borderRadius: 4, background: '#72d5b0', opacity: 0.8 }} />
+                  <div className="pv" style={{ background: t === 'dark' ? '#131211' : t === 'light' ? '#e6e1d6' : 'linear-gradient(135deg,#131211 50%,#e6e1d6 50%)', border: '1px solid var(--line)' }}>
+                    <div style={{ margin: 12, width: 60, height: 10, borderRadius: 5, background: t === 'light' ? '#f6f3ec' : '#1c1b18' }} />
+                    <div style={{ margin: '0 12px', width: 90, height: 8, borderRadius: 4, background: t === 'light' ? '#1a7a52' : '#7dba9a', opacity: 0.9 }} />
                   </div>
                   <div style={{ marginTop: 8, textTransform: 'capitalize' }}>{t}</div>
                 </div>

@@ -12,10 +12,15 @@ ones you add from the apps (Settings > Agents > Add agent); they are kept in .lo
 
   ./scripts/dev-desktop.ps1
   ./scripts/dev-desktop.ps1 -WorkspaceRoot C:/Work -Port 8770 -SkipOmniRoute
+
+The redesign app is the same command with -App desktop-redesign, or ./scripts/dev-desktop-redesign.ps1.
 #>
 param(
     # Folder the host may open sessions in (and below). Defaults to this repository.
     [string]$WorkspaceRoot,
+    # Which app folder to install and run: desktop, or desktop-redesign.
+    [ValidateSet('desktop', 'desktop-redesign')]
+    [string]$App = 'desktop',
     [int]$Port = 8765,
     [switch]$SkipOmniRoute,
     [switch]$SkipBuild
@@ -74,8 +79,11 @@ if (Test-Path -LiteralPath (Join-Path $hostDir 'agents.json')) {
 }
 Open-Window 'acpd host' "& '$acpd' --config '$config' start"
 
-Step 'Installing desktop packages'
-Push-Location -LiteralPath (Join-Path $repoRoot 'desktop')
+$appDir = Join-Path $repoRoot $App
+if (-not (Test-Path -LiteralPath (Join-Path $appDir 'package.json'))) { throw "No package.json in $appDir" }
+
+Step "Installing $App packages"
+Push-Location -LiteralPath $appDir
 try {
     # npm.cmd, not npm: "npm" can resolve to npm.ps1, which a restricted execution policy blocks.
     # Package downloads go through Socket Firewall when sfw.exe is installed.
@@ -102,6 +110,6 @@ try {
     $shown = $pair -replace "'", "''"
     Open-Window 'acpd pair' "$pair; Write-Host ''; Write-Host 'In the app: address http://127.0.0.1:$Port and the code above. New code: run the line below.' -ForegroundColor Cyan; Write-Host '$shown'"
 
-    Step 'Running the desktop app (Ctrl+C to stop; close the other windows yourself)'
+    Step "Running the $App app (Ctrl+C to stop; close the other windows yourself)"
     npm.cmd run dev
 } finally { Pop-Location }

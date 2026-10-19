@@ -21,11 +21,11 @@ function GitBtn({ label, cmd, why, onClick, primary, danger, learn, disabled, ic
   )
 }
 
-const GRAPH_COLORS = ['var(--text)', 'var(--green)', 'var(--amber)', '#8fb7ff', 'var(--red)', '#c6aff5']
+const GRAPH_COLORS = ['var(--text)', 'var(--green)', 'var(--amber)', 'var(--blue)', 'var(--red)', '#c4b0d4']
 // The drawn graph: one SVG cell per row, lanes as columns, so lines join from row to row.
 const LANE = 14
 const ROW = 28
-const LANE_COLORS = ['var(--green)', '#8fb7ff', 'var(--amber)', '#c6aff5', '#5fd3e6', 'var(--red)', '#e8a2c8']
+const LANE_COLORS = ['var(--green)', 'var(--blue)', 'var(--amber)', '#c4b0d4', '#7eb8b4', 'var(--red)', '#d4a8bc']
 const laneColor = (n: number): string => LANE_COLORS[n % LANE_COLORS.length]
 /** At most this many lanes are drawn; wider histories are cut at the right edge. */
 const MAX_LANES = 12

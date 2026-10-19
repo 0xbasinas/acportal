@@ -292,7 +292,6 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           {selectors.length > 0 && <OptionsPanel selectors={selectors} valueOf={(x) => valueOf(x.id)} onPick={pickOption} />}
         </Chip>
         <span className="grow" />
-        <span className="hint-keys">Enter to send · Shift Enter new line</span>
         <button className="send" aria-label="Start session and send" disabled={!text.trim() || !agent || !ws || starting} onClick={() => void send()}>{I.send}</button>
       </div>
     </div>
@@ -413,7 +412,6 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
           </div>
         )}
       </div>
-      <div className="ns-keys sub">Ctrl N new session · Ctrl K commands · Shift Enter new line</div>
     </div>
   )
 }

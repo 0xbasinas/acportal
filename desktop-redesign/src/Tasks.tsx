@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
+import { PANE, PaneResize, readPane, writePane } from './PaneResize'
 import type { Task } from './types'
 import { changedFiles, DiffBlock, Timeline } from './acp'
 import { DiffView, Empty, I, ago, stateWord, tildify } from './ui'
@@ -136,6 +137,7 @@ export function DiffReview({ title, subtitle, diffs: raw, focus, onBack, task, o
 }) {
   const diffs = raw.map((d) => ({ ...d, path: rel(d.path, root) }))
   const [sel, setSel] = useState<string | undefined>(focus ? rel(focus, root) : undefined)
+  const [filesW, setFilesW] = useState(() => readPane('review'))
   const shown = sel ? diffs.filter((d) => d.path === sel) : diffs
   const files = diffs.map((d) => ({ d, s: changedFiles({ items: [{ kind: 'tool', id: d.path, title: '', diffs: [d], host: false }], seen: new Set(), lastSeq: 0, busy: false })[0] }))
   return (
@@ -153,7 +155,7 @@ export function DiffReview({ title, subtitle, diffs: raw, focus, onBack, task, o
           </button>
         )}
       </div>
-      <div className="review-grid">
+      <div className="review-grid" style={{ '--review-w': filesW + 'px' } as CSSProperties}>
         <div className="review-files">
           <div className={'row' + (!sel ? ' active' : '')} onClick={() => setSel(undefined)}><span className="grow">All files</span><span className="count">{diffs.length}</span></div>
           {files.map(({ d, s }) => (
@@ -173,6 +175,8 @@ export function DiffReview({ title, subtitle, diffs: raw, focus, onBack, task, o
             </div>
           )}
         </div>
+        <PaneResize className="at-review" axis="x" grow="start" label="Resize the file list" value={filesW} min={PANE.review.min} max={PANE.review.max}
+          onChange={setFilesW} onCommit={(n) => writePane('review', n)} onReset={() => { setFilesW(PANE.review.def); writePane('review', PANE.review.def) }} />
       </div>
     </div>
   )

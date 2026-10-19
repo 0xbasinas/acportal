@@ -18,7 +18,7 @@ import { basename, extname } from 'node:path'
 const TITLE_BAR_HEIGHT = 36
 function titleBarColours(): Electron.TitleBarOverlayOptions {
   const dark = nativeTheme.shouldUseDarkColors
-  return { color: dark ? '#0A0A0A' : '#FAFAFA', symbolColor: dark ? '#EDEDED' : '#171719', height: TITLE_BAR_HEIGHT }
+  return { color: dark ? '#131211' : '#E6E1D6', symbolColor: dark ? '#F4F0E8' : '#1C1914', height: TITLE_BAR_HEIGHT }
 }
 
 type StoredHost = { id: string; hostId: string; name: string; address: string; deviceId: string; secret: string; expiresAt: number; addedAt: number }
@@ -313,7 +313,7 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#131211',
     title: 'acportal',
     // The app draws its own title bar (logo, title); the system keeps its window buttons, drawn
     // over the bar in the theme's colours (Windows, Linux) or as traffic lights (macOS).

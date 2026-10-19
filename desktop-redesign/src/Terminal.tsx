@@ -29,11 +29,11 @@ function palette(): Record<string, string> {
   // Programs print in ANSI colours; they are pulled towards grey so a prompt or a build log sits in
   // the black-and-white theme instead of shouting in neon. Still distinguishable, just quiet.
   const ansi = light
-    ? { black: '#1a1a1a', red: '#a24c4c', green: '#4d7a5a', yellow: '#8a7440', blue: '#4f6a94', magenta: '#7a5a8c', cyan: '#4a7a80', white: '#8a8a8a',
-        brightBlack: '#6a6a6a', brightRed: '#b86464', brightGreen: '#5f8f6d', brightYellow: '#9c8650', brightBlue: '#6480ab', brightMagenta: '#8d6fa0', brightCyan: '#5d8e95', brightWhite: '#1a1a1a' }
-    : { black: '#2a2a2c', red: '#c47f7f', green: '#8fb59a', yellow: '#c4ad7a', blue: '#8da2c4', magenta: '#a994ba', cyan: '#88b0b4', white: '#b8b8bc',
-        brightBlack: '#6c6c72', brightRed: '#d49494', brightGreen: '#a3c7ae', brightYellow: '#d4be8c', brightBlue: '#a0b4d4', brightMagenta: '#bba8cb', brightCyan: '#9cc2c6', brightWhite: '#ededed' }
-  return { background: v('--bg', '#0a0a0a'), foreground: v('--text', '#ededed'), cursor: v('--text', '#ededed'), selectionBackground: light ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.22)', ...ansi }
+    ? { black: '#1c1914', red: '#9a534c', green: '#3d6e56', yellow: '#8a7040', blue: '#4d6588', magenta: '#7a5e80', cyan: '#4d736e', white: '#8a8378',
+        brightBlack: '#6a645c', brightRed: '#b56d64', brightGreen: '#4f8568', brightYellow: '#a08450', brightBlue: '#627ca0', brightMagenta: '#927498', brightCyan: '#628880', brightWhite: '#1c1914' }
+    : { black: '#2a2622', red: '#c9847c', green: '#8fbfa4', yellow: '#d4b57a', blue: '#8eafc9', magenta: '#b39cb8', cyan: '#8eb8b4', white: '#c9c2b6',
+        brightBlack: '#6e675e', brightRed: '#dba097', brightGreen: '#a8d0b8', brightYellow: '#e2c896', brightBlue: '#a8c4d8', brightMagenta: '#c6b4cc', brightCyan: '#a6ccc8', brightWhite: '#f3efe6' }
+  return { background: v('--bg', '#1c1b18'), foreground: v('--text', '#f4f0e8'), cursor: v('--text', '#f4f0e8'), selectionBackground: light ? 'rgba(28,25,20,.16)' : 'rgba(244,240,232,.2)', ...ansi }
 }
 
 /** One shell. Stays mounted (hidden) while another tab is shown so its history is kept. */
@@ -192,16 +192,32 @@ export function TerminalDock(props: {
   }, [loaded, props.enabled, list.length, folder, create])
 
   const drag = (e: React.PointerEvent): void => {
+    if (e.button !== 0) return
+    e.preventDefault()
     const startY = e.clientY, start = props.height
+    const target = e.currentTarget
+    target.setPointerCapture(e.pointerId)
+    target.classList.add('dragging')
+    const prevCursor = document.body.style.cursor
+    const prevSelect = document.body.style.userSelect
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
     const move = (ev: PointerEvent): void => props.onHeight(clampHeight(start + (startY - ev.clientY)))
-    const up = (): void => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+    const up = (): void => {
+      target.classList.remove('dragging')
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevSelect
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
   const label = (t: TermInfo, i: number): string => `${t.shell} ${i + 1}`
 
   return (
     <section className="term-dock" style={{ height: props.height }} aria-label="Terminal">
-      <div className="term-resize" role="separator" aria-orientation="horizontal" aria-label="Resize the terminal" tabIndex={0} onPointerDown={drag}
+      <div className="term-resize" role="separator" aria-orientation="horizontal" aria-label="Resize the terminal" title="Drag to resize. Double-click to reset." tabIndex={0} onPointerDown={drag}
+        onDoubleClick={() => props.onHeight(300)}
         onKeyDown={(e) => { if (e.key === 'ArrowUp') props.onHeight(clampHeight(props.height + 24)); if (e.key === 'ArrowDown') props.onHeight(clampHeight(props.height - 24)) }} />
       <div className="term-bar">
         <span className="term-title">{I.term}Terminal <span className="sub">on {props.hostName}</span></span>

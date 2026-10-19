@@ -339,7 +339,6 @@ export function Composer({ agent, busy, disabled, onSend, onCancel, history, can
         <button className="icon-btn" title={canImage || canResource ? 'Attach images or text files' : `${agent} does not accept attachments`} disabled={!canImage && !canResource} onClick={() => void pick()}>{I.attach}</button>
         <button className={'icon-btn' + (showHist ? ' on' : '')} title="Prompt history (↑ in an empty box)" onClick={() => setShowHist(!showHist)}>{I.clock}</button>
         <span style={{ flex: 1 }} />
-        <span className="hint-keys"><span className="kbd">Enter</span> send · <span className="kbd">Shift Enter</span> new line</span>
         {busy ? (
           <button className="btn stop" onClick={onCancel} title="Cancel this turn (Esc)">{I.stop}Stop</button>
         ) : (

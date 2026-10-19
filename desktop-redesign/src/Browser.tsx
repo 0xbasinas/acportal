@@ -141,14 +141,29 @@ export function BrowserPanel(props: {
   const hot = Boolean(s?.note || problem)
   return (
     <section className={'browser ' + props.where} aria-label="Browser">
-      <div className="browser-resize" role="separator" aria-orientation={props.where === 'side' ? 'vertical' : 'horizontal'} aria-label="Resize the browser" tabIndex={0}
+      <div className="browser-resize" role="separator" aria-orientation={props.where === 'side' ? 'vertical' : 'horizontal'} aria-label="Resize the browser" title="Drag to resize. Double-click to reset." tabIndex={0}
+        onDoubleClick={() => props.onSize(props.where === 'side' ? 620 : 380)}
         onKeyDown={(e) => { const step = e.shiftKey ? 60 : 20; if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); props.onSize(clampSize(props.where, props.size + step)) } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); props.onSize(clampSize(props.where, props.size - step)) } }}
         onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
           const start = props.where === 'side' ? e.clientX : e.clientY
           const from = props.size
-          e.currentTarget.setPointerCapture(e.pointerId)
+          const target = e.currentTarget
+          target.setPointerCapture(e.pointerId)
+          target.classList.add('dragging')
+          const prevCursor = document.body.style.cursor
+          const prevSelect = document.body.style.userSelect
+          document.body.style.cursor = props.where === 'side' ? 'col-resize' : 'row-resize'
+          document.body.style.userSelect = 'none'
           const move = (m: PointerEvent): void => props.onSize(clampSize(props.where, from + (start - (props.where === 'side' ? m.clientX : m.clientY))))
-          const up = (): void => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+          const up = (): void => {
+            target.classList.remove('dragging')
+            document.body.style.cursor = prevCursor
+            document.body.style.userSelect = prevSelect
+            window.removeEventListener('pointermove', move)
+            window.removeEventListener('pointerup', up)
+          }
           window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
         }} />
       {(s?.tabs?.length ?? 0) > 0 && (

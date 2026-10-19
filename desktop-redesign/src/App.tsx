@@ -13,6 +13,7 @@ import { Attachment, Composer, Conversation, Permission, type Incoming } from '.
 import { BrowserPanel } from './Browser'
 import { TerminalDock } from './Terminal'
 import { StatusBar } from './StatusBar'
+import { PANE, PaneResize, clampPane, readPane, writePane } from './PaneResize'
 import { GitView } from './Git'
 import { gitRepos } from './gitRepos'
 import { DiffReview, RightPanel, mergeError } from './Tasks'
@@ -66,6 +67,14 @@ export default function App() {
   // The terminal dock: shells on the host, under the conversation.
   const [termOpen, setTermOpen] = useState(false)
   const [termHeight, setTermHeight] = useState<number>(() => Number(localStorage.getItem('acportal.termHeight')) || 300)
+  const [sideW, setSideW] = useState(() => readPane('side'))
+  const [rightW, setRightW] = useState(() => readPane('right'))
+  const [vw, setVw] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const onResize = (): void => setVw(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   const toggleTerminal = useCallback(() => setTermOpen((o) => !o), [])
   const openBrowser = useCallback((url?: string) => setBrowser({ open: true, request: url ? { url, n: Date.now() } : undefined }), [])
   const closeBrowser = useCallback(() => { setBrowser({ open: false }); void window.api.browser.close() }, [])
@@ -851,15 +860,34 @@ export default function App() {
 
   const showRight = view.kind === 'workspace' && Boolean(session)
   const sideBrowser = browser.open && browserWhere === 'side'
-  const resizeBrowser = (size: number): void => setBrowserSize((s) => { const n = { ...s, [browserWhere]: size }; localStorage.setItem('acportal.browserSize', JSON.stringify(n)); return n })
+  const third = sideBrowser ? browserSize.side : showRight ? rightW : 0
+  const sideMax = Math.min(PANE.side.max, Math.max(PANE.side.min, vw - third - 300))
+  const sideApplied = clampPane(sideW, PANE.side.min, sideMax)
+  const rightMax = Math.min(PANE.right.max, Math.max(PANE.right.min, vw - sideApplied - 300))
+  const rightApplied = clampPane(rightW, PANE.right.min, rightMax)
+  const browserMax = Math.min(1000, Math.max(360, vw - sideApplied - 300))
+  const browserApplied = clampPane(browserSize.side, 360, browserMax)
+  const resizeBrowser = (size: number, commit = true): void => setBrowserSize((s) => {
+    const n = { ...s, [browserWhere]: size }
+    if (commit) localStorage.setItem('acportal.browserSize', JSON.stringify(n))
+    return n
+  })
   const browserPanel = browser.open && (
     <BrowserPanel where={browserWhere} request={browser.request} size={browserSize[browserWhere]} onSize={resizeBrowser} covered={palette || multiOpen || Boolean(confirmMerge)}
       onClose={closeBrowser} onWhere={(w) => { setBrowserWhere(w); localStorage.setItem('acportal.browserWhere', w) }}
       canShare={Boolean(session) && view.kind === 'workspace'} onShare={(s) => { setIncoming({ n: Date.now(), ...s }); flash(s.attachments?.length ? 'Added to your message' : 'Address added to your message') }} />
   )
+  const appStyle = {
+    '--side-w': sideApplied + 'px',
+    '--right-w': rightApplied + 'px',
+    '--rail-w': (sideBrowser ? browserApplied : rightApplied) + 'px',
+    ...(sideBrowser ? { '--browser-w': browserApplied + 'px' } : {}),
+  } as CSSProperties
   return (
-    <div className={'app' + (sideBrowser ? ' browser-side' : showRight ? '' : ' no-right')} style={sideBrowser ? ({ '--browser-w': browserSize.side + 'px' } as CSSProperties) : undefined}>
+    <div className={'app' + (sideBrowser ? ' browser-side' : showRight ? '' : ' no-right')} style={appStyle}>
       {sidebar}
+      <PaneResize className="at-side" axis="x" grow="start" label="Resize the sidebar" value={sideApplied} min={PANE.side.min} max={sideMax}
+        onChange={setSideW} onCommit={(n) => writePane('side', n)} onReset={() => { setSideW(PANE.side.def); writePane('side', PANE.side.def) }} />
       <div className="main-stack" style={browser.open && browserWhere === 'dock' ? ({ '--browser-h': browserSize.dock + 'px' } as CSSProperties) : undefined}>
         {center}
         {browser.open && browserWhere === 'dock' && browserPanel}
@@ -876,6 +904,15 @@ export default function App() {
       {!sideBrowser && showRight && (
         <RightPanel workspace={session?.workspace} tasks={tasks} rootTask={rootTask} timeline={tl} orchestrator={Boolean(status?.features?.includes('orchestrator'))}
           onOpenTask={(t) => setView({ kind: 'task', taskId: t.id })} onReview={(p) => setView({ kind: 'review', focus: p })} onMerge={setConfirmMerge} />
+      )}
+      {(sideBrowser || showRight) && (
+        <PaneResize className="at-rail" axis="x" grow="end" label={sideBrowser ? 'Resize the browser' : 'Resize the side panel'}
+          value={sideBrowser ? browserApplied : rightApplied}
+          min={sideBrowser ? 360 : PANE.right.min}
+          max={sideBrowser ? browserMax : rightMax}
+          onChange={sideBrowser ? (n) => resizeBrowser(n, false) : setRightW}
+          onCommit={sideBrowser ? (n) => resizeBrowser(n, true) : (n) => writePane('right', n)}
+          onReset={sideBrowser ? () => resizeBrowser(620) : () => { setRightW(PANE.right.def); writePane('right', PANE.right.def) }} />
       )}
       {overlays}
     </div>
