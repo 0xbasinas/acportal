@@ -44,7 +44,7 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -286,8 +286,17 @@ const MAX_REPLY_BYTES: usize = 64 * 1024;
 /// What the optional model said.
 enum Review {
     Allow(String),
+    /// The model looked and would not approve it. Final.
     Ask(String),
+    /// The model could not be asked or answered badly (timeout, rate limit, error). Worth a retry.
+    Unavailable(String),
 }
+
+/// Extra attempts after a model review was unavailable, and how long to wait before each.
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+/// How long a model "allow" for a path is reused when the model does not see file content.
+const ALLOW_CACHE_TTL: Duration = Duration::from_secs(600);
+const ALLOW_CACHE_MAX: usize = 256;
 
 /// The auto-approver of one session: its policy, and the model client if there is one.
 pub struct Approver {
@@ -295,6 +304,10 @@ pub struct Approver {
     agent: String,
     client: Option<reqwest::Client>,
     recent: Mutex<VecDeque<Instant>>,
+    /// Paths the model already allowed in this session (only when it sees no content, so the
+    /// verdict depends on the path alone). Saves a model call, and a prompt when the rate limit
+    /// is hit, for repeated edits to the same file.
+    allowed_paths: Mutex<HashMap<String, Instant>>,
 }
 
 impl Approver {
@@ -318,6 +331,7 @@ impl Approver {
             agent: agent.to_owned(),
             client,
             recent: Mutex::new(VecDeque::new()),
+            allowed_paths: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -343,7 +357,8 @@ impl Approver {
 
     /// Ask the model about a request the rules would allow. Any problem is an `Ask`.
     async fn review(&self, plan: &Plan) -> Review {
-        let unavailable = || Review::Ask("model review unavailable; asking on the phone".into());
+        let unavailable =
+            || Review::Unavailable("model review unavailable; asking on the phone".into());
         let (Some(client), Some(model)) = (&self.client, &self.config.model) else {
             return Review::Allow(String::new());
         };
@@ -399,6 +414,77 @@ impl Approver {
         }
     }
 
+    /// A path the model allowed recently. Only used when the model sees no file content.
+    fn cached_allow(&self, plan: &Plan) -> bool {
+        if self.config.model_sees_content {
+            return false;
+        }
+        let Some(path) = &plan.path else {
+            return false;
+        };
+        let mut cache = self.allowed_paths.lock().unwrap();
+        match cache.get(path) {
+            Some(at) if at.elapsed() < ALLOW_CACHE_TTL => true,
+            Some(_) => {
+                cache.remove(path);
+                false
+            }
+            None => false,
+        }
+    }
+    fn remember_allow(&self, plan: &Plan) {
+        if self.config.model_sees_content {
+            return;
+        }
+        let Some(path) = &plan.path else {
+            return;
+        };
+        let mut cache = self.allowed_paths.lock().unwrap();
+        if cache.len() >= ALLOW_CACHE_MAX {
+            cache.retain(|_, at| at.elapsed() < ALLOW_CACHE_TTL);
+            if cache.len() >= ALLOW_CACHE_MAX {
+                cache.clear();
+            }
+        }
+        cache.insert(path.clone(), Instant::now());
+    }
+
+    /// Review through the model, retrying a transient failure a couple of times as long as the
+    /// request is still waiting, so one timeout or rate-limit blip does not cost a prompt.
+    async fn review_with_retry(
+        &self,
+        session: &AcpSession,
+        request: &Value,
+        plan: &Plan,
+    ) -> Review {
+        if self.cached_allow(plan) {
+            return Review::Allow("same file as an earlier allowed change".into());
+        }
+        let mut review = self.review(plan).await;
+        for delay in RETRY_DELAYS {
+            if !matches!(review, Review::Unavailable(_)) {
+                break;
+            }
+            tokio::time::sleep(delay).await;
+            let id = &request["id"];
+            if session.connection.closed_reason().is_some()
+                || !session
+                    .connection
+                    .pending_permissions()
+                    .iter()
+                    .any(|p| &p.message["id"] == id)
+            {
+                // Answered elsewhere (the phone) or gone: nothing left to decide.
+                return review;
+            }
+            review = self.review(plan).await;
+        }
+        if matches!(review, Review::Allow(_)) {
+            self.remember_allow(plan);
+        }
+        review
+    }
+
     /// Decide one request: by rule, then the model if there is one, and answer it if both agree.
     async fn handle(
         &self,
@@ -412,7 +498,7 @@ impl Approver {
         };
         let tool_call = request["params"]["toolCall"]["toolCallId"].as_str();
         let (layer, reason) = if self.config.model.is_some() {
-            match self.review(&plan).await {
+            match self.review_with_retry(session, request, &plan).await {
                 Review::Allow(reason) => (
                     "model",
                     if reason.is_empty() {
@@ -421,7 +507,7 @@ impl Approver {
                         format!("{}; model: {reason}", plan.reason)
                     },
                 ),
-                Review::Ask(reason) => {
+                Review::Ask(reason) | Review::Unavailable(reason) => {
                     // Not answered: the person decides, and is told why it was not approved.
                     annotate(session, tool_call, "ask", "model", &reason);
                     tracing::info!(
@@ -910,6 +996,33 @@ mod tests {
         assert!(!should_watch(&anywhere, true, false));
         // Off is off.
         assert!(!should_watch(&AutoApproveConfig::default(), false, true));
+    }
+
+    #[test]
+    fn a_model_allow_is_reused_for_the_same_path_unless_the_model_sees_content() {
+        let model = "[model]\nbase_url = 'http://127.0.0.1:9'\nmodel = 'm'\napi_key_env = 'K'\n";
+        let plan_for = |path: &str| {
+            allowed(verdict(
+                &policy(AutoRisk::Medium, false),
+                &request(Some("edit"), json!({"path":path,"content":"x"})),
+            ))
+        };
+        let config: AutoApproveConfig =
+            toml::from_str(&format!("max_risk = \"medium\"\n{model}")).unwrap();
+        let approver = Approver::new(&config, "agent").unwrap().unwrap();
+        let (a, b) = (plan_for("src/a.rs"), plan_for("src/b.rs"));
+        assert!(!approver.cached_allow(&a));
+        approver.remember_allow(&a);
+        assert!(approver.cached_allow(&a));
+        assert!(!approver.cached_allow(&b), "another file is reviewed again");
+
+        let with_content: AutoApproveConfig = toml::from_str(&format!(
+            "max_risk = \"medium\"\nmodel_sees_content = true\n{model}"
+        ))
+        .unwrap();
+        let approver = Approver::new(&with_content, "agent").unwrap().unwrap();
+        approver.remember_allow(&a);
+        assert!(!approver.cached_allow(&a), "content can change the verdict");
     }
 
     #[test]
