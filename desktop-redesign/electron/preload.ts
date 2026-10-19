@@ -61,7 +61,7 @@ const api = {
     set: (p: Record<string, unknown>): Promise<Result<void>> => ipcRenderer.invoke('prefs:set', p)
   },
   secureStorage: (): Promise<string> => ipcRenderer.invoke('app:secure-storage'),
-  files: { pick: (): Promise<Result<{ name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[]>> => ipcRenderer.invoke('files:pick') },
+  files: { pick: (): Promise<Result<{ name: string; mimeType: string; size: number; data?: string; text?: string; blob?: string; path: string }[]>> => ipcRenderer.invoke('files:pick') },
   storageOf: (id: string): Promise<Result<string>> => ipcRenderer.invoke('hosts:storage-of', id),
   git: {
     available: (hostId: string): Promise<Result<'host' | 'local' | false>> => ipcRenderer.invoke('git:available', hostId),

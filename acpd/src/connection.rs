@@ -427,7 +427,32 @@ fn publish_host(
     journal: &Arc<Mutex<Journal>>,
     message: Value,
 ) {
-    let event = journal.lock().unwrap().append_direction(message, "host");
+    publish_direction(events, journal, "host", message);
+}
+/// A permission or elicitation answer, in the same shape a phone's own reply is journaled.
+/// Every successful answer goes through here, including ones the host makes itself
+/// (auto-approve, a supervisor, cancel). Clients drop the card from this event. Without it
+/// the card stays up after the request is already gone, and a later click is rejected.
+fn publish_answer(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    id: &Value,
+    result: &Value,
+) {
+    publish_direction(
+        events,
+        journal,
+        "client",
+        json!({"jsonrpc":"2.0","id":id,"result":result}),
+    );
+}
+fn publish_direction(
+    events: &broadcast::Sender<Weak<Event>>,
+    journal: &Arc<Mutex<Journal>>,
+    direction: &'static str,
+    message: Value,
+) {
+    let event = journal.lock().unwrap().append_direction(message, direction);
     let _ = events.send(event);
 }
 fn publish_terminal(
@@ -1413,16 +1438,20 @@ async fn actor(
                             let permissions: Vec<Value> = journal.lock().unwrap().permissions.values().cloned().collect();
                             let mut failed = false;
                             for permission in permissions {
-                                let answer=if let Some(host_terminal)=host_terminals.remove(&permission["id"].to_string()) {
+                                let id = permission["id"].clone();
+                                let (answer, recorded)=if let Some(host_terminal)=host_terminals.remove(&id.to_string()) {
                                     publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":{"sessionUpdate":"tool_call_update","toolCallId":permission["params"]["toolCall"]["toolCallId"],"status":"failed"}}}));
-                                    error(host_terminal.callback_id,-32800,"Terminal creation cancelled")
-                                } else if let Some(host_write)=host_writes.remove(&permission["id"].to_string()) {
+                                    (error(host_terminal.callback_id,-32800,"Terminal creation cancelled"), json!({"outcome":{"outcome":"cancelled"}}))
+                                } else if let Some(host_write)=host_writes.remove(&id.to_string()) {
                                     let update=refused_write_update(&files,&permission["params"]["toolCall"]["toolCallId"],host_write.prepared).await;
                                     publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
-                                    error(host_write.callback_id,-32800,"Host file write cancelled")
-                                } else if permission["method"]=="elicitation/create" {response(permission["id"].clone(), json!({"action":"cancel"}))
-                                } else {response(permission["id"].clone(), json!({"outcome":{"outcome":"cancelled"}}))};
-                                if write(stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true; break }
+                                    (error(host_write.callback_id,-32800,"Host file write cancelled"), json!({"outcome":{"outcome":"cancelled"}}))
+                                } else if permission["method"]=="elicitation/create" {(response(id.clone(), json!({"action":"cancel"})), json!({"action":"cancel"}))
+                                } else {(response(id.clone(), json!({"outcome":{"outcome":"cancelled"}})), json!({"outcome":{"outcome":"cancelled"}}))};
+                                // Journal even if stdin is already dead: the map is cleared below either way,
+                                // and a card for a request that is gone is what makes the next click fail.
+                                publish_answer(events, journal, &id, &recorded);
+                                if !failed && write(stdin, &answer, limits.max_frame_bytes).await.is_err() { failed = true }
                             }
                             {
                                 let mut history = journal.lock().unwrap();
@@ -1480,19 +1509,21 @@ async fn actor(
                             publish_host(events,journal,json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":file_session_id,"update":update}}));
                             match result {Ok(())=>response(host_write.callback_id,json!({})),Err(_)=>error(host_write.callback_id,CALLBACK_DENIED,"Host write denied, changed or failed; do not retry automatically")}
                         } else {response(id.clone(), json!({"outcome":outcome}))};
-                        let result = write(stdin, &answer, limits.max_frame_bytes).await;
-                        let failed = result.is_err();
+                        let written = write(stdin, &answer, limits.max_frame_bytes).await;
+                        let failed = written.is_err();
                         if !failed {
                             {
                                 let mut history = journal.lock().unwrap();
                                 history.permissions.remove(&id.to_string());
                                 history.host_consents.remove(&id.to_string());
                             }
+                            // `result` is the outcome the caller gave (a phone, auto-approve, or a supervisor).
+                            publish_answer(events, journal, &id, &result);
                             for waiter in pending.values_mut().filter(|waiter| waiter.method == "session/prompt") {
                                 waiter.deadline = Instant::now() + Duration::from_secs(limits.request_timeout_seconds);
                             }
                         }
-                        let _ = reply.send(result);
+                        let _ = reply.send(written);
                         if failed { break "agent stdin failed".into() }
                     }
                     Some(Control::Shutdown(reply)) => {

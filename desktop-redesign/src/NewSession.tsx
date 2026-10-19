@@ -11,7 +11,7 @@ import { I, tildify } from './ui'
 import { parseBranches } from './gitparse'
 import { type AgentSetup, choiceName, groupAgents, hasChoices, arranged, placePopover, setupFromAcp } from './agentSetup'
 import { OptionsPanel } from './OptionPicker'
-import { applyPreset, NEVER_REMEMBERED, presetKey, sameRights, type Preset } from './presets'
+import { applyPreset, matchingPreset, NEVER_REMEMBERED, presetKey, type Preset } from './presets'
 
 export type BranchPick = { mode: 'current' | 'existing' | 'new'; name: string; base?: string; worktree: boolean }
 export type Access = { read: boolean; write: boolean; terminal: boolean; mcp: boolean; manual?: boolean; yolo?: boolean }
@@ -109,6 +109,11 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const [presetId, setPresetId] = useState<string>()
   const [presetsLoading, setPresetsLoading] = useState(false)
   const presetTouch = useRef(false)
+  // The last preset the person actually picked. Turning a right off and back on returns to it,
+  // even when another preset advertises the same flags and is listed first.
+  const heldPreset = useRef<string | undefined>(undefined)
+  const accessRef = useRef(access)
+  accessRef.current = access
   const [branch, setBranch] = useState<BranchPick>({ mode: 'current', name: '', worktree: false })
   const [branches, setBranches] = useState<string[]>()
   const [current, setCurrent] = useState<string>()
@@ -216,19 +221,26 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const enabledMcp = mcp.filter((m) => m.enabled)
   const rightsLabel = [access.read && 'Read', access.write && 'Write', access.terminal && 'Commands'].filter(Boolean).join(' · ') || 'No access'
   const chosenPreset = presetList.find((p) => p.id === presetId)
-  const accessLabel = presetList.length ? (chosenPreset?.label ?? 'Custom') : rightsLabel
+  const accessLabel = chosenPreset?.label ?? (presetList.length ? 'Custom' : presetsLoading ? 'Access' : rightsLabel)
   useEffect(() => {
     presetTouch.current = false
+    heldPreset.current = undefined
     setPresetList([])
     setPresetId(undefined)
     if (!loadPresets || !agent) { setPresetsLoading(false); return }
     let stop = false
     setPresetsLoading(true)
     loadPresets(agent).then((list) => {
-      if (stop || presetTouch.current) return
+      if (stop) return
       const presets = list ?? []
       setPresetList(presets)
       setPresetsLoading(false)
+      // A toggle that landed before this reply must not be overwritten. The list still appears.
+      if (presetTouch.current) {
+        const match = matchingPreset(presets, accessRef.current, heldPreset.current)
+        setPresetId(match?.id)
+        return
+      }
       let remembered: string | null = null
       try { remembered = localStorage.getItem(presetKey(agent)) } catch { remembered = null }
       const hit = remembered && remembered !== NEVER_REMEMBERED ? presets.find((p) => p.id === remembered) : undefined
@@ -236,6 +248,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
       // whatever this preset advertises, including after switching agents.
       const chosen = hit ?? presets.find((preset) => preset.id === 'supervised')
       if (!chosen) return
+      heldPreset.current = chosen.id
       setPresetId(chosen.id)
       setAccess((current) => applyPreset(current, chosen))
     }, () => { if (!stop) setPresetsLoading(false) })
@@ -251,6 +264,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   }, [open, agent, target, ws, loadEarlier])
   const pickPreset = (preset: Preset): void => {
     presetTouch.current = true
+    heldPreset.current = preset.id
     setPresetId(preset.id)
     setAccess((current) => applyPreset(current, preset))
     try { localStorage.setItem(presetKey(agent), preset.id === NEVER_REMEMBERED ? 'supervised' : preset.id) } catch { /* ignore */ }
@@ -258,10 +272,12 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
   const toggleRight = (key: 'read' | 'write' | 'terminal'): void => {
     presetTouch.current = true
     const next = { ...access, [key]: !access[key] }
-    const match = presetList.find((preset) => sameRights(next, preset))
+    const match = matchingPreset(presetList, next, presetId ?? heldPreset.current)
+    if (match) heldPreset.current = match.id
     setAccess(next)
     setPresetId(match?.id)
-    try { localStorage.setItem(presetKey(agent), match && match.id !== NEVER_REMEMBERED ? match.id : 'custom') } catch { /* ignore */ }
+    const remembered = !match ? 'custom' : match.id === NEVER_REMEMBERED ? 'supervised' : match.id
+    try { localStorage.setItem(presetKey(agent), remembered) } catch { /* ignore */ }
   }
   const mode = selectors.find((selector) => selector.kind === 'mode' || selector.category === 'mode')
 
@@ -348,7 +364,7 @@ export function NewSessionHome({ hosts, hostId, onHost, agents, workspaces, mcp,
       <Chip id="access" open={open} setOpen={setOpen} icon={I.shield} label={accessLabel} title="Access rights">
         {presetList.length > 0 && <>
           <div className="ctx-h">Preset</div>
-          {presetList.map((preset) => <Item key={preset.id} preset={preset.id} on={preset.id === presetId} onPick={() => pickPreset(preset)}>{preset.label}</Item>)}
+          {presetList.map((preset) => <Item key={preset.id} preset={preset.id} sub={preset.effects[0]} on={preset.id === presetId} onPick={() => pickPreset(preset)}>{preset.label}</Item>)}
           {chosenPreset?.effects.map((line) => <div key={line} className="hint ctx-pad">{line}</div>)}
           {mode && <>
             <div className="ctx-h">{mode.name}</div>

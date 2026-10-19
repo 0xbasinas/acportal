@@ -121,16 +121,17 @@ export function reduce(t: Timeline, env: Json): Timeline {
     return next
   }
   if (dir === 'client' && 'result' in m) {
-    // the user's own permission answer, journaled
-    const ei = next.items.findIndex((i) => i.kind === 'elicitation' && i.id === m.id)
+    // An answer the host journaled: a person's click, or one the host made itself.
+    const ei = next.items.findIndex((i) => i.kind === 'elicitation' && sameId(i.id, m.id))
     if (ei >= 0) {
       next.items[ei] = { ...(next.items[ei] as Extract<Item, { kind: 'elicitation' }>), answered: String(((m.result as Json)?.action as string) ?? 'answered') }
       return next
     }
-    const idx = next.items.findIndex((i) => i.kind === 'permission' && i.id === m.id)
+    const idx = next.items.findIndex((i) => i.kind === 'permission' && sameId(i.id, m.id))
     if (idx >= 0) {
       const o = ((m.result as Json)?.outcome ?? {}) as Json
-      next.items[idx] = { ...(next.items[idx] as PermissionItem), answered: (o.optionId as string) ?? 'cancelled' }
+      const option = o.optionId
+      next.items[idx] = { ...(next.items[idx] as PermissionItem), answered: typeof option === 'string' ? option : 'cancelled' }
     }
     return next
   }
@@ -185,7 +186,7 @@ export function reduce(t: Timeline, env: Json): Timeline {
     return next
   }
   if (method === 'session/request_permission') {
-    if (next.items.some((i) => i.kind === 'permission' && i.id === m.id)) return next
+    if (next.items.some((i) => i.kind === 'permission' && sameId(i.id, m.id))) return next
     const tc = (params.toolCall ?? {}) as Json
     const meta = (params._meta ?? {}) as Json
     const { lines, cwd } = shellLines(tc)
@@ -213,11 +214,28 @@ export function reduce(t: Timeline, env: Json): Timeline {
     next.busy = false
     const err = m.error as Json | undefined
     const stop = (m.result as Json | undefined)?.stopReason as string | undefined
+    // A turn that has finished cannot still be waiting on a card. One the host already
+    // answered (and journaled) keeps that answer; anything still open is settled here so
+    // a click cannot be sent at a request the host has dropped.
+    if (err || stop === 'cancelled') next.items = settleOpen(next.items, 'cancelled')
+    else if (stop === 'end_turn') next.items = settleOpen(next.items, 'settled')
     if (err) next.items.push({ kind: 'notice', id: `n${seq}`, text: `Prompt failed (${err.code ?? 'error'})`, tone: 'error' })
     else if (stop && stop !== 'end_turn') next.items.push({ kind: 'notice', id: `n${seq}`, text: `Stopped: ${stop.replace('_', ' ')}`, tone: 'warn' })
     return next
   }
   return next
+}
+
+function sameId(a: unknown, b: unknown): boolean {
+  return a === b || (a !== undefined && b !== undefined && String(a) === String(b))
+}
+
+/** Close permission and form cards the turn left open. An answer already recorded stays. */
+function settleOpen(items: Item[], how: string): Item[] {
+  return items.map((item) => {
+    if ((item.kind === 'permission' || item.kind === 'elicitation') && item.answered === undefined) return { ...item, answered: how }
+    return item
+  })
 }
 
 /** Every diff the session produced, newest version per path. */

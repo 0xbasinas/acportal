@@ -243,6 +243,9 @@ impl Host {
             )
             .route("/v1/filesystem/directories", get(directories))
             .route("/v1/workspaces/browse", get(browse))
+            .route("/v1/workspaces/entries", get(workspace_entries))
+            .route("/v1/workspaces/file", get(workspace_file))
+            .route("/v1/workspaces/find", get(workspace_find))
             .route("/v1/presets", get(presets))
             .route("/v1/sessions", get(sessions).post(create_session))
             .route("/v1/sessions/{id}", get(session).delete(delete_session))
@@ -1178,6 +1181,321 @@ async fn browse(
     entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     Ok(Json(json!(entries)))
 }
+/// Names of the files and folders directly inside a folder the host already allows: a workspace,
+/// a folder inside one, a scratch session folder, or a task worktree. Symlinks are listed as
+/// files and are not followed, so opening an entry cannot walk outside that folder. File contents
+/// are not returned. `/v1/workspaces/browse` stays folders-only because the phone treats every
+/// browse entry as a workspace directory.
+async fn workspace_entries(
+    State(host): State<Host>,
+    Query(input): Query<BrowseInput>,
+) -> ApiResult<Json<Value>> {
+    let settings = host.sessions.launch_settings();
+    let directory = settings
+        .config
+        .task_workspace(&input.path)
+        .map_err(input_error)?;
+    const LIMIT: usize = 1024;
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for item in std::fs::read_dir(&directory).map_err(internal)? {
+        let Ok(item) = item else { continue };
+        let Ok(kind) = item.file_type() else { continue };
+        let name = item.file_name().to_string_lossy().into_owned();
+        if name.is_empty() {
+            continue;
+        }
+        if entries.len() == LIMIT {
+            truncated = true;
+            break;
+        }
+        entries.push(json!({
+            "name": name,
+            "path": plain_path(&item.path()),
+            "directory": kind.is_dir() && !kind.is_symlink(),
+        }));
+    }
+    entries.sort_by(|left, right| {
+        let directory = |value: &Value| value["directory"].as_bool().unwrap_or(false);
+        directory(right).cmp(&directory(left)).then_with(|| {
+            left["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_lowercase()
+                .cmp(&right["name"].as_str().unwrap_or_default().to_lowercase())
+        })
+    });
+    Ok(Json(json!({
+        "path": plain_path(&directory),
+        "entries": entries,
+        "truncated": truncated,
+    })))
+}
+/// The contents of one file inside a folder the host already allows, for the person to read.
+/// Symlinks are refused. Text is cut at 256 KiB and images at 2 MiB. Other files include
+/// their bytes when they are at most 512 KiB, and otherwise report their size only.
+async fn workspace_file(
+    State(host): State<Host>,
+    Query(input): Query<BrowseInput>,
+) -> ApiResult<Json<Value>> {
+    let config = host.sessions.launch_settings().config.clone();
+    let path = input.path;
+    tokio::task::spawn_blocking(move || read_workspace_file(&config, &path))
+        .await
+        .map_err(|_| internal("filesystem worker failed"))?
+}
+fn read_workspace_file(config: &Config, requested: &std::path::Path) -> ApiResult<Json<Value>> {
+    let listed = std::fs::symlink_metadata(requested).map_err(|_| input_error("unavailable"))?;
+    if listed.file_type().is_symlink() || !listed.is_file() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    let canonical = requested
+        .canonicalize()
+        .map_err(|_| input_error("unavailable"))?;
+    let parent = canonical
+        .parent()
+        .ok_or(ApiError(StatusCode::BAD_REQUEST, "invalid_request"))?;
+    let allowed = config
+        .task_workspace(parent)
+        .map_err(|_| input_error("outside"))?;
+    if !canonical.starts_with(&allowed) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    let relative = canonical
+        .strip_prefix(&allowed)
+        .map_err(|_| input_error("outside"))?;
+    let files = crate::filesystem::WorkspaceFiles::open(&allowed, 256 * 1024)
+        .map_err(|_| internal("open workspace"))?;
+    let preview = files
+        .preview(relative)
+        .map_err(|_| input_error("unreadable"))?;
+    let kind = match preview.kind {
+        crate::filesystem::PreviewKind::Text => "text",
+        crate::filesystem::PreviewKind::Image => "image",
+        crate::filesystem::PreviewKind::Binary => "binary",
+    };
+    let mut body = json!({
+        "path": plain_path(&canonical),
+        "name": canonical.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+        "bytes": preview.size,
+        "kind": kind,
+        "truncated": preview.truncated,
+    });
+    if let Some(text) = preview.text {
+        body["content"] = json!(text);
+    }
+    if let Some(media_type) = preview.media_type {
+        body["mediaType"] = json!(media_type);
+    }
+    if let Some(bytes) = preview.bytes {
+        body["data"] = json!(base64_encode(&bytes));
+    }
+    Ok(Json(body))
+}
+/// File paths under a folder the host already allows, for the message box to tag.
+/// Names only: no contents, symlinks are not followed, and `.git`, `node_modules`, and
+/// `target` are skipped. At most 40 files. `q` is a case-insensitive substring of the path.
+#[derive(Deserialize)]
+struct FindInput {
+    path: PathBuf,
+    #[serde(default)]
+    q: String,
+}
+async fn workspace_find(
+    State(host): State<Host>,
+    Query(input): Query<FindInput>,
+) -> ApiResult<Json<Value>> {
+    let config = host.sessions.launch_settings().config.clone();
+    let path = input.path;
+    let query = input.q;
+    tokio::task::spawn_blocking(move || find_workspace_files(&config, &path, &query))
+        .await
+        .map_err(|_| internal("filesystem worker failed"))?
+}
+const FIND_RESULTS: usize = 40;
+const FIND_SEEN: usize = 8_000;
+const FIND_DEPTH: usize = 12;
+fn skipped_dir(name: &str) -> bool {
+    name.eq_ignore_ascii_case(".git")
+        || name.eq_ignore_ascii_case("node_modules")
+        || name.eq_ignore_ascii_case("target")
+}
+fn relative_slash(root: &std::path::Path, path: &std::path::Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
+struct FoundFile {
+    name: String,
+    path: PathBuf,
+    relative: String,
+}
+fn hit_rank(name: &str, relative: &str, needle: &str) -> u8 {
+    let name = name.to_lowercase();
+    let relative = relative.to_lowercase();
+    if name == needle {
+        0
+    } else if name.starts_with(needle) {
+        1
+    } else if name.contains(needle) {
+        2
+    } else if relative.contains(needle) {
+        3
+    } else {
+        4
+    }
+}
+fn find_workspace_files(
+    config: &Config,
+    requested: &std::path::Path,
+    query: &str,
+) -> ApiResult<Json<Value>> {
+    let root = config
+        .task_workspace(requested)
+        .map_err(|_| input_error("outside"))?;
+    if !root.is_dir() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    let needle = query
+        .trim()
+        .chars()
+        .take(128)
+        .collect::<String>()
+        .to_lowercase();
+    let (found, truncated) = walk_workspace_files(&root, &needle);
+    let files = found
+        .into_iter()
+        .map(|file| {
+            json!({
+                "name": file.name,
+                "path": plain_path(&file.path),
+                "relative": file.relative,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({
+        "path": plain_path(&root),
+        "files": files,
+        "truncated": truncated,
+    })))
+}
+fn walk_workspace_files(root: &std::path::Path, needle: &str) -> (Vec<FoundFile>, bool) {
+    let mut found = Vec::new();
+    let mut truncated = false;
+    let mut seen = 0usize;
+    let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
+    while let Some((dir, depth)) = queue.pop_front() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut items: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+        items.sort_by(|left, right| {
+            left.file_name()
+                .to_string_lossy()
+                .to_lowercase()
+                .cmp(&right.file_name().to_string_lossy().to_lowercase())
+        });
+        for item in items {
+            seen += 1;
+            if seen > FIND_SEEN {
+                return finish_hits(found, needle, true);
+            }
+            let Ok(kind) = item.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            let name = item.file_name().to_string_lossy().into_owned();
+            if name.is_empty() {
+                continue;
+            }
+            if kind.is_dir() {
+                if skipped_dir(&name) {
+                    continue;
+                }
+                if depth >= FIND_DEPTH {
+                    truncated = true;
+                    continue;
+                }
+                let Ok(canonical) = item.path().canonicalize() else {
+                    continue;
+                };
+                if !canonical.starts_with(root) {
+                    continue;
+                }
+                queue.push_back((canonical, depth + 1));
+                continue;
+            }
+            if !kind.is_file() {
+                continue;
+            }
+            let Some(relative) = relative_slash(root, &item.path()) else {
+                continue;
+            };
+            if !needle.is_empty()
+                && !relative.to_lowercase().contains(needle)
+                && !name.to_lowercase().contains(needle)
+            {
+                continue;
+            }
+            if found.len() == FIND_RESULTS {
+                return finish_hits(found, needle, true);
+            }
+            found.push(FoundFile {
+                name,
+                path: item.path(),
+                relative,
+            });
+        }
+    }
+    finish_hits(found, needle, truncated)
+}
+fn finish_hits(mut found: Vec<FoundFile>, needle: &str, truncated: bool) -> (Vec<FoundFile>, bool) {
+    if !needle.is_empty() {
+        found.sort_by(|left, right| {
+            hit_rank(&left.name, &left.relative, needle)
+                .cmp(&hit_rank(&right.name, &right.relative, needle))
+                .then_with(|| left.relative.cmp(&right.relative))
+        });
+    }
+    (found, truncated)
+}
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    let mut index = 0;
+    while index + 3 <= bytes.len() {
+        let value = ((bytes[index] as u32) << 16)
+            | ((bytes[index + 1] as u32) << 8)
+            | bytes[index + 2] as u32;
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push(TABLE[((value >> 6) & 63) as usize] as char);
+        out.push(TABLE[(value & 63) as usize] as char);
+        index += 3;
+    }
+    let rest = &bytes[index..];
+    if rest.len() == 1 {
+        let value = (rest[0] as u32) << 16;
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rest.len() == 2 {
+        let value = ((rest[0] as u32) << 16) | ((rest[1] as u32) << 8);
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push(TABLE[((value >> 6) & 63) as usize] as char);
+        out.push('=');
+    }
+    out
+}
 async fn sessions(State(host): State<Host>) -> Json<Value> {
     Json(json!(host.sessions.list().await))
 }
@@ -1613,9 +1931,9 @@ fn dispatch(session: Arc<AcpSession>, gateway: Arc<Gateway>, message: Value) {
                 .connection
                 .answer(message["id"].clone(), message["result"].clone())
                 .await;
-            if result.is_ok() {
-                session.connection.record(message, "client");
-            } else {
+            // A successful answer is journaled by the connection itself, once, including answers
+            // the host makes without a phone. Recording it here as well would deliver it twice.
+            if result.is_err() {
                 session.connection.record(
                     error(
                         message["id"].clone(),

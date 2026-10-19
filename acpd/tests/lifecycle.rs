@@ -1790,15 +1790,21 @@ async fn complete_prompt_stream_permissions_tools_diff_and_cleanup() {
             .any(|event| event.message["params"]["update"]["content"][0]["type"] == "diff")
     );
     // The mock emits wire shapes validated against upstream stable v1 types.
+    // A journaled answer is a JSON-RPC result, not another permission request.
+    let mut answers = 0;
     for event in &replay.events {
         if event.message["method"] == "session/update" {
             let _: acp::SessionNotification =
                 serde_json::from_value(event.message["params"].clone()).unwrap();
+        } else if event.direction == "client" && event.message.get("method").is_none() {
+            assert_eq!(event.message["result"]["outcome"]["optionId"], "allow");
+            answers += 1;
         } else {
             let _: acp::RequestPermissionRequest =
                 serde_json::from_value(event.message["params"].clone()).unwrap();
         }
     }
+    assert_eq!(answers, 1);
     assert!(!workspace.path().join("example.rs").exists());
     assert_eq!(manager.list().await[0].status, "ready");
     manager.remove(session.metadata().id).await.unwrap();
@@ -1852,7 +1858,7 @@ async fn cancellation_resolves_permissions_and_prompt() {
         .unwrap();
     let prompt_session = session.clone();
     let prompt = tokio::spawn(async move { prompt_session.prompt("cancel me").await });
-    next_permission(&session.connection).await;
+    let request = next_permission(&session.connection).await;
     session.cancel().await.unwrap();
     assert_eq!(
         timeout(Duration::from_secs(5), prompt)
@@ -1862,7 +1868,17 @@ async fn cancellation_resolves_permissions_and_prompt() {
             .unwrap()["stopReason"],
         "cancelled"
     );
-    assert!(session.replay(0).pending_permissions.is_empty());
+    let replay = session.replay(0);
+    assert!(replay.pending_permissions.is_empty());
+    assert!(
+        replay.events.iter().any(|event| {
+            event.direction == "client"
+                && event.message.get("method").is_none()
+                && event.message["id"] == request["id"]
+                && event.message["result"]["outcome"]["outcome"] == "cancelled"
+        }),
+        "cancel journals the answer, so a client drops the card instead of leaving it stuck"
+    );
     assert_eq!(session.metadata().status, "ready");
     manager.shutdown().await;
 }

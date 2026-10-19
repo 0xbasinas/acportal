@@ -1446,3 +1446,404 @@ async fn commit_message_comes_from_a_throwaway_agent_session() {
     assert_eq!(outside.status(), 403);
     fixture.stop().await;
 }
+
+/// `GET /v1/workspaces/entries` lists one level of names inside an allowed folder. Files are
+/// included (browse stays folders-only), symlinks are not opened, and a folder outside the
+/// roots is refused.
+#[tokio::test]
+async fn workspace_entries_lists_one_level_inside_an_allowed_folder() {
+    let fixture = Fixture::start().await;
+    let root = fixture.host.config.workspace_roots[0].clone();
+    std::fs::write(root.join("b.txt"), b"b").unwrap();
+    std::fs::write(root.join("a.txt"), b"a").unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src").join("lib.rs"), b"").unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.txt"), b"no").unwrap();
+    let link = root.join("out-link");
+    let linked = {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.path().join("secret.txt"), &link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(outside.path().join("secret.txt"), &link).is_ok()
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            false
+        }
+    };
+    let list = |path: &std::path::Path| {
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/entries", fixture.base))
+            .bearer_auth(&fixture.token)
+            .query(&[("path", path.to_str().unwrap())])
+            .send()
+    };
+    let body: Value = list(&root)
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows: Vec<(&str, bool)> = body["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap(),
+                entry["directory"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![("src", true), ("a.txt", false), ("b.txt", false)]
+            .into_iter()
+            .chain(linked.then_some(("out-link", false)))
+            .collect::<Vec<_>>(),
+        "{body}"
+    );
+    assert!(!body["truncated"].as_bool().unwrap());
+    let nested: Value = list(&root.join("src"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(nested["entries"][0]["name"], "lib.rs");
+    assert_eq!(nested["entries"][0]["directory"], false);
+    let browse: Value = fixture
+        .client
+        .get(format!("{}/v1/workspaces/browse", fixture.base))
+        .bearer_auth(&fixture.token)
+        .query(&[("path", root.to_str().unwrap())])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let browsed: Vec<&str> = browse
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(browsed, vec!["src"]);
+    assert_eq!(list(outside.path()).await.unwrap().status(), 400);
+    if linked {
+        assert_eq!(list(&link).await.unwrap().status(), 400);
+    }
+    assert_eq!(
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/entries", fixture.base))
+            .query(&[("path", root.to_str().unwrap())])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let many = root.join("many");
+    std::fs::create_dir(&many).unwrap();
+    for index in 0..1025 {
+        std::fs::write(many.join(format!("{index:04}.txt")), b"").unwrap();
+    }
+    let capped: Value = list(&many)
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(capped["entries"].as_array().unwrap().len(), 1024);
+    assert_eq!(capped["truncated"], true);
+    fixture.stop().await;
+}
+
+/// `GET /v1/workspaces/file` returns text and a small image, and refuses a folder, a symlink,
+/// and a path outside the allowed roots.
+#[tokio::test]
+async fn workspace_file_returns_text_and_refuses_escapes() {
+    let fixture = Fixture::start().await;
+    let root = fixture.host.config.workspace_roots[0].clone();
+    std::fs::write(root.join("note.txt"), b"hello\n").unwrap();
+    std::fs::write(root.join("blob.bin"), [0u8, 1, 2]).unwrap();
+    std::fs::write(root.join("notes.pdf"), b"%PDF-1.4\n").unwrap();
+    std::fs::write(root.join("big.bin"), vec![0u8; 513 * 1024]).unwrap();
+    let png: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 80,
+        15, 0, 4, 133, 1, 128, 132, 169, 140, 33, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    std::fs::write(root.join("dot.png"), png).unwrap();
+    let big = root.join("big.txt");
+    std::fs::write(&big, vec![b'x'; 300 * 1024]).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.txt"), b"no").unwrap();
+    let link = root.join("out-link");
+    let linked = {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.path().join("secret.txt"), &link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(outside.path().join("secret.txt"), &link).is_ok()
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            false
+        }
+    };
+    let read = |path: &std::path::Path| {
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/file", fixture.base))
+            .bearer_auth(&fixture.token)
+            .query(&[("path", path.to_str().unwrap())])
+            .send()
+    };
+    let note: Value = read(&root.join("note.txt"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(note["kind"], "text");
+    assert_eq!(note["content"], "hello\n");
+    assert_eq!(note["truncated"], false);
+    let image: Value = read(&root.join("dot.png"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(image["kind"], "image");
+    assert_eq!(image["mediaType"], "image/png");
+    assert!(image["data"].as_str().unwrap().starts_with("iVBOR"));
+    assert!(image.get("content").is_none());
+    let binary: Value = read(&root.join("blob.bin"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(binary["kind"], "binary");
+    assert!(binary.get("content").is_none());
+    assert_eq!(binary["mediaType"], "application/octet-stream");
+    assert_eq!(binary["data"], "AAEC");
+    assert_eq!(binary["truncated"], false);
+    let pdf: Value = read(&root.join("notes.pdf"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pdf["kind"], "binary");
+    assert_eq!(pdf["mediaType"], "application/pdf");
+    assert!(pdf["data"].as_str().unwrap().starts_with("JVBER"));
+    assert!(pdf.get("content").is_none());
+    let huge: Value = read(&root.join("big.bin"))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(huge["kind"], "binary");
+    assert_eq!(huge["truncated"], true);
+    assert!(huge.get("data").is_none());
+    let capped: Value = read(&big)
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(capped["kind"], "text");
+    assert_eq!(capped["truncated"], true);
+    assert_eq!(capped["content"].as_str().unwrap().len(), 256 * 1024);
+    assert_eq!(read(&root).await.unwrap().status(), 400);
+    assert_eq!(
+        read(outside.path().join("secret.txt").as_path())
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    if linked {
+        assert_eq!(read(&link).await.unwrap().status(), 400);
+    }
+    assert_eq!(
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/file", fixture.base))
+            .query(&[("path", root.join("note.txt").to_str().unwrap())])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    fixture.stop().await;
+}
+
+/// `GET /v1/workspaces/find` returns file paths inside an allowed folder. Heavy directories
+/// and symlinks are skipped, a query matches the relative path, and the list stops at 40.
+#[tokio::test]
+async fn workspace_find_matches_names_and_skips_heavy_directories() {
+    let fixture = Fixture::start().await;
+    let root = fixture.host.config.workspace_roots[0].clone();
+    std::fs::write(root.join("a.txt"), b"a").unwrap();
+    std::fs::write(root.join("b.txt"), b"b").unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src").join("lib.rs"), b"").unwrap();
+    std::fs::create_dir_all(root.join("nested").join("deep")).unwrap();
+    std::fs::write(root.join("nested").join("deep").join("app.tsx"), b"").unwrap();
+    std::fs::create_dir_all(root.join("node_modules")).unwrap();
+    std::fs::write(root.join("node_modules").join("secret.js"), b"").unwrap();
+    std::fs::create_dir_all(root.join("target")).unwrap();
+    std::fs::write(root.join("target").join("out.txt"), b"").unwrap();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::write(root.join(".git").join("config"), b"").unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("hidden.txt"), b"no").unwrap();
+    let link = root.join("linked");
+    #[cfg(unix)]
+    let _linked = std::os::unix::fs::symlink(outside.path(), &link).is_ok();
+    #[cfg(windows)]
+    let _linked = std::os::windows::fs::symlink_dir(outside.path(), &link).is_ok();
+    let find = |path: &std::path::Path, q: &str| {
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/find", fixture.base))
+            .bearer_auth(&fixture.token)
+            .query(&[("path", path.to_str().unwrap()), ("q", q)])
+            .send()
+    };
+    let body: Value = find(&root, "")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let relatives: Vec<&str> = body["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["relative"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        relatives,
+        vec!["a.txt", "b.txt", "src/lib.rs", "nested/deep/app.tsx"],
+        "{body}"
+    );
+    assert_eq!(body["truncated"], false);
+    let lib: Value = find(&root, "LIB")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(lib["files"][0]["name"], "lib.rs");
+    assert_eq!(lib["files"][0]["relative"], "src/lib.rs");
+    assert!(
+        lib["files"][0]["path"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+            .ends_with("src/lib.rs")
+    );
+    let app: Value = find(&root, "app")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(app["files"].as_array().unwrap().len(), 1);
+    assert_eq!(app["files"][0]["relative"], "nested/deep/app.tsx");
+    let skipped: Value = find(&root, "secret")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(skipped["files"].as_array().unwrap().len(), 0);
+    let hidden: Value = find(&root, "hidden")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(hidden["files"].as_array().unwrap().len(), 0, "{hidden}");
+    assert_eq!(find(outside.path(), "").await.unwrap().status(), 400);
+    assert_eq!(
+        fixture
+            .client
+            .get(format!("{}/v1/workspaces/find", fixture.base))
+            .query(&[("path", root.to_str().unwrap())])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let many = root.join("many");
+    std::fs::create_dir(&many).unwrap();
+    for index in 0..41 {
+        std::fs::write(many.join(format!("{index:02}.txt")), b"").unwrap();
+    }
+    let capped: Value = find(&many, "")
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let names: Vec<&str> = capped["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 40);
+    assert_eq!(names[0], "00.txt");
+    assert_eq!(names[39], "39.txt");
+    assert_eq!(capped["truncated"], true);
+    fixture.stop().await;
+}

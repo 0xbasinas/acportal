@@ -343,6 +343,35 @@ describe('permission presets', () => {
     localStorage.removeItem('acportal.preset.goose')
   })
 
+  it('turning a right off and back keeps Auto-review when Supervised has the same flags', async () => {
+    localStorage.setItem('acportal.preset.goose', 'auto-review')
+    setup({ loadPresets, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Auto-review/)).toBeTruthy())
+    fireEvent.click(chip(/Auto-review/))
+    fireEvent.click(screen.getByText('Write files'))
+    expect(chip(/Custom/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Write files'))
+    expect(chip(/Auto-review/)).toBeTruthy()
+    expect(localStorage.getItem('acportal.preset.goose')).toBe('auto-review')
+    localStorage.removeItem('acportal.preset.goose')
+  })
+
+  it('a right toggled while presets are still loading still shows the list', async () => {
+    let release: (list: typeof presets) => void = () => {}
+    const slow = vi.fn(() => new Promise<typeof presets>((resolve) => { release = resolve }))
+    setup({ loadPresets: slow, agents: [modeAgent] })
+    await waitFor(() => expect(chip(/Access/)).toBeTruthy())
+    fireEvent.click(chip(/Access/))
+    expect(screen.getByText('Reading presets…')).toBeTruthy()
+    fireEvent.click(screen.getByText('Run commands'))
+    await act(async () => { release(presets) })
+    await waitFor(() => expect(screen.queryByText('Reading presets…')).toBeNull())
+    const dialog = screen.getByRole('dialog', { name: 'Access rights' })
+    expect(dialog.querySelector('[data-preset="supervised"]')).toBeTruthy()
+    expect(dialog.querySelector('[data-preset="auto-review"]')).toBeTruthy()
+    expect(chip(/Custom/)).toBeTruthy()
+  })
+
   it('remembers a preset per agent and custom toggles leave that preset', async () => {
     localStorage.setItem('acportal.preset.goose', 'auto-review')
     setup({ loadPresets, agents: [modeAgent] })

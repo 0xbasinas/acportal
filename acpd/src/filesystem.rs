@@ -294,6 +294,166 @@ impl WorkspaceFiles {
             .collect();
         Ok(json!({"content": content}))
     }
+    /// A bounded preview for a person, not an agent: text up to 256 KiB, an image up to 2 MiB,
+    /// or any other file up to 512 KiB. The path is relative to the opened workspace. Callers
+    /// must already have rejected symlinks and paths outside that workspace.
+    pub fn preview(&self, relative: &Path) -> Result<FilePreview> {
+        if relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            bail!("file is outside workspace");
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            // A symlink swapped in after the caller's check must fail closed, not be followed.
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = self
+            .directory
+            .open_with(relative, &options)
+            .context("open workspace file")?;
+        let metadata = file.metadata().context("inspect workspace file")?;
+        if !metadata.is_file() {
+            bail!("file is not a regular file");
+        }
+        const IMAGE_LIMIT: u64 = 2 * 1024 * 1024;
+        const TEXT_LIMIT: usize = 256 * 1024;
+        let mut raw = Vec::new();
+        file.take(IMAGE_LIMIT + 1)
+            .read_to_end(&mut raw)
+            .context("read workspace file")?;
+        let oversized = metadata.len() > IMAGE_LIMIT || raw.len() as u64 > IMAGE_LIMIT;
+        if raw.len() as u64 > IMAGE_LIMIT {
+            raw.truncate(IMAGE_LIMIT as usize);
+        }
+        let size = metadata.len();
+        if let Some(media_type) = image_type(&raw) {
+            if oversized {
+                return Ok(FilePreview {
+                    size,
+                    kind: PreviewKind::Binary,
+                    truncated: true,
+                    text: None,
+                    media_type: None,
+                    bytes: None,
+                });
+            }
+            return Ok(FilePreview {
+                size,
+                kind: PreviewKind::Image,
+                truncated: false,
+                text: None,
+                media_type: Some(media_type),
+                bytes: Some(raw),
+            });
+        }
+        // PDFs and other documents stay files even when the bytes happen to be valid text.
+        // A file the message box can attach (512 KiB) includes its bytes; a larger one is size only.
+        if let Some(media_type) = document_type(relative) {
+            return Ok(binary_preview(size, raw, media_type));
+        }
+        if raw.contains(&0) {
+            return Ok(binary_preview(size, raw, "application/octet-stream"));
+        }
+        let mut text = match String::from_utf8(raw) {
+            Ok(text) => text,
+            Err(err) => {
+                return Ok(binary_preview(
+                    size,
+                    err.into_bytes(),
+                    "application/octet-stream",
+                ));
+            }
+        };
+        let truncated = text.len() > TEXT_LIMIT || size > TEXT_LIMIT as u64;
+        if text.len() > TEXT_LIMIT {
+            let mut end = TEXT_LIMIT;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+        Ok(FilePreview {
+            size,
+            kind: PreviewKind::Text,
+            truncated,
+            text: Some(text),
+            media_type: None,
+            bytes: None,
+        })
+    }
+}
+
+pub enum PreviewKind {
+    Text,
+    Image,
+    Binary,
+}
+pub struct FilePreview {
+    pub size: u64,
+    pub kind: PreviewKind,
+    pub truncated: bool,
+    pub text: Option<String>,
+    pub media_type: Option<&'static str>,
+    pub bytes: Option<Vec<u8>>,
+}
+const ATTACH_LIMIT: u64 = 512 * 1024;
+
+/// Bytes for a non-text file, kept only when the whole file fits an attachment.
+fn binary_preview(size: u64, raw: Vec<u8>, media_type: &'static str) -> FilePreview {
+    let fits = size <= ATTACH_LIMIT && raw.len() as u64 == size;
+    FilePreview {
+        size,
+        kind: PreviewKind::Binary,
+        truncated: !fits,
+        text: None,
+        media_type: if fits { Some(media_type) } else { None },
+        bytes: if fits { Some(raw) } else { None },
+    }
+}
+
+/// Types a person attaches as a file rather than as text. Images detected by their bytes
+/// are handled first, so a png is still an image.
+fn document_type(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "gz" | "tgz" => "application/gzip",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "heic" | "heif" => "image/heic",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        _ => return None,
+    })
+}
+
+fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
 }
 
 #[cfg(windows)]

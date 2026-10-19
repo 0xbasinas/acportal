@@ -10,15 +10,49 @@ import { registerBrowser } from './browser'
 import { Watcher, type WatchTarget } from './watch'
 import { usable } from './window'
 import { Notification } from 'electron'
-import { dialog } from 'electron'
-import { readFile, stat } from 'node:fs/promises'
-import { basename, extname } from 'node:path'
+import { dialog, nativeImage } from 'electron'
+import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
+import { classifyPicked, PICK_LIMIT } from './attach'
 
 /** Height of the app's title bar (index.css --titlebar) and the window buttons' colours per theme. */
 const TITLE_BAR_HEIGHT = 36
 function titleBarColours(): Electron.TitleBarOverlayOptions {
   const dark = nativeTheme.shouldUseDarkColors
   return { color: dark ? '#131211' : '#E6E1D6', symbolColor: dark ? '#F4F0E8' : '#1C1914', height: TITLE_BAR_HEIGHT }
+}
+
+/** A jpeg of this picture that fits the attachment cap, when the bytes are a picture. */
+function jpegWithin(raw: Buffer): Buffer | undefined {
+  const image = nativeImage.createFromBuffer(raw)
+  if (image.isEmpty()) return
+  const size = image.getSize()
+  if (!size.width || !size.height) return
+  let scale = 1
+  let quality = 82
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const width = Math.max(1, Math.round(size.width * scale))
+    const sized = scale === 1 ? image : image.resize({ width })
+    const jpeg = sized.toJPEG(quality)
+    if (jpeg.length > 0 && jpeg.length <= PICK_LIMIT) return jpeg
+    if (quality > 50) quality -= 16
+    else scale *= 0.65
+  }
+  return undefined
+}
+
+/** Keep a web image as itself. Turn other pictures into jpeg. Leave a PDF or text file as it is. */
+function preparePick(name: string, raw: Buffer): { bytes: Buffer; body: ReturnType<typeof classifyPicked> } {
+  if (raw.length <= PICK_LIMIT) {
+    const body = classifyPicked(name, raw)
+    if (body.data || !body.mimeType.startsWith('image/')) return { bytes: raw, body }
+    const jpeg = jpegWithin(raw)
+    if (!jpeg) return { bytes: raw, body }
+    return { bytes: jpeg, body: { mimeType: 'image/jpeg', data: jpeg.toString('base64') } }
+  }
+  const jpeg = jpegWithin(raw)
+  if (!jpeg) throw new Error(`${name} is larger than 512 KB (the host frame limit is 1 MiB)`)
+  return { bytes: jpeg, body: { mimeType: 'image/jpeg', data: jpeg.toString('base64') } }
 }
 
 type StoredHost = { id: string; hostId: string; name: string; address: string; deviceId: string; secret: string; expiresAt: number; addedAt: number }
@@ -266,16 +300,11 @@ function registerIpc(): void {
   ipcMain.handle('files:pick', wrap(async () => {
     if (!win) return []
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
-    const out: { name: string; mimeType: string; size: number; data?: string; text?: string; path: string }[] = []
+    const out: { name: string; mimeType: string; size: number; data?: string; text?: string; blob?: string; path: string }[] = []
     for (const p of r.filePaths) {
-      const st = await stat(p)
-      if (st.size > 512 * 1024) throw new Error(`${basename(p)} is larger than 512 KB (the host frame limit is 1 MiB)`)
-      const buf = await readFile(p)
-      const ext = extname(p).toLowerCase()
-      const img = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' } as Record<string, string>)[ext]
-      if (img) out.push({ name: basename(p), mimeType: img, size: st.size, data: buf.toString('base64'), path: p })
-      else if (!buf.subarray(0, 4096).includes(0)) out.push({ name: basename(p), mimeType: 'text/plain', size: st.size, text: buf.toString('utf8'), path: p })
-      else throw new Error(`${basename(p)} is binary; only images and text files can be attached`)
+      const name = basename(p)
+      const prepared = preparePick(name, await readFile(p))
+      out.push({ name, size: prepared.bytes.length, path: p, ...prepared.body })
     }
     return out
   }))

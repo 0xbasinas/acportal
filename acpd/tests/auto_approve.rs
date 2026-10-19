@@ -135,6 +135,16 @@ async fn an_edit_inside_the_folder_is_answered_by_the_host_and_nobody_is_asked()
         .unwrap();
     assert_eq!(done["stopReason"], "end_turn");
     assert!(rig.session.connection.pending_permissions().is_empty());
+    // The phone drops the card only when it sees this client-direction result. Without it the
+    // card stays up after the host has already answered, and the next click is rejected.
+    assert!(
+        rig.session.replay(0).events.iter().any(|event| {
+            event.direction == "client"
+                && event.message.get("method").is_none()
+                && event.message["result"]["outcome"]["optionId"] == "allow"
+        }),
+        "an automatic answer is journaled in the same shape as a person's"
+    );
     let seen = reviews(&rig.session);
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0]["decision"], "allow_once");

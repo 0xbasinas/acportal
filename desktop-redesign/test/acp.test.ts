@@ -20,6 +20,38 @@ test('chunks merge, replayed sequences are ignored', () => {
   assert.equal(t.busy, false)
 })
 
+test('a finished turn settles a card the host never journaled, and a real answer stays', () => {
+  const req = { jsonrpc: '2.0', id: 4, method: 'session/request_permission', params: { toolCall: { title: 'Write' }, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }] } }
+  const prompt = { jsonrpc: '2.0', id: 7, method: 'session/prompt', params: { prompt: [{ type: 'text', text: 'hi' }] } }
+  let open = reduce(emptyTimeline(), ev(1, prompt, 'client'))
+  open = reduce(open, ev(2, req))
+  open = reduce(open, ev(3, { jsonrpc: '2.0', id: 7, result: { stopReason: 'end_turn' } }))
+  const settled = open.items.find((i) => i.kind === 'permission')
+  assert.ok(settled && settled.kind === 'permission' && settled.answered === 'settled')
+
+  let kept = reduce(emptyTimeline(), ev(1, prompt, 'client'))
+  kept = reduce(kept, ev(2, req))
+  kept = reduce(kept, ev(3, { jsonrpc: '2.0', id: 4, result: { outcome: { outcome: 'selected', optionId: 'allow' } } }, 'client'))
+  kept = reduce(kept, ev(4, { jsonrpc: '2.0', id: 7, result: { stopReason: 'end_turn' } }))
+  const answered = kept.items.find((i) => i.kind === 'permission')
+  assert.ok(answered && answered.kind === 'permission' && answered.answered === 'allow')
+
+  let cancelled = reduce(emptyTimeline(), ev(1, prompt, 'client'))
+  cancelled = reduce(cancelled, ev(2, req))
+  cancelled = reduce(cancelled, ev(3, { jsonrpc: '2.0', id: 7, result: { stopReason: 'cancelled' } }))
+  const dropped = cancelled.items.find((i) => i.kind === 'permission')
+  assert.ok(dropped && dropped.kind === 'permission' && dropped.answered === 'cancelled')
+
+  // The request id and the answer id can differ in JSON type. A host error is not an answer.
+  let typed = reduce(emptyTimeline(), ev(1, { ...req, id: 9 }))
+  typed = reduce(typed, ev(2, { jsonrpc: '2.0', id: '9', error: { code: -32602, message: 'Permission response rejected' } }, 'host'))
+  const still = typed.items.find((i) => i.kind === 'permission')
+  assert.ok(still && still.kind === 'permission' && still.answered === undefined)
+  typed = reduce(typed, ev(3, { jsonrpc: '2.0', id: '9', result: { outcome: { outcome: 'selected', optionId: 'allow' } } }, 'client'))
+  const matched = typed.items.find((i) => i.kind === 'permission')
+  assert.ok(matched && matched.kind === 'permission' && matched.answered === 'allow')
+})
+
 test('permissions dedupe by id across pending_permission and event', () => {
   const req = { jsonrpc: '2.0', id: 'p1', method: 'session/request_permission', params: { toolCall: { title: 'Run', rawInput: { shellLine: 'git status\nls' } }, options: [{ optionId: 'a', name: 'Allow', kind: 'allow_once' }], _meta: { acpdSource: 'host-shell-command' } } }
   let t = reduce(emptyTimeline(), { type: 'pending_permission', message: req })

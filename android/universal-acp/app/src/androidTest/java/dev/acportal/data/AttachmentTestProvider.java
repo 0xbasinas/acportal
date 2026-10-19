@@ -16,13 +16,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Random;
 
 /** Deterministic fixture bytes in the test APK, with no dependency on target-app classes. */
 public final class AttachmentTestProvider extends ContentProvider {
     public boolean onCreate() { return true; }
     public String getType(Uri uri) {
         switch (uri.getLastPathSegment()) {
-            case "image": return "image/png";
+            case "image": case "photo": return "image/png";
             case "audio": return "audio/wav";
             case "text": return "text/plain";
             default: return "application/octet-stream";
@@ -33,6 +34,7 @@ public final class AttachmentTestProvider extends ContentProvider {
         switch (uri.getLastPathSegment()) {
             case "text": name="fixture.kt"; break;
             case "image": name="fixture.png"; break;
+            case "photo": name="photo.png"; break;
             case "audio": name="fixture.wav"; break;
             default: name="fixture.bin";
         }
@@ -59,6 +61,17 @@ public final class AttachmentTestProvider extends ContentProvider {
                 .putShort((short)1).putShort((short)1).putInt(16000).putInt(32000)
                 .putShort((short)2).putShort((short)16)
                 .put("data".getBytes(StandardCharsets.US_ASCII)).putInt(2).putShort((short)0).array(); break;
+            case "photo":
+                android.graphics.Bitmap photo=android.graphics.Bitmap.createBitmap(1000,1000,android.graphics.Bitmap.Config.ARGB_8888);
+                int[] pixels=new int[1000*1000];
+                Random random=new Random(1);
+                for(int i=0;i<pixels.length;i++) pixels[i]=0xFF000000 | random.nextInt(0xFFFFFF);
+                photo.setPixels(pixels,0,1000,0,0,1000,1000);
+                ByteArrayOutputStream photoOut=new ByteArrayOutputStream();
+                photo.compress(android.graphics.Bitmap.CompressFormat.PNG,100,photoOut);
+                photo.recycle();
+                bytes=photoOut.toByteArray();
+                break;
             case "large": bytes=new byte[262145]; Arrays.fill(bytes,(byte)'a'); break;
             case "near": bytes=new byte[262144]; break;
             default: bytes=new byte[]{0,(byte)255,1,2};

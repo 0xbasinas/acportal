@@ -9,14 +9,14 @@ import { briefDuration, duration, noteTurn, turnTimes, workedMs, type TurnEnvelo
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 import { Pairing } from './Pairing'
 import { Command, Palette } from './Palette'
-import { Attachment, Composer, Conversation, Permission, type Incoming } from './Session'
+import { Attachment, Composer, Conversation, Elicitation, Permission, promptBlock, type AttachResult, type FileHit, type Incoming } from './Session'
 import { BrowserPanel } from './Browser'
 import { TerminalDock } from './Terminal'
 import { StatusBar } from './StatusBar'
 import { PANE, PaneResize, clampPane, readPane, writePane } from './PaneResize'
 import { GitView } from './Git'
 import { gitRepos } from './gitRepos'
-import { DiffReview, RightPanel, mergeError } from './Tasks'
+import { DiffReview, FileView, RightPanel, mergeError } from './Tasks'
 import { McpServer, Section, Settings, Theme, mcpWire } from './Settings'
 import { Empty, I, baseName, stateDot, stateWord, tildify } from './ui'
 import { parseBranches } from './gitparse'
@@ -28,7 +28,7 @@ import { type Selector, hasChoices, liveSelectors, liveValue, arranged, setReque
 import { OptionsButton } from './OptionPicker'
 import { groupByProject, inside, isScratch, subfolder } from './projects'
 
-type View = { kind: 'git'; path?: string } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string }
+type View = { kind: 'git'; path?: string } | { kind: 'workspace' } | { kind: 'settings'; section: Section } | { kind: 'review'; focus?: string } | { kind: 'task'; taskId: string } | { kind: 'pair'; repair?: string } | { kind: 'compare'; runId: string } | { kind: 'file'; path: string }
 type ConnState = { kind: string; attempt?: number; reason?: string }
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 /** The last two folders of a path, so the header shows where a session runs without the full prefix (full path in the tooltip). */
@@ -64,6 +64,8 @@ export default function App() {
   const [browserWhere, setBrowserWhere] = useState<'side' | 'dock'>(() => (localStorage.getItem('acportal.browserWhere') === 'dock' ? 'dock' : 'side'))
   const [browserSize, setBrowserSize] = useState<{ side: number; dock: number }>(() => { try { return { side: 620, dock: 380, ...JSON.parse(localStorage.getItem('acportal.browserSize') ?? '{}') } } catch { return { side: 620, dock: 380 } } })
   const [incoming, setIncoming] = useState<Incoming>()
+  const [staged, setStaged] = useState<{ sid?: string; items: { stamp: number; file: Attachment }[] }>({ items: [] })
+  const stageStamp = useRef(0)
   // The terminal dock: shells on the host, under the conversation.
   const [termOpen, setTermOpen] = useState(false)
   const [termHeight, setTermHeight] = useState<number>(() => Number(localStorage.getItem('acportal.termHeight')) || 300)
@@ -228,6 +230,13 @@ export default function App() {
   useEffect(() => {
     const off1 = window.api.session.onEnvelope((key, env) => {
       const sid = key.split('/')[1]
+      const frame = env as { direction?: string; message?: { id?: unknown; method?: unknown; error?: { message?: string }; result?: unknown } }
+      const msg = frame.message
+      if (msg && msg.id !== undefined && !msg.method) {
+        const hold = `${sid}\u0000${String(msg.id)}`
+        if (frame.direction === 'client' && msg.result) answerHold.current.release(hold)
+        else if (frame.direction === 'host' && msg.error) answerHold.current.reject(hold)
+      }
       setTimelines((all) => {
         const before = all[sid]
         const next = reduce(before ?? emptyTimeline(), env as Record<string, unknown>)
@@ -265,6 +274,58 @@ export default function App() {
   const session = sessions.find((s) => s.id === selected)
   const tl = selected ? timelines[selected] : undefined
   const agentName = (id?: string): string => agents.find((a) => a.id === id)?.name ?? id ?? ''
+  const findFiles = useCallback(async (query: string): Promise<FileHit[] | { error: string }> => {
+    if (!session?.workspace) return { error: 'This session has no folder.' }
+    const r = await api<{ files?: FileHit[] }>('GET', '/v1/workspaces/find', undefined, { path: session.workspace, q: query })
+    if (!r.ok) return { error: r.status === 404 ? 'This host cannot search files yet. Restart acpd to pick up the update.' : 'The folder could not be searched.' }
+    return r.value.files ?? []
+  }, [api, session?.workspace])
+  const loadAttachment = useCallback(async (path: string): Promise<AttachResult> => {
+    if (!session) return { note: 'Open a session first.' }
+    if (!session.initialization) return { note: 'Wait for the agent to connect, then attach the file.' }
+    const who = agents.find((a) => a.id === session.agentId)?.name ?? session.agentId
+    const caps = ((session.initialization.agentCapabilities as Record<string, unknown> | undefined)?.promptCapabilities ?? {}) as { image?: boolean; embeddedContext?: boolean }
+    const r = await api<{ name?: string; path?: string; bytes?: number; kind?: string; truncated?: boolean; content?: string; mediaType?: string; data?: string }>('GET', '/v1/workspaces/file', undefined, { path })
+    if (!r.ok) {
+      if (r.status === 404) return { note: 'This host cannot open files yet. Restart acpd to pick up the update.' }
+      if (r.code === 'invalid_request') return { note: 'The host could not open this file.' }
+      return { note: 'The file could not be read.' }
+    }
+    const file = r.value
+    const name = file.name || path.split(/[\\/]/).pop() || 'file'
+    const saved = file.path || path
+    if (file.truncated || (file.bytes ?? 0) > 512 * 1024) return { note: `${name} is too large to attach.` }
+    if (file.kind === 'image' && file.data && file.mediaType && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.mediaType)) {
+      if (!caps.image) return { note: `${who} does not accept images in prompts.` }
+      return { attachment: { name, mimeType: file.mediaType, size: file.bytes ?? 0, data: file.data, path: saved } }
+    }
+    if (file.kind === 'text' && file.content !== undefined) {
+      if (!caps.embeddedContext) return { note: `${who} does not accept file contents in prompts.` }
+      return { attachment: { name, mimeType: 'text/plain', size: new TextEncoder().encode(file.content).length, text: file.content, path: saved } }
+    }
+    if (file.kind === 'binary' && file.data) {
+      if (!caps.embeddedContext) return { note: `${who} does not accept file contents in prompts.` }
+      return { attachment: { name, mimeType: file.mediaType || 'application/octet-stream', size: file.bytes ?? 0, blob: file.data, path: saved } }
+    }
+    if (file.kind === 'binary' && !file.truncated && (file.bytes ?? 0) <= 512 * 1024) return { note: 'This host cannot attach this file yet. Restart acpd to pick up the update.' }
+    return { note: `${name} is not text or an image, so it cannot be attached.` }
+  }, [api, session, agents])
+  const attachPath = (path: string): void => {
+    void loadAttachment(path).then((r) => {
+      if (r.attachment) {
+        const file = r.attachment
+        const sid = session?.id
+        stageStamp.current += 1
+        const mark = stageStamp.current
+        setStaged((cur) => {
+          const items = cur.sid === sid ? cur.items : []
+          if (!sid || items.some((s) => s.file.path === file.path)) return { sid, items }
+          return { sid, items: [...items, { stamp: mark, file }] }
+        })
+        flash('Added to your message')
+      } else if (r.note) flash(r.note)
+    })
+  }
   const rootTask = tasks.find((t) => t.session === selected && !t.parent) ?? tasks.find((t) => t.session === selected)
   const title = (s: SessionInfo): string => timelines[s.id]?.title ?? shared?.titles[s.id] ?? titles()[s.id] ?? `${agentName(s.agentId)} in ${baseName(s.workspace)}`
   // The window title (shown in the app's title bar and the taskbar): the open session, else the page.
@@ -292,7 +353,7 @@ export default function App() {
       if (shared && text.length <= 16 * 1024) void api('POST', '/v1/shared/history', { workspace: session.workspace, text })
     }
     const blocks: unknown[] = [{ type: 'text', text }]
-    for (const a of atts) blocks.push(a.data ? { type: 'image', mimeType: a.mimeType, data: a.data } : { type: 'resource', resource: { uri: a.uri ?? 'file://' + a.path, mimeType: a.mimeType, text: a.text } })
+    for (const a of atts) blocks.push(promptBlock(a))
     if (!titles()[session.id] && !shared?.titles[session.id] && !silent) {
       const first = text.split('\n')[0].slice(0, 60)
       localStorage.setItem(TITLES_KEY, JSON.stringify({ ...titles(), [session.id]: first }))
@@ -304,10 +365,8 @@ export default function App() {
     return id
   }
   async function elicit(id: string | number, result: unknown, ref = attached, sid = selected): Promise<void> {
-    if (!ref.current || !sid) return
-    const r = await window.api.session.send(ref.current, { jsonrpc: '2.0', id, result })
-    if (!r.ok) return flash(r.error)
-    setTimelines((all) => ({ ...all, [sid]: { ...all[sid], items: all[sid].items.map((i) => (i.kind === 'elicitation' && i.id === id ? { ...i, answered: (result as { action: string }).action } : i)) } }))
+    if (!sid) return
+    await transmit(sid, id, { jsonrpc: '2.0', id, result }, ref)
   }
   // A commit message for what is staged in `path`, written by an agent in a throwaway session on
   // the host (POST /v1/commit-message): no open session needed and nothing lands in a conversation.
@@ -351,16 +410,61 @@ export default function App() {
     if (!session || !attached.current) return
     await window.api.session.send(attached.current, { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: session.acpSessionId } })
   }
+  // A click locks that request until the host journals the answer, or says it was rejected.
+  // The card is not marked answered here: a send that only reached the socket is not an answer,
+  // and a second click used to race the first and flash "not pending".
+  const [held, setHeld] = useState<Record<string, true>>({})
+  const answerHold = useRef({ release: (_key: string) => {}, reject: (_key: string) => {} })
+  const holdKey = (sid: string, id: string | number): string => `${sid}\u0000${String(id)}`
+  const heldRef = useRef<Record<string, true>>({})
+  const holdTimers = useRef<Record<string, number>>({})
+  function setHold(next: Record<string, true>): void {
+    heldRef.current = next
+    setHeld(next)
+  }
+  function releaseHold(key: string): void {
+    const timer = holdTimers.current[key]
+    if (timer) { window.clearTimeout(timer); delete holdTimers.current[key] }
+    if (!heldRef.current[key]) return
+    const next = { ...heldRef.current }
+    delete next[key]
+    setHold(next)
+  }
+  answerHold.current = {
+    release: releaseHold,
+    reject: (key) => {
+      if (!heldRef.current[key]) return
+      releaseHold(key)
+      flash('That answer was not accepted. The request is still waiting.')
+    },
+  }
+  // Send one answer and keep the buttons locked until the host journals it. A socket
+  // write is not an answer: the card stays up, and a second click does nothing.
+  async function transmit(sid: string, id: string | number, message: unknown, ref: typeof attached): Promise<boolean> {
+    if (!ref.current) return false
+    const key = holdKey(sid, id)
+    if (heldRef.current[key]) return false
+    setHold({ ...heldRef.current, [key]: true })
+    holdTimers.current[key] = window.setTimeout(() => {
+      if (!heldRef.current[key]) return
+      releaseHold(key)
+      flash('The host did not confirm that answer. Try again if the request is still waiting.')
+    }, 8000)
+    try {
+      const r = await window.api.session.send(ref.current, message)
+      if (!r.ok) { releaseHold(key); flash(r.error); return false }
+      return true
+    } catch (e) {
+      releaseHold(key)
+      flash(e instanceof Error ? e.message : 'The answer could not be sent.')
+      return false
+    }
+  }
   async function answer(id: string | number, optionId: string | null, ref = attached, sid = selected): Promise<void> {
-    if (!ref.current || !sid) return
+    if (!sid) return
     const outcome = optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
-    const r = await window.api.session.send(ref.current, { jsonrpc: '2.0', id, result: { outcome } })
-    if (!r.ok) return flash(r.error)
-    setTimelines((all) => {
-      const t = all[sid]
-      return { ...all, [sid]: { ...t, items: t.items.map((i) => (i.kind === 'permission' && i.id === id ? { ...i, answered: optionId ?? 'cancelled' } : i)) } }
-    })
-    if (ref === taskAttached) setTimeout(() => void refresh(), 800)
+    const sent = await transmit(sid, id, { jsonrpc: '2.0', id, result: { outcome } }, ref)
+    if (sent && ref === taskAttached) setTimeout(() => void refresh(), 800)
   }
   async function createSession(agentId: string, workspace: string, opts: NewOpts = defaultOpts): Promise<string | undefined> {
     let target = workspace
@@ -558,6 +662,9 @@ export default function App() {
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
   }, [palette, view, tl?.busy])
+  useEffect(() => {
+    setView((v) => (v.kind === 'file' && (!session?.workspace || !inside(v.path, session.workspace)) ? { kind: 'workspace' } : v))
+  }, [session?.id, session?.workspace])
 
   // test hook: window.__acportal for screenshot automation
   ;(window as unknown as Record<string, unknown>).__acportal = { setView, setPalette, openComposer, setSelected, setTheme, sessions, tasks, setConfirmMerge }
@@ -768,7 +875,12 @@ export default function App() {
         {ttl && ttl.items.some((i) => (i.kind === 'permission' || i.kind === 'elicitation') && i.answered === undefined) && (
           <div className="decisions">
             <div className="group-h" style={{ marginTop: 0 }}><span>Waiting for your decision</span><span className="sub">your answer wins over the supervisor's</span></div>
-            {ttl.items.filter((i) => i.kind === 'permission' && i.answered === undefined).map((i) => i.kind === 'permission' && <Permission key={String(i.id)} p={i} onAnswer={(o) => void answer(i.id, o, taskAttached, viewTask.session!)} />)}
+            {ttl.items.map((i) => {
+              const pending = Boolean(held[`${viewTask.session}\u0000${String(i.id)}`])
+              if (i.kind === 'permission' && i.answered === undefined) return <Permission key={String(i.id)} p={i} busy={pending} onAnswer={(o) => void answer(i.id, o, taskAttached, viewTask.session!)} />
+              if (i.kind === 'elicitation' && i.answered === undefined) return <Elicitation key={String(i.id)} item={i} busy={pending} onElicit={(id, r) => void elicit(id, r, taskAttached, viewTask.session!)} />
+              return null
+            })}
           </div>
         )}
         {!['completed', 'failed', 'canceled', 'rejected'].includes(viewTask.state) && (
@@ -779,6 +891,8 @@ export default function App() {
         )}
       </div>
     )
+  } else if (view.kind === 'file' && session) {
+    center = <FileView path={view.path} root={session.workspace} api={api} onBack={() => setView({ kind: 'workspace' })} />
   } else if (!session && online && hostId) {
     center = (
       <NewSessionHome hosts={hosts.map((h) => ({ id: h.id, name: h.name, state: STATE_LABEL[fleet[h.id]?.state ?? 'connecting'], ok: fleet[h.id]?.state === 'connected' || h.id === hostId }))} hostId={hostId}
@@ -849,16 +963,23 @@ export default function App() {
             <button className="btn primary" disabled={Boolean(resuming)} onClick={() => void resume(session)} title={`Asks ${agentName(session.agentId)} to load this conversation into a new session. Only agents that can load earlier sessions manage it; if it cannot, this copy stays.`}>{resuming === session.id ? 'Resuming…' : 'Resume'}</button>
           </div>
         )}
-        <Conversation root={session.workspace} turnKey={`${hostId}/${session.id}`} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} />
+        <Conversation root={session.workspace} turnKey={`${hostId}/${session.id}`} t={tl ?? emptyTimeline()} agent={agentName(session.agentId)} onAnswer={(id, o) => void answer(id, o)} onReview={() => setView({ kind: 'review' })} onElicit={(id, r) => void elicit(id, r)} docked={(tl?.items ?? []).some((i) => i.kind === 'permission' && i.answered === undefined)} answering={(id) => Boolean(held[`${session.id}\u0000${String(id)}`])} />
+        {(tl?.items ?? []).some((i) => i.kind === 'permission' && i.answered === undefined) && (
+          <div className="decisions dock" role="region" aria-label="Waiting for your answer">
+            <div className="group-h"><span>Waiting for your answer</span></div>
+            {tl!.items.filter((i) => i.kind === 'permission' && i.answered === undefined).map((i) => i.kind === 'permission' && <Permission key={String(i.id)} p={i} busy={Boolean(held[`${session.id}\u0000${String(i.id)}`])} onAnswer={(o) => void answer(i.id, o)} />)}
+          </div>
+        )}
         <Composer agent={agentName(session.agentId)} busy={Boolean(tl?.busy)} disabled={interrupted ? 'This session ended. Press Resume to continue it.' : c?.kind === 'observing' ? 'Take control to send from this computer' : c?.kind !== 'connected' ? 'Waiting for the connection…' : undefined} onSend={(t, a) => void sendPrompt(t, a)} onCancel={() => void cancelTurn()}
           history={history(session.workspace)} canImage={Boolean(pc?.image)} canResource={Boolean(pc?.embeddedContext)} draft={draft} incoming={incoming} key={session.id}
+          findFiles={findFiles} onAttachFile={loadAttachment} staged={staged.sid === session.id ? staged.items : []} onStagedClear={() => setStaged((cur) => (cur.sid === session.id ? { sid: session.id, items: [] } : cur))}
           remote={shared ? { text: shared.drafts[session.id]?.text ?? '', at: shared.drafts[session.id]?.updatedAt ?? 0 } : undefined}
           onText={shared ? (t) => { if (new TextEncoder().encode(t).length <= 64 * 1024) void api('PUT', `/v1/shared/drafts/${session.id}`, { text: t }) } : undefined} />
       </div>
     )
   }
 
-  const showRight = view.kind === 'workspace' && Boolean(session)
+  const showRight = (view.kind === 'workspace' || view.kind === 'file') && Boolean(session)
   const sideBrowser = browser.open && browserWhere === 'side'
   const third = sideBrowser ? browserSize.side : showRight ? rightW : 0
   const sideMax = Math.min(PANE.side.max, Math.max(PANE.side.min, vw - third - 300))
@@ -902,7 +1023,8 @@ export default function App() {
       </div>
       {sideBrowser && browserPanel}
       {!sideBrowser && showRight && (
-        <RightPanel workspace={session?.workspace} tasks={tasks} rootTask={rootTask} timeline={tl} orchestrator={Boolean(status?.features?.includes('orchestrator'))}
+        <RightPanel workspace={session?.workspace} tasks={tasks} rootTask={rootTask} timeline={tl} orchestrator={Boolean(status?.features?.includes('orchestrator'))} api={api}
+          openPath={view.kind === 'file' ? view.path : undefined} onOpenFile={(p) => setView({ kind: 'file', path: p })} onAttachFile={attachPath}
           onOpenTask={(t) => setView({ kind: 'task', taskId: t.id })} onReview={(p) => setView({ kind: 'review', focus: p })} onMerge={setConfirmMerge} />
       )}
       {(sideBrowser || showRight) && (

@@ -1,5 +1,6 @@
 import { moveTo } from './order'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Host } from './types'
 import { aggregate, STATE_DOT, STATE_LABEL, type Fleet, type FleetEntry } from './fleet'
 import { I } from './ui'
@@ -27,9 +28,33 @@ export function HostSwitcher({ waiting, hosts, current, fleet, onSwitch, onRecon
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState<{ top: number; left: number; width: number; maxHeight: number }>()
+  useLayoutEffect(() => {
+    if (!open) { setBox(undefined); return }
+    const el = ref.current
+    if (!el) return
+    const place = (): void => {
+      const r = el.getBoundingClientRect()
+      const margin = 8
+      const room = Math.max(160, window.innerWidth - r.left - margin)
+      const width = Math.min(room, Math.max(r.width, Math.min(360, room)))
+      const top = Math.min(r.bottom + 6, window.innerHeight - margin - 160)
+      setBox({ top, left: r.left, width, maxHeight: Math.max(160, window.innerHeight - top - margin) })
+    }
+    place()
+    const watch = new ResizeObserver(place)
+    watch.observe(el)
+    window.addEventListener('resize', place)
+    return () => { watch.disconnect(); window.removeEventListener('resize', place) }
+  }, [open])
   useEffect(() => {
     if (!open) return
-    const h = (e: MouseEvent): void => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const h = (e: MouseEvent): void => {
+      const t = e.target as Node
+      if (ref.current?.contains(t) || pop.current?.contains(t)) return
+      setOpen(false)
+    }
     const k = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', h); document.addEventListener('keydown', k)
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k) }
@@ -51,8 +76,8 @@ export function HostSwitcher({ waiting, hosts, current, fleet, onSwitch, onRecon
         {hosts.reduce((n, h) => n + waiting(h.id), 0) > 0 && <span className="badge" title="Waiting for your approval on all hosts">{hosts.reduce((n, h) => n + waiting(h.id), 0)}</span>}
         <span className="chev-ic">{I.down}</span>
       </button>
-      {open && (
-        <div className="popover host-pop" role="menu">
+      {open && box && createPortal(
+        <div ref={pop} className="popover host-pop" role="menu" style={{ position: 'fixed', top: box.top, left: box.left, width: box.width, maxHeight: box.maxHeight, right: 'auto' }}>
           <div className="host-pop-head"><span>Hosts</span><span className={'agg s-' + agg.state}><span className={'dot ' + STATE_DOT[agg.state]} />{agg.label}</span></div>
           <div className="pop-list">
             {hosts.map((h) => {
@@ -64,7 +89,7 @@ export function HostSwitcher({ waiting, hosts, current, fleet, onSwitch, onRecon
                   <button className="host-item-main" onClick={() => { onSwitch(h); setOpen(false) }} title={cur ? 'Current host' : `Switch to ${h.name}`}>
                     <span className={'dot ' + STATE_DOT[s]} />
                     <span className="grow">
-                      <span className="host-item-name">{h.name}{cur && <span className="cur-tag">current</span>}{waiting(h.id) > 0 && <span className="badge sm">{waiting(h.id)} waiting</span>}</span>
+                      <span className="host-item-name"><span className="ell">{h.name}</span>{cur && <span className="cur-tag">current</span>}{waiting(h.id) > 0 && <span className="badge sm">{waiting(h.id)} waiting</span>}</span>
                       <span className="sub mono ell">{addr(h)}</span>
                       <span className={'host-item-state s-' + s}>{STATE_LABEL[s]}{hostFacts(f).map((x) => <span key={x}> · {x}</span>)}{s !== 'connected' && f?.error ? <span className="err-txt"> · {f.error}</span> : null}</span>
                       <FeatureTags e={f} />
@@ -84,8 +109,8 @@ export function HostSwitcher({ waiting, hosts, current, fleet, onSwitch, onRecon
             <span className="grow" />
             <button className="btn sm ghost" onClick={() => { onSettings(); setOpen(false) }}>{I.gear}Manage hosts</button>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body)}
     </div>
   )
 }

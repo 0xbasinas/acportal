@@ -33,3 +33,15 @@ export function sameRights(access: Rights, preset: Preset): boolean {
     && Boolean(access.manual) === Boolean(preset.workspaceAccess.manualApproval)
     && Boolean(access.yolo) === Boolean(preset.workspaceAccess.yolo)
 }
+
+/** Which preset these rights still are. `prefer` wins when it matches, so turning a
+ *  right off and back on returns to the preset the person had. Several presets often
+ *  share the same flags; the first one in the list would otherwise steal the label. */
+export function matchingPreset(list: Preset[], access: Rights, prefer?: string): Preset | undefined {
+  const hits = list.filter((preset) => sameRights(access, preset))
+  if (prefer) {
+    const kept = hits.find((preset) => preset.id === prefer)
+    if (kept) return kept
+  }
+  return hits[0]
+}

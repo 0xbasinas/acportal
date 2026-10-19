@@ -28,6 +28,15 @@ class AttachmentLoaderTest {
         assertFalse(audio.content["data"].text().contains('\n'))
         Unit
     }
+    @Test fun oversizedPhotosShrinkToAJpegThePromptCanCarry()=runBlocking {
+        for(kind in listOf(AttachmentKind.IMAGE, AttachmentKind.FILE)) {
+            val photo=loadAttachment(context,uri("photo"),kind)
+            assertEquals("image",photo.content["type"].text())
+            assertEquals("image/jpeg",photo.content["mimeType"].text())
+            assertTrue(photo.content["data"].text().length<=349528)
+        }
+        Unit
+    }
     @Test fun oversizedFilesAndWrongMediaTypesAreRejected()=runBlocking {
         for((document,kind) in listOf("large" to AttachmentKind.FILE,"text" to AttachmentKind.IMAGE)) {
             try {loadAttachment(context,uri(document),kind);fail("Expected rejected attachment")} catch(_:IllegalArgumentException) {}
