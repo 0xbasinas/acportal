@@ -2,6 +2,24 @@
 
 - [ ] Browser element picker: iframes and shadow DOM, picking several elements in one go, and a phone version.
 
+## Proposed ADRs for a fuller agent development environment (18 October 2026)
+
+Sixty-four proposals from six research rounds (the last three also amend about twenty-five earlier ADRs; start with the [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md)), none implemented; start at [the index](docs/adr-ade-index.md). Review each and accept, change or drop it before any code. UI work for them is planned in [ui-competitor-review](docs/ui-competitor-review.md) and is blocked until the Penpot plugin is connected:
+
+- [ ] [Attention board](docs/adr-attention-board.md), [session modes](docs/adr-session-modes.md), [review comments](docs/adr-review-comments.md), [turn checkpoints](docs/adr-turn-checkpoints.md).
+- [ ] [Workspace scripts](docs/adr-workspace-scripts.md), [registry browser](docs/adr-registry-browser.md), [usage dashboard](docs/adr-usage-dashboard.md), [editor handoff](docs/adr-editor-handoff.md).
+- [ ] [PR watch](docs/adr-pr-watch.md), [scheduled runs](docs/adr-scheduled-runs.md), [project context](docs/adr-project-context.md), [container isolation](docs/adr-container-isolation.md) (spike only).
+- [ ] [Credential proxy](docs/adr-credential-proxy.md), [steer and queue](docs/adr-steer-and-queue.md), [agent skills](docs/adr-agent-skills.md), [audit and trace](docs/adr-audit-and-trace.md), [session search](docs/adr-session-search.md), [issue tracker](docs/adr-issue-tracker.md).
+- [ ] [Android integration](docs/adr-android-integration.md), [agent browser tools](docs/adr-agent-browser-tools.md), [risk-ranked review](docs/adr-risk-ranked-review.md), [multi-repo tasks](docs/adr-multi-repo-tasks.md), [context handoff](docs/adr-context-handoff.md), [device rights](docs/adr-device-roles.md).
+- [ ] [Workflow recipes](docs/adr-workflow-recipes.md), [session sharing](docs/adr-session-sharing.md), [host web client](docs/adr-host-web-client.md), [terminal persistence](docs/adr-terminal-persistence.md), [plan review](docs/adr-plan-review.md), [overlap warning](docs/adr-overlap-warning.md).
+- [ ] [Devcontainer import](docs/adr-devcontainer-import.md), [warm worktrees](docs/adr-warm-worktrees.md), [host hooks](docs/adr-host-hooks.md), [composer helpers](docs/adr-composer-mentions.md), [MCP Apps spike](docs/adr-mcp-apps.md).
+- [ ] [Protocol inspector](docs/adr-protocol-inspector.md), [approval rules](docs/adr-approval-rules.md), [activity panel](docs/adr-activity-panel.md), [context attachments](docs/adr-context-attachments.md), [task pipelines](docs/adr-task-pipelines.md).
+- [ ] [Idle suspend](docs/adr-idle-suspend.md), [git forges](docs/adr-git-forges.md), [outbound relay](docs/adr-outbound-relay.md) (specified only; read with [remote routes](docs/adr-remote-routes.md)), [chat bridge](docs/adr-chat-bridge.md).
+- [ ] [ACP capabilities roadmap](docs/adr-acp-capabilities-roadmap.md), [conversation fork](docs/adr-conversation-fork.md), [conflict resolution](docs/adr-conflict-resolution.md), [keep awake](docs/adr-keep-awake.md), [WSL agents](docs/adr-wsl-agents.md).
+- [ ] [Terminal blocks](docs/adr-terminal-blocks.md), [agent scorecards](docs/adr-agent-scorecards.md), [first-run setup](docs/adr-first-run-setup.md), [data lifecycle](docs/adr-data-lifecycle.md), [file viewer](docs/adr-file-viewer.md).
+- [ ] [Claim verification](docs/adr-claim-verification.md), [stuck detection](docs/adr-stuck-detection.md), [launcher model](docs/adr-launcher-model.md), [policy engine](docs/adr-policy-engine.md), [MCP gateway](docs/adr-mcp-gateway.md).
+- [ ] [Merge queue](docs/adr-merge-queue.md), [model governance](docs/adr-model-governance.md), [account profiles](docs/adr-account-profiles.md), [automation API](docs/adr-automation-api.md), [ticket dispatcher](docs/adr-ticket-dispatcher.md).
+
 ## Terminals, preview, browser and status bar (18 October 2026)
 
 Merged into `main` (PRs #57–#61); evidence and limits in [TODO_DONE](TODO_DONE.md). Open:
